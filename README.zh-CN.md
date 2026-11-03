@@ -2,10 +2,10 @@
   <img src="docs/users/assets/ember-rsi-logo.png" alt="ember-rsi" width="520">
 </h1>
 
-<h3 align="center">多种自演进策略，一个框架统一承载 —— Make Everything RSI-able。</h3>
+<h3 align="center">多种自演进策略，一个框架统一承载 · Make Everything RSI-able.</h3>
 
 <p align="center">
-从 Agent Harness 到 AI 基础设施，用同一套框架生成候选方案、评测效果并持续迭代。
+  从 Agent Harness 到 AI 基础设施，用同一套框架生成候选方案、评测效果并持续迭代。
 </p>
 
 <p align="center">
@@ -17,6 +17,7 @@
 <p align="center">
   <a href="./README.md">English</a> | 中文
 </p>
+
 <p align="center">
   <a href="#overview">简介</a> ·
   <a href="#architecture">工作原理</a> ·

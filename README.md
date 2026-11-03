@@ -1,16 +1,36 @@
-# ![ember-rsi](docs/users/assets/ember-rsi-logo.png)
+<h1 align="center">
+  <img src="docs/users/assets/ember-rsi-logo.png" alt="ember-rsi" width="520">
+</h1>
 
-### Multiple self-improvement strategies in one framework · Make Everything RSI-able.
+<h3 align="center">Multiple self-improvement strategies in one framework · Make Everything RSI-able.</h3>
 
-Generate candidates, evaluate their performance, and iterate in one framework, from agent harnesses to AI infrastructure.
+<p align="center">
+  Generate candidates, evaluate their performance, and iterate in one framework, from agent harnesses to AI infrastructure.
+</p>
 
-![Node.js 24.x](https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&logoColor=white)![pnpm 11.22.0](https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&logoColor=white)![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&amp;logoColor=white" alt="Node.js 24.x">
+  <img src="https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&amp;logoColor=white" alt="pnpm 11.22.0">
+  <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License: Apache-2.0">
+</p>
 
-English | [中文](./README.zh-CN.md)
+<p align="center">
+  English | <a href="./README.zh-CN.md">中文</a>
+</p>
 
-[Overview](#overview) · [How it works](#architecture) · [Installation](#installation) · [Using ember-rsi](#usage) · [Experiment viewer](#web-workspace) · [Experiment results](#experiment-results) · [User guides](#user-guide)
+<p align="center">
+  <a href="#overview">Overview</a> ·
+  <a href="#architecture">How it works</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#usage">Using ember-rsi</a> ·
+  <a href="#web-workspace">Experiment viewer</a> ·
+  <a href="#experiment-results">Experiment results</a> ·
+  <a href="#user-guide">User guides</a>
+</p>
 
 
+
+<a id="overview"></a>
 
 ## ℹ️ Overview
 
@@ -22,6 +42,8 @@ English | [中文](./README.zh-CN.md)
 
 
 
+<a id="architecture"></a>
+
 ## 🔄 How it works
 
 ![ember-rsi architecture showing Recipe and Policy configuration, the RSI core, the Application plugin loop, and component improvement through Memory and Reflection](docs/users/assets/rsi-architecture-handdrawn.png)
@@ -31,6 +53,8 @@ English | [中文](./README.zh-CN.md)
 3. **Improve the components.** The Policy can call Memory to preserve experience for later iterations and Reflection to propose changes to component prompts, resources, or configuration based on experiment feedback.
 
 
+
+<a id="installation"></a>
 
 ## 📦 Installation and deployment
 
@@ -51,6 +75,8 @@ ember-rsi --help
 Run the remaining commands from the `ember-rsi` repository root using the installed `ember-rsi` CLI.
 
 
+
+<a id="usage"></a>
 
 ## 🛠️ Using ember-rsi
 
@@ -177,6 +203,8 @@ Load the RSI Skill in a coding agent and provide the optimization goal, permitte
 
 
 
+<a id="web-workspace"></a>
+
 ## 🖥️ Experiment viewer
 
 Start the local read-only web workspace and open [http://127.0.0.1:4317](http://127.0.0.1:4317) in your browser.
@@ -188,6 +216,8 @@ ember-rsi serve --port 4317
 ![Demo of the ember-rsi WikiSkill experiment viewer](docs/users/assets/rsi-studio-wikiskill-compact.gif)
 
 
+
+<a id="experiment-results"></a>
 
 ## 📊 Experiment results
 
@@ -208,6 +238,8 @@ ember-rsi serve --port 4317
 - Scores show baseline → evolved agent, with changes in percentage points (pp).
 
 
+
+<a id="user-guide"></a>
 
 ## 📖 User guides
 

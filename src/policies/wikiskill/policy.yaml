@@ -1,0 +1,183 @@
+schemaVersion: rsi.policy/v1
+input_schema:
+  $ref: ../../contracts/policies/candidate-input.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+id: policy.wikiskill
+description: Optimize skill-based agent bundles with candidate evaluation and persistent Wiki memory.
+config_schema:
+  $ref: ./schemas/wikiskill-config.yaml
+output_schema:
+  $ref: ./schemas/optimization-result.yaml
+require:
+  agent:
+    contract: contract.agent
+  proposer:
+    contract: contract.proposer
+  memoryUpdater:
+    contract: contract.memory
+  evaluator:
+    contract: contract.agentbench
+  selector:
+    contract: contract.selector-metrics
+defaults:
+  bindings:
+    agent:
+      ref: agent.pi
+      config:
+        model: ${MODEL_NAME}
+        base_url: ${MODEL_ENDPOINT}
+        api_key: ${MODEL_API_KEY}
+    # WikiSkill §3.2 / appendix E: Wiki maintenance and skill proposals use
+    # authorized training scores, outcomes and execution evidence.
+    # This Policy evaluates test tasks only after its learning loop finishes.
+    memoryUpdater:
+      ref: memory.agent
+      config:
+        agentRef: agent
+        prompt: ./memory.md
+        evidenceView: training-summary
+    proposer:
+      ref: proposer.agent
+      config:
+        agentRef: agent
+        prompt: ./proposer.md
+        evidenceView: training-summary
+        maxModelCalls: 24
+    selector:
+      ref: selector.metric
+      config:
+        metric: successRate
+        direction: maximize
+init:
+  steps:
+    - id: validate_disjoint_splits
+      foreach:
+        ${{ concat(concat(config.dataset.trainTaskIds, config.dataset.validationTaskIds),
+        config.dataset.testTaskIds) }}
+      as: taskId
+      key: ${{ taskId }}
+      concurrency: 1
+      steps: []
+    - id: initialize
+      state:
+        incumbent: ${{ input.candidateRef }}
+        measurement: null
+        round: 0
+        wikiRef: null
+        score: null
+        observations: null
+    - id: initialize_test
+      state:
+        testMeasurement: null
+    - id: baseline
+      use: evaluator
+      with:
+        candidateRef: ${{ state.incumbent }}
+        taskIds: ${{ config.dataset.validationTaskIds }}
+    - id: save_baseline
+      state:
+        measurement: ${{ init.baseline.output.measurementRef }}
+    - id: check_baseline_threshold
+      if: ${{ config.stopAtScore != null }}
+      then:
+        - id: baseline_score
+          use: selector
+          with:
+            incumbentMeasurementRef: ${{ state.measurement }}
+            candidateMeasurementRef: ${{ state.measurement }}
+        - id: save_baseline_score
+          state:
+            score: ${{ init.baseline_score.output.selectedValue }}
+loop:
+  maxIterations: ${{ config.maxRounds }}
+  while: ${{ config.stopAtScore == null || state.score < config.stopAtScore }}
+  steps:
+    - id: train
+      use: evaluator
+      with:
+        candidateRef: ${{ state.incumbent }}
+        taskIds: ${{ config.dataset.trainTaskIds }}
+    - id: remember
+      use: memoryUpdater
+      with:
+        memoryRef: ${{ state.wikiRef }}
+        goal: Consolidate current training experience into the Wiki index, supported action patterns and chronological log. Preserve known rejected approaches, sources and uncertainty without inventing missing gate history.
+        evidenceRefs:
+          - ${{ loop.train.output.measurementRef }}
+        observations: ${{ state.observations }}
+        sources:
+          - candidateRef: ${{ state.incumbent }}
+    - id: save_memory
+      state:
+        wikiRef: ${{ loop.remember.output.memoryRef }}
+    - id: propose
+      use: proposer
+      with:
+        parent: ${{ state.incumbent }}
+        goal: Improve reusable skills using observed training outcomes and Wiki evidence, while preserving unrelated behavior.
+        evidenceRefs:
+          - ${{ loop.train.output.measurementRef }}
+        memoryRef: ${{ state.wikiRef }}
+    - id: no_change
+      if: ${{ loop.propose.output.status == 'no-change' }}
+      then:
+        - id: save_no_change
+          state:
+            observations:
+              status: no-change
+              candidateRef: ${{ state.incumbent }}
+              rationale: ${{ loop.propose.output.rationale }}
+        - id: next_round
+          control: continue
+    # Validation scoring gates the proposed skill; its outcome is not inferred
+    # from the training score. Independent test evaluation runs only in finish.
+    - id: validate
+      use: evaluator
+      with:
+        candidateRef: ${{ loop.propose.output.candidateRef }}
+        taskIds: ${{ config.dataset.validationTaskIds }}
+    - id: select
+      use: selector
+      with:
+        incumbentMeasurementRef: ${{ state.measurement }}
+        candidateMeasurementRef: ${{ loop.validate.output.measurementRef }}
+    - id: save_feedback
+      state:
+        score: ${{ loop.select.output.selectedValue }}
+        observations:
+          status: evaluated
+          candidateRef: ${{ loop.propose.output.candidateRef }}
+          diffRef: ${{ loop.propose.output.diffRef }}
+          rationale: ${{ loop.propose.output.rationale }}
+          metric: ${{ loop.select.output.metric }}
+          incumbentValue: ${{ loop.select.output.incumbentValue }}
+          candidateValue: ${{ loop.select.output.candidateValue }}
+          selectedValue: ${{ loop.select.output.selectedValue }}
+          accepted: ${{ loop.select.output.accepted }}
+          reason: ${{ loop.select.output.reason }}
+    - id: adopt
+      if: ${{ loop.select.output.accepted }}
+      then:
+        - id: save
+          state:
+            incumbent: ${{ loop.select.output.selectedCandidateRef }}
+            measurement: ${{ loop.validate.output.measurementRef }}
+finish:
+  steps:
+    - id: test_if_requested
+      if: ${{ size(config.dataset.testTaskIds) > 0 }}
+      then:
+        - id: test
+          use: evaluator
+          with:
+            candidateRef: ${{ state.incumbent }}
+            taskIds: ${{ config.dataset.testTaskIds }}
+        - id: save_test
+          state:
+            testMeasurement: ${{ finish.test.output.measurementRef }}
+output:
+  candidateRef: ${{ state.incumbent }}
+  measurementRef: ${{ state.measurement }}
+  memoryRef: ${{ state.wikiRef }}
+  testMeasurementRef: ${{ state.testMeasurement }}

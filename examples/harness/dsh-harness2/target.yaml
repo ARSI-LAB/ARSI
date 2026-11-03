@@ -1,0 +1,25 @@
+schemaVersion: rsi.target/v1
+id: target.dsh-harness
+entries:
+  - path: plugins/office-base/prompts/office-discipline.md
+    kind: file
+    description: General task execution and delivery verification instructions for the evaluated Agent.
+    changes: [modify]
+    content: { encoding: utf-8, minBytes: 1, maxBytes: 32768 }
+  - path: plugins/office-base/skills
+    kind: directory
+    description: Reusable office-work skills loaded with the Bundle.
+    include: ['*/SKILL.md']
+    changes: [create, modify, delete]
+    content: { encoding: utf-8, minBytes: 1, maxBytes: 65536 }
+protected:
+  - bundle.yaml
+  - agent.yaml
+  - dependencies.lock
+  - '**/package.json'
+  - '**/index.js'
+  - '**/cordis.patch.yml'
+  - '**/.env'
+constraints:
+  maxChangedFiles: 8
+  maxChangedBytes: 131072

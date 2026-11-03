@@ -1,0 +1,179 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { stringify } from 'yaml';
+import { Registry } from '../../src/runtime/registry/index.js';
+import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
+import {
+  loadRecipe,
+  resolveBindingPaths,
+} from '../../src/runtime/loaders/index.js';
+import { proposerContract } from '../../src/contracts/plugin-types/index.js';
+import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
+import {
+  RuntimeContext,
+  type OperationDefinition,
+} from '../../src/contracts/index.js';
+
+test('implementations share a fixed public type and reject conflicting declarations or invalid output unions', async () => {
+  const registry = new Registry();
+  const definition: OperationDefinition = {
+    id: 'test.proposer',
+    contract: proposerContract,
+    configSchema: { type: 'object' },
+    async create() {
+      return {
+        async execute() {
+          return {
+            status: 'created',
+            candidateRef: 'candidate',
+            diffRef: null,
+            rationale: 'Invalid created result',
+          };
+        },
+        async dispose() {},
+      };
+    },
+  };
+  try {
+    registry.registerOperation(definition);
+    registry.registerOperation({ ...definition, id: 'test.other-proposer' });
+    assert.equal(registry.get(definition.id).contract.id, proposerContract.id);
+    assert.throws(
+      () =>
+        registry.registerOperation({
+          ...definition,
+          id: 'test.conflicting',
+          contract: { ...proposerContract, output_schema: { type: 'string' } },
+        }),
+      /conflicting.*contract|contract.*conflict/i,
+    );
+    const operation = await registry
+      .get(definition.id)
+      .create({}, {} as RuntimeContext);
+    const context: RuntimeContext = new RuntimeContext().extend({
+      experimentId: 'test',
+      callId: 'test',
+      bindingId: 'test',
+      idempotencyKey: 'test',
+      directory: '/unused',
+      signal: new AbortController().signal,
+      cleanup: new AbortController().signal,
+    });
+    await assert.rejects(
+      operation.execute(
+        { parent: 'candidate', goal: 'Improve', evidenceRefs: [] },
+        context,
+      ),
+      /output/,
+    );
+    await operation.dispose();
+  } finally {
+    await registry.dispose();
+  }
+});
+
+test('wrong public types fail validation and actual startup before calls while another implementation is substitutable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-contract-'));
+  const runtime = await createRuntime({ rootDirectory: root });
+  try {
+    const recipe = await loadRecipe(
+      resolve('examples/harness/dsh-harness2/recipe.yaml'),
+    );
+    for (const binding of Object.values(recipe.bindings))
+      resolveBindingPaths(
+        binding,
+        runtime.registry.get(binding.ref).configSchema,
+        resolve('examples/harness/dsh-harness2'),
+      );
+    recipe.bindings.invariantProposer = {
+      ref: 'memory.agent',
+      config: { prompt: resolve('src/policies/harness2/memory.md') },
+    };
+    const path = join(root, 'recipe.yaml');
+    await writeFile(path, stringify(recipe));
+    await assert.rejects(
+      validateRecipe(runtime, path),
+      /invariantProposer.*contract|contract.*invariantProposer/i,
+    );
+    await assert.rejects(
+      runtime.manager.run(path, { id: 'wrong-type' }),
+      /invariantProposer.*contract|contract.*invariantProposer/i,
+    );
+    assert.deepEqual(await runtime.manager.facts.list('calls'), []);
+    runtime.registry.registerOperation({
+      ...proposerDefinition,
+      id: 'proposer.alternative',
+    });
+    recipe.bindings.invariantProposer = {
+      ref: 'proposer.alternative',
+      config: {
+        prompt: resolve('src/policies/harness2/prompts/invariant.md'),
+        guidance: resolve('src/policies/harness2/guidance/invariant-proposer'),
+        agentRef: 'agent',
+      },
+    };
+    await writeFile(path, stringify(recipe));
+    assert.equal((await validateRecipe(runtime, path)).valid, true);
+  } finally {
+    await runtime.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Policy requirements resolve registered contract IDs and report unknown IDs with binding context', async (t) => {
+  const { compilePolicy } = await import('../../src/runtime/compiler/index.js');
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  registry.registerContract(proposerContract);
+  const definition = {
+    schemaVersion: 'rsi.policy/v1',
+    id: 'policy.contract-id',
+    input_schema: { type: 'object' },
+    output_schema: { type: 'object' },
+    require: { editor: { contract: proposerContract.id } },
+    output: {},
+  };
+  const policy = compilePolicy(definition, { contracts: registry });
+  assert.deepEqual(policy.require.editor, proposerContract);
+  const custom = { ...proposerContract, id: 'contract.custom-proposer' };
+  registry.registerContract(custom);
+  const customDefinition = {
+    ...definition,
+    require: { editor: { contract: custom.id } },
+  };
+  const customPolicy = compilePolicy(customDefinition, { contracts: registry });
+  assert.deepEqual(customPolicy.require.editor, custom);
+  const otherRegistry = new Registry();
+  t.after(() => otherRegistry.dispose());
+  otherRegistry.registerContract({
+    ...custom,
+    output_schema: { type: 'string' },
+  });
+  assert.notEqual(
+    customPolicy.digest,
+    compilePolicy(customDefinition, { contracts: otherRegistry }).digest,
+    'compiled identity includes the resolved contract contents',
+  );
+  assert.throws(
+    () =>
+      compilePolicy(
+        {
+          ...definition,
+          require: { editor: { contract: 'contract.unknown' } },
+        },
+        { contracts: registry },
+      ),
+    /require.editor.*Unknown contract.*contract.unknown/,
+  );
+  assert.throws(
+    () =>
+      compilePolicy(
+        { ...definition, require: { editor: { contract: proposerContract } } },
+        { contracts: registry },
+      ),
+    /require.editor.contract.*string/,
+  );
+});

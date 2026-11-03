@@ -1,0 +1,61 @@
+schemaVersion: rsi.recipe/v1
+id: dsh-harness2
+application:
+  ref: application.agentbundle
+  config:
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+policy:
+  ref: policy.harness2
+  input:
+    candidateRef: ${{ application.initialCandidate }}
+  config:
+    k: 1
+    concurrency: 1
+    dataset:
+      # TODO: Use evaluator-provided task discovery once the Evaluator SDK exposes a public enumeration API.
+      taskIds:
+        - workbuddy/board-material-update-timeline-excel
+        - workbuddy/fund-product-table-normalize-L3-017
+        - workbuddy/procurement-reconcile-L3-015
+        - workbuddy/analyst-forecast-extract-L3-018
+        - workbuddy/api-usage-explain-cli-l3-001
+        - workbuddy/calendar-dida-sync-state
+        - workbuddy/channel-period-compare-L4-017
+        - workbuddy/cloudagent-sdk-doc-validation-report
+        - workbuddy/contract-extract-L3-014
+        - workbuddy/cross-week-dashboard-migration
+bindings:
+  invariantProposer:
+    ref: proposer.agent
+    config:
+      guidance: ./guidance/invariant-proposer
+  domainProposer:
+    ref: proposer.agent
+    config:
+      guidance: ./guidance/domain-proposer
+  evaluator:
+    ref: evaluator.agentbench
+    config:
+      services:
+        default:
+          model: ${EVALUATOR_MODEL_NAME}
+          maxTokens: 65536
+          base_url: ${MODEL_ENDPOINT}
+          api_key: ${MODEL_API_KEY}
+      benchmark:
+        name: workbuddy
+        scenario: office
+        solver:
+          name: agentbundle
+      scheduler:
+        name: local
+        concurrency: 1
+      run:
+        timeoutSeconds: 4500
+budget:
+  operations: 1400
+  evaluationRuns: 40
+  modelCalls: 1400
+  elapsedWallMs: 259200000
+  cleanupReserveMs: 60000

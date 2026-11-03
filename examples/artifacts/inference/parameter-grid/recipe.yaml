@@ -1,0 +1,131 @@
+# Relative file paths are recipe-relative.
+schemaVersion: rsi.recipe/v1
+# Recipe label; use --id on the CLI to identify an individual run.
+id: parameter-grid-remote
+application:
+  # Owns candidate files and remote inference service startup/readiness/cleanup.
+  ref: application.inference
+  config:
+    # Editable scope and initial engine parameters. Keep paths aligned if renamed.
+    target: { schema: ../shared/target.yaml }
+    baseline: { directory: ../shared/baseline }
+    remote:
+      # Interpreter on the RSI control machine, not the remote host.
+      executable: python3
+      # Implement start/status/stop in this template (SSH, etc.).
+      # Keep host/model/device settings in your script or local environment.
+      script: ../shared/scripts/remote-vllm.py
+      # Candidate JSON read by Application and sent as request.parameters on stdin.
+      # Keep this path aligned with proposer.path and the target's editable scope.
+      parametersFile: tuning.json
+      # Outer timeout for each lifecycle script invocation (ms).
+      timeoutMs: 600000
+      # Find a usable GPU memory fraction once per experiment;
+      # only confirmed capacity failures move to the next lower fraction.
+      calibration:
+        # Try 0.90, 0.88, ... 0.80; reuse the first ready setting across candidates.
+        start: 0.90
+        min: 0.80
+        step: 0.02
+        # Update these when changing the search-space upper corner below.
+        # These probe values do not replace the actual candidate parameters.
+        maxNumSeqs: 64
+        maxNumBatchedTokens: 2048
+    endpoint:
+      # Replace with the remote service address reachable from RSI.
+      origin: http://192.0.2.10:8004
+      # OpenAI API prefix; Evaluator receives origin + basePath.
+      basePath: /v1
+      # Must match the served model name used by your script.
+      model: tuned-model
+    healthcheck:
+      # HTTP readiness URL is origin + path, without basePath.
+      path: /health
+      # Total readiness wait and polling interval (ms).
+      timeoutMs: 600000
+      intervalMs: 1000
+    shutdown:
+      # Cleanup deadline (ms); script implements actual termination.
+      gracePeriodMs: 60000
+    credentials:
+      # Export this variable with the service key (EMPTY if no auth).
+      # This passes client credentials; configure server authentication in your script.
+      apiKeyEnv: VLLM_API_KEY
+policy:
+  # Enumerate grid candidates, evaluate them, and retain the best feasible result.
+  ref: policy.parameter-grid
+  config:
+    # Cap evaluated grid points; current grid has 2 x 2 = 4 points.
+    maxCandidates: 4
+bindings:
+  proposer:
+    ref: proposer.grid
+    config:
+      path: tuning.json
+      # Explicit parameter candidates; JSON types are preserved.
+      # Last dimension changes fastest. Keep calibration above aligned.
+      searchSpace:
+        - name: max_num_seqs
+          values: [32, 64]
+        - name: max_num_batched_tokens
+          values: [1024, 2048]
+  evaluator:
+    ref: evaluator.inferencebench
+    config:
+      services:
+        # Filled from Application: remote API URL, served model and credential ref.
+        default: {}
+      benchmark:
+        name: agentx
+        # Complete selected traces; input/output lengths and dependencies come from traces.
+        scenario: replay
+        config:
+          # Verify the deployed model supports 256K traces plus headroom.
+          # Use full only for a compatible ~1M-context service; update selector.itemId too.
+          variant: 256k
+          # Concurrent session trees, not the outer scheduler or HTTP count.
+          concurrency: [4]
+          # Replay this many traces; must be >= each concurrency value.
+          traceCount: 8
+          # Replay bound (seconds); incomplete replay is not comparable.
+          durationSeconds: 7200
+          # Fixed random seed for reproducible workload scheduling.
+          seed: 42
+        solver:
+          config:
+            # Export a matching tokenizer repository or local directory.
+            tokenizer: ${AGENTX_TOKENIZER}
+            # Enable only when your chosen tokenizer requires trusted code.
+            trustRemoteCode: false
+            # Per-model-request timeout in seconds.
+            requestTimeoutSeconds: 3600
+      # Environment/local scheduler/concurrency=1 come from AgentX defaults.
+      metrics: [agentx-performance, duration, usage]
+      run:
+        # Per-point timeout (seconds), including setup/warmup/drain.
+        # AgentX requires at least durationSeconds + 3900.
+        timeoutSeconds: 14400
+        # SDK can continue other points after errors; invalid points are not valid scores.
+        onError: continue
+  selector:
+    ref: selector.metric
+    config:
+      # Update if variant/scenario/concurrency changes. Selects one workload point.
+      itemId: agentx-256k-replay-c4
+      # Prefer higher mean output throughput (tokens/s); ties retain the incumbent.
+      metric: outputThroughput
+      statistic: mean
+      direction: maximize
+      constraints:
+        # Set your SLO: P99 whole-request latency in ms, not TTFT.
+        # This example's 1.5s limit may be restrictive for long-output traces.
+        - { metric: requestLatency, statistic: p99, max: 1500 }
+budget:
+  # Manager operation/evaluation caps; align evaluations with maxCandidates.
+  operations: 100
+  evaluationRuns: 4
+  # Grid search makes no RSI evolution-model calls; AgentX requests are separate.
+  modelCalls: 0
+  # Total experiment wall time (24h) and reserved cleanup time (1min), ms.
+  elapsedWallMs: 86400000
+  cleanupReserveMs: 60000

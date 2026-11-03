@@ -1,0 +1,39 @@
+schemaVersion: rsi.recipe/v1
+id: recipe.skill-model
+application:
+  ref: application.agentbundle
+  config:
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+policy:
+  ref: policy.skill-model
+  config: { maxRounds: 1 }
+  input: {}
+bindings:
+  agent:
+    ref: agent.pi
+    config:
+      model: ${MODEL_NAME}
+      base_url: ${MODEL_ENDPOINT}
+      api_key: ${MODEL_API_KEY}
+      maxTokens: 4096
+      timeoutMs: 60000
+  proposer:
+    ref: proposer.agent
+    config:
+      agentRef: agent
+      prompt: ./proposer.md
+      guidance: ./guidance
+      maxModelCalls: 6
+  evaluator: { ref: evaluator.skill-text, config: {} }
+  selector:
+    {
+      ref: selector.metric,
+      config: { metric: checkPhrase, direction: maximize },
+    }
+budget:
+  modelCalls: 8
+  evaluationRuns: 2
+  operations: 50
+  elapsedWallMs: 180000
+  cleanupReserveMs: 5000

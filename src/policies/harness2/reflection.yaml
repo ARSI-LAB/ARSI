@@ -1,0 +1,20 @@
+evidence:
+  - invariantProposer
+  - domainProposer
+  - composer
+  - memoryUpdater
+targets:
+  invariantProposer:
+    resources: [guidance]
+  domainProposer:
+    resources: [guidance]
+goal: ../../plugins/reflection-agent/goals/proposer-office/prompt.md
+implementation:
+  contract: contract.reflection
+  ref: reflection.agent
+  config:
+    evidenceView: execution
+    agentRef: agent
+budget:
+  modelCalls: 50
+  timeoutSeconds: 600

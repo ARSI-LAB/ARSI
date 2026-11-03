@@ -1,0 +1,5 @@
+bundle: rsi-skill-baseline
+plugins:
+  - name: '@rsi-skill/instructions'
+    version: 0.1.0
+    source: ./plugins/instructions

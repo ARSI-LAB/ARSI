@@ -1,0 +1,687 @@
+import React, { useMemo, useEffect, useRef } from 'react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  LabelList,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
+  type MetricRecord,
+  type MeasurementSummary,
+} from '../../../api/observation-client';
+import { ChartContainer, ChartTooltip } from '../../../components/ui/chart';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../../components/ui/table';
+import { format, WindowControls } from './chart-controls';
+import { route } from '../../../app/routing';
+import { useRoute, replaceRouteSelection } from '../../../app/use-route';
+import { scoreLabel, exactScoreLabel } from '../record-identifiers';
+import { scoreGroups, scorePoints, type ScorePoint } from './metric-data';
+const scoreConfig = {
+  value: { label: 'Recorded value', color: 'var(--brand)' },
+};
+export function ScorePlot({
+  measurements,
+  evaluations,
+  roots,
+  finals,
+  comparison,
+  candidate,
+  id,
+}: {
+  measurements: MetricRecord[];
+  evaluations: MeasurementSummary[];
+  roots: string[];
+  finals: string[];
+  comparison: boolean;
+  candidate?: string;
+  id: string;
+}): React.JSX.Element {
+  const selection = useRoute();
+  const selectedPanel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (selection.point)
+      selectedPanel.current?.scrollIntoView({ block: 'nearest' });
+  }, [selection.point]);
+  const filteredMeasurements = useMemo(
+    () =>
+      candidate
+        ? measurements.filter((item) => item.candidateRef === candidate)
+        : measurements,
+    [measurements, candidate],
+  );
+  const groups = useMemo(
+    () => scoreGroups(filteredMeasurements),
+    [filteredMeasurements],
+  );
+  const scope = selection.scope ?? '';
+  const scopes = [
+    ...new Map(
+      groups.map((group) => [group.scopeKey, group.subject]),
+    ).entries(),
+  ];
+  const activeScope = scopes.some(([key]) => key === scope)
+    ? scope
+    : scopes[0]?.[0];
+  const scopedGroups = groups.filter((group) => group.scopeKey === activeScope);
+  const metric = selection.metric ?? '';
+  const metricKey = (item: ReturnType<typeof scoreGroups>[number]): string =>
+    JSON.stringify([item.name, item.unit]);
+  const metrics = [
+    ...new Map(scopedGroups.map((item) => [metricKey(item), item])).entries(),
+  ];
+  const activeMetric = metrics.some(([key]) => key === metric)
+    ? metric
+    : (metrics.find(([, item]) => item.statistics.includes('value'))?.[0] ??
+      metrics[0]?.[0]);
+  const conditions = scopedGroups.filter(
+    (item) => metricKey(item) === activeMetric,
+  );
+  const chosen = selection.condition ?? '',
+    stat = selection.statistic ?? 'value',
+    offset = selection.chartOffset ?? 0;
+  const setOffset = (value: number): void =>
+    replaceRouteSelection({ chartOffset: value });
+  const group = conditions.find((item) => item.key === chosen) ?? conditions[0];
+  const statistic = group?.statistics.includes(stat)
+    ? stat
+    : (group?.statistics[0] ?? 'value');
+  const rows = useMemo(
+    () =>
+      group
+        ? scorePoints(measurements, group, statistic, evaluations).filter(
+            (point) => !candidate || point.candidateRef === candidate,
+          )
+        : [],
+    [measurements, evaluations, group, statistic, candidate],
+  );
+  if (!group)
+    return (
+      <p className="empty-state">
+        No numeric metrics recorded yet. Results appear after an evaluation
+        records them.
+      </p>
+    );
+  const pageOffset = offset < rows.length ? offset : 0;
+  const window = rows.slice(pageOffset, pageOffset + 20);
+  const finite = rows.filter((row) => row.value !== null);
+  const domain: [number | 'auto', number | 'auto'] =
+    group.unit === 'ratio' &&
+    finite.every((row) => row.value! >= 0 && row.value! <= 1)
+      ? [0, 1]
+      : comparison && finite.every((row) => row.value! >= 0)
+        ? [0, 'auto']
+        : comparison && finite.every((row) => row.value! <= 0)
+          ? ['auto', 0]
+          : ['auto', 'auto'];
+  const points = window.map((row) => ({
+    ...row,
+    axisLabel: `#${row.sequence} · ${row.candidateLabel}`,
+    displayValue: row.value === null ? '' : scoreLabel(row.value),
+    roleLabel: [
+      roots.includes(row.candidateRef) ? 'Root' : '',
+      finals.includes(row.candidateRef) ? 'Final' : '',
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }));
+  const selectedPoint = rows.find(
+    (row) => row.observationKey === selection.point,
+  );
+  const pointHref = (row: ScorePoint): string =>
+    route(id, selection.view, selection.candidate, undefined, {
+      ...selection,
+      point: row.observationKey,
+    });
+  const pointFromShape = (raw: unknown): ScorePoint | undefined => {
+    if (!raw || typeof raw !== 'object' || !('payload' in raw))
+      return undefined;
+    const payload = raw.payload;
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      !('observationKey' in payload) ||
+      typeof payload.observationKey !== 'string'
+    )
+      return undefined;
+    return window.find((row) => row.observationKey === payload.observationKey);
+  };
+  const pointName = (row: ScorePoint): string =>
+    `Evaluation #${row.sequence} · ${row.candidateLabel} · ${row.value === null ? row.reason : `${row.value} ${group.unit}`}`;
+  const renderDot = (raw: unknown): React.ReactElement => {
+    const row = pointFromShape(raw);
+    if (
+      !row ||
+      row.value === null ||
+      !raw ||
+      typeof raw !== 'object' ||
+      !('cx' in raw) ||
+      !('cy' in raw) ||
+      typeof raw.cx !== 'number' ||
+      typeof raw.cy !== 'number'
+    )
+      return <g />;
+    const selected = selectedPoint?.observationKey === row.observationKey;
+    return (
+      <a
+        href={pointHref(row)}
+        aria-label={pointName(row)}
+        aria-current={selected ? 'true' : undefined}
+        className="score-point-link"
+      >
+        <title>{pointName(row)}</title>
+        <circle cx={raw.cx} cy={raw.cy} r={22} fill="transparent" />
+        <circle
+          cx={raw.cx}
+          cy={raw.cy}
+          r={selected ? 7 : 5}
+          fill="var(--brand)"
+          stroke="var(--card)"
+          strokeWidth={2}
+        />
+      </a>
+    );
+  };
+  const renderBar = (raw: unknown): React.ReactElement => {
+    const row = pointFromShape(raw);
+    if (
+      !row ||
+      row.value === null ||
+      !raw ||
+      typeof raw !== 'object' ||
+      !('x' in raw) ||
+      !('y' in raw) ||
+      !('width' in raw) ||
+      !('height' in raw) ||
+      typeof raw.x !== 'number' ||
+      typeof raw.y !== 'number' ||
+      typeof raw.width !== 'number' ||
+      typeof raw.height !== 'number'
+    )
+      return <g />;
+    const selected = selectedPoint?.observationKey === row.observationKey;
+    return (
+      <a
+        href={pointHref(row)}
+        aria-label={pointName(row)}
+        aria-current={selected ? 'true' : undefined}
+        className="score-point-link"
+      >
+        <title>{pointName(row)}</title>
+        <rect
+          x={raw.x}
+          y={raw.y - 4}
+          width={raw.width}
+          height={Math.max(44, raw.height + 8)}
+          fill="transparent"
+        />
+        <rect
+          x={raw.x}
+          y={raw.y}
+          width={raw.width}
+          height={raw.height}
+          rx={4}
+          fill="var(--brand)"
+          stroke={selected ? 'var(--foreground)' : 'none'}
+          strokeWidth={2}
+        />
+      </a>
+    );
+  };
+  const tooltip = ({
+    active,
+    label,
+  }: {
+    active?: boolean;
+    label?: unknown;
+  }): React.JSX.Element | null => {
+    if (!active) return null;
+    const row = points.find((row) => row.axisLabel === String(label));
+    return row ? (
+      <div className="observation-tooltip">
+        <strong>
+          {row.candidateLabel} · evaluation #{row.sequence}
+        </strong>
+        <p>{row.value === null ? row.reason : `${row.value} ${group.unit}`}</p>
+        <code>{row.measurementRef}</code>
+      </div>
+    ) : null;
+  };
+  return (
+    <div className="section-stack">
+      <div className="chart-controls">
+        {scopes.length > 1 ? (
+          <label>
+            Result scope
+            <select
+              value={activeScope}
+              onChange={(event) => {
+                replaceRouteSelection({
+                  scope: event.target.value,
+                  condition: undefined,
+                  chartOffset: 0,
+                  point: undefined,
+                });
+              }}
+            >
+              {scopes.map(([key, label], index) => (
+                <option key={key} value={key}>
+                  {label}
+                  {scopes.filter(([, title]) => title === label).length > 1
+                    ? ` · configuration ${index + 1}`
+                    : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {metrics.length > 1 ? (
+          <label>
+            Metric
+            <select
+              value={activeMetric}
+              onChange={(event) => {
+                replaceRouteSelection({
+                  metric: event.target.value,
+                  condition: undefined,
+                  statistic: undefined,
+                  chartOffset: 0,
+                  point: undefined,
+                });
+              }}
+            >
+              {metrics.map(([key, item]) => (
+                <option key={key} value={key}>
+                  {item.name} ({item.unit})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p>
+            {group.name} ({group.unit})
+          </p>
+        )}
+        {conditions.length > 1 ? (
+          <label>
+            Evaluation conditions
+            <select
+              value={group.key}
+              onChange={(event) => {
+                replaceRouteSelection({
+                  condition: event.target.value,
+                  chartOffset: 0,
+                  point: undefined,
+                });
+              }}
+            >
+              {conditions.map((item, index) => {
+                const count = scorePoints(
+                  filteredMeasurements,
+                  item,
+                  item.statistics[0] ?? 'value',
+                ).length;
+                return (
+                  <option key={item.key} value={item.key}>
+                    Condition {index + 1} · {item.coverage} · {count}{' '}
+                    {count === 1 ? 'observation' : 'observations'}
+                    {item.comparisonKey === null ? ' · unknown conditions' : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+        ) : null}
+        {group.statistics.length > 1 ? (
+          <label>
+            Statistic
+            <select
+              value={statistic}
+              onChange={(event) => {
+                replaceRouteSelection({
+                  statistic: event.target.value,
+                  chartOffset: 0,
+                  point: undefined,
+                });
+              }}
+            >
+              {group.statistics.map((name) => (
+                <option key={name} value={name}>
+                  {name === 'value' ? 'Scalar value' : name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
+      {window.length > 1 && (!comparison || group.comparable) ? (
+        <div className="actions" role="group" aria-label="Display measurements">
+          <button
+            className="quiet-button"
+            aria-pressed={selection.display !== 'values'}
+            onClick={() => replaceRouteSelection({ display: 'chart' })}
+          >
+            Chart
+          </button>
+          <button
+            className="quiet-button"
+            aria-pressed={selection.display === 'values'}
+            onClick={() => replaceRouteSelection({ display: 'values' })}
+          >
+            Values
+          </button>
+        </div>
+      ) : null}
+      {group.coverage !== 'complete' && !comparison ? (
+        <p className="filter-note">
+          Incomplete coverage. Observations are not assumed comparable.
+        </p>
+      ) : null}
+      {comparison && !group.comparable ? (
+        <p className="empty-state">
+          These observations are not comparable. Individual recorded values are
+          shown below.
+        </p>
+      ) : null}
+      {window.length === 1 ? (
+        <div className="section-stack">
+          <h3>
+            Evaluation #{window[0]!.sequence} · {window[0]!.candidateLabel}
+          </h3>
+          {window[0]!.value === null ? (
+            <p className="empty-state">{window[0]!.reason}</p>
+          ) : (
+            <p>
+              <strong className="stat-number">
+                {exactScoreLabel(window[0]!.value)}
+              </strong>{' '}
+              {group.unit}
+            </p>
+          )}
+          <div className="actions">
+            <a
+              className="text-link"
+              href={route(id, 'candidates', window[0]!.candidateRef)}
+            >
+              Candidate {window[0]!.candidateLabel} →
+            </a>
+            <a
+              className="text-link"
+              href={route(id, 'measurements', undefined, undefined, {
+                measurement: window[0]!.measurementRef,
+              })}
+            >
+              Evaluation #{window[0]!.sequence} →
+            </a>
+            <a
+              className="text-link"
+              href={route(id, 'calls', undefined, undefined, {
+                call: window[0]!.callId,
+              })}
+            >
+              View call →
+            </a>
+          </div>
+        </div>
+      ) : selection.display !== 'values' &&
+        (!comparison || group.comparable) &&
+        window.some((row) => row.value !== null) ? (
+        <div
+          className="score-chart-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Evaluation chart; scroll horizontally for more candidates"
+        >
+          <div
+            style={{
+              minWidth: Math.max(
+                420,
+                points.length *
+                  Math.max(
+                    112,
+                    ...points.map((point) => point.axisLabel.length * 7 + 16),
+                  ),
+              ),
+            }}
+          >
+            <ChartContainer
+              config={scoreConfig}
+              className="observation-chart"
+              aria-label={
+                comparison
+                  ? 'Candidate score comparison'
+                  : 'Metric history by evaluation order'
+              }
+            >
+              {comparison ? (
+                <BarChart
+                  accessibilityLayer
+                  data={points}
+                  margin={{ top: 46, right: 36, left: 0, bottom: 24 }}
+                >
+                  <CartesianGrid vertical={false} strokeDasharray="3 5" />
+                  <XAxis
+                    dataKey="axisLabel"
+                    tickLine={false}
+                    axisLine={false}
+                    interval={0}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis
+                    domain={domain}
+                    tickLine={false}
+                    axisLine={false}
+                    width={64}
+                    tickFormatter={format}
+                  />
+                  <ChartTooltip content={tooltip} />
+                  <Bar
+                    dataKey="value"
+                    fill="var(--color-value)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={56}
+                    isAnimationActive={false}
+                    shape={renderBar}
+                  >
+                    <LabelList
+                      dataKey="displayValue"
+                      position="top"
+                      offset={10}
+                      fill="var(--foreground)"
+                      fontSize={12}
+                    />
+                    <LabelList
+                      dataKey="roleLabel"
+                      position="top"
+                      offset={28}
+                      fill="var(--muted-foreground)"
+                      fontSize={10}
+                    />
+                  </Bar>
+                </BarChart>
+              ) : (
+                <LineChart
+                  accessibilityLayer
+                  data={points}
+                  margin={{ top: 46, right: 36, left: 0, bottom: 24 }}
+                >
+                  <CartesianGrid vertical={false} strokeDasharray="3 5" />
+                  <XAxis
+                    dataKey="axisLabel"
+                    tickLine={false}
+                    axisLine={false}
+                    padding={{ left: 32, right: 32 }}
+                    interval={0}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis
+                    domain={domain}
+                    tickLine={false}
+                    axisLine={false}
+                    width={64}
+                    tickFormatter={format}
+                  />
+                  <ChartTooltip content={tooltip} />
+                  <Line
+                    type="linear"
+                    dataKey="value"
+                    stroke="var(--color-value)"
+                    strokeWidth={group.comparable ? 2.5 : 0}
+                    dot={renderDot}
+                    activeDot={false}
+                    connectNulls={false}
+                    isAnimationActive={false}
+                  >
+                    <LabelList
+                      dataKey="displayValue"
+                      position="top"
+                      offset={10}
+                      fill="var(--foreground)"
+                      fontSize={12}
+                    />
+                    <LabelList
+                      dataKey="roleLabel"
+                      position="top"
+                      offset={28}
+                      fill="var(--muted-foreground)"
+                      fontSize={10}
+                    />
+                  </Line>
+                </LineChart>
+              )}
+            </ChartContainer>
+          </div>
+        </div>
+      ) : selection.display !== 'values' && finite.length === 0 ? (
+        <p className="empty-state">
+          No valid numeric observations for this metric.
+        </p>
+      ) : null}
+      {window.length > 1 &&
+      selection.display !== 'values' &&
+      (!comparison || group.comparable) &&
+      window.some((row) => row.value !== null) ? (
+        <p className="chart-caption">
+          Evaluation sequence · candidate ID. Select a point to inspect its
+          recorded links.
+        </p>
+      ) : null}
+      {selectedPoint && window.length > 1 ? (
+        <section
+          className="selected-evaluation"
+          ref={selectedPanel}
+          aria-label="Selected evaluation"
+        >
+          <div className="section-heading">
+            <h3>
+              Evaluation #{selectedPoint.sequence} ·{' '}
+              {selectedPoint.candidateLabel}
+            </h3>
+            <strong>
+              {selectedPoint.value === null
+                ? selectedPoint.reason
+                : `${exactScoreLabel(selectedPoint.value)} ${group.unit}`}
+            </strong>
+          </div>
+          <div className="actions">
+            <a
+              className="text-link"
+              href={route(id, 'candidates', selectedPoint.candidateRef)}
+            >
+              Candidate {selectedPoint.candidateLabel} →
+            </a>
+            <a
+              className="text-link"
+              href={route(id, 'measurements', undefined, undefined, {
+                measurement: selectedPoint.measurementRef,
+              })}
+            >
+              Evaluation #{selectedPoint.sequence} →
+            </a>
+            <a
+              className="text-link"
+              title={selectedPoint.callId}
+              href={route(id, 'calls', undefined, undefined, {
+                call: selectedPoint.callId,
+              })}
+            >
+              View call →
+            </a>
+          </div>
+        </section>
+      ) : null}
+      {window.length > 1 &&
+      (selection.display === 'values' || (comparison && !group.comparable)) ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Evaluation</TableHead>
+              <TableHead>Candidate</TableHead>
+              <TableHead>Value ({group.unit})</TableHead>
+              <TableHead>Call</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {window.map((row) => (
+              <TableRow key={row.observationKey}>
+                <TableCell>
+                  <a
+                    className="text-link"
+                    title={row.measurementRef}
+                    aria-label={`View evaluation #${row.sequence}`}
+                    href={route(id, 'measurements', undefined, undefined, {
+                      measurement: row.measurementRef,
+                    })}
+                  >
+                    #{row.sequence}
+                  </a>
+                  {row.itemId ? <p>{row.itemId}</p> : null}
+                </TableCell>
+                <TableCell>
+                  <a
+                    className="text-link"
+                    href={route(id, 'candidates', row.candidateRef)}
+                  >
+                    {row.candidateLabel}
+                  </a>
+                </TableCell>
+                <TableCell>
+                  {row.value === null ? row.reason : String(row.value)}
+                </TableCell>
+                <TableCell>
+                  <a
+                    className="text-link"
+                    title={row.callId}
+                    href={route(id, 'calls', undefined, undefined, {
+                      call: row.callId,
+                    })}
+                  >
+                    View call
+                  </a>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : null}
+      {rows.length > 20 ? (
+        <WindowControls
+          offset={pageOffset}
+          length={rows.length}
+          size={20}
+          setOffset={setOffset}
+        />
+      ) : null}
+    </div>
+  );
+}

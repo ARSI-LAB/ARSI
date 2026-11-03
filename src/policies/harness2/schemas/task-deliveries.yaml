@@ -1,0 +1,28 @@
+type: object
+properties:
+  baseline:
+    type: string
+    minLength: 1
+  deliveries:
+    type: array
+    items:
+      type: object
+      properties:
+        candidateRef:
+          type: string
+          minLength: 1
+        measurementRef:
+          type: string
+          minLength: 1
+        decisionRef:
+          type: string
+          minLength: 1
+      required:
+        - candidateRef
+        - measurementRef
+        - decisionRef
+      additionalProperties: false
+required:
+  - baseline
+  - deliveries
+additionalProperties: false

@@ -1,0 +1,15 @@
+evidence: [proposer, evaluator, selector]
+targets:
+  proposer:
+    resources: [guidance]
+goal: Improve general checking guidance from observed execution; retain current guidance if evidence is insufficient.
+implementation:
+  contract: contract.reflection
+  ref: reflection.agent
+  config:
+    agentRef: agent
+    prompt: ./reflection.md
+    evidenceView: execution
+budget:
+  modelCalls: 6
+  timeoutSeconds: 90

@@ -1,0 +1,54 @@
+schemaVersion: rsi.recipe/v1
+id: dsh-wikiskill
+application:
+  ref: application.agentbundle
+  config:
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+policy:
+  ref: policy.wikiskill
+  config:
+    maxRounds: 3
+    dataset:
+      # Keep all ten IDs distinct across training, validation and independent test.
+      trainTaskIds:
+        - terminal-bench/html-js-filter
+        - terminal-bench/interleaved-vigenere
+        - terminal-bench/data-anonymization
+        - terminal-bench/coq-block-bound
+        - terminal-bench/payments-pipeline-fix
+        - terminal-bench/session-window-debug
+      validationTaskIds:
+        - terminal-bench/formal-crypto
+        - terminal-bench/wal-recovery-ordering
+      # Final reporting only; these tasks must not contribute to Wiki learning.
+      testTaskIds:
+        - terminal-bench/bun-sourcemap-leak
+        - terminal-bench/react-lead-form
+
+bindings:
+  evaluator:
+    ref: evaluator.agentbench
+    config:
+      services:
+        default:
+          model: ${MODEL_NAME}
+          base_url: ${MODEL_ENDPOINT}
+          api_key: ${MODEL_API_KEY}
+      benchmark:
+        name: terminalbench
+        version: '4.0'
+      # The official prebuilt task images use amd64, including on ARM64 hosts.
+      environment:
+        platform: linux/amd64
+      scheduler:
+        name: local
+        concurrency: 5
+      run:
+        timeoutSeconds: 3600
+budget:
+  operations: 400
+  evaluationRuns: 8
+  modelCalls: 160
+  elapsedWallMs: 172800000
+  cleanupReserveMs: 60000

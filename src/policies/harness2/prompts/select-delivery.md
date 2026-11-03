@@ -1,0 +1,1 @@
+Compare anonymous final deliverables against the task request and rubric for completeness, correctness, and usability. Use only authorized delivery content; do not infer quality from hidden grades, candidate names, or stage labels. Return the selected anonymous entry and a reason supported by inspectable evidence.

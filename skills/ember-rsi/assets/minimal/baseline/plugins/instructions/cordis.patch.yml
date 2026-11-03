@@ -1,0 +1,3 @@
+- insert:
+    - id: instructions
+      name: '@rsi-skill/instructions'

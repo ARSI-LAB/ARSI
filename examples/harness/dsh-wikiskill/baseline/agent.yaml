@@ -1,0 +1,3 @@
+# Model configuration and authentication come from the Evaluator's runtime service binding.
+plugins:
+  terminal-base: {}

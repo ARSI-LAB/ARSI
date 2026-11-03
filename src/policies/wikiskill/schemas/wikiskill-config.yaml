@@ -1,0 +1,42 @@
+type: object
+properties:
+  maxRounds:
+    type: integer
+    minimum: 0
+    maximum: 100000
+    default: 3
+  stopAtScore:
+    type: [number, 'null']
+    default: null
+  dataset:
+    type: object
+    properties:
+      trainTaskIds:
+        type: array
+        items:
+          type: string
+          minLength: 1
+        minItems: 1
+        uniqueItems: true
+      validationTaskIds:
+        type: array
+        items:
+          type: string
+          minLength: 1
+        minItems: 1
+        uniqueItems: true
+      testTaskIds:
+        type: array
+        items:
+          type: string
+          minLength: 1
+        uniqueItems: true
+        default: []
+    required:
+      - trainTaskIds
+      - validationTaskIds
+      - testTaskIds
+    additionalProperties: false
+required:
+  - dataset
+additionalProperties: false

@@ -1,0 +1,24 @@
+type: object
+properties:
+  candidateRef:
+    type: string
+    minLength: 1
+  measurementRef:
+    type: string
+    minLength: 1
+  memoryRef:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: 'null'
+  testMeasurementRef:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: 'null'
+required:
+  - candidateRef
+  - measurementRef
+  - memoryRef
+  - testMeasurementRef
+additionalProperties: false

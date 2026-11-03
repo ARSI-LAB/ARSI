@@ -1,0 +1,10 @@
+schemaVersion: 1
+name: dsh-wikiskill-baseline
+kind: dsh-agent-bundle
+harness:
+  name: dsh
+  version: '>=0.1.6-alpha.1 <0.2'
+plugins:
+  - path: plugins/terminal-base
+entry: agent.yaml
+lockfile: dependencies.lock

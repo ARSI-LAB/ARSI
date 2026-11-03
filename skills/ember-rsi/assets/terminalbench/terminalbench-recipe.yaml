@@ -1,0 +1,53 @@
+schemaVersion: rsi.recipe/v1
+id: recipe.skill-terminalbench
+application:
+  ref: application.agentbundle
+  config:
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+policy:
+  ref: policy.skill-terminalbench
+  config:
+    maxRounds: 1
+    taskIds: [terminal-bench/html-js-filter]
+    goal: Improve prompt.md instructions for reliable terminal task completion; preserve generality and do not embed benchmark answers.
+  input: {}
+bindings:
+  agent:
+    ref: agent.pi
+    config:
+      model: ${MODEL_NAME}
+      base_url: ${MODEL_ENDPOINT}
+      api_key: ${MODEL_API_KEY}
+      maxTokens: 4096
+      timeoutMs: 60000
+  proposer:
+    ref: proposer.agent
+    config:
+      agentRef: agent
+      prompt: ./terminalbench-proposer.md
+      maxModelCalls: 6
+  evaluator:
+    ref: evaluator.agentbench
+    config:
+      services:
+        default:
+          model: ${MODEL_NAME}
+          base_url: ${SOLVER_MODEL_ENDPOINT}
+          api_key: ${MODEL_API_KEY}
+          maxTokens: 4096
+      benchmark: { name: terminalbench, version: '4.0' }
+      environment: { platform: linux/amd64 }
+      scheduler: { name: local, concurrency: 1 }
+      run: { timeoutSeconds: 300 }
+  selector:
+    {
+      ref: selector.metric,
+      config: { metric: successRate, direction: maximize },
+    }
+budget:
+  modelCalls: 8
+  evaluationRuns: 2
+  operations: 50
+  elapsedWallMs: 900000
+  cleanupReserveMs: 30000

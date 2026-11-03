@@ -1,0 +1,86 @@
+schemaVersion: rsi.policy/v1
+id: policy.skill-memory
+input_schema:
+  type: object
+  properties:
+    candidateRef: { type: string }
+  required: [candidateRef]
+  additionalProperties: false
+input:
+  candidateRef: ${{ application.initialCandidate }}
+config_schema:
+  type: object
+  properties:
+    maxRounds: { type: integer, minimum: 0, maximum: 10, default: 2 }
+  additionalProperties: false
+output_schema:
+  type: object
+  properties:
+    candidateRef: { type: string }
+    measurementRef: { type: string }
+    memoryRef: { type: [string, 'null'] }
+  required: [candidateRef, measurementRef, memoryRef]
+  additionalProperties: false
+require:
+  agent: { contract: contract.agent }
+  memory: { contract: contract.memory }
+  proposer: { contract: contract.proposer }
+  evaluator: { contract: contract.agentbench }
+  selector: { contract: contract.selector-metrics }
+init:
+  steps:
+    - id: baseline
+      use: evaluator
+      with:
+        candidateRef: ${{ input.candidateRef }}
+        taskIds: [prompt-check]
+    - id: retain
+      state:
+        memory: null
+        candidate: ${{ input.candidateRef }}
+        measurement: ${{ init.baseline.output.measurementRef }}
+loop:
+  maxIterations: ${{ config.maxRounds }}
+  steps:
+    - id: propose
+      use: proposer
+      with:
+        memoryRef: ${{ state.memory }}
+        parent: ${{ state.candidate }}
+        goal: Include the exact phrase Check the answer in prompt.md.
+        evidenceRefs:
+          - ${{ state.measurement }}
+    - id: changed
+      if: ${{ loop.propose.output.status == 'created' }}
+      then:
+        - id: evaluate
+          use: evaluator
+          with:
+            candidateRef: ${{ loop.propose.output.candidateRef }}
+            taskIds: [prompt-check]
+        - id: select
+          use: selector
+          with:
+            incumbentMeasurementRef: ${{ state.measurement }}
+            candidateMeasurementRef: ${{ loop.evaluate.output.measurementRef }}
+        - id: adopt
+          state:
+            candidate: ${{ loop.select.output.selectedCandidateRef }}
+            measurement: ${{ loop.select.output.measurementRef }}
+    - id: learn_for_next_round
+      if: ${{ loop.index + 1 < config.maxRounds }}
+      then:
+        - id: remember
+          use: memory
+          with:
+            memoryRef: ${{ state.memory }}
+            goal: Retain general checking guidance from authorized observations, not task answers.
+            evidenceRefs:
+              - ${{ state.measurement }}
+        - id: retain_memory
+          state:
+            memory: ${{ loop.remember.output.memoryRef }}
+output:
+  candidateRef: ${{ state.candidate }}
+  measurementRef: ${{ state.measurement }}
+  memoryRef: ${{ state.memory }}

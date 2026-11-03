@@ -1,0 +1,12 @@
+# Normalize text line endings; Git detects binary files automatically.
+# Byte-sensitive fixtures must opt out using a specific path with -text.
+* text=auto eol=lf
+
+# PDF cross-reference tables can look like text but require exact byte offsets.
+*.pdf binary
+
+# Immutable Bundle fixtures are verified against their original byte digests.
+experiments/instances/*/baseline/** -text
+
+# Unified diffs encode an empty context line with a literal space.
+src/plugins/harness2-worker/deployment/*.diff whitespace=-blank-at-eol

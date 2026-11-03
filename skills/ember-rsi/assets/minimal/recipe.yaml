@@ -1,0 +1,25 @@
+schemaVersion: rsi.recipe/v1
+id: recipe.skill-search
+application:
+  ref: application.agentbundle
+  config:
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+policy:
+  ref: policy.skill-search
+  config: { maxRounds: 2 }
+  input: {}
+bindings:
+  proposer: { ref: proposer.skill-fixed, config: {} }
+  evaluator: { ref: evaluator.skill-text, config: {} }
+  selector:
+    {
+      ref: selector.metric,
+      config: { metric: checkPhrase, direction: maximize },
+    }
+budget:
+  modelCalls: 0
+  evaluationRuns: 3
+  operations: 50
+  elapsedWallMs: 60000
+  cleanupReserveMs: 5000

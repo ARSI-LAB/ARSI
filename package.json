@@ -1,0 +1,79 @@
+{
+  "name": "ember-rsi",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "bin": {
+    "ember-rsi": "./dist/src/entries/cli/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./contracts": {
+      "types": "./dist/src/contracts/index.d.ts",
+      "import": "./dist/src/contracts/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "pnpm-lock.yaml"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "ember-rsi": "node dist/src/entries/cli/main.js",
+    "typecheck": "tsc --noEmit",
+    "typecheck:web": "tsc -p tsconfig.web.json",
+    "test": "node --import tsx --test tests/unit/*.test.ts",
+    "format": "prettier --write src examples web tests scripts package.json tsconfig*.json pnpm-workspace.yaml",
+    "format:check": "prettier --check src examples web tests scripts package.json tsconfig*.json pnpm-workspace.yaml",
+    "check": "pnpm format:check && pnpm typecheck && pnpm typecheck:web && pnpm test && pnpm build",
+    "check:package": "node scripts/check-package.mjs",
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "prepare": "pnpm build"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@fastify/static": "10.1.7",
+    "agent-bundle-core": "git+https://github.com/evolving-foundry/agentbundle.git#0.0.1&path:/packages/core",
+    "ajv": "8.20.0",
+    "ember-evaluator": "git+https://github.com/evolving-foundry/ember-evaluator.git#c77805d479cc6fcc403f76512e715fc467252f60",
+    "exceljs": "4.4.0",
+    "fastify": "5.12.7",
+    "htmlparser2": "10.0.0",
+    "mammoth": "1.11.0",
+    "node-diff3": "3.2.1",
+    "pdfjs-dist": "5.4.449",
+    "proper-lockfile": "4.1.2",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "24.10.1",
+    "@types/proper-lockfile": "4.1.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "cn": "0.5.0",
+    "prettier": "3.6.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "recharts": "3.8.0",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vite": "^8.3.4"
+  },
+  "bundleDependencies": [
+    "ember-evaluator",
+    "agent-bundle-core"
+  ]
+}

@@ -1,0 +1,27 @@
+# Root package dependencies and generated outputs
+/node_modules/
+/.pnpm-store/
+/dist/
+/coverage/
+
+# Local task artifacts and package-manager diagnostics
+/.scratch/
+/.rsi/
+/pnpm-debug.log*
+__pycache__/
+
+# Local credentials; keep placeholder examples trackable
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Personal agent instructions (shared AGENTS.md remains tracked)
+/AGENTS.local.md
+/AGENTS.override.md
+
+# OS metadata
+.DS_Store
+
+/.cache/
+/.cursor/

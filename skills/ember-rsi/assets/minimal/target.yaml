@@ -1,0 +1,10 @@
+schemaVersion: rsi.target/v1
+id: target.skill-prompt
+entries:
+  - path: prompt.md
+    kind: file
+    description: Instructions scored by the local demonstration evaluator.
+    changes: [modify]
+    content: { encoding: utf-8, minBytes: 1, maxBytes: 4096 }
+protected: [bundle.yaml, agent.yaml, dependencies.lock]
+constraints: { maxChangedFiles: 1, maxChangedBytes: 4096 }

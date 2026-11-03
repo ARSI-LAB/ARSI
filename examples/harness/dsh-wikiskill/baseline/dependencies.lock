@@ -1,0 +1,6 @@
+# Dependency identity for the local plugin implementation; prompts and skills are candidate content, not locked external dependencies.
+bundle: dsh-wikiskill-baseline
+plugins:
+  - name: '@agentbundle/dsh-terminal-base'
+    version: 0.1.0
+    source: ./plugins/terminal-base

@@ -1,0 +1,21 @@
+schemaVersion: rsi.target/v1
+id: target.dsh-wikiskill
+entries:
+  - path: plugins/terminal-base/skills
+    kind: directory
+    description: Reusable terminal-task skills loaded by the DSH Bundle; proposals change one supported skill mechanism.
+    include: ['*/SKILL.md']
+    changes: [create, modify, delete]
+    content: { encoding: utf-8, minBytes: 1, maxBytes: 65536 }
+protected:
+  - bundle.yaml
+  - agent.yaml
+  - dependencies.lock
+  - plugins/terminal-base/prompts/**
+  - '**/package.json'
+  - '**/index.js'
+  - '**/cordis.patch.yml'
+  - '**/.env'
+constraints:
+  maxChangedFiles: 8
+  maxChangedBytes: 131072

@@ -1,0 +1,87 @@
+schemaVersion: rsi.policy/v1
+id: policy.parameter-grid
+description: Search a parameter grid and select candidates by measured metrics.
+config_schema:
+  $ref: ./schemas/config.yaml
+input_schema:
+  $ref: ../../contracts/policies/candidate-input.yaml
+output_schema:
+  $ref: ./schemas/result.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+require:
+  proposer:
+    contract: contract.proposer-grid
+  evaluator:
+    contract: contract.inferencebench
+  selector:
+    contract: contract.selector-metrics
+defaults:
+  bindings:
+    proposer:
+      ref: proposer.grid
+    selector:
+      ref: selector.metric
+      config:
+        metric: requestThroughput
+        direction: maximize
+        constraints:
+          - metric: sloSatisfied
+            min: 1
+init:
+  steps:
+    - id: initialize
+      state:
+        cursor: 0
+        exhausted: false
+        bestCandidate: null
+        bestMeasurement: null
+        bestParameters: null
+        history: []
+loop:
+  maxIterations: ${{ config.maxCandidates }}
+  while: ${{ !state.exhausted }}
+  steps:
+    - id: propose
+      use: proposer
+      with:
+        parent: ${{ input.candidateRef }}
+        cursor: ${{ state.cursor }}
+    - id: handle_proposal
+      if: ${{ loop.propose.output.status == 'candidate' }}
+      then:
+        # A grid point equal to the baseline still needs measurement.
+        - id: evaluate
+          use: evaluator
+          with:
+            candidateRef: ${{ loop.propose.output.candidateRef }}
+        # Self-comparison checks constraints before the first feasible incumbent.
+        - id: select
+          use: selector
+          with:
+            incumbentMeasurementRef: ${{ if(state.bestMeasurement == null, loop.evaluate.output.measurementRef, state.bestMeasurement) }}
+            candidateMeasurementRef: ${{ loop.evaluate.output.measurementRef }}
+        - id: record
+          state:
+            cursor: ${{ loop.propose.output.nextCursor }}
+            exhausted: ${{ loop.propose.output.nextCursor >= loop.propose.output.totalCandidates }}
+            history: ${{ append(state.history, loop.evaluate.output.measurementRef) }}
+        - id: adopt
+          if: ${{ loop.select.output.candidateFeasible && (state.bestMeasurement == null || loop.select.output.accepted) }}
+          then:
+            - id: save_best
+              state:
+                bestCandidate: ${{ loop.propose.output.candidateRef }}
+                bestMeasurement: ${{ loop.evaluate.output.measurementRef }}
+                bestParameters: ${{ loop.propose.output.parameters }}
+      else:
+        - id: exhausted
+          state:
+            exhausted: true
+output:
+  status: ${{ if(state.bestCandidate == null, 'no-feasible-configuration', 'selected') }}
+  stopReason: ${{ if(state.exhausted, 'search-exhausted', 'max-candidates') }}
+  candidateRef: ${{ state.bestCandidate }}
+  measurementRef: ${{ state.bestMeasurement }}
+  parameters: ${{ state.bestParameters }}
+  measurementRefs: ${{ state.history }}

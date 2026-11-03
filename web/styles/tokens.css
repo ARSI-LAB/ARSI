@@ -1,0 +1,100 @@
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --background: #fafafa;
+    --foreground: #202124;
+    --card: #fff;
+    --card-foreground: #202124;
+    --popover: #fff;
+    --popover-foreground: #202124;
+    --primary: #176b52;
+    --primary-foreground: #fff;
+    --secondary: #e9f2ed;
+    --secondary-foreground: #215640;
+    --muted: #f4f4f5;
+    --muted-foreground: #646b68;
+    --accent: #edf6f1;
+    --accent-foreground: #16573e;
+    --destructive: #b91c1c;
+    --border: #e4e4e7;
+    --input: #d4d4d8;
+    --ring: #176b52;
+    --brand: var(--primary);
+    --radius: 0.625rem;
+    --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+
+    /* The 4px scale shares Tailwind's spacing unit. Layout roles use these aliases. */
+    --space-1: calc(var(--spacing) * 1);
+    --space-2: calc(var(--spacing) * 2);
+    --space-3: calc(var(--spacing) * 3);
+    --space-4: calc(var(--spacing) * 4);
+    --space-5: calc(var(--spacing) * 5);
+    --space-6: calc(var(--spacing) * 6);
+    --space-8: calc(var(--spacing) * 8);
+    --space-10: calc(var(--spacing) * 10);
+    --page-gutter: var(--space-6);
+    --page-padding: var(--space-8);
+    --section-gap: var(--space-6);
+    --card-padding: var(--space-5);
+    --field-gap: var(--space-4);
+    --control-gap: var(--space-2);
+    --sidebar-width: 208px;
+    --content-width: 1600px;
+
+    /* Shared aliases used by feature views. Values are owned here. */
+    --canvas: var(--background);
+    --surface: var(--card);
+    --subtle: var(--muted);
+    --ink: var(--foreground);
+    --line: var(--border);
+    --line-strong: var(--input);
+    --green: var(--primary);
+    --green-dark: #10513e;
+    --accent-hover: var(--green-dark);
+    --accent-soft: var(--accent);
+    --warning: #81580d;
+    --warning-soft: #fcf7e9;
+    --danger: var(--destructive);
+    --danger-soft: #fff3f1;
+    --shadow: none;
+  }
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+  @media (max-width: 760px) {
+    :root {
+      --page-gutter: var(--space-4);
+      --page-padding: var(--space-6);
+      --section-gap: var(--space-5);
+      --card-padding: var(--space-4);
+    }
+  }
+}

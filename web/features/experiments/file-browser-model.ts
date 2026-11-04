@@ -1,5 +1,6 @@
 import { parseArtifact, type Page } from '../../api/observation-client.js';
 export interface RecordedFile {
+  digest?: string;
   path: string;
   bytes: number;
 }

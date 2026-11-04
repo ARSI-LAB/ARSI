@@ -41,6 +41,6 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
   ]) {
     const file = fileURLToPath(new URL(`../policies/${path}`, import.meta.url));
     const policy = await readPolicy(file, registry);
-    registry.registerPolicy(String(policy.definition.id), file);
+    registry.registerPolicy(String(policy.id), file);
   }
 }

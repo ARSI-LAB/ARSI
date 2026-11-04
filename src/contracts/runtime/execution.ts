@@ -9,7 +9,6 @@ declare module './context.js' {
   interface RuntimeContext {
     experimentId: string;
     scope?: BudgetScope;
-    phase?: 'experiment' | 'report';
     callId: string;
     bindingId: string;
     idempotencyKey: string;

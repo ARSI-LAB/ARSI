@@ -1,12 +1,12 @@
 schemaVersion: rsi.recipe/v1
 id: dsh-wikiskill
 application:
-  ref: application.agentbundle
+  plugin: application.agentbundle
   config:
     target: { schema: ./target.yaml }
     baseline: { directory: ./baseline }
 policy:
-  ref: policy.wikiskill
+  id: policy.wikiskill
   config:
     maxRounds: 3
     dataset:
@@ -28,7 +28,7 @@ policy:
 
 bindings:
   evaluator:
-    ref: evaluator.agentbench
+    plugin: evaluator.agentbench
     config:
       services:
         default:

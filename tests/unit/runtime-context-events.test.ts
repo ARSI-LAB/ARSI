@@ -6,7 +6,6 @@ import {
   type OperationDefinition,
 } from '../../src/contracts/index.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
-
 const annotation = Symbol('test.annotation');
 declare module '../../src/contracts/index.js' {
   interface RuntimeContext {
@@ -19,7 +18,6 @@ declare module '@deepseek-ai/cordis' {
     'test/context-notice'(branch: string): Promise<void>;
   }
 }
-
 test('Manager carries extensions through concurrent calls and independent listeners using the same service context', async () => {
   const seen: RuntimeContext[] = [];
   const notices: RuntimeContext[] = [];
@@ -91,7 +89,7 @@ test('Manager carries extensions through concurrent calls and independent listen
     {
       context: base,
       plugins: [worker],
-      bindings: { worker: { ref: worker.id, config: {} } },
+      bindings: { worker: { plugin: worker.id, config: {} } },
       budget: { modelCalls: 4 },
     },
   );

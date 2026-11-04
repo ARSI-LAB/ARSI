@@ -34,12 +34,12 @@ Starting from the inference example, replace its `policy` and `bindings.proposer
 
 ```yaml
 policy:
-  ref: policy.parameter-optuna
+  id: policy.parameter-optuna
   config:
     maxTrials: 50
 bindings:
   proposer:
-    ref: proposer.optuna
+    plugin: proposer.optuna
     config:
       path: tuning.json
       python:

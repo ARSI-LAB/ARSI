@@ -83,7 +83,7 @@ export async function validateReflection(
     const definition = await readYaml(absolute);
     if (Object.hasOwn(definition, 'rules'))
       throw new Error(
-        'rules: migrate legacy Reflection rules to evidence, targets, goal and implementation; invoke use: reflection explicitly in the Policy',
+        'rules: migrate legacy Reflection rules to evidence, targets, goal and implementation; add an explicit type: reflection step in the Policy',
       );
     unknownKeys(
       definition,
@@ -106,7 +106,7 @@ export async function validateReflection(
       );
       const binding = bindings[name];
       if (!binding) throw new Error(`targets.${name}: unknown binding`);
-      const plugin = getDefinition(binding.ref);
+      const plugin = getDefinition(binding.plugin);
       selectedResourceFields(plugin.configSchema, binding.config, resources);
       await validatePaths(
         plugin.configSchema,
@@ -120,7 +120,7 @@ export async function validateReflection(
     await validateEditableDestinations(
       Object.entries(targets).flatMap(([binding, target]) =>
         selectedResourceFields(
-          getDefinition(bindings[binding]!.ref).configSchema,
+          getDefinition(bindings[binding]!.plugin).configSchema,
           bindings[binding]!.config,
           target.resources,
         ).map((field) => ({
@@ -216,7 +216,7 @@ export async function validateReflection(
         throw new Error(
           `implementation.config.agentRef: unknown binding ${agentRef}`,
         );
-      if (getDefinition(agent.ref).contract.id !== 'contract.agent')
+      if (getDefinition(agent.plugin).contract.id !== 'contract.agent')
         throw new Error(
           `implementation.config.agentRef: ${agentRef} must implement contract.agent`,
         );

@@ -10,23 +10,23 @@
 
 内置事件由框架在对应执行位置自动发布，插件直接订阅即可。
 
-| 事件                            | 发布时机                                                   | 分发方式    |
-| ------------------------------- | ---------------------------------------------------------- | ----------- |
-| `rsi/before-experiment`         | Application 初始化或恢复执行之前                           | `serial`    |
-| `rsi/experiment-started`        | 实验的 `running` 记录保存后，根 Policy 执行前              | `emit`      |
-| `rsi/experiment-finished`       | 关闭新业务调用并保存实验终态后                             | `parallel`  |
-| `rsi/before-call`               | 输入、预算检查和运行中回执保存后，实际插件/子Policy 调用前 | `waterfall` |
-| `rsi/call-succeeded`            | 输出校验、成功回执保存后，返回插件/子Policy 调用结果前     | `parallel`  |
-| `rsi/call-failed`               | 失败回执保存后，报告插件/子Policy 原始错误前               | `parallel`  |
-| `rsi/call-cancelled`            | 取消回执保存后，报告插件/子Policy 取消前                   | `parallel`  |
-| `rsi/call-unknown`              | 插件/子Policy执行结果未确认的回执保存后                    | `parallel`  |
-| `rsi/policy-started`            | 输入、配置和恢复身份校验后，Policy 执行 `init` 前          | `serial`    |
-| `rsi/policy-step-completed`     | Policy 中新执行步骤的检查点保存后                          | `emit`      |
-| `rsi/policy-boundary-completed` | Loop/Policy 执行边界的回调 以及 检查点保存                 | `serial`    |
-| `rsi/policy-completed`          | Policy 最终输出校验后                                      | `emit`      |
-| `rsi/candidate-recorded`        | candidate 保存后                                           | `emit`      |
-| `rsi/measurement-recorded`      | measurement 校验并保存后                                   | `emit`      |
-| `rsi/revision-activated`        | 激活记录保存、有效绑定及已有插件实例的订阅切换后           | `emit`      |
+| 事件                            | 发布时机                                          | 分发方式    |
+| ------------------------------- | ------------------------------------------------- | ----------- |
+| `rsi/before-experiment`         | Application 初始化或恢复执行之前                  | `serial`    |
+| `rsi/experiment-started`        | 实验的 `running` 记录保存后，根 Policy 执行前     | `emit`      |
+| `rsi/experiment-finished`       | 关闭新业务调用并保存实验终态后                    | `parallel`  |
+| `rsi/before-call`               | 输入、预算检查和运行中回执保存后，实际插件 调用前 | `waterfall` |
+| `rsi/call-succeeded`            | 输出校验、成功回执保存后，返回插件 调用结果前     | `parallel`  |
+| `rsi/call-failed`               | 失败回执保存后，报告插件 原始错误前               | `parallel`  |
+| `rsi/call-cancelled`            | 取消回执保存后，报告插件 取消前                   | `parallel`  |
+| `rsi/call-unknown`              | 插件执行结果未确认的回执保存后                    | `parallel`  |
+| `rsi/policy-started`            | 输入、配置和恢复身份校验后，Policy 执行首个步骤前 | `serial`    |
+| `rsi/policy-step-completed`     | Policy 中新执行步骤的检查点保存后                 | `emit`      |
+| `rsi/policy-boundary-completed` | Loop/Policy 执行边界的检查点保存后                | `serial`    |
+| `rsi/policy-completed`          | Policy 最终输出校验后                             | `emit`      |
+| `rsi/candidate-recorded`        | candidate 保存后                                  | `emit`      |
+| `rsi/measurement-recorded`      | measurement 校验并保存后                          | `emit`      |
+| `rsi/revision-activated`        | 激活记录保存、有效绑定及已有插件实例的订阅切换后  | `emit`      |
 
 四种分发方式：
 
@@ -42,8 +42,9 @@
 | `experimentId`、`recipeId`                   | 所属实验与 Recipe；`recipeId` 来自 `recipe.id`，三个实验事件都携带它 |
 | `resumed`                                    | 是否从已保存状态恢复执行                                             |
 | `callId`、`parentCallId`、`path`             | 被观察的调用、上层调用及流程中的执行位置                             |
-| `bindingId`、`bindingRef`、`revisionRef`     | 实验中的绑定名、绑定指向的插件或子 Policy、调用使用的修订引用        |
+| `bindingId`、`bindingRef`、`revisionRef`     | 实验中的绑定名、绑定指向的插件、调用使用的修订引用                   |
 | `policyId`、`policyScopeId`、`checkpointRef` | Policy 定义、本次逻辑执行身份及检查点引用                            |
+| `stepPath`                                   | Policy 步骤或循环轮次边界的位置；步骤不携带固定生命周期阶段标签      |
 | `candidateRef`、`measurementRef`             | 已保存的候选或测量引用；成功调用事件中的 `measurementRef` 是可选字段 |
 
 ## 2. 监听内置事件
@@ -60,7 +61,7 @@ factoryCtx.event.on('rsi/call-succeeded', async (event, ctx) => {
 });
 ```
 
-- 将 `evaluator` 换成实际的 binding 名，它不是插件实现的 `ref`。`event.callId` 是被观察的调用 ID；`ctx.callId` 是本次监听的执行 ID。
+- 将 `evaluator` 换成实际的 binding 名，它不是选择插件实现的 `plugin`。`event.callId` 是被观察的调用 ID；`ctx.callId` 是本次监听的执行 ID。
 
 - `factoryCtx` 和 `ctx` 两者的类型都是 `RuntimeContext`，但对应不同的执行阶段。用两个名字，是为了在同一段代码里区分外层和内层变量，避免都叫 `ctx` 时内层遮蔽外层。
 

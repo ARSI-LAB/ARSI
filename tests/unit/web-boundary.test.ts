@@ -84,6 +84,6 @@ test('the observation HTTP client explicitly sends GET requests to the query int
     recorded: true,
   });
   assert.deepEqual(requests, [
-    { url: '/api/observation/experiments/example', method: 'GET' },
+    { url: 'api/observation/experiments/example', method: 'GET' },
   ]);
 });

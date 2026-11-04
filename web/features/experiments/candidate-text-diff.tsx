@@ -1,7 +1,7 @@
+import { subscribeRetry } from '../../api/connection-state';
 import React, { useEffect, useState } from 'react';
 import { useRoute, replaceRouteSelection } from '../../app/use-route';
 import { Feedback } from '../../components/observation-feedback';
-import { Card, CardContent, CardHeader } from '../../components/ui/card';
 import {
   changedLines,
   loadCandidateDiff,
@@ -21,6 +21,7 @@ export function CandidateTextDiff({
     error: '',
   });
   const [revision, setRevision] = useState(0);
+  useEffect(() => subscribeRetry(() => setRevision((value) => value + 1)), []);
   const selected = useRoute().diffFile;
   const setSelected = (diffFile: string): void =>
     replaceRouteSelection({ diffFile });
@@ -54,102 +55,97 @@ export function CandidateTextDiff({
     state.data?.changes.filter((change) => change.kind === 'unavailable')
       .length ?? 0;
   return (
-    <Card>
-      <CardHeader>
-        <h2>Changes from parent</h2>
-      </CardHeader>
-      <CardContent>
-        <Feedback
-          loading={!state.data && !state.error}
-          error={state.error}
-          refresh={() => setRevision((value) => value + 1)}
-        />
-        {state.data ? (
-          <>
-            <p className="muted">
-              {comparableChanges} changed text{' '}
-              {comparableChanges === 1 ? 'file' : 'files'} ·{' '}
-              {state.data.unchanged} unchanged
-              {unavailable ? ` · ${unavailable} not comparable` : ''}
-            </p>
-            {state.data.changes.length ? (
-              <div className="diff-workspace">
-                <nav className="diff-file-list" aria-label="Changed files">
-                  {state.data.changes.map((change) => (
+    <div className="candidate-file-content">
+      <Feedback
+        loading={!state.data && !state.error}
+        error={state.error}
+        refresh={() => setRevision((value) => value + 1)}
+      />
+      {state.data ? (
+        <>
+          <p className="muted">
+            {comparableChanges} changed text{' '}
+            {comparableChanges === 1 ? 'file' : 'files'} ·{' '}
+            {state.data.unchanged} unchanged
+            {unavailable ? ` · ${unavailable} not comparable` : ''}
+          </p>
+          {state.data.changes.length ? (
+            <div className="diff-workspace">
+              <nav className="diff-file-list" aria-label="Changed files">
+                {state.data.changes.map((change) => (
+                  <button
+                    key={change.path}
+                    className="quiet-button"
+                    aria-pressed={change.path === currentFile?.path}
+                    onClick={() => setSelected(change.path)}
+                  >
+                    <span>{change.kind}</span>
+                    <code>{change.path}</code>
+                  </button>
+                ))}
+              </nav>
+              <section className="section-stack" aria-label="File changes">
+                {selected && !currentFile ? (
+                  <p className="filter-note">
+                    The selected file is not among this candidate's recorded
+                    changes.{' '}
                     <button
-                      key={change.path}
                       className="quiet-button"
-                      aria-pressed={change.path === currentFile?.path}
-                      onClick={() => setSelected(change.path)}
+                      onClick={() =>
+                        replaceRouteSelection({ diffFile: undefined })
+                      }
                     >
-                      <span>{change.kind}</span>
-                      <code>{change.path}</code>
+                      Clear file selection
                     </button>
-                  ))}
-                </nav>
-                <section className="section-stack" aria-label="File changes">
-                  {selected && !currentFile ? (
-                    <p className="filter-note">
-                      The selected file is not among this candidate's recorded
-                      changes.{' '}
-                      <button
-                        className="quiet-button"
-                        onClick={() =>
-                          replaceRouteSelection({ diffFile: undefined })
-                        }
-                      >
-                        Clear file selection
-                      </button>
-                    </p>
-                  ) : null}
-                  <h3>{currentFile?.path}</h3>
-                  {currentFile?.reason ? (
-                    <p className="filter-note">{currentFile.reason}</p>
-                  ) : currentFile ? (
-                    <>
-                      {lines.length > 400 ? (
-                        <p className="filter-note">
-                          Showing the first 400 comparison lines. Use Full files
-                          to read the saved previews.
-                        </p>
-                      ) : null}
-                      <div
-                        className="diff-code"
-                        tabIndex={0}
-                        role="region"
-                        aria-label="Text diff"
-                      >
-                        {lines.slice(0, 400).map((line, index) => (
-                          <div
-                            className="diff-line"
-                            data-kind={line.kind}
-                            key={index}
-                          >
-                            <span>{line.before ?? ''}</span>
-                            <span>{line.after ?? ''}</span>
-                            <code>
-                              {line.kind === 'removed'
-                                ? '-'
-                                : line.kind === 'added'
-                                  ? '+'
-                                  : ' '}{' '}
-                              {line.text || ' '}
-                            </code>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : null}
-                </section>
-              </div>
-            ) : (
-              <p className="empty-state">
-                No readable text changes from the parent version.
-              </p>
-            )}
-          </>
-        ) : null}
-      </CardContent>
-    </Card>
+                  </p>
+                ) : null}
+                <h3>{currentFile?.path}</h3>
+                {currentFile?.reason ? (
+                  <p className="filter-note">{currentFile.reason}</p>
+                ) : currentFile ? (
+                  <>
+                    {lines.length > 400 ? (
+                      <p className="filter-note">
+                        Showing the first 400 comparison lines. Use Full files
+                        to read the saved previews.
+                      </p>
+                    ) : null}
+                    <div
+                      className="diff-code"
+                      tabIndex={0}
+                      role="region"
+                      aria-label="Text diff"
+                    >
+                      {lines.slice(0, 400).map((line, index) => (
+                        <div
+                          className="diff-line"
+                          data-kind={line.kind}
+                          key={index}
+                        >
+                          <span>{line.before ?? ''}</span>
+                          <span>{line.after ?? ''}</span>
+                          <code>
+                            {line.kind === 'removed'
+                              ? '-'
+                              : line.kind === 'added'
+                                ? '+'
+                                : ' '}{' '}
+                            {line.text || ' '}
+                          </code>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </section>
+            </div>
+          ) : (
+            <p className="empty-state">
+              No readable text changes from the parent version.
+            </p>
+          )}
+        </>
+      ) : null}
+    </div>
   );
 }

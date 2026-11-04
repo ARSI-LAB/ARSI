@@ -82,6 +82,17 @@ RSI 不会自动加载 `.env` 文件。请在启动 CLI 或 Web 服务的进程�
 
 所有 `agent.pi` 会话默认提供 `run_subagent`，子代理也可继续委派。各 Agent 自主决定是否委派及如何分工，不额外限制委派层数或子代理数量；各层共用 Runtime 预算和取消机制，启动子代理不会重置预算。子代理使用同一 Agent 绑定，拥有独立对话和明确传入的虚拟文件。详见 [Reflection 机制](reflection.md#reflection-机制)。
 
+要使用本机已安装的 Codex CLI 及其已有登录、provider、模型和推理配置，将 Agent 绑定替换为：
+
+```yaml
+bindings:
+  agent:
+    ref: agent.codex
+    config: {}
+```
+
+使用启动 RSI 的同一系统用户执行 `codex login status`；尚未登录时执行 `codex login`。RSI 继承 `CODEX_HOME` 及 provider 所需的环境变量。已安装的 CLI 必须支持 `app-server` 配置查询和 `exec`。[Codex 配置 Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、`timeoutMs`（默认 `600000`）和可选的 `model`。不填 `model` 时使用本机默认模型；填写时（例如 `config: { model: your-model }`）仅为本次执行指定模型，保留本机认证且不改写本机配置。请移除原先的 `base_url`、`api_key` 和 `thinkingLevel` 字段。本机 provider 必须使用 Responses API。RSI 仍通过本地网关逐次控制模型调用预算和拦截工具，并禁用任务中的 hooks、MCP 服务与插件。此绑定只配置优化器；评测器仍需单独配置模型凭据。
+
 ### Recipe 配置
 
 从完整示例开始，保持 `recipe.yaml`、`target.yaml` 和 `baseline/` 配套。相对资源路径以声明该路径的文件为基准解析。以下是仅含一个任务的 Harness² Recipe：

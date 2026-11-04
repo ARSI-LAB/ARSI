@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Runtime } from '../../runtime/context.js';
-import { parseCommand } from './commands.js';
+import { CommandUsageError, parseCommand } from './commands.js';
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   let runtime: Runtime | undefined;
   const controller = new AbortController();
@@ -93,6 +93,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     return 0;
   } catch (error) {
+    if (error instanceof CommandUsageError) {
+      process.stderr.write(error.helpText);
+      return 2;
+    }
     process.stderr.write(errorText(error) + '\n');
     return controller.signal.aborted ? 130 : 1;
   } finally {

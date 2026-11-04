@@ -37,14 +37,14 @@ Evidence references are measurement identities, not arbitrary local paths. Use `
 
 ## Current Reflection protocol
 
-A Policy containing `use: reflection` must declare `defaults.reflection.configFile` so it can compile. A Recipe may override the selected complete file with `reflection.configFile`; file contents do not merge. The module declares:
+A Policy containing `type: reflection` must declare `defaults.reflection.configFile` so it can compile. A Recipe may override the selected complete file with `reflection.configFile`; file contents do not merge. The module declares:
 
 ```yaml
 evidence: [proposer, evaluator, selector, memory]
 targets:
   proposer:
     resources: [guidance]
-goal: Improve general checking guidance from observed execution.
+goal: ./reflection-goal.md
 implementation:
   contract: contract.reflection
   ref: reflection.agent
@@ -62,12 +62,12 @@ Invoke explicitly at a serial Policy boundary:
 
 ```yaml
 - id: improve_guidance
-  use: reflection
+  type: reflection
 ```
 
-No ordinary `require.reflection` or Recipe binding is needed for this special Runtime-managed call; `with` may be omitted (empty input). Configuring a file alone does not invoke Reflection. The included Policy calls it after completed calls and Memory, leaving another iteration to consume activated guidance. Do not place it in concurrent branches.
+No ordinary `require.reflection` or Recipe binding is needed. The Reflection step takes no `use`, `with` or per-call configuration fields. Configuring a file alone does not invoke Reflection. The included Policy calls it after completed calls and Memory, leaving another iteration to consume activated guidance. Do not place it in concurrent branches.
 
-Evidence requires at least **three eligible completed calls** in the scoped execution; merely listing three binding names is insufficient. The **Policy step output** (`loop.improve_guidance.output` in the examples) contains `reflectionId`, `status` (`activated`, `no-change`, `skipped`, `rejected`), `reason`, and `revisionRefs`. Insufficient evidence can legitimately return skipped. Structural acceptance means the revision is within resource boundaries, not that its quality is better.
+Evidence requires at least **three eligible completed calls** in the scoped execution; merely listing three binding names is insufficient. The **Policy step output** (`steps.improve_guidance.output` in the examples) contains `reflectionId`, `status` (`activated`, `no-change`, `skipped`, `rejected`), `reason`, and `revisionRefs`. Insufficient evidence can legitimately return skipped. Structural acceptance means the revision is within resource boundaries, not that its quality is better.
 
 `revisionRefs` is an object keyed by binding name, not an array. For a revision to the `proposer` binding, an activated result has the shape `{ status: 'activated', revisionRefs: { proposer: '<revision-ref>' }, ... }`. Read `result.revisionRefs.proposer`; for multiple affected bindings, iterate `Object.entries(result.revisionRefs)`. Non-activated results can have an empty object. A later call receipt has a singular `revisionRef` string (or `null`), which should equal the entry for that call's binding.
 

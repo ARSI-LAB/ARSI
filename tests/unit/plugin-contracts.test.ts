@@ -6,10 +6,7 @@ import { join, resolve } from 'node:path';
 import { stringify } from 'yaml';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
-import {
-  loadRecipe,
-  resolveBindingPaths,
-} from '../../src/runtime/loaders/index.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { proposerContract } from '../../src/contracts/plugin-types/index.js';
 import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
 import {
@@ -79,17 +76,15 @@ test('wrong public types fail validation and actual startup before calls while a
   const root = await mkdtemp(join(tmpdir(), 'rsi-contract-'));
   const runtime = await createRuntime({ rootDirectory: root });
   try {
-    const recipe = await loadRecipe(
+    const loaded = await Recipe.load(
       resolve('examples/harness/dsh-harness2/recipe.yaml'),
+      runtime.registry,
     );
-    for (const binding of Object.values(recipe.bindings))
-      resolveBindingPaths(
-        binding,
-        runtime.registry.get(binding.ref).configSchema,
-        resolve('examples/harness/dsh-harness2'),
-      );
-    recipe.bindings.invariantProposer = {
-      ref: 'memory.agent',
+    const recipe = loaded.toJSON();
+    const bindings =
+      recipe.bindings as import('../../src/contracts/index.js').JsonObject;
+    bindings.invariantProposer = {
+      plugin: 'memory.agent',
       config: { prompt: resolve('src/policies/harness2/memory.md') },
     };
     const path = join(root, 'recipe.yaml');
@@ -107,8 +102,8 @@ test('wrong public types fail validation and actual startup before calls while a
       ...proposerDefinition,
       id: 'proposer.alternative',
     });
-    recipe.bindings.invariantProposer = {
-      ref: 'proposer.alternative',
+    bindings.invariantProposer = {
+      plugin: 'proposer.alternative',
       config: {
         prompt: resolve('src/policies/harness2/prompts/invariant.md'),
         guidance: resolve('src/policies/harness2/guidance/invariant-proposer'),
@@ -134,10 +129,11 @@ test('Policy requirements resolve registered contract IDs and report unknown IDs
     input_schema: { type: 'object' },
     output_schema: { type: 'object' },
     require: { editor: { contract: proposerContract.id } },
+    steps: [],
     output: {},
   };
   const policy = compilePolicy(definition, { contracts: registry });
-  assert.deepEqual(policy.require.editor, proposerContract);
+  assert.deepEqual(policy.requirements.editor, proposerContract);
   const custom = { ...proposerContract, id: 'contract.custom-proposer' };
   registry.registerContract(custom);
   const customDefinition = {
@@ -145,7 +141,7 @@ test('Policy requirements resolve registered contract IDs and report unknown IDs
     require: { editor: { contract: custom.id } },
   };
   const customPolicy = compilePolicy(customDefinition, { contracts: registry });
-  assert.deepEqual(customPolicy.require.editor, custom);
+  assert.deepEqual(customPolicy.requirements.editor, custom);
   const otherRegistry = new Registry();
   t.after(() => otherRegistry.dispose());
   otherRegistry.registerContract({

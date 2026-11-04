@@ -17,7 +17,6 @@ import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { collectReflectionEvidence } from '../../src/runtime/revisions/evidence.js';
 import { object, string } from '../../src/shared/json.js';
-
 for (const consumer of ['Manager', 'Reflection'] as const) {
   test(`${consumer} uses Measurement ownership without visibility metadata`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'rsi-evidence-ownership-'));
@@ -167,8 +166,8 @@ for (const consumer of ['Manager', 'Reflection'] as const) {
           input_schema: { type: 'object' },
           output_schema: { type: 'object' },
           require: { reader: { contract: driver.contract.id } },
-          init: { steps: [{ id: 'read', use: 'reader', with: {} }] },
-          output: '${{ init.read.output }}',
+          output: '${{ steps.read.output }}',
+          steps: [{ id: 'read', type: 'invoke', use: 'reader', with: {} }],
         }),
       );
       registry.registerPolicy('test.policy', join(root, 'policy.yaml'));
@@ -178,14 +177,14 @@ for (const consumer of ['Manager', 'Reflection'] as const) {
           schemaVersion: 'rsi.recipe/v1',
           id: 'ownership',
           application: {
-            ref: 'test.application',
+            plugin: 'test.application',
             config: {
               baseline: { directory: './baseline' },
               target: { schema: { type: 'object' } },
             },
           },
-          policy: { ref: 'test.policy', config: {}, input: {} },
-          bindings: { reader: { ref: driver.id, config: {} } },
+          policy: { id: 'test.policy', config: {}, input: {} },
+          bindings: { reader: { plugin: driver.id, config: {} } },
           budget: { operations: 2, elapsedWallMs: 10000 },
         }),
       );

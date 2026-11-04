@@ -66,9 +66,9 @@ test('Manager invokes exact Agent bindings and never falls back to an implementa
     {
       plugins: [agent],
       bindings: {
-        first: { ref: agent.id, config: { label: 'first' } },
-        second: { ref: agent.id, config: { label: 'second' } },
-        'agent.default': { ref: agent.id, config: { label: 'default' } },
+        first: { plugin: agent.id, config: { label: 'first' } },
+        second: { plugin: agent.id, config: { label: 'second' } },
+        'agent.default': { plugin: agent.id, config: { label: 'default' } },
       },
     },
   );

@@ -3,7 +3,7 @@ import { parseArtifact, type JsonPreview } from '../../api/observation-client';
 import { route } from '../../app/routing';
 import { useRoute, replaceRouteSelection } from '../../app/use-route';
 import { Feedback, Pagination } from '../../components/observation-feedback';
-import { Card, CardContent, CardHeader } from '../../components/ui/card';
+import { CardHeader } from '../../components/ui/card';
 import {
   fileEntries,
   parentDirectory,
@@ -68,12 +68,14 @@ export function ArtifactBrowser({
   candidate,
   file,
   directory,
+  embedded = false,
 }: {
   id: string;
   artifact: string;
   candidate?: string;
   file?: string;
   directory?: string;
+  embedded?: boolean;
 }): React.JSX.Element {
   const base = `/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifact)}`;
   const metadata = useObservation(base, parseArtifact, null);
@@ -119,11 +121,13 @@ export function ArtifactBrowser({
       diffFile: location.diffFile,
     });
   return (
-    <Card>
-      <CardHeader>
-        <h2>Candidate files</h2>
-      </CardHeader>
-      <CardContent>
+    <div className={embedded ? 'candidate-file-content' : 'ui-card'}>
+      {!embedded ? (
+        <CardHeader>
+          <h2>Candidate files</h2>
+        </CardHeader>
+      ) : null}
+      <div className={embedded ? undefined : 'ui-card-content'}>
         <Feedback {...metadata} />
         {metadata.data ? (
           metadata.data.kind === 'file-tree' ? (
@@ -323,7 +327,7 @@ export function ArtifactBrowser({
             </>
           )
         ) : null}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

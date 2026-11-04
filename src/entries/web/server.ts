@@ -13,7 +13,7 @@ export interface ServerRuntime {
   manager: Pick<
     Manager,
     'list' | 'get' | 'run' | 'cancel' | 'facts' | 'artifacts'
-  >;
+  > & { readonly directory?: string };
   registry: Pick<Registry, 'catalog'>;
 }
 /** HTTP adapts Runtime calls; jobs survive the lifetime of an individual browser request. */
@@ -52,7 +52,11 @@ export async function createServer(
   });
   registerObservationRoutes(
     app,
-    new ObservationQueries(runtime.manager.facts, runtime.manager.artifacts),
+    new ObservationQueries(
+      runtime.manager.facts,
+      runtime.manager.artifacts,
+      runtime.manager.directory,
+    ),
   );
   app.get('/api/catalog', async () => runtime.registry.catalog());
   app.get('/api/experiments', async () => {

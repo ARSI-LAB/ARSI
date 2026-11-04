@@ -1,3 +1,12 @@
+import { createHash } from 'node:crypto';
+import { open } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { join, resolve } from 'node:path';
+import type {
+  CallTrace,
+  CallInstructions,
+  ObservationSource,
+} from '../../contracts/observation.js';
 import type {
   ArtifactStore,
   FactStore,
@@ -25,6 +34,12 @@ import { validate } from '../../shared/schema.js';
 import { measurementItemsSchema } from '../../contracts/models/measurement.js';
 import { parseFileTree } from '../../contracts/models/file-tree.js';
 import { safeId } from '../storage/index.js';
+
+function restrictedFile(path: string): boolean {
+  return /(^|\/)(\.env(?:\..*)?|\.npmrc|\.?netrc|credentials(?:\.json|\.ya?ml|\.toml)?|secrets?\.(?:json|ya?ml|toml)|id_(?:rsa|ed25519|ecdsa|dsa)|private[-_]?key(?:\.pem|\.key)?|[^/]+\.(?:p12|pfx))$/i.test(
+    path,
+  );
+}
 
 const secretField =
   /api[-_]?key|token|secret|password|authorization|credential/i;
@@ -82,9 +97,16 @@ function page<T>(items: T[], offset: number, limit: number): Page<T> {
 /** Reads through existing stores; never writes facts, executes plugins, or interprets Policy outputs. */
 export class ObservationQueries {
   constructor(
-    private readonly facts: Pick<FactStore, 'read' | 'list'>,
+    private readonly facts: Pick<FactStore, 'read' | 'list'> & {
+      scan?(kind: string): AsyncIterable<JsonObject>;
+    },
     private readonly artifacts: Pick<ArtifactStore, 'readJson'>,
+    private readonly directory?: string,
   ) {}
+
+  source(): ObservationSource {
+    return { directory: this.directory ? resolve(this.directory) : null };
+  }
 
   private async experiment(id: string): Promise<JsonObject> {
     return this.facts.read('experiments', safeId(id));
@@ -161,7 +183,7 @@ export class ObservationQueries {
     const experiment = await this.experiment(id);
     if (experiment.output !== undefined) collect(experiment.output);
     for (const kind of ['candidates', 'measurements', 'calls'] as const)
-      for (const entry of await this.owned(kind, id)) {
+      for await (const entry of this.scanOwned(kind, id)) {
         if (kind === 'candidates') collect(entry.artifactRef!);
         else if (kind === 'calls') {
           if (entry.output !== undefined) collect(entry.output);
@@ -209,7 +231,11 @@ export class ObservationQueries {
     offset = 0,
     limit = 50,
   ): Promise<ArtifactPreview> {
-    if (!(await this.artifactRefs(id)).has(ref))
+    const candidates = await this.owned('candidates', id);
+    if (
+      !candidates.some((candidate) => candidate.artifactRef === ref) &&
+      !(await this.artifactRefs(id)).has(ref)
+    )
       throw Object.assign(new Error('Artifact not found in experiment'), {
         statusCode: 404,
       });
@@ -226,6 +252,13 @@ export class ObservationQueries {
         tree.files.map((file) => ({
           path: file.path,
           bytes: Buffer.byteLength(file.base64, 'base64'),
+          ...(restrictedFile(file.path)
+            ? {}
+            : {
+                digest: createHash('sha256')
+                  .update(Buffer.from(file.base64, 'base64'))
+                  .digest('hex'),
+              }),
         })),
         offset,
         limit,
@@ -243,11 +276,7 @@ export class ObservationQueries {
         throw Object.assign(new Error('File not found in artifact'), {
           statusCode: 404,
         });
-      if (
-        /(^|\/)(\.env(?:\..*)?|[^/]*(?:credential|secret|token|password|private[-_]?key)[^/]*|id_rsa|id_ed25519)$/i.test(
-          path,
-        )
-      )
+      if (restrictedFile(path))
         return {
           ref,
           kind: 'file-tree',
@@ -284,15 +313,12 @@ export class ObservationQueries {
           content: null,
           unavailable: 'Binary content is not previewed.',
         };
-      text = redactText(text, secrets)
-        .replace(
-          /((?:api[-_]?key|token|secret|password|authorization|credential)["']?\s*[:=]\s*)[^\r\n]+/gi,
-          '$1[REDACTED]',
-        )
-        .replace(
-          /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,
-          '[REDACTED]',
-        );
+      // Ordinary source and documentation are not credential assignments.
+      // Replace confirmed secret values and embedded private keys only.
+      text = redactText(text, secrets).replace(
+        /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,
+        '[REDACTED]',
+      );
       return {
         ref,
         kind: 'file-tree',
@@ -362,11 +388,70 @@ export class ObservationQueries {
       output: this.preview(record.output, secrets),
     };
   }
-  private async owned(kind: string, id: string): Promise<JsonObject[]> {
+  private callScan: Promise<JsonObject[]> | undefined;
+
+  private async *scanOwned(
+    kind: string,
+    id: string,
+  ): AsyncGenerator<JsonObject> {
     await this.experiment(id);
-    return (await this.facts.list(kind)).filter(
-      (entry) => entry.experimentId === id,
-    );
+    const entries = this.facts.scan
+      ? this.facts.scan(kind)
+      : await this.facts.list(kind);
+    for await (const entry of entries)
+      if (entry.experimentId === id) yield entry;
+  }
+
+  /** Share concurrent scans; retain only list/provenance fields, never call payloads. */
+  private compactCalls(): Promise<JsonObject[]> {
+    if (this.callScan) return this.callScan;
+    const scan = async (): Promise<JsonObject[]> => {
+      const records: JsonObject[] = [];
+      const entries = this.facts.scan
+        ? this.facts.scan('calls')
+        : await this.facts.list('calls');
+      for await (const entry of entries) {
+        const compact: JsonObject = {};
+        for (const key of [
+          'experimentId',
+          'callId',
+          'parentCallId',
+          'bindingId',
+          'pluginId',
+          'path',
+          'status',
+          'startedAt',
+          'finishedAt',
+          'error',
+        ])
+          if (entry[key] !== undefined) compact[key] = entry[key];
+        const output = entry.output;
+        if (output && typeof output === 'object' && !Array.isArray(output)) {
+          compact.output = {};
+          for (const key of ['candidateRef', 'initialCandidateRef'])
+            if (typeof output[key] === 'string')
+              compact.output[key] = output[key];
+        }
+        records.push(compact);
+      }
+      return records;
+    };
+    this.callScan = scan().finally(() => {
+      this.callScan = undefined;
+    });
+    return this.callScan;
+  }
+
+  private async owned(kind: string, id: string): Promise<JsonObject[]> {
+    if (kind === 'calls') {
+      await this.experiment(id);
+      return (await this.compactCalls()).filter(
+        (entry) => entry.experimentId === id,
+      );
+    }
+    const records: JsonObject[] = [];
+    for await (const entry of this.scanOwned(kind, id)) records.push(entry);
+    return records;
   }
   private call(record: JsonObject, secrets: string[]): CallSummary {
     return {
@@ -398,13 +483,116 @@ export class ObservationQueries {
       limit,
     );
   }
-  async callDetail(id: string, callId: string): Promise<CallDetail> {
-    const secrets = await this.secrets(id),
-      record = await this.facts.read('calls', safeId(callId));
+  async callTrace(
+    id: string,
+    callId: string,
+    offset = 0,
+    limit = 50,
+  ): Promise<CallTrace> {
+    const call = await this.ownedCall(id, callId);
+    page([], offset, limit);
+    const empty = (unavailable: string): CallTrace => ({
+      ...page([], offset, limit),
+      unavailable,
+      incomplete: false,
+    });
+    if (call.pluginId !== 'agent.pi' || !this.directory)
+      return empty('No supported agent trace is available for this call.');
+    let file;
+    try {
+      file = await open(
+        join(
+          this.directory,
+          'experiments',
+          safeId(id),
+          'calls',
+          safeId(callId),
+          'diagnostics.jsonl',
+        ),
+        constants.O_RDONLY | constants.O_NOFOLLOW,
+      );
+    } catch (error) {
+      if (missing(error))
+        return empty('No trace has been recorded for this call.');
+      throw error;
+    }
+    try {
+      const secrets = this.payloadSecrets(
+        call.output ?? null,
+        this.payloadSecrets(call.input ?? null, await this.secrets(id)),
+      );
+      const size = (await file.stat()).size;
+      const buffer = Buffer.alloc(Math.min(size, 4 * 1024 * 1024));
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+      const raw = buffer.subarray(0, bytesRead).toString('utf8');
+      const complete = raw.slice(0, raw.lastIndexOf('\n') + 1);
+      let incomplete = bytesRead < size || complete.length !== raw.length;
+      const items: CallTrace['items'] = [];
+      for (const [sequence, line] of complete.split('\n').entries()) {
+        if (!line) continue;
+        try {
+          const event: unknown = JSON.parse(line);
+          if (
+            !event ||
+            typeof event !== 'object' ||
+            !('type' in event) ||
+            typeof event.type !== 'string' ||
+            !('data' in event)
+          ) {
+            incomplete = true;
+            continue;
+          }
+          // Match serialized values so replacement cannot split a JSON escape.
+          const content = redactText(
+            JSON.stringify(event.data, null, 2),
+            secrets.map((secret) => JSON.stringify(secret).slice(1, -1)),
+          );
+          items.push({
+            sequence,
+            at: 'at' in event && typeof event.at === 'string' ? event.at : null,
+            type: event.type,
+            content: {
+              text: content.slice(0, 32768),
+              truncated: content.length > 32768,
+            },
+          });
+        } catch {
+          incomplete = true;
+        }
+      }
+      return { ...page(items, offset, limit), unavailable: null, incomplete };
+    } finally {
+      await file.close();
+    }
+  }
+  private async ownedCall(id: string, callId: string): Promise<JsonObject> {
+    const record = await this.facts.read('calls', safeId(callId));
     if (record.experimentId !== id)
       throw Object.assign(new Error('Call not found in experiment'), {
         statusCode: 404,
       });
+    return record;
+  }
+  async callInstructions(
+    id: string,
+    callId: string,
+  ): Promise<CallInstructions> {
+    const record = await this.ownedCall(id, callId);
+    const input = record.input;
+    const prompt =
+      input && typeof input === 'object' && !Array.isArray(input)
+        ? input.prompt
+        : null;
+    if (typeof prompt !== 'string') return { prompt: null };
+    const secrets = this.payloadSecrets(record.input!, await this.secrets(id));
+    const text = redactText(prompt, secrets);
+    return {
+      prompt: { text: text.slice(0, 32768), truncated: text.length > 32768 },
+    };
+  }
+  async callDetail(id: string, callId: string): Promise<CallDetail> {
+    const secrets = await this.secrets(id),
+      record = await this.ownedCall(id, callId);
     return {
       ...this.call(record, secrets),
       input: this.preview(record.input, secrets),
@@ -417,12 +605,45 @@ export class ObservationQueries {
     limit = 50,
   ): Promise<Page<CandidateSummary>> {
     const entries = await this.owned('candidates', id);
+    const calls = await this.owned('calls', id);
+    const byId = new Map(calls.map((call) => [string(call.callId), call]));
+    const originPath = (ref: string): string | null => {
+      const origins = calls
+        .filter((call) => {
+          const output = call.output;
+          return (
+            output &&
+            typeof output === 'object' &&
+            !Array.isArray(output) &&
+            (output.candidateRef === ref || output.initialCandidateRef === ref)
+          );
+        })
+        .sort((a, b) =>
+          String(a.startedAt ?? '').localeCompare(String(b.startedAt ?? '')),
+        );
+      for (const origin of origins) {
+        let call: JsonObject | undefined = origin;
+        const seen = new Set<string>();
+        while (call && !seen.has(string(call.callId))) {
+          seen.add(string(call.callId));
+          const path = optionalText(call.path);
+          if (path && /(?:^|\/)loop\/\d+\//.test(path)) return path;
+          call =
+            typeof call.parentCallId === 'string'
+              ? byId.get(call.parentCallId)
+              : undefined;
+        }
+      }
+      return null;
+    };
+
     entries.sort((a, b) => string(a.ref).localeCompare(string(b.ref)));
     return page(
       entries.map((entry) => ({
         ref: string(entry.ref),
         parentRef: optionalText(entry.parentRef),
         artifactRef: string(entry.artifactRef),
+        originPath: originPath(string(entry.ref)),
       })),
       offset,
       limit,

@@ -1,5 +1,6 @@
+import { HarnessCandidates } from './harness-candidates';
+import { useRoundLabels } from './round-labels';
 import React from 'react';
-import { candidateLabel } from './record-identifiers';
 import { parseCandidates } from '../../api/observation-client';
 import { route } from '../../app/routing';
 import { useRoute, replaceRouteSelection } from '../../app/use-route';
@@ -31,6 +32,7 @@ export function Candidates({
   file?: string;
   directory?: string;
 }): React.JSX.Element {
+  const labels = useRoundLabels();
   const result = useAllObservations(
     `/${encodeURIComponent(id)}/candidates`,
     parseCandidates,
@@ -51,7 +53,7 @@ export function Candidates({
     ? candidates.find((item) => item.ref === current.parentRef)
     : undefined;
   const matching = candidates.filter((item) =>
-    `${candidateLabel(item.ref)} ${item.ref} ${item.parentRef ?? ''} ${item.artifactRef}`
+    `${labels.candidate(item.ref)} ${item.ref} ${item.parentRef ?? ''} ${item.artifactRef}`
       .toLowerCase()
       .includes(search.trim().toLowerCase()),
   );
@@ -75,11 +77,19 @@ export function Candidates({
             candidates.length ? (
               <>
                 {candidates.length > 1 ? (
-                  <CandidateRelations
-                    id={id}
-                    candidates={candidates}
-                    selected={current?.ref}
-                  />
+                  labels.isHarness ? (
+                    <HarnessCandidates
+                      id={id}
+                      candidates={candidates}
+                      selected={current?.ref}
+                    />
+                  ) : (
+                    <CandidateRelations
+                      id={id}
+                      candidates={candidates}
+                      selected={current?.ref}
+                    />
+                  )
                 ) : null}
                 {current ? (
                   <section
@@ -88,48 +98,85 @@ export function Candidates({
                   >
                     <div className="section-heading">
                       <h3 id="candidate-detail-title">
-                        Selected candidate · {candidateLabel(current.ref)}
+                        {labels.candidate(current.ref)}
                       </h3>
-                      <a
-                        className="text-link"
-                        href={candidateLink(current.ref)}
-                      >
-                        Link to candidate
-                      </a>
                     </div>
-                    <code>{current.ref}</code>
-                    <div className="candidate-detail-actions">
-                      <a
-                        className="quiet-button"
-                        href={route(id, 'measurements', current.ref)}
-                      >
-                        View measurements →
-                      </a>
-                    </div>
-                    <dl className="facts">
-                      <dt>Parent</dt>
-                      <dd>
-                        {parent ? (
+                    {result.data && current ? (
+                      artifact && artifact !== current.artifactRef ? (
+                        <p className="error-notice" role="status">
+                          This artifact does not belong to the selected
+                          candidate.
                           <a
                             className="text-link"
-                            title={parent.ref}
-                            href={candidateLink(parent.ref)}
+                            href={candidateLink(current.ref)}
                           >
-                            {candidateLabel(parent.ref)}
+                            {' '}
+                            Show recorded candidate files
                           </a>
-                        ) : current.parentRef ? (
-                          <>
-                            <code>{current.parentRef}</code>
-                            <p className="muted">
-                              Parent record is not available in the loaded
-                              candidates.
-                            </p>
-                          </>
-                        ) : (
-                          'No parent recorded'
-                        )}
-                      </dd>
-                    </dl>
+                        </p>
+                      ) : (
+                        <>
+                          {parent ? (
+                            <div
+                              className="actions"
+                              role="group"
+                              aria-label="Candidate content"
+                            >
+                              <a
+                                className="quiet-button"
+                                aria-current={!fullFiles ? 'page' : undefined}
+                                href={route(
+                                  id,
+                                  'candidates',
+                                  current.ref,
+                                  undefined,
+                                  {
+                                    ...location,
+                                    content: 'changes',
+                                  },
+                                )}
+                              >
+                                Changes
+                              </a>
+                              <a
+                                className="quiet-button"
+                                aria-current={fullFiles ? 'page' : undefined}
+                                href={route(
+                                  id,
+                                  'candidates',
+                                  current.ref,
+                                  undefined,
+                                  {
+                                    ...location,
+                                    content: 'files',
+                                  },
+                                )}
+                              >
+                                Full files
+                              </a>
+                            </div>
+                          ) : null}
+                          {parent && !fullFiles ? (
+                            <CandidateTextDiff
+                              key={current.ref}
+                              id={id}
+                              parent={parent.artifactRef}
+                              current={current.artifactRef}
+                            />
+                          ) : (
+                            <ArtifactBrowser
+                              key={current.artifactRef}
+                              id={id}
+                              candidate={current.ref}
+                              artifact={current.artifactRef}
+                              file={file}
+                              directory={directory}
+                              embedded
+                            />
+                          )}
+                        </>
+                      )
+                    ) : null}
                   </section>
                 ) : (
                   <p className="error-notice" role="status">
@@ -146,74 +193,11 @@ export function Candidates({
           ) : null}
         </CardContent>
       </Card>
-      {result.data && current ? (
-        artifact && artifact !== current.artifactRef ? (
-          <p className="error-notice" role="status">
-            This artifact does not belong to the selected candidate.
-            <a className="text-link" href={candidateLink(current.ref)}>
-              {' '}
-              Show recorded candidate files
-            </a>
-          </p>
-        ) : (
-          <>
-            {parent ? (
-              <div
-                className="actions"
-                role="group"
-                aria-label="Candidate content"
-              >
-                <a
-                  className="quiet-button"
-                  aria-current={!fullFiles ? 'page' : undefined}
-                  href={route(id, 'candidates', current.ref, undefined, {
-                    ...location,
-                    content: 'changes',
-                  })}
-                >
-                  Changes
-                </a>
-                <a
-                  className="quiet-button"
-                  aria-current={fullFiles ? 'page' : undefined}
-                  href={route(id, 'candidates', current.ref, undefined, {
-                    ...location,
-                    content: 'files',
-                  })}
-                >
-                  Full files
-                </a>
-              </div>
-            ) : null}
-            {parent && !fullFiles ? (
-              <CandidateTextDiff
-                key={current.ref}
-                id={id}
-                parent={parent.artifactRef}
-                current={current.artifactRef}
-              />
-            ) : (
-              <ArtifactBrowser
-                key={current.artifactRef}
-                id={id}
-                candidate={current.ref}
-                artifact={current.artifactRef}
-                file={file}
-                directory={directory}
-              />
-            )}
-          </>
-        )
-      ) : null}
       {result.data && (candidates.length > 150 || search) ? (
         <div>
           <Card>
             <CardHeader>
               <h2>Candidate records</h2>
-              <p className="muted">
-                Text alternative to the graph. Search covers all{' '}
-                {candidates.length} loaded candidates.
-              </p>
             </CardHeader>
             <CardContent>
               <label className="browser-search">
@@ -236,7 +220,6 @@ export function Candidates({
                     <TableRow>
                       <TableHead>Candidate</TableHead>
                       <TableHead>Parent</TableHead>
-                      <TableHead>Explore</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -248,24 +231,15 @@ export function Candidates({
                         <TableCell>
                           <a
                             className="text-link"
-                            title={item.ref}
                             href={candidateLink(item.ref)}
                           >
-                            {candidateLabel(item.ref)}
+                            {labels.candidate(item.ref)}
                           </a>
                         </TableCell>
                         <TableCell>
-                          {item.parentRef ?? 'No parent recorded'}
-                        </TableCell>
-                        <TableCell>
-                          <div className="candidate-record-actions">
-                            <a
-                              className="text-link"
-                              href={route(id, 'measurements', item.ref)}
-                            >
-                              Measurements
-                            </a>
-                          </div>
+                          {item.parentRef
+                            ? labels.candidate(item.parentRef)
+                            : '—'}
                         </TableCell>
                       </TableRow>
                     ))}

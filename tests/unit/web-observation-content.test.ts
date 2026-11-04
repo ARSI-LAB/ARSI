@@ -27,12 +27,23 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
     files: [
       file(
         'prompt.md',
-        'Task fixture-private-value\napi_key: file-private-key\nSafe content',
+        'Task fixture-private-value\napi_key: file-private-key # keep this explanation\nmgmt_api_key_config.enable_api_key=true keeps explanatory text\nSafe content',
       ),
       file('.env', 'PRIVATE=hidden'),
       file('long.txt', 'x'.repeat(40000)),
       file('large.txt', 'x'.repeat(1024 * 1024 + 1)),
       file('binary.dat', '\0binary'),
+      file(
+        'docs/token-guide.md',
+        'token: a unit of text\nsecret: a game mechanic\npassword: use your own password',
+      ),
+      file('src/secret-utils.ts', 'export const tokenCount = 42;'),
+      file('credentials.json', '{"api_key":"private-file-value"}'),
+      file('id_ed25519', 'private-key-file'),
+      file(
+        'docs/key-example.md',
+        'Before\n-----BEGIN PRIVATE KEY-----\nprivate-block\n-----END PRIVATE KEY-----\nAfter',
+      ),
     ],
   });
   const jsonRef = await artifacts.putJson({
@@ -51,7 +62,7 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
   });
   await facts.write('experiments', 'run-alpha', {
     ...(await facts.read('experiments', 'run-alpha')),
-    output: { artifactRef: jsonRef, malformedRef },
+    output: { artifactRef: jsonRef, malformedRef, apiKey: 'file-private-key' },
   });
   const snapshot = async (): Promise<string> =>
     JSON.stringify(
@@ -68,6 +79,7 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
   const before = await snapshot();
   const server = await createServer({
     manager: {
+      directory,
       facts,
       artifacts,
       list: () => facts.list('experiments'),
@@ -82,6 +94,9 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
     registry: { catalog: () => ({ plugins: [], policies: [] }) },
   });
   t.after(() => server.close());
+  const source = await server.inject('/api/observation/source');
+  assert.equal(source.statusCode, 200);
+  assert.deepEqual(source.json(), { directory });
   const get = (path: string) =>
     server.inject('/api/observation/experiments' + path);
   const response = await get('/run-alpha/details');
@@ -97,15 +112,48 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
   const listing = parseArtifact(
     (await get(endpoint + '?limit=1&offset=1')).json(),
   );
-  assert.equal(listing.files?.total, 5);
+  assert.equal(listing.files?.total, 10);
   assert.equal(listing.files?.nextOffset, 2);
   assert.equal(listing.files?.items[0]?.path, '.env');
+  assert.equal(listing.files?.items[0]?.digest, undefined);
   const content = parseArtifact(
     (await get(endpoint + '?path=prompt.md')).json(),
   );
   assert.match(content.content!.text, /Safe content/);
+  assert.match(
+    content.files!.items.find((file) => file.path === 'prompt.md')!.digest!,
+    /^[a-f0-9]{64}$/,
+  );
+  assert.match(
+    content.content!.text,
+    /mgmt_api_key_config.enable_api_key=true keeps explanatory text/,
+  );
   assert.ok(!content.content!.text.includes('fixture-private-value'));
   assert.ok(!content.content!.text.includes('file-private-key'));
+  assert.match(
+    content.content!.text,
+    /api_key: \[REDACTED\] # keep this explanation/,
+  );
+  for (const path of ['docs/token-guide.md', 'src/secret-utils.ts']) {
+    const preview = parseArtifact(
+      (await get(endpoint + '?path=' + encodeURIComponent(path))).json(),
+    );
+    assert.equal(preview.unavailable, null);
+    assert.ok(preview.content?.text);
+    assert.ok(!preview.content.text.includes('[REDACTED]'));
+  }
+  for (const path of ['credentials.json', 'id_ed25519']) {
+    const preview = parseArtifact(
+      (await get(endpoint + '?path=' + path)).json(),
+    );
+    assert.equal(preview.content, null);
+    assert.match(preview.unavailable!, /restricted/);
+  }
+  const privateKey = parseArtifact(
+    (await get(endpoint + '?path=docs/key-example.md')).json(),
+  );
+  assert.equal(privateKey.content?.text, 'Before\n[REDACTED]\nAfter');
+
   assert.match(
     parseArtifact((await get(endpoint + '?path=.env')).json()).unavailable!,
     /restricted/,

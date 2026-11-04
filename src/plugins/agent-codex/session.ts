@@ -56,7 +56,9 @@ export async function runSession(options: {
         throw new Error(
           'Codex app-server request failed; check installed CLI compatibility and local configuration',
         );
-      if (message.id === 1) {
+      // Request IDs are independent in the two JSON-RPC directions.
+      // A server tool request may reuse an outstanding/completed client request ID.
+      if (message.method === undefined && message.id === 1) {
         send({ method: 'initialized' });
         send({
           id: 2,
@@ -73,7 +75,7 @@ export async function runSession(options: {
             dynamicTools: [readFileTool],
           },
         });
-      } else if (message.id === 2) {
+      } else if (message.method === undefined && message.id === 2) {
         const configuration = object(message.result);
         threadId = string(object(configuration.thread).id);
         await options.onConfiguration(configuration);

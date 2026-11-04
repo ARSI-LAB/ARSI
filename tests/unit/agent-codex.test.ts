@@ -77,11 +77,11 @@ function events(text: string): string {
     .join('');
 }
 
-function toolEvents(args: unknown): string {
+function toolEvents(args: unknown, serial = 0): string {
   const item = {
     type: 'function_call',
-    id: 'fc_read',
-    call_id: 'call_read',
+    id: `fc_read_${serial}`,
+    call_id: `call_read_${serial}`,
     name: 'read_file',
     arguments: JSON.stringify(args),
   };
@@ -179,7 +179,7 @@ async function fixture(
             }) +
             '\n\n'
         : reply.startsWith('READ:')
-          ? toolEvents(JSON.parse(reply.slice(5)))
+          ? toolEvents(JSON.parse(reply.slice(5)), requests.length)
           : reply === 'TOOL'
             ? 'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"exec_command","arguments":"{}"}}\n\n'
             : events(reply),
@@ -659,6 +659,31 @@ test('Codex repairs an empty final response within the same charged session', as
     assert.deepEqual(await f.run(2), { answer: 'ok' });
     assert.equal(f.charges(), 2);
     assert.ok(JSON.stringify(f.requests[1].input).includes('validationError'));
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex distinguishes numeric server tool requests from client responses with the same IDs', async () => {
+  const f = await fixture(
+    [
+      'READ:' + JSON.stringify({ path: 'one.txt' }),
+      'READ:' + JSON.stringify({ path: 'two.txt' }),
+      'READ:' + JSON.stringify({ path: 'three.txt' }),
+      '{"answer":"ok"}',
+    ],
+    {
+      files: { 'one.txt': 'first', 'two.txt': 'second', 'three.txt': 'third' },
+    },
+  );
+  try {
+    assert.deepEqual(await f.run(4), { answer: 'ok' });
+    assert.equal(f.charges(), 4);
+    const diagnostics = await readFile(
+      join(f.directory, 'diagnostics.jsonl'),
+      'utf8',
+    );
+    assert.equal(diagnostics.split('"type":"virtual_file_read"').length - 1, 3);
   } finally {
     await f.close();
   }

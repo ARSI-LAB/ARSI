@@ -46,7 +46,7 @@
     "@fastify/static": "10.1.7",
     "agent-bundle-core": "git+https://github.com/evolving-foundry/agentbundle.git#0.0.1&path:/packages/core",
     "ajv": "8.20.0",
-    "ember-evaluator": "git+https://github.com/evolving-foundry/ember-evaluator.git#c77805d479cc6fcc403f76512e715fc467252f60",
+    "ember-evaluator": "git+https://github.com/evolving-foundry/ember-evaluator.git#0.0.1",
     "exceljs": "4.4.0",
     "fastify": "5.12.7",
     "htmlparser2": "10.0.0",

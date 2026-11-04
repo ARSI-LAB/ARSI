@@ -1,5 +1,7 @@
 import { errorText } from '../../shared/errors.js';
-import { resolve } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { Runtime } from '../../runtime/context.js';
 const help = `ember-rsi — make everything rsi-able
 
@@ -29,16 +31,17 @@ function argument(args: string[], name: string): string | undefined {
   return value;
 }
 export async function main(argv = process.argv.slice(2)): Promise<number> {
-  if (!argv.length || argv.includes('--help') || argv[0] === 'help') {
-    process.stdout.write(help);
-    return 0;
-  }
   let runtime: Runtime | undefined;
   const controller = new AbortController();
   const abort = (): void => controller.abort(new Error('Interrupted'));
   process.once('SIGINT', abort);
   process.once('SIGTERM', abort);
   try {
+    await mkdir(join(homedir(), '.ember-rsi', 'plugins'), { recursive: true });
+    if (!argv.length || argv.includes('--help') || argv[0] === 'help') {
+      process.stdout.write(help);
+      return 0;
+    }
     const command = argv[0]!;
     const args: string[] = [];
     const pluginDirectories: string[] = [];

@@ -1,0 +1,31 @@
+type: object
+additionalProperties: false
+properties:
+  bestCandidateRef:
+    type: string
+    minLength: 1
+  bestMeasurementRef:
+    type: string
+    minLength: 1
+  finalMeasurementRef:
+    type: [string, 'null']
+    minLength: 1
+  finalDecisionRef:
+    type: [string, 'null']
+    minLength: 1
+  finalValidity:
+    enum: [not-run, valid, invalid]
+  stopReason:
+    const: baseline-only
+  attempts:
+    type: array
+    maxItems: 0
+
+required:
+  - bestCandidateRef
+  - bestMeasurementRef
+  - finalMeasurementRef
+  - finalDecisionRef
+  - finalValidity
+  - stopReason
+  - attempts

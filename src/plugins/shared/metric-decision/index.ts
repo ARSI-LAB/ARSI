@@ -26,7 +26,9 @@ type MetricDecision = {
   direction: 'maximize' | 'minimize';
   definitionRef: string;
   incumbentValue: number;
-  candidateValue: number;
+  candidateValue: number | null;
+  eligibility?: ConstraintCheck[];
+  minRelativeImprovement?: number;
   constraints: ConstraintCheck[];
   accepted: boolean;
   tieBreak: 'retain-incumbent';
@@ -35,39 +37,49 @@ type MetricDecision = {
 const ref = { type: 'string', minLength: 1 };
 const statistic = { enum: ['mean', 'p50', 'p95', 'p99', null] };
 const bound = { type: ['number', 'null'] };
-const shape = (properties: JsonObject): JsonObject => ({
+const shape = (
+  properties: JsonObject,
+  optional: string[] = [],
+): JsonObject => ({
   type: 'object',
   additionalProperties: false,
   properties,
-  required: Object.keys(properties),
+  required: Object.keys(properties).filter((key) => !optional.includes(key)),
 });
-export const metricDecisionSchema: JsonSchema = shape({
-  kind: { const: 'metric-decision' },
-  measurementRefs: { type: 'array', minItems: 2, maxItems: 2, items: ref },
-  itemId: { type: ['string', 'null'] },
-  metric: ref,
-  statistic,
-  direction: { enum: ['maximize', 'minimize'] },
-  definitionRef: ref,
-  incumbentValue: { type: 'number' },
-  candidateValue: { type: 'number' },
-  constraints: {
-    type: 'array',
-    items: shape({
-      metric: ref,
-      statistic,
-      definitionRef: ref,
-      min: bound,
-      max: bound,
-      incumbentValue: { type: 'number' },
-      candidateValue: { type: 'number' },
-      passed: { type: 'boolean' },
-    }),
+const checks = {
+  type: 'array',
+  items: shape({
+    metric: ref,
+    statistic,
+    definitionRef: ref,
+    min: bound,
+    max: bound,
+    incumbentValue: { type: 'number' },
+    candidateValue: { type: 'number' },
+    passed: { type: 'boolean' },
+  }),
+};
+export const metricDecisionSchema: JsonSchema = shape(
+  {
+    kind: { const: 'metric-decision' },
+    measurementRefs: { type: 'array', minItems: 2, maxItems: 2, items: ref },
+    itemId: { type: ['string', 'null'] },
+    metric: ref,
+    statistic,
+    direction: { enum: ['maximize', 'minimize'] },
+    definitionRef: ref,
+    incumbentValue: { type: 'number' },
+    candidateValue: bound,
+    eligibility: checks,
+    minRelativeImprovement: { type: 'number', minimum: 0, exclusiveMaximum: 1 },
+    constraints: checks,
+    accepted: { type: 'boolean' },
+    tieBreak: { const: 'retain-incumbent' },
+    reason: { type: 'string' },
   },
-  accepted: { type: 'boolean' },
-  tieBreak: { const: 'retain-incumbent' },
-  reason: { type: 'string' },
-});
+  // Decisions persisted before operator eligibility was added omit these fields.
+  ['eligibility', 'minRelativeImprovement'],
+);
 
 async function point(
   measurement: JsonObject,
@@ -137,6 +149,8 @@ export async function readDecisionFeedback(
   const selected = await point(measurement, decision.itemId, context);
   if (selected.status !== 'succeeded' || selected.coverage !== 'complete')
     throw new Error('Decision requires a complete successful point');
+  if (decision.candidateValue === null)
+    throw new Error('Decision feedback requires an available objective');
   if (
     metricValue(
       selected,
@@ -147,7 +161,8 @@ export async function readDecisionFeedback(
   )
     throw new Error('Decision objective does not match measurement');
   const constraints: number[] = [];
-  for (const check of decision.constraints) {
+  const checks = [...(decision.eligibility ?? []), ...decision.constraints];
+  for (const check of checks) {
     if (check.min === null && check.max === null)
       throw new Error('Decision constraint requires a bound');
     if (check.min !== null && check.max !== null && check.min > check.max)
@@ -180,7 +195,7 @@ export async function readDecisionFeedback(
       direction: decision.direction,
       itemId: decision.itemId,
       definitionRef: decision.definitionRef,
-      constraints: decision.constraints.map((c) => ({
+      constraints: checks.map((c) => ({
         metric: c.metric,
         statistic: c.statistic,
         definitionRef: c.definitionRef,

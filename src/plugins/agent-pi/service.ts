@@ -187,29 +187,32 @@ export const createAgentPi: OperationDefinition<
         const schema = object(request.outputSchema);
         validateSchemaDefinition(schema, 'Agent outputSchema');
         let turns = 0;
-        const tools: ToolDefinition[] = [
-          {
-            name: 'read_file',
-            label: 'Read authorized file',
-            description:
-              'Read one supplied virtual file; optional startLine/lineCount (1-based, at most 500 lines). List names with path=".". Never reads host files.',
-            parameters: {
-              type: 'object',
-              properties: {
-                path: { type: 'string' },
-                startLine: { type: 'integer', minimum: 1 },
-                lineCount: { type: 'integer', minimum: 1, maximum: 500 },
-              },
-              required: ['path'],
-              additionalProperties: false,
-            },
-            async execute(_id, value: unknown) {
-              signal.throwIfAborted();
-              return text(readVirtualFile(files, object(value)));
-            },
-          },
-          createSubagentTool(request, context),
-        ];
+        const tools: ToolDefinition[] =
+          request.allowTools === false
+            ? []
+            : [
+                {
+                  name: 'read_file',
+                  label: 'Read authorized file',
+                  description:
+                    'Read one supplied virtual file; optional startLine/lineCount (1-based, at most 500 lines). List names with path=".". Never reads host files.',
+                  parameters: {
+                    type: 'object',
+                    properties: {
+                      path: { type: 'string' },
+                      startLine: { type: 'integer', minimum: 1 },
+                      lineCount: { type: 'integer', minimum: 1, maximum: 500 },
+                    },
+                    required: ['path'],
+                    additionalProperties: false,
+                  },
+                  async execute(_id, value: unknown) {
+                    signal.throwIfAborted();
+                    return text(readVirtualFile(files, object(value)));
+                  },
+                },
+                createSubagentTool(request, context),
+              ];
         ({ session } = await createAgentSession({
           cwd: directory,
           agentDir: join(directory, 'agent'),

@@ -16,12 +16,18 @@ import type {
   InferencebenchInput,
   InferencebenchOutput,
   JsonObject,
+  KernelExecution,
   JsonValue,
   MemoryInput,
   MemoryOutput,
   MetricSelectorInput,
   MetricSelectorOutput,
   OperationDefinition,
+  OperatorAttemptOutcome,
+  OperatorProposerInput,
+  OperatorProposerOutput,
+  OperatorbenchInput,
+  OperatorbenchOutput,
   EventPipeline,
   ProposerInput,
   ProposerOutput,
@@ -41,6 +47,8 @@ import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.j
 import { artifactSelectorDefinition } from '../../src/plugins/selector-artifacts/index.js';
 import { metricSelectorDefinition } from '../../src/plugins/selector-metrics/index.js';
 import { gridProposerDefinition } from '../../src/plugins/proposer-grid/index.js';
+import { kernelApplicationDefinition } from '../../src/plugins/application-kernel/index.js';
+import { operatorbenchDefinition } from '../../src/plugins/evaluator-operatorbench/index.js';
 
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -117,6 +125,13 @@ export type ConcreteConfigChecks = [
   Check<Equal<Config<typeof memoryDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof reflectionDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof artifactSelectorDefinition>['prompt'], string>>,
+  Check<Equal<Config<typeof operatorbenchDefinition>['mode'], 'sdk'>>,
+  Check<
+    Equal<
+      Config<typeof kernelApplicationDefinition>['target'],
+      { schema: string | JsonObject }
+    >
+  >,
   Check<
     Equal<
       HasOpenConfig<
@@ -131,6 +146,8 @@ export type ConcreteConfigChecks = [
         | typeof artifactSelectorDefinition
         | typeof metricSelectorDefinition
         | typeof gridProposerDefinition
+        | typeof kernelApplicationDefinition
+        | typeof operatorbenchDefinition
       >,
       false
     >
@@ -158,6 +175,61 @@ export type ConcreteConfigChecks = [
         ? true
         : false,
       false
+    >
+  >,
+];
+
+export type OperatorProposerChecks = [
+  Check<
+    Equal<
+      Extract<
+        OperatorProposerInput,
+        { action: 'propose'; phase: 'static' }
+      >['baselineMeasurementRef'],
+      string
+    >
+  >,
+  Check<
+    Equal<
+      Extract<
+        OperatorProposerInput,
+        { action: 'propose'; phase: 'static' }
+      >['analysisRef'],
+      string | null
+    >
+  >,
+  Check<
+    Equal<
+      Extract<OperatorProposerInput, { action: 'repair' }>['analysisRef'],
+      string
+    >
+  >,
+  Check<
+    Equal<
+      Extract<
+        OperatorProposerOutput,
+        { action: 'propose'; status: 'created' }
+      >['diffRef'],
+      string
+    >
+  >,
+  Check<
+    Equal<
+      Extract<
+        OperatorProposerOutput,
+        { action: 'repair'; status: 'no-change' }
+      >['reasonCode'],
+      'no-supported-change'
+    >
+  >,
+  Check<
+    Equal<
+      OperatorAttemptOutcome,
+      | 'adopted'
+      | 'verified-no-gain'
+      | 'verification-failed'
+      | 'no-change'
+      | 'proposal-failed'
     >
   >,
 ];
@@ -197,6 +269,21 @@ export type PublicEventChecks = [
 // These assertions run through the repository's typecheck without diagnostic suppression.
 export type ConcreteOperationChecks = [
   Check<Equal<IO<typeof piDefinition>, [AgentInput, AgentOutput]>>,
+  Check<
+    Equal<
+      IO<typeof kernelApplicationDefinition>,
+      [ApplicationInput, ApplicationOutput]
+    >
+  >,
+  Check<
+    Equal<
+      IO<typeof operatorbenchDefinition>,
+      [OperatorbenchInput, OperatorbenchOutput]
+    >
+  >,
+  Check<Equal<KernelExecution['entryPoint'], 'kernel_function'>>,
+  Check<Equal<KernelExecution['format'], 'triton-ascend'>>,
+  Check<Equal<MetricSelectorOutput['candidateValue'], number | null>>,
   Check<
     Equal<
       IO<typeof agentbundleDefinition>,
@@ -284,7 +371,7 @@ export type ConcreteOperationChecks = [
   >,
 ];
 
-test('typed inputs and outputs satisfy all nine public contract Schemas', () => {
+test('typed inputs and outputs satisfy public contract Schemas', () => {
   const cases = [
     {
       contract: contracts.agentContract,
@@ -314,6 +401,83 @@ test('typed inputs and outputs satisfy all nine public contract Schemas', () => 
       contract: contracts.inferencebenchContract,
       input: { candidateRef: 'c' } satisfies InferencebenchInput,
       output: { measurementRef: 'm' } satisfies InferencebenchOutput,
+    },
+    {
+      contract: contracts.operatorProposerContract,
+      input: {
+        action: 'propose',
+        phase: 'static',
+        entryCandidateRef: 'c',
+        baselineMeasurementRef: 'baseline',
+        attempt: 1,
+        goal: 'Improve',
+        analysisRef: null,
+        historyRef: null,
+      } satisfies OperatorProposerInput,
+      output: {
+        action: 'propose',
+        status: 'created',
+        candidateRef: 'next',
+        diffRef: 'diff',
+        rationale: 'One change',
+        analysisRef: 'analysis',
+        reasonCode: 'created',
+      } satisfies OperatorProposerOutput,
+    },
+    {
+      contract: contracts.operatorProposerContract,
+      input: {
+        action: 'repair',
+        phase: 'static',
+        failedCandidateRef: 'c',
+        measurementRef: 'm',
+        analysisRef: 'analysis',
+        historyRef: null,
+        attempt: 1,
+        repairIndex: 1,
+        goal: 'Repair',
+      } satisfies OperatorProposerInput,
+      output: {
+        action: 'repair',
+        status: 'no-change',
+        candidateRef: 'c',
+        diffRef: null,
+        rationale: 'No supported repair',
+        analysisRef: 'analysis',
+        reasonCode: 'no-supported-change',
+      } satisfies OperatorProposerOutput,
+    },
+    {
+      contract: contracts.operatorProposerContract,
+      input: {
+        action: 'summarize',
+        phase: 'static',
+        entryCandidateRef: 'c',
+        analysisRef: 'analysis',
+        historyRef: null,
+        attempt: 1,
+        candidateRefs: ['c'],
+        measurementRefs: [],
+        decisionRef: null,
+        outcome: 'no-change',
+      } satisfies OperatorProposerInput,
+      output: {
+        action: 'summarize',
+        historyRef: 'history',
+        summaryRef: 'summary',
+      } satisfies OperatorProposerOutput,
+    },
+    {
+      contract: contracts.operatorbenchContract,
+      input: {
+        candidateRef: 'c',
+        action: 'evaluate',
+        caseIds: ['fixed'],
+      } satisfies OperatorbenchInput,
+      output: {
+        action: 'evaluate',
+        measurementRef: 'm',
+      } satisfies OperatorbenchOutput,
     },
     {
       contract: contracts.proposerContract,
@@ -389,6 +553,25 @@ test('typed inputs and outputs satisfy all nine public contract Schemas', () => 
         selectedValue: 1,
       } satisfies MetricSelectorOutput,
     },
+    {
+      contract: contracts.metricSelectorContract,
+      input: {
+        incumbentMeasurementRef: 'before',
+        candidateMeasurementRef: 'invalid',
+      } satisfies MetricSelectorInput,
+      output: {
+        accepted: false,
+        candidateFeasible: false,
+        selectedCandidateRef: 'incumbent',
+        reason: 'Candidate is ineligible',
+        decisionRef: 'd',
+        measurementRef: 'before',
+        metric: 'latencyMs',
+        incumbentValue: 10,
+        candidateValue: null,
+        selectedValue: 10,
+      } satisfies MetricSelectorOutput,
+    },
   ];
   for (const { contract, input, output } of cases) {
     assert.doesNotThrow(() =>
@@ -417,6 +600,18 @@ test('contract Schemas retain required fields, discriminated branches and collec
     {
       schema: contracts.inferencebenchContract.input_schema,
       value: { candidateRef: '' },
+    },
+    {
+      schema: contracts.operatorbenchContract.input_schema,
+      value: { action: 'evaluate', candidateRef: 'c', caseIds: [] },
+    },
+    {
+      schema: contracts.operatorbenchContract.input_schema,
+      value: {
+        action: 'evaluate',
+        candidateRef: 'c',
+        caseIds: ['fixed', 'fixed'],
+      },
     },
     {
       schema: contracts.memoryContract.output_schema,

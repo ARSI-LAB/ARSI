@@ -4,6 +4,7 @@ import { lock as acquireProcessLock } from 'proper-lockfile';
 import { join, resolve, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type {
+  BudgetSnapshot,
   ArtifactStore,
   FactStore,
   WorkspaceService,
@@ -432,6 +433,38 @@ export class Manager {
       artifacts: manager.artifacts,
       facts: manager.facts,
       workspaces: manager.workspaces,
+      async readBudget(): Promise<BudgetSnapshot> {
+        await ledger;
+        const metrics = new Set([
+          'operations',
+          'modelCalls',
+          'evaluationRuns',
+          ...Object.keys(recipe.budget).filter(
+            (key) => !['elapsedWallMs', 'cleanupReserveMs'].includes(key),
+          ),
+          ...Object.keys(usage),
+        ]);
+        const limits: Record<string, number | null> = {};
+        const used: Record<string, number> = {};
+        const remaining: Record<string, number | null> = {};
+        for (const metric of metrics) {
+          const limit = recipe.budget[metric];
+          limits[metric] = limit ?? null;
+          used[metric] = usage[metric] ?? 0;
+          remaining[metric] =
+            limit === undefined ? null : Math.max(0, limit - used[metric]!);
+        }
+        return {
+          limits,
+          used,
+          remaining,
+          remainingWallMs: Math.max(
+            0,
+            (recipe.budget.elapsedWallMs ?? 86400000) -
+              (Date.now() - Date.parse(experimentStartedAt)),
+          ),
+        };
+      },
       async charge(this: RuntimeContext, metric, amount) {
         return charge(metric, amount, this);
       },

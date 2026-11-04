@@ -1,0 +1,52 @@
+# Requires a configured NPU host. Use scripts/run-operator-sdk.mjs with explicit Python/device.
+schemaVersion: rsi.recipe/v1
+id: operator-top3-sdk-baseline
+application:
+  ref: application.kernel
+  config:
+    target:
+      schema: ./target.yaml
+    baseline:
+      directory: ./baseline
+policy:
+  ref: policy.operator-baseline
+  config:
+    caseIds: [fixed]
+bindings:
+  evaluator:
+    ref: evaluator.operatorbench
+    config:
+      mode: sdk
+      task:
+        directory: ./task
+      protocol:
+        warmup: 5
+        repeat: 20
+        rtol: 0
+        atol: 0
+        timingScope: all-device-kernels
+      sdk:
+        python: REPLACE_WITH_EXPLICIT_PYTHON
+        device: 0
+        timeoutSeconds: 900
+        profiling:
+          enabled: false
+          cacheEnabled: false
+          maxAttempts: 2
+          attemptTimeoutSeconds: 300
+          roundNum: 1
+  selector:
+    ref: selector.metric
+    config:
+      metric: latencyMeanMs
+      direction: minimize
+      eligibility:
+        - metric: candidateValid
+          min: 1
+      minRelativeImprovement: 0
+budget:
+  operations: 30
+  evaluationRuns: 2
+  modelCalls: 0
+  elapsedWallMs: 2400000
+  cleanupReserveMs: 60000

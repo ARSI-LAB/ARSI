@@ -13,7 +13,7 @@ export type MetricSelectorOutput = {
   measurementRef: string;
   metric: string;
   incumbentValue: number;
-  candidateValue: number;
+  candidateValue: number | null;
   selectedValue: number;
 };
 
@@ -44,7 +44,7 @@ export const metricSelectorContract = defineContract({
         type: 'boolean',
       },
       candidateValue: {
-        type: 'number',
+        type: ['number', 'null'],
       },
       decisionRef: {
         minLength: 1,

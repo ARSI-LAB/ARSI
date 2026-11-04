@@ -7,6 +7,7 @@ import {
 
 export const scopeRoots = [
   'application',
+  'budget',
   'config',
   'input',
   'state',

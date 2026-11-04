@@ -1,10 +1,54 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { FileFacts, FileArtifacts } from '../../src/runtime/storage/index.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createServer } from '../../src/entries/web/server.js';
+import { createRuntime } from '../../src/runtime/context.js';
+
+test('HTTP catalog exposes the registered kernel plugins and operator search Policy', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-entry-catalog-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runtime = await createRuntime({ rootDirectory: root });
+  const server = await createServer(runtime);
+  try {
+    const response = await server.inject({ url: '/api/catalog' });
+    assert.equal(response.statusCode, 200);
+    const catalog = response.json();
+    assert.deepEqual(catalog.plugins.sort(), [
+      'agent.codex',
+      'agent.pi',
+      'application.agentbundle',
+      'application.inference',
+      'application.kernel',
+      'evaluator.agentbench',
+      'evaluator.inferencebench',
+      'evaluator.operatorbench',
+      'memory.agent',
+      'proposer.agent',
+      'proposer.grid',
+      'proposer.operator',
+      'proposer.optuna',
+      'reflection.agent',
+      'selector.artifact',
+      'selector.metric',
+    ]);
+    assert.deepEqual(catalog.policies.sort(), [
+      'policy.harness2',
+      'policy.operator-baseline',
+      'policy.operator-diagnostic',
+      'policy.operator-search',
+      'policy.parameter-grid',
+      'policy.parameter-optuna',
+      'policy.wikiskill',
+    ]);
+  } finally {
+    await server.close();
+    await runtime.dispose();
+  }
+});
+
 test('HTTP exposes catalog and rejects cross-origin mutation before dispatch', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-entry-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

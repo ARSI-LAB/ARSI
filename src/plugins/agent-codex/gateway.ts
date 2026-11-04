@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { RuntimeContext } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
-import type { ResolvedAgentCodexConfig } from './schema.js';
+import type { LocalProvider } from './local-config.js';
 
 const maxBytes = 8 * 1024 * 1024;
 async function boundedBody(
@@ -57,7 +57,8 @@ function validateResponse(body: string): void {
 
 /** Owns the sole upstream route; each attempt is charged before leaving this process. */
 export async function startGateway(
-  config: ResolvedAgentCodexConfig,
+  provider: LocalProvider,
+  timeoutMs: number,
   context: RuntimeContext,
   signal: AbortSignal,
   maxModelCalls: number,
@@ -75,11 +76,15 @@ export async function startGateway(
   const pending = new Set<Promise<void>>();
   const server = createServer((req, res) => {
     const handle = async (): Promise<void> => {
-      if (req.headers.authorization !== `Bearer ${token}`) {
+      if (req.headers['x-rsi-codex'] !== token) {
         res.writeHead(401).end();
         return;
       }
-      if (req.method !== 'POST' || req.url !== '/v1/responses') {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const chatgpt =
+        provider.id === 'openai' &&
+        typeof req.headers['chatgpt-account-id'] === 'string';
+      if (req.method !== 'POST' || url.pathname !== '/api/responses') {
         res.writeHead(404).end();
         return;
       }
@@ -95,9 +100,6 @@ export async function startGateway(
         // Supplied snapshots are in the prompt. No filesystem, shell, network or hosted tools.
         body.tools = [];
         body.tool_choice = 'none';
-        body.model = config.model;
-        // Match agent.pi: off omits reasoning controls, including CLI defaults.
-        if (config.thinkingLevel === 'off') delete body.reasoning;
         body.stream = true;
         body.store = false;
         if (calls >= maxModelCalls)
@@ -106,22 +108,46 @@ export async function startGateway(
         calls++;
         signal.throwIfAborted();
         record('model_request', { modelCalls: calls });
-        const response = await fetch(
-          `${config.base_url.replace(/\/$/, '')}/responses`,
-          {
-            method: 'POST',
-            headers: {
-              authorization: `Bearer ${config.api_key}`,
-              'content-type': 'application/json',
-              accept: 'text/event-stream',
-            },
-            body: JSON.stringify(body),
-            signal,
-            redirect: 'error',
-          },
-        );
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(req.headers)) {
+          if (
+            value !== undefined &&
+            ![
+              'host',
+              'connection',
+              'content-length',
+              'transfer-encoding',
+              'x-rsi-codex',
+            ].includes(name)
+          )
+            headers.set(name, Array.isArray(value) ? value.join(', ') : value);
+        }
+        headers.set('content-type', 'application/json');
+        headers.set('accept', 'text/event-stream');
+        const base = chatgpt ? provider.chatgptBaseUrl : provider.apiBaseUrl;
+        const path =
+          chatgpt && base.endsWith('/backend-api')
+            ? '/codex/responses'
+            : '/responses';
+        const response = await fetch(`${base}${path}${url.search}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal,
+          redirect: 'error',
+        });
         if (!response.ok) {
           await response.body?.cancel();
+          // Let Codex refresh its own expired login and retry through the same budget gate.
+          if (response.status === 401) {
+            res.writeHead(401, { 'content-type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: { message: 'Codex authentication required' },
+              }),
+            );
+            return;
+          }
           throw new Error(`Codex provider HTTP ${response.status}`);
         }
         if (!response.body)
@@ -132,7 +158,12 @@ export async function startGateway(
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.end(output);
       } catch (error) {
-        failure = error instanceof Error ? error : new Error(String(error));
+        failure =
+          error instanceof SyntaxError
+            ? new Error('Invalid Codex provider response')
+            : error instanceof Error
+              ? error
+              : new Error('Codex gateway request failed');
         // Provider text and credentials never cross back into Codex or diagnostic errors.
         res.writeHead(502, { 'content-type': 'application/json' });
         res.end(
@@ -146,7 +177,7 @@ export async function startGateway(
     pending.add(work);
     void work.finally(() => pending.delete(work));
   });
-  server.requestTimeout = config.timeoutMs;
+  server.requestTimeout = timeoutMs;
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -155,7 +186,7 @@ export async function startGateway(
   if (!address || typeof address === 'string')
     throw new Error('Codex gateway has no address');
   return {
-    url: `http://127.0.0.1:${address.port}/v1`,
+    url: `http://127.0.0.1:${address.port}`,
     token,
     failure: () => failure,
     async close() {

@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
@@ -72,9 +79,11 @@ function events(text: string): string {
 async function fixture(
   replies: string[],
   options: {
+    model?: string;
     budget?: number;
     timeoutMs?: number;
     thinkingLevel?: 'off' | 'low';
+    chatgpt?: boolean;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-codex-test-'));
@@ -83,8 +92,22 @@ async function fixture(
   const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += String(chunk);
-    assert.equal(req.url, '/v1/responses');
-    assert.equal(req.headers.authorization, 'Bearer test-codex-key');
+    if (options.chatgpt && req.url !== '/backend-api/codex/responses') {
+      res.writeHead(404).end();
+      return;
+    }
+    assert.equal(
+      req.url,
+      options.chatgpt ? '/backend-api/codex/responses' : '/v1/responses',
+    );
+    if (options.chatgpt && process.env.RSI_TEST_CODEX_EXECUTABLE)
+      assert.ok(req.headers.authorization?.startsWith('Bearer eyJ'));
+    else assert.equal(req.headers.authorization, 'Bearer test-codex-key');
+    assert.equal(req.headers['x-rsi-codex'], undefined);
+    assert.equal(
+      req.headers['chatgpt-account-id'],
+      options.chatgpt ? 'test-account' : undefined,
+    );
     requests.push(JSON.parse(body));
     const reply = replies[requests.length - 1] ?? 'invalid';
     if (reply === 'WAIT') return;
@@ -109,20 +132,110 @@ async function fixture(
   });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('No address');
+  const providerId = options.chatgpt ? 'openai' : 'configured';
+  const codexHome = join(directory, 'user-codex');
+  await mkdir(codexHome);
+  const localConfig = {
+    model: 'configured-model',
+    model_provider: providerId,
+    model_reasoning_effort: options.thinkingLevel ?? 'high',
+    model_providers: {
+      [providerId]: {
+        name: 'Configured provider',
+        base_url: `http://127.0.0.1:${address.port}/v1`,
+        env_key: 'RSI_CODEX_TEST_KEY',
+        wire_api: 'responses',
+      },
+    },
+    chatgpt_base_url: `http://127.0.0.1:${address.port}/backend-api`,
+    mcp_servers: {
+      'test.server': { command: 'must-not-start', required: true },
+    },
+  };
+  await writeFile(join(codexHome, 'fixture.json'), JSON.stringify(localConfig));
+  await writeFile(
+    join(codexHome, 'auth.json'),
+    '{"auth_mode":"apikey","OPENAI_API_KEY":"test-codex-key"}',
+  );
+  if (options.chatgpt) {
+    const payload = {
+      exp: 4102444800,
+      'https://api.openai.com/auth': {
+        chatgpt_account_id: 'test-account',
+        chatgpt_plan_type: 'plus',
+        chatgpt_user_id: 'test-user',
+      },
+    };
+    const jwt =
+      'eyJhbGciOiJub25lIn0.' +
+      Buffer.from(JSON.stringify(payload)).toString('base64url') +
+      '.test';
+    await writeFile(
+      join(codexHome, 'auth.json'),
+      JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          id_token: jwt,
+          access_token: jwt,
+          refresh_token: 'test-refresh',
+          account_id: 'test-account',
+        },
+        last_refresh: new Date().toISOString(),
+      }),
+    );
+  }
+  await writeFile(
+    join(codexHome, 'config.toml'),
+    [
+      'model = "configured-model"',
+      `model_provider = "${providerId}"`,
+      `model_reasoning_effort = "${options.thinkingLevel ?? 'high'}"`,
+      `[model_providers.${providerId}]`,
+      'name = "Configured provider"',
+      `base_url = "http://127.0.0.1:${address.port}/v1"`,
+      'env_key = "RSI_CODEX_TEST_KEY"',
+      'wire_api = "responses"',
+    ].join('\n'),
+  );
+  if (options.chatgpt) {
+    await writeFile(
+      join(codexHome, 'config.toml'),
+      [
+        'model = "configured-model"',
+        'model_reasoning_effort = "high"',
+        `chatgpt_base_url = "http://127.0.0.1:${address.port}/backend-api"`,
+      ].join('\n'),
+    );
+  }
   const executable = join(directory, 'codex-test.cjs');
-  // A deterministic CLI double; opt into the installed real CLI in a separate integration invocation.
+  // A deterministic CLI double; the optional real CLI uses only this temporary provider.
   await writeFile(
     executable,
     `#!${process.execPath}
 const fs = require('node:fs');
-(async () => {
+const readline = require('node:readline');
+const config = JSON.parse(fs.readFileSync(process.env.CODEX_HOME + '/fixture.json', 'utf8'));
+if (process.argv.includes('app-server')) {
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.on('line', line => {
+    const request = JSON.parse(line);
+    if (request.id) process.stdout.write(JSON.stringify({ id: request.id, result: request.id === 1 ? {} : { config } }) + '\\n');
+  });
+} else (async () => {
   const dir = process.cwd();
-  fs.writeFileSync(${JSON.stringify(join(directory, 'execution.json'))}, JSON.stringify({ dir, env: Object.keys(process.env) }));
-  const config = fs.readFileSync(process.env.CODEX_HOME + '/config.toml', 'utf8');
-  const base = JSON.parse(/^base_url = (.+)$/m.exec(config)[1]);
+  const args = process.argv.slice(2);
+  fs.writeFileSync(${JSON.stringify(join(directory, 'execution.json'))}, JSON.stringify({ dir, home: process.env.CODEX_HOME, args }));
+  const overrides = Object.fromEntries(args.flatMap((value, i) => {
+    if (args[i-1] !== '-c') return [];
+    const eq = value.indexOf('=');
+    return [[value.slice(0, eq), value.slice(eq+1)]];
+  }));
+  const key = 'model_providers.' + (config.model_provider === 'openai' ? 'rsi-local-openai' : config.model_provider);
+  const base = JSON.parse(overrides[key + '.base_url']);
+  const token = JSON.parse(overrides[key + '.http_headers.X-RSI-Codex']);
   let prompt = '';
   for await (const chunk of process.stdin) prompt += chunk;
-  const response = await fetch(base + '/responses', { method: 'POST', headers: { authorization: 'Bearer ' + process.env.RSI_CODEX_TOKEN }, body: JSON.stringify({ input: prompt, reasoning: { effort: 'low' }, tools: [{ type: 'function', name: 'exec_command' }] }) });
+  const response = await fetch(base + '/responses', { method: 'POST', headers: { authorization: 'Bearer ' + process.env.RSI_CODEX_TEST_KEY, 'X-RSI-Codex': token, ${options.chatgpt ? "'chatgpt-account-id': 'test-account'," : ''} }, body: JSON.stringify({ model: args.includes('--model') ? args[args.indexOf('--model') + 1] : config.model, input: prompt, reasoning: { effort: config.model_reasoning_effort }, tools: [{ type: 'function', name: 'exec_command' }] }) });
   if (!response.ok) process.exit(1);
   const body = await response.text();
   const events = body.split('\\n').filter(x => x.startsWith('data: ')).map(x => JSON.parse(x.slice(6)));
@@ -132,8 +245,12 @@ const fs = require('node:fs');
 `,
   );
   await chmod(executable, 0o700);
-  const previous = process.env.RSI_CODEX_TEST_KEY;
+  const previous = {
+    key: process.env.RSI_CODEX_TEST_KEY,
+    home: process.env.CODEX_HOME,
+  };
   process.env.RSI_CODEX_TEST_KEY = 'test-codex-key';
+  process.env.CODEX_HOME = codexHome;
   let charges = 0;
   const context = new RuntimeContext().extend({
     directory,
@@ -149,13 +266,8 @@ const fs = require('node:fs');
   const operation = await createAgentCodex(
     {
       executable: process.env.RSI_TEST_CODEX_EXECUTABLE ?? executable,
-      model: 'gpt-5.4',
-      base_url: `http://127.0.0.1:${address.port}/v1`,
-      api_key: '${RSI_CODEX_TEST_KEY}',
       timeoutMs: options.timeoutMs ?? 20000,
-      ...(options.thinkingLevel === undefined
-        ? {}
-        : { thinkingLevel: options.thinkingLevel }),
+      ...(options.model === undefined ? {} : { model: options.model }),
     },
     context,
   );
@@ -179,8 +291,10 @@ const fs = require('node:fs');
       server.closeAllConnections();
       await new Promise<void>((done) => server.close(() => done()));
       await operation.dispose();
-      if (previous === undefined) delete process.env.RSI_CODEX_TEST_KEY;
-      else process.env.RSI_CODEX_TEST_KEY = previous;
+      if (previous.key === undefined) delete process.env.RSI_CODEX_TEST_KEY;
+      else process.env.RSI_CODEX_TEST_KEY = previous.key;
+      if (previous.home === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previous.home;
       await rm(directory, { recursive: true, force: true });
     },
   };
@@ -194,7 +308,8 @@ test('Codex receives virtual files, charges each request, repairs invalid JSON a
     for (const request of f.requests) {
       assert.deepEqual(request.tools, []);
       assert.equal(request.tool_choice, 'none');
-      assert.equal(Object.hasOwn(request, 'reasoning'), false);
+      assert.equal((request.reasoning as { effort: string }).effort, 'high');
+      assert.equal(request.model, 'configured-model');
       assert.ok(JSON.stringify(request.input).includes('snapshot-content'));
     }
     const diagnostics = await readFile(
@@ -208,7 +323,19 @@ test('Codex receives virtual files, charges each request, repairs invalid JSON a
       const execution = JSON.parse(
         await readFile(join(f.directory, 'execution.json'), 'utf8'),
       );
-      assert.ok(!execution.env.includes('RSI_CODEX_TEST_KEY'));
+      assert.equal(execution.home, join(f.directory, 'user-codex'));
+      assert.ok(
+        execution.args.some((arg: string) =>
+          arg.includes('\"test.server\"={enabled=false,required=false}'),
+        ),
+      );
+      assert.ok(execution.args.includes('features.hooks=false'));
+      assert.ok(execution.args.includes('features.plugins=false'));
+      assert.ok(!execution.args.join(' ').includes('test-codex-key'));
+      assert.equal(
+        await readFile(join(execution.home, 'auth.json'), 'utf8'),
+        '{"auth_mode":"apikey","OPENAI_API_KEY":"test-codex-key"}',
+      );
       await assert.rejects(
         readFile(join(execution.dir, 'output.json')),
         /ENOENT/,
@@ -297,21 +424,65 @@ test('existing Policy accepts Codex Recipe binding without business-plugin chang
 });
 
 for (const thinkingLevel of [undefined, 'off', 'low'] as const) {
-  test(`Codex thinkingLevel ${thinkingLevel ?? 'default'} matches Pi reasoning controls`, async () => {
+  test(`Codex inherits local reasoning ${thinkingLevel ?? 'default'}`, async () => {
     const f = await fixture(['{"answer":"ok"}'], { thinkingLevel });
     try {
       assert.deepEqual(await f.run(1), { answer: 'ok' });
       assert.equal(f.requests.length, 1);
-      if (thinkingLevel === 'low') {
-        assert.equal(
-          (f.requests[0].reasoning as { effort: string }).effort,
-          'low',
+      assert.deepEqual(f.requests[0].reasoning, {
+        effort: thinkingLevel ?? 'high',
+      });
+    } finally {
+      await f.close();
+    }
+  });
+}
+
+test('Codex forwards local ChatGPT authentication and account headers', async () => {
+  const f = await fixture(['{"answer":"ok"}'], { chatgpt: true });
+  try {
+    assert.deepEqual(await f.run(1), { answer: 'ok' });
+    assert.equal(f.charges(), 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex rejects obsolete API and reasoning configuration', async () => {
+  for (const field of ['base_url', 'api_key', 'thinkingLevel']) {
+    await assert.rejects(
+      createAgentCodex({ [field]: 'obsolete' }, new RuntimeContext()),
+      /agent.codex config/,
+    );
+  }
+});
+
+for (const model of [undefined, 'selected-model']) {
+  test(`Codex uses ${model ?? 'the local default model'}`, async () => {
+    const f = await fixture(['{"answer":"ok"}'], { model });
+    try {
+      const path = join(f.directory, 'user-codex', 'config.toml');
+      const before = await readFile(path, 'utf8');
+      assert.deepEqual(await f.run(1), { answer: 'ok' });
+      assert.equal(f.requests[0].model, model ?? 'configured-model');
+      assert.equal(await readFile(path, 'utf8'), before);
+      if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
+        const execution = JSON.parse(
+          await readFile(join(f.directory, 'execution.json'), 'utf8'),
         );
-      } else {
-        assert.equal(Object.hasOwn(f.requests[0], 'reasoning'), false);
+        assert.equal(execution.args.includes('--model'), model !== undefined);
       }
     } finally {
       await f.close();
     }
   });
 }
+
+test('Codex rejects empty model overrides', async () => {
+  for (const model of ['', '   ']) {
+    await assert.rejects(
+      createAgentCodex({ model }, new RuntimeContext()),
+      /agent.codex config/,
+    );
+  }
+});

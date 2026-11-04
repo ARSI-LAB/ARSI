@@ -82,6 +82,17 @@ The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaul
 
 Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
 
+To use the installed Codex CLI and its existing local login, provider, model and reasoning configuration, replace the Agent binding with:
+
+```yaml
+bindings:
+  agent:
+    ref: agent.codex
+    config: {}
+```
+
+Run `codex login status` as the same operating-system user that starts RSI; sign in with `codex login` if needed. RSI inherits `CODEX_HOME` and the provider's environment variables. The installed CLI must support `app-server` configuration queries and `exec`. The [Codex configuration schema](../../../src/plugins/agent-codex/schema.ts) accepts `executable` (default `codex`), `timeoutMs` (default `600000`), and optional `model`. Omit `model` to use the local default; set it (for example, `config: { model: your-model }`) to select a model for this execution without changing local configuration or authentication. Remove earlier `base_url`, `api_key`, and `thinkingLevel` fields. The local provider must use the Responses API. RSI routes model requests through its local gateway to enforce per-request budgets and reject tools, while disabling task hooks, MCP servers and plugins. This binding configures the optimizer only; evaluator model credentials remain independently required.
+
 ### Recipe configuration
 
 Start from a complete example and keep its `recipe.yaml`, `target.yaml`, and `baseline/` together. Relative resource paths are resolved against the file that declares them. This is a reduced Harness² Recipe with one task:

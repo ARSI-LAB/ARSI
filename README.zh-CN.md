@@ -240,7 +240,7 @@ ember-rsi serve --port 4317
   <tbody>
     <tr>
       <th rowspan="3"><a href="https://github.com/Tencent/workbuddy-bench#overview">WorkBuddy Bench</a><br>Code Subset</th>
-      <td rowspan="3" align="center">DSH</td>
+      <td rowspan="3" align="center"><a href="https://github.com/deepseek-ai/deepseek-harness">DSH</a></td>
       <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a><br><sub>训练 10 个任务 / 验证 5 个任务</sub></td>
       <td align="center">92.9% → 96.0% <img src="docs/users/assets/score-delta-plus-3-1.svg" alt="+3.1 pp" width="62" height="20"></td>
     </tr>
@@ -254,7 +254,7 @@ ember-rsi serve --port 4317
     </tr>
     <tr>
       <th rowspan="3"><a href="https://github.com/Tencent/workbuddy-bench#overview">WorkBuddy Bench</a><br>Office Subset</th>
-      <td rowspan="3" align="center">DSH</td>
+      <td rowspan="3" align="center"><a href="https://github.com/deepseek-ai/deepseek-harness">DSH</a></td>
       <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a><br><sub>训练 10 个任务 / 验证 5 个任务</sub></td>
       <td align="center">72.3% → 91.4% <img src="docs/users/assets/score-delta-plus-19-1.svg" alt="+19.1 pp" width="62" height="20"></td>
     </tr>
@@ -268,8 +268,8 @@ ember-rsi serve --port 4317
     </tr>
     <tr>
       <th rowspan="3"><a href="https://www.tbench.ai/news/terminal-bench-4-0">Terminal-Bench 4.0</a></th>
-      <td rowspan="3" align="center">DSH</td>
-      <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a><br><sub>训练 6 个任务 / 验证 2 个任务 / 独立测试 2 个任务（示例配方）</sub></td>
+      <td rowspan="3" align="center"><a href="https://github.com/deepseek-ai/deepseek-harness">DSH</a></td>
+      <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a></td>
       <td align="center">-</td>
     </tr>
     <tr>
@@ -278,6 +278,16 @@ ember-rsi serve --port 4317
     </tr>
     <tr>
       <td><a href="https://arxiv.org/abs/2507.19457">GEPA</a></td>
+      <td align="center">-</td>
+    </tr>
+    <tr>
+      <th rowspan="2"><a href="https://github.com/SWE-bench/SWE-bench">SWE-bench Verified</a></th>
+      <td rowspan="2" align="center"><a href="https://github.com/deepseek-ai/deepseek-harness">DSH</a></td>
+      <td><a href="https://github.com/google-research/harness2">Harness²</a><br><sub>训练 20 个任务</sub></td>
+      <td align="center">-</td>
+    </tr>
+    <tr>
+      <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a><br><sub>训练 20 个任务 / 验证 10 个任务</sub></td>
       <td align="center">-</td>
     </tr>
   </tbody>

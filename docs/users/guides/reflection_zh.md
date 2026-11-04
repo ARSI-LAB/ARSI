@@ -1,10 +1,10 @@
 # Reflection 使用指南
 
-[English](../en/reflection.md) | 简体中文 · [用户指南](guide.md) · [运行时事件](runtime-events.md)
+[English](reflection.md) | 简体中文 · [快速入门](../getting-started_zh.md) · [运行时事件](runtime-events_zh.md)
 
 Reflection 复盘已完成的执行证据，为后续插件调用提出指导资源修改。开发者选择观察对象、修改权限和调用位置；Runtime 准备输入、校验提案，并在当前实验内启用通过检查的新版本。
 
-本文描述的显式 `configFile` 接口已经实现。内置 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 声明了默认 Reflection 文件，但调用步骤被注释。仅声明配置不会执行 Reflection。
+内置 Harness² Policy 声明了可修订 Invariant Proposer 和 Domain Proposer 指导资源的 Reflection 配置。`improve_guidance` 步骤默认处于注释状态。参见 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 和 [Reflection 配置](../../../src/policies/harness2/reflection.yaml)。
 
 ## 1. 配置 Reflection 模块
 
@@ -89,7 +89,7 @@ steps:
     type: reflection
 ```
 
-这是节选，不是完整 Policy，需保留其余 Schema、依赖和流程。启用内置 Harness² 源码中的注释步骤，会改变该构建中使用此 Policy 的行为；如需独立行为，应注册自己的 Policy ID 并在 Recipe 中选择它。见 [Policy 注册](guide.md#4-编写-policy)。
+此节选需配合 Policy 的其余 Schema、依赖和流程使用。如需在其他时机调用 Reflection，可注册自己的 Policy ID 并在 Recipe 中选择它。见 [Policy 注册](writing-policies_zh.md#注册-policy)。
 
 | 配置与流程                 | 结果                                                              |
 | -------------------------- | ----------------------------------------------------------------- |

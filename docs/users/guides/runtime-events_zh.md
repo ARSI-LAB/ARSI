@@ -1,6 +1,6 @@
 # 事件系统开发指南
 
-[English](../en/runtime-events.md) | 简体中文 · [用户指南](guide.md) · [Reflection](reflection.md)
+[English](runtime-events.md) | 简体中文 · [快速入门](../getting-started_zh.md) · [Reflection](reflection_zh.md)
 
 插件通过 `RuntimeContext.event` 使用事件系统：在 `create(config, ctx)` 中注册监听，在 `execute(input, ctx)` 或监听回调中发布事件、调用服务。
 

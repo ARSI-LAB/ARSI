@@ -1,7 +1,13 @@
-import React from 'react';
+import { MeasurementMetrics } from './measurement-metrics';
+import { primaryScore } from './measurement-score';
+import { scoreLabel } from './record-identifiers';
+import { useRoundLabels } from './round-labels';
+import React, { useState } from 'react';
 import { useRoute, replaceRouteSelection } from '../../app/use-route';
-import { parseMeasurements } from '../../api/observation-client';
-import { candidateLabel, evaluationOrdinals } from './record-identifiers';
+import {
+  parseMeasurements,
+  parseMetricRecords,
+} from '../../api/observation-client';
 import { route } from '../../app/routing';
 import {
   Feedback,
@@ -28,18 +34,49 @@ export function Measurements({
   candidate?: string;
   measurement?: string;
 }): React.JSX.Element {
+  const labels = useRoundLabels();
+  const [round, setRound] = useState('');
+  const [stage, setStage] = useState('');
+  const roundName = (ref: string): string =>
+    labels
+      .evaluation(ref)
+      .replace('Baseline evaluation', 'Baseline')
+      .split(' · ')[0]!;
+  const stageName = (ref: string): string => {
+    const phase = labels.harness(ref);
+    if (phase) return phase.variant;
+    const label = labels.evaluation(ref);
+    return /Training/.test(label)
+      ? 'Optimization set'
+      : /Validation|Baseline evaluation/.test(label)
+        ? 'Validation set'
+        : /Final test/.test(label)
+          ? 'Final test'
+          : 'Other';
+  };
   const requestedOffset = useRoute().offset ?? 0;
   const setOffset = (offset: number): void => replaceRouteSelection({ offset });
   const result = useAllObservations(
     `/${encodeURIComponent(id)}/measurements`,
     parseMeasurements,
   );
-  const ordinals = evaluationOrdinals(result.data?.items ?? []);
+  const taskRecords = useAllObservations(
+    selected ? `/${encodeURIComponent(id)}/metric-observations` : null,
+    parseMetricRecords,
+  );
+  const rounds = [
+    ...new Set(result.data?.items.map((item) => roundName(item.ref))),
+  ];
+  const stages = [
+    ...new Set(result.data?.items.map((item) => stageName(item.ref))),
+  ];
   const matching =
     result.data?.items.filter(
       (item) =>
         (!selected || item.ref === selected) &&
-        (!candidate || item.candidateRef === candidate),
+        (!candidate || item.candidateRef === candidate) &&
+        (selected || !round || roundName(item.ref) === round) &&
+        (selected || !stage || stageName(item.ref) === stage),
     ) ?? [];
   const offset = requestedOffset < matching.length ? requestedOffset : 0;
   const visible = matching.slice(offset, offset + 50);
@@ -57,7 +94,6 @@ export function Measurements({
       </div>
       {selected ? (
         <p className="filter-note">
-          Measurement: <code>{selected}</code>{' '}
           <a className="text-link" href={route(id, 'measurements', candidate)}>
             Show all measurements
           </a>
@@ -65,8 +101,45 @@ export function Measurements({
       ) : null}
       {candidate ? (
         <p className="filter-note">
-          Candidate: <code title={candidate}>{candidateLabel(candidate)}</code>
+          Candidate:{' '}
+          <code title={candidate}>{labels.candidate(candidate)}</code>
         </p>
+      ) : null}
+      {!selected ? (
+        <div className="chart-controls">
+          <label>
+            Round{' '}
+            <select
+              value={round}
+              onChange={(event) => {
+                setRound(event.target.value);
+                setOffset(0);
+              }}
+            >
+              <option value="">All rounds</option>
+              {rounds.map((name) => (
+                <option key={name}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {labels.isHarness ? 'Version' : 'Evaluation set'}{' '}
+            <select
+              value={stage}
+              onChange={(event) => {
+                setStage(event.target.value);
+                setOffset(0);
+              }}
+            >
+              <option value="">
+                {labels.isHarness ? 'All versions' : 'All sets'}
+              </option>
+              {stages.map((name) => (
+                <option key={name}>{name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       ) : null}
       <Feedback {...result} />
       {result.data ? (
@@ -86,7 +159,15 @@ export function Measurements({
               <TableHeader>
                 <TableRow>
                   <TableHead>Evaluation</TableHead>
-                  <TableHead>Candidate</TableHead>
+                  <TableHead>
+                    {labels.isHarness ? 'Version' : 'Candidate'}
+                  </TableHead>
+                  {labels.isHarness ? (
+                    <>
+                      <TableHead>Task</TableHead>
+                      <TableHead>Score</TableHead>
+                    </>
+                  ) : null}
                   <TableHead>Status</TableHead>
                   <TableHead>Finished</TableHead>
                 </TableRow>
@@ -102,18 +183,31 @@ export function Measurements({
                           measurement: measurement.ref,
                         })}
                       >
-                        Evaluation #{ordinals.get(measurement.ref)}
+                        {labels.evaluation(measurement.ref)}
                       </a>
                     </TableCell>
                     <TableCell>
-                      <a
-                        className="text-link"
-                        title={measurement.candidateRef}
-                        href={route(id, 'candidates', measurement.candidateRef)}
-                      >
-                        {candidateLabel(measurement.candidateRef)}
-                      </a>
+                      <span>
+                        {labels.isHarness
+                          ? (labels.harness(measurement.ref)?.variant ??
+                            labels.candidate(measurement.candidateRef))
+                          : labels.candidate(measurement.candidateRef)}
+                      </span>
                     </TableCell>
+                    {labels.isHarness ? (
+                      <TableCell>
+                        {labels
+                          .task(measurement.ref)
+                          ?.replace(/^workbuddy\//, '') ?? '—'}
+                      </TableCell>
+                    ) : null}
+                    {labels.isHarness ? (
+                      <TableCell>
+                        {primaryScore(measurement) === null
+                          ? '—'
+                          : scoreLabel(primaryScore(measurement)!)}
+                      </TableCell>
+                    ) : null}
                     <TableCell>
                       <Status value={measurement.status} />
                     </TableCell>
@@ -130,20 +224,19 @@ export function Measurements({
                 <CardHeader>
                   <div className="section-heading">
                     <h3 title={measurement.ref}>
-                      Evaluation #{ordinals.get(measurement.ref)}
+                      {labels.evaluation(measurement.ref)}
                     </h3>
                     <Status value={measurement.status} />
                   </div>
+                  {labels.task(measurement.ref) ? (
+                    <p className="muted harness-task-label">
+                      {labels.task(measurement.ref)}
+                    </p>
+                  ) : null}
                   <dl className="facts">
                     <dt>Candidate</dt>
                     <dd>
-                      <a
-                        className="text-link"
-                        title={measurement.candidateRef}
-                        href={route(id, 'candidates', measurement.candidateRef)}
-                      >
-                        {candidateLabel(measurement.candidateRef)}
-                      </a>
+                      <span>{labels.candidate(measurement.candidateRef)}</span>
                     </dd>
                     <dt>Evaluation call</dt>
                     <dd>
@@ -153,7 +246,7 @@ export function Measurements({
                           call: measurement.callId,
                         })}
                       >
-                        {measurement.callId}
+                        View call →
                       </a>
                     </dd>
                     <dt>Coverage</dt>
@@ -170,53 +263,40 @@ export function Measurements({
                   </dl>
                 </CardHeader>
                 <CardContent>
-                  {measurement.metrics.length ? (
+                  <MeasurementMetrics metrics={measurement.metrics} />
+                  <h3>Task scores</h3>
+                  <Feedback {...taskRecords} />
+                  {taskRecords.data ? (
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Metric</TableHead>
-                          <TableHead>Observation</TableHead>
-                          <TableHead>Unit</TableHead>
+                          <TableHead>Task</TableHead>
+                          <TableHead>Result</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {measurement.metrics.map((metric) => (
-                          <TableRow key={metric.name}>
-                            <TableCell>
-                              <strong>{metric.name}</strong>
-                              <p className="muted">{metric.description}</p>
-                            </TableCell>
-                            <TableCell>
-                              {metric.status === 'available' ? (
-                                Object.entries(metric.values).map(
-                                  ([name, value]) => (
-                                    <div key={name}>
-                                      {name}:{' '}
-                                      <strong>
-                                        {value === null
-                                          ? 'Not recorded'
-                                          : value.toLocaleString(undefined, {
-                                              maximumSignificantDigits: 21,
-                                            })}
-                                      </strong>
-                                    </div>
-                                  ),
-                                )
-                              ) : (
-                                <span>
-                                  {metric.status}:{' '}
-                                  {metric.reason ?? 'No value recorded'}
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell>{metric.unit}</TableCell>
-                          </TableRow>
-                        ))}
+                        {taskRecords.data.items
+                          .filter(
+                            (item) => item.ref === measurement.ref && item.item,
+                          )
+                          .map((item) => (
+                            <TableRow
+                              key={JSON.stringify([item.ref, item.item!.id])}
+                            >
+                              <TableCell>
+                                {item.item!.subjectId.replace(
+                                  /^workbuddy\//,
+                                  '',
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <MeasurementMetrics metrics={item.metrics} />
+                              </TableCell>
+                            </TableRow>
+                          ))}
                       </TableBody>
                     </Table>
-                  ) : (
-                    <p>No metrics recorded.</p>
-                  )}
+                  ) : null}
                 </CardContent>
               </Card>
             ))

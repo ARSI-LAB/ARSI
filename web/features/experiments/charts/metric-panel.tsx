@@ -1,3 +1,4 @@
+import { useRoundLabels } from '../round-labels';
 import React from 'react';
 import { route } from '../../../app/routing';
 import { useRoute } from '../../../app/use-route';
@@ -12,7 +13,6 @@ import { useAllObservations } from '../use-observation';
 import { QueryNotice } from './chart-controls';
 import { ScorePlot } from './metric-chart';
 import { finalResults } from '../final-results';
-import { candidateLabel } from '../record-identifiers';
 import { useObservation } from '../use-observation';
 export function ScoreCharts({
   id,
@@ -23,6 +23,7 @@ export function ScoreCharts({
   comparison?: boolean;
   candidate?: string;
 }): React.JSX.Element {
+  const labels = useRoundLabels();
   const selection = useRoute();
   const result = useAllObservations(
     `/${encodeURIComponent(id)}/metric-observations`,
@@ -55,7 +56,7 @@ export function ScoreCharts({
       <CardHeader>
         <div className="section-heading">
           <div>
-            <h2>{comparison ? 'Candidate comparison' : 'Metric history'}</h2>
+            <h2>{comparison ? 'Candidate comparison' : 'Round scores'}</h2>
           </div>
         </div>
       </CardHeader>
@@ -79,7 +80,7 @@ export function ScoreCharts({
             {candidate ? (
               <p className="filter-note">
                 Showing candidate{' '}
-                <code title={candidate}>{candidateLabel(candidate)}</code>{' '}
+                <code title={candidate}>{labels.candidate(candidate)}</code>{' '}
                 <a
                   className="text-link"
                   href={route(

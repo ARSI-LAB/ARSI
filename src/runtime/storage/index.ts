@@ -142,7 +142,7 @@ export class FileFacts implements FactStore {
   async write(kind: string, id: string, value: JsonObject): Promise<void> {
     await atomic(this.path(kind, id), value);
   }
-  async list(kind: string): Promise<JsonObject[]> {
+  private async names(kind: string): Promise<string[]> {
     const directory = join(this.directory, safeId(kind));
     let names: string[];
     try {
@@ -152,11 +152,17 @@ export class FileFacts implements FactStore {
         return [];
       throw error;
     }
+    return names.filter((n) => n.endsWith('.json')).sort();
+  }
+  async *scan(kind: string): AsyncGenerator<JsonObject> {
+    for (const name of await this.names(kind))
+      yield await this.read(kind, name.slice(0, -5));
+  }
+  async list(kind: string): Promise<JsonObject[]> {
     return Promise.all(
-      names
-        .filter((n) => n.endsWith('.json'))
-        .sort()
-        .map((n) => this.read(kind, n.slice(0, -5))),
+      (await this.names(kind)).map((name) =>
+        this.read(kind, name.slice(0, -5)),
+      ),
     );
   }
 }

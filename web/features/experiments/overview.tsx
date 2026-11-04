@@ -1,3 +1,4 @@
+import { useRoundLabels } from './round-labels';
 import React from 'react';
 import {
   type ExperimentOverview,
@@ -23,6 +24,7 @@ export function Overview({
   data: ExperimentOverview;
   children?: React.ReactNode;
 }): React.JSX.Element {
+  const labels = useRoundLabels();
   const usage = data.usage;
   const candidates = useAllObservations(
     `/${encodeURIComponent(data.id)}/candidates`,
@@ -40,8 +42,20 @@ export function Overview({
           <strong>{recordedDuration(data.startedAt, data.finishedAt)}</strong>
         </div>
         <div>
-          <span>Candidate versions</span>
-          <strong>{candidates.data?.total ?? '—'}</strong>
+          <span>
+            {labels.isHarness ? 'Evaluated rounds' : 'Candidate versions'}
+          </span>
+          <strong>
+            {labels.isHarness
+              ? measurements.data
+                ? new Set(
+                    measurements.data.items
+                      .map((item) => labels.harness(item.ref)?.round)
+                      .filter(Boolean),
+                  ).size
+                : '—'
+              : (candidates.data?.total ?? '—')}
+          </strong>
         </div>
         <div>
           <span>Evaluations</span>
@@ -50,12 +64,14 @@ export function Overview({
         <div>
           <span>Model calls</span>
           <strong>
-            {usage?.modelCalls?.toLocaleString() ?? 'Not recorded'}
+            {usage?.modelCalls?.toLocaleString(undefined, {
+              maximumFractionDigits: 2,
+            }) ?? 'Not recorded'}
           </strong>
         </div>
       </div>
-      <Feedback {...candidates} />
-      <Feedback {...measurements} />
+      <Feedback {...candidates} loading={false} />
+      <Feedback {...measurements} loading={false} />
       {children}
       <Card>
         <CardHeader>
@@ -74,12 +90,26 @@ export function Overview({
               <TableBody>
                 {Object.entries(usage).map(([key, value]) => (
                   <TableRow key={key}>
-                    <TableCell>{key}</TableCell>
                     <TableCell>
-                      <strong>{value.toLocaleString()}</strong>
+                      {(
+                        {
+                          evaluationRuns: 'Evaluations',
+                          modelCalls: 'Model calls',
+                          operations: 'Operations',
+                        } as Record<string, string>
+                      )[key] ?? key}
                     </TableCell>
                     <TableCell>
-                      {data.limits[key]?.toLocaleString() ?? 'Not specified'}
+                      <strong>
+                        {value.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </strong>
+                    </TableCell>
+                    <TableCell>
+                      {data.limits[key]?.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      }) ?? 'Not specified'}
                     </TableCell>
                   </TableRow>
                 ))}

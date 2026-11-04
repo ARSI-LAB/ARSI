@@ -1,12 +1,12 @@
+import { HarnessResults } from './harness-results';
+import { useRoundLabels, useCallRecords } from './round-labels';
 import React from 'react';
-import { candidateLabel, evaluationOrdinals } from './record-identifiers';
 import {
   parseDetails,
   parseMeasurements,
   parseCandidates,
 } from '../../api/observation-client';
-import { route } from '../../app/routing';
-import { useRoute, replaceRouteSelection } from '../../app/use-route';
+import { scoreLabel } from './record-identifiers';
 import { Feedback, Status } from '../../components/observation-feedback';
 import { Card, CardContent, CardHeader } from '../../components/ui/card';
 import { finalResults } from './final-results';
@@ -14,7 +14,8 @@ import { comparableBaseline } from './experiment-summary';
 import { useAllObservations, useObservation } from './use-observation';
 
 export function Results({ id }: { id: string }): React.JSX.Element {
-  const selectedMetric = useRoute().metric;
+  const labels = useRoundLabels();
+  const records = useCallRecords();
   const candidates = useAllObservations(
     `/${encodeURIComponent(id)}/candidates`,
     parseCandidates,
@@ -25,7 +26,8 @@ export function Results({ id }: { id: string }): React.JSX.Element {
   );
   const references = details.data?.resultReferences ?? [];
   const measurements = useAllObservations(
-    references.some((reference) => reference.kind === 'measurement')
+    labels.isHarness ||
+      references.some((reference) => reference.kind === 'measurement')
       ? `/${encodeURIComponent(id)}/measurements`
       : null,
     parseMeasurements,
@@ -42,10 +44,26 @@ export function Results({ id }: { id: string }): React.JSX.Element {
       ),
     ).entries(),
   ];
-  const activeMetric = metrics.some(([key]) => key === selectedMetric)
-    ? selectedMetric
-    : (metrics.find(([, metric]) => 'value' in metric.values)?.[0] ??
-      metrics[0]?.[0]);
+  const activeMetric = (metrics.find(
+    ([, metric]) => metric.name === 'meanReward',
+  ) ??
+    metrics.find(([, metric]) => metric.name === 'score') ??
+    metrics.find(([, metric]) => 'value' in metric.values) ??
+    metrics[0])?.[0];
+  if (!records.calls.data) return <Feedback {...records.calls} />;
+  if (labels.isHarness)
+    return (
+      <div className="section-stack">
+        <Feedback {...details} />
+        <Feedback {...measurements} />
+        {measurements.data && details.data ? (
+          <HarnessResults
+            measurements={measurements.data.items}
+            references={references}
+          />
+        ) : null}
+      </div>
+    );
   return (
     <div className="section-stack">
       <Feedback {...details} />
@@ -58,12 +76,12 @@ export function Results({ id }: { id: string }): React.JSX.Element {
           <>
             <Card>
               <CardHeader>
-                <h2>Final result</h2>
+                <h2>{labels.isHarness ? 'Task deliveries' : 'Final result'}</h2>
               </CardHeader>
               <CardContent className="section-stack">
                 <div className="overview-metrics">
                   <div>
-                    <span>New versions</span>
+                    <span>Generated candidates</span>
                     <strong>
                       {candidates.data
                         ? candidates.data.items.filter(
@@ -75,20 +93,20 @@ export function Results({ id }: { id: string }): React.JSX.Element {
                   <div>
                     <span>
                       {final.candidates.length > 1
-                        ? 'Final candidates'
-                        : 'Final candidate'}
+                        ? labels.isHarness
+                          ? 'Delivered candidates'
+                          : 'Final candidates'
+                        : labels.isHarness
+                          ? 'Delivered candidate'
+                          : 'Final candidate'}
                     </span>
                     {measurements.loading ? (
                       <span>Loading…</span>
                     ) : (
                       final.candidates.map((candidate) => (
-                        <a
-                          className="text-link"
-                          key={candidate}
-                          href={route(id, 'candidates', candidate)}
-                        >
-                          {candidateLabel(candidate)} · {candidate}
-                        </a>
+                        <span key={candidate}>
+                          {labels.candidate(candidate)}
+                        </span>
                       ))
                     )}
                   </div>
@@ -104,29 +122,9 @@ export function Results({ id }: { id: string }): React.JSX.Element {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader>
-                <h2>Experiment scores</h2>
-              </CardHeader>
               <CardContent className="section-stack">
-                {metrics.length ? (
-                  <label className="browser-search">
-                    Metric
-                    <select
-                      value={activeMetric}
-                      onChange={(event) =>
-                        replaceRouteSelection({ metric: event.target.value })
-                      }
-                    >
-                      {metrics.map(([key, metric]) => (
-                        <option key={key} value={key}>
-                          {metric.name} ({metric.unit})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
                 <div className="result-stats">
-                  {final.scores.map(({ measurement, paths }, index) => {
+                  {final.scores.map(({ measurement }) => {
                     const metric = measurement.metrics.find(
                       (item) => metricKey(item) === activeMetric,
                     );
@@ -149,72 +147,77 @@ export function Results({ id }: { id: string }): React.JSX.Element {
                         ? finalValue - baselineValue
                         : null;
                     return (
-                      <div key={measurement.ref}>
+                      <div
+                        key={measurement.ref}
+                        className="final-score-summary"
+                      >
                         <div className="section-heading">
-                          <h3 title={paths.join(' · ')}>
-                            {paths.includes('/testMeasurementRef')
-                              ? 'Final test score'
-                              : paths.includes('/measurementRef')
-                                ? 'Final optimization score'
-                                : final.scores.length === 1
-                                  ? 'Final score'
-                                  : `Final score ${index + 1}`}
+                          <h3>
+                            {labels
+                              .evaluation(measurement.ref)
+                              .replace(' · Validation', ' · Validation set')
+                              .replace(' · Training', ' · Optimization set')}
                           </h3>
-                          <Status value={measurement.status} />
+                          {measurement.status !== 'succeeded' ? (
+                            <Status value={measurement.status} />
+                          ) : null}
                         </div>
-
-                        {metric ? (
-                          metric.status === 'available' ? (
-                            Object.keys(metric.values).length ? (
-                              Object.entries(metric.values).map(
-                                ([name, value]) => (
-                                  <p key={name}>
-                                    {name === 'value' ? '' : `${name}: `}
-                                    <strong className="stat-number">
-                                      {value === null
-                                        ? 'Not recorded'
-                                        : value.toLocaleString(undefined, {
-                                            maximumSignificantDigits: 21,
-                                          })}
-                                    </strong>{' '}
-                                    {metric.unit}
-                                  </p>
-                                ),
-                              )
-                            ) : (
-                              <p>Not recorded</p>
-                            )
-                          ) : (
-                            <p>
-                              {metric.status}:{' '}
-                              {metric.reason ?? 'No value recorded'}
-                            </p>
-                          )
-                        ) : (
-                          <p>No value for this metric.</p>
-                        )}
-                        {delta !== null ? (
-                          <p className="result-change">
-                            Baseline{' '}
-                            {baselineValue?.toLocaleString(undefined, {
-                              maximumSignificantDigits: 21,
-                            })}{' '}
-                            → Final{' '}
-                            {finalValue?.toLocaleString(undefined, {
-                              maximumSignificantDigits: 21,
-                            })}
-                            <br />
-                            Change {delta > 0 ? '+' : ''}
-                            {Number(delta.toPrecision(12)).toLocaleString(
-                              undefined,
-                              { maximumSignificantDigits: 12 },
-                            )}{' '}
-                            {metric?.unit}
+                        {labels.task(measurement.ref) ? (
+                          <p className="muted harness-task-label">
+                            {labels.task(measurement.ref)}
                           </p>
-                        ) : candidates.data &&
-                          metric?.status === 'available' ? (
+                        ) : null}
+                        <div className="final-score-metrics">
+                          <div className="final-score-main">
+                            <span>
+                              {metric?.name === 'meanReward'
+                                ? 'Average score'
+                                : (metric?.name ?? 'Final score')}
+                            </span>
+                            <strong>
+                              {finalValue == null
+                                ? '—'
+                                : scoreLabel(finalValue)}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Baseline</span>
+                            <strong>
+                              {baselineValue == null
+                                ? '—'
+                                : scoreLabel(baselineValue)}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Change</span>
+                            <strong>
+                              {delta == null
+                                ? '—'
+                                : `${delta > 0 ? '+' : ''}${scoreLabel(delta)}`}
+                            </strong>
+                          </div>
+                        </div>
+                        {metric && metric.status !== 'available' ? (
                           <p className="muted">
-                            No unique comparable baseline recorded.
+                            {metric.reason ?? metric.status}
+                          </p>
+                        ) : null}
+                        {metric?.status === 'available' &&
+                        finalValue == null ? (
+                          <p className="muted">
+                            {Object.entries(metric.values)
+                              .map(
+                                ([name, value]) =>
+                                  `${name}: ${value == null ? 'Not recorded' : scoreLabel(value)}`,
+                              )
+                              .join(' · ') || 'Not recorded'}
+                          </p>
+                        ) : null}
+                        {delta == null &&
+                        candidates.data &&
+                        metric?.status === 'available' ? (
+                          <p className="muted">
+                            No comparable baseline recorded.
                           </p>
                         ) : null}
                         {measurement.coverage !== 'complete' ? (
@@ -222,22 +225,6 @@ export function Results({ id }: { id: string }): React.JSX.Element {
                             Coverage: {measurement.coverage}
                           </p>
                         ) : null}
-                        <a
-                          className="text-link"
-                          href={route(
-                            id,
-                            'measurements',
-                            undefined,
-                            undefined,
-                            { measurement: measurement.ref },
-                          )}
-                        >
-                          View evaluation #
-                          {evaluationOrdinals(
-                            measurements.data?.items ?? [],
-                          ).get(measurement.ref)}{' '}
-                          →
-                        </a>
                       </div>
                     );
                   })}

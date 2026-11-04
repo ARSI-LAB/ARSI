@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "rsi.kernel-task/v1",
+  "id": "qianchuan-top3",
+  "cases": [
+    {
+      "id": "fixed",
+      "seed": 42
+    }
+  ],
+  "contract": {
+    "inputs": [
+      {
+        "shape": [381, 51200],
+        "dtype": "float16"
+      }
+    ],
+    "output": {
+      "shape": [381, 80, 80, 8],
+      "dtype": "float16",
+      "contiguous": true,
+      "independent": true
+    },
+    "inputUnmodified": true
+  }
+}

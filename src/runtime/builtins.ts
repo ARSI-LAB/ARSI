@@ -6,6 +6,7 @@ import { inferenceDefinition } from '../plugins/application-inference/index.js';
 import { piDefinition } from '../plugins/agent-pi/index.js';
 import { codexDefinition } from '../plugins/agent-codex/index.js';
 import { proposerDefinition } from '../plugins/proposer-agent/index.js';
+import { operatorProposerDefinition } from '../plugins/proposer-operator/index.js';
 import { gridProposerDefinition } from '../plugins/proposer-grid/index.js';
 import { optunaProposerDefinition } from '../plugins/proposer-optuna/index.js';
 import { memoryDefinition } from '../plugins/memory-agent/index.js';
@@ -14,6 +15,8 @@ import { agentbenchDefinition } from '../plugins/evaluator-agentbench/index.js';
 import { inferencebenchDefinition } from '../plugins/evaluator-inferencebench/index.js';
 import { metricSelectorDefinition } from '../plugins/selector-metrics/index.js';
 import { artifactSelectorDefinition } from '../plugins/selector-artifacts/index.js';
+import { kernelApplicationDefinition } from '../plugins/application-kernel/index.js';
+import { operatorbenchDefinition } from '../plugins/evaluator-operatorbench/index.js';
 import type { OperationDefinition } from '../contracts/index.js';
 /** Startup code is the sole built-in registration list. Registration never runs an experiment. */
 export async function registerBuiltins(registry: Registry): Promise<void> {
@@ -23,6 +26,7 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     piDefinition,
     codexDefinition,
     proposerDefinition,
+    operatorProposerDefinition,
     gridProposerDefinition,
     optunaProposerDefinition,
     memoryDefinition,
@@ -31,11 +35,16 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     inferencebenchDefinition,
     metricSelectorDefinition,
     artifactSelectorDefinition,
+    kernelApplicationDefinition,
+    operatorbenchDefinition,
   ];
   for (const definition of definitions) registry.registerOperation(definition);
   for (const path of [
     'harness2/policy.yaml',
     'wikiskill/policy.yaml',
+    'operator-baseline/policy.yaml',
+    'operator-diagnostic/policy.yaml',
+    'operator-search/policy.yaml',
     'parameter-grid/policy.yaml',
     'parameter-optuna/policy.yaml',
   ]) {

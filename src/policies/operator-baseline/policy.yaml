@@ -1,0 +1,49 @@
+schemaVersion: rsi.policy/v1
+id: policy.operator-baseline
+config_schema:
+  $ref: ./schemas/config.yaml
+input_schema:
+  $ref: ../../contracts/policies/candidate-input.yaml
+output_schema:
+  $ref: ./schemas/result.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+require:
+  evaluator:
+    contract: contract.operatorbench
+  selector:
+    contract: contract.selector-metrics
+init:
+  steps:
+    - id: evaluate_baseline
+      use: evaluator
+      with:
+        action: evaluate
+        candidateRef: ${{ input.candidateRef }}
+        caseIds: ${{ config.caseIds }}
+    - id: check_baseline
+      use: selector
+      with:
+        incumbentMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+        candidateMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+finish:
+  steps:
+    - id: evaluate_final
+      use: evaluator
+      with:
+        action: evaluate
+        candidateRef: ${{ input.candidateRef }}
+        caseIds: ${{ config.caseIds }}
+    - id: check_final
+      use: selector
+      with:
+        incumbentMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+        candidateMeasurementRef: ${{ finish.evaluate_final.output.measurementRef }}
+output:
+  bestCandidateRef: ${{ input.candidateRef }}
+  bestMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+  finalMeasurementRef: ${{ finish.evaluate_final.output.measurementRef }}
+  finalDecisionRef: ${{ finish.check_final.output.decisionRef }}
+  finalValidity: ${{ if(finish.check_final.output.candidateFeasible, 'valid', 'invalid') }}
+  stopReason: baseline-only
+  attempts: []

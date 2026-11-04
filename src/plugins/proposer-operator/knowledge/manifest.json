@@ -1,0 +1,377 @@
+{
+  "schemaVersion": "rsi.operator-knowledge/v1",
+  "upstream": {
+    "repository": "ngo-agent",
+    "commit": "e8bf53c0d9d70200d235c761f5e7472118b8e898"
+  },
+  "techniques": [
+    {
+      "id": "core_partition",
+      "document": "knowledge/techniques/core-partition.json",
+      "example": "knowledge/examples/core-partition.py"
+    },
+    {
+      "id": "pass_merge",
+      "document": "knowledge/techniques/pass-merge.json",
+      "example": "knowledge/examples/pass-merge.py"
+    },
+    {
+      "id": "loop_invariant_hoisting",
+      "document": "knowledge/techniques/loop-invariant-hoisting.json",
+      "example": "knowledge/examples/loop-invariant-hoisting.py"
+    },
+    {
+      "id": "masked_accumulator",
+      "document": "knowledge/techniques/masked-accumulator.json",
+      "example": "knowledge/examples/masked-accumulator.py"
+    }
+  ],
+  "resources": [
+    {
+      "path": "knowledge/techniques/core-partition.json",
+      "sha256": "e48ece257fdcf8774978f1ff550c72fcddd176186bd5b8cbeabf34aa7b17f0e6",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database_static/docs/technique_core_partition.py",
+        "sha256": "112c14e2a7f1c7808ad553e25d2ba99b6a3d36db611bc6e9b2a638baf10ac315"
+      },
+      "adaptation": "Converted the source technique constants to JSON without changing their text; preserved license notice and technique source reference."
+    },
+    {
+      "path": "knowledge/examples/core-partition.py",
+      "sha256": "e3a320e8bb9cbdd7393a346138618dc52fd76c3d4d9c47a76f8327d7cb89b8fd",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database_static/code_samples/vv/core_partition.py",
+        "sha256": "e3a320e8bb9cbdd7393a346138618dc52fd76c3d4d9c47a76f8327d7cb89b8fd"
+      },
+      "adaptation": "Copied the original before/after technique reference code without modification; reference only, never an executable task or measured candidate."
+    },
+    {
+      "path": "knowledge/techniques/pass-merge.json",
+      "sha256": "cfd0089d1dbc0fce5052f2079a9efa562ea2f900531556b8d36b9027487c8692",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database_static/docs/technique_pass_merge.py",
+        "sha256": "504a772d5ebf537ae49c34876ac4e112bd9017ecbef8af409fe66f2c4353405a"
+      },
+      "adaptation": "Converted the source technique constants to JSON without changing their text; preserved license notice and technique source reference."
+    },
+    {
+      "path": "knowledge/examples/pass-merge.py",
+      "sha256": "cd044d75669b68955ad9d5a6d6c5dfe1ed82cfbcadbb573818ffec61efe62ef8",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database_static/code_samples/vv/pass_merge.py",
+        "sha256": "cd044d75669b68955ad9d5a6d6c5dfe1ed82cfbcadbb573818ffec61efe62ef8"
+      },
+      "adaptation": "Copied the original before/after technique reference code without modification; reference only, never an executable task or measured candidate."
+    },
+    {
+      "path": "knowledge/techniques/loop-invariant-hoisting.json",
+      "sha256": "7e2a850c8dea2ff74be090299b0594e09649cd8a132e74df7cdfee8af6b05f0f",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database_static/docs/technique_loop_invariant_hoisting.py",
+        "sha256": "9dc95136e653bf3ac9ab724586cd4b0ff038792c2130d12a189cb472e4a12b38"
+      },
+      "adaptation": "Converted the source technique constants to JSON without changing their text; preserved license notice and technique source reference."
+    },
+    {
+      "path": "knowledge/examples/loop-invariant-hoisting.py",
+      "sha256": "42193b1ecacd6f628854d1e122bf19515ee3fd86ff4725b8860b8655a63fcf18",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database_static/code_samples/vv/loop_invariant_hoisting.py",
+        "sha256": "42193b1ecacd6f628854d1e122bf19515ee3fd86ff4725b8860b8655a63fcf18"
+      },
+      "adaptation": "Copied the original before/after technique reference code without modification; reference only, never an executable task or measured candidate."
+    },
+    {
+      "path": "knowledge/techniques/masked-accumulator.json",
+      "sha256": "f6c34eaac38496cd6e6bc970e186a2c8627b343cc9efa0e5c2165e47e68fa158",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database_static/docs/technique_masked_accumulator.py",
+        "sha256": "b2a236f0f4c2c8c7dbd6321edc41b619c433d2cb571edf863d315a51e5016b9e"
+      },
+      "adaptation": "Converted the source technique constants to JSON without changing their text; preserved license notice and technique source reference."
+    },
+    {
+      "path": "knowledge/examples/masked-accumulator.py",
+      "sha256": "6b78558c9921301c1e10fa9b22be567da658ded3dae9caaa6eba3c663b5dd244",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database_static/code_samples/vv/masked_accumulator.py",
+        "sha256": "6b78558c9921301c1e10fa9b22be567da658ded3dae9caaa6eba3c663b5dd244"
+      },
+      "adaptation": "Copied the original before/after technique reference code without modification; reference only, never an executable task or measured candidate."
+    },
+    {
+      "path": "prompts/diagnose.md",
+      "sha256": "4d0cf8ee04bb60a6e7fa41b3f29866547e8d5bfe21a5d4c7ee6c15e990eba872",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/triton_kernel_agent/templates/static_code_diagnosis_prompt.j2",
+        "sha256": "895a73bf551f0d2a9e3c9d3de0f5725fdbce162c826206794529a3b1ee735335"
+      },
+      "adaptation": "Preserved four issue types and verbatim-source evidence; replaced template placeholders with RSI context and a JSON object wrapper."
+    },
+    {
+      "path": "prompts/generate.md",
+      "sha256": "3df91e0ef6a8c510020fbdcd648bca3cb15954dad32be3dfbc58c78696c29332",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/triton_kernel_agent/templates/kernel_ascend_optimization.j2",
+        "sha256": "814880b07a4ace29631e9e7a50ef43dec5c8894a73779e575574cd84f7cf3bbb"
+      },
+      "adaptation": "Selected source-preservation, Ascend and launch constraints; changed output to strict RSI edits/reason and limited claims to supplied static evidence."
+    },
+    {
+      "path": "prompts/repair.md",
+      "sha256": "c7633459913b3793d25012afc25bff0812b7e22fe496ad998598b41d8c0bb422",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/triton_kernel_agent/templates/kernel_refinement.j2",
+        "sha256": "d22e0c7da34866aa9159d2315c002638ff7510e983145858377efda39bdd0a79"
+      },
+      "adaptation": "Preserved error-focused refinement and source/caller invariants; replaced Fuser-specific permissions and output with RSI JSON edit contract."
+    },
+    {
+      "path": "prompts/summarize.md",
+      "sha256": "9b190129c5b79d456a72c705441fa8450c451824ae62f40cb79d49f533948aa6",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/triton_kernel_agent/templates/static_reflexion_prompt.j2",
+        "sha256": "9bc3897802c04900d97b05f2d42d49fbc2573ce9b93d71df06073bb8b0a3d26c"
+      },
+      "adaptation": "Replaced Jinja fact rendering and model-owned correctness with RSI-supplied facts and JSON explanation/lessons/avoidPatterns/tryPatterns only."
+    },
+    {
+      "path": "prompts/triton-ascend-guidelines.md",
+      "sha256": "41f0040b15c8da44a7da0cc24b75d4774ecd5739879f7a5b324746bf1d55fcff",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/triton_kernel_agent/templates/triton_ascend_guidelines.j2",
+        "sha256": "f1469dd9639bee7e90c481f98e8f8e269cfd0b3d70f32e22f78dfa19228c4288"
+      },
+      "adaptation": "Retained upstream programming reference; removed assumed hardware capacity numbers from the architecture table and added task/context precedence."
+    },
+    {
+      "path": "knowledge/metrics/examples/batch_jagged_matmul.py",
+      "sha256": "37ad7190b50e1c715d1c2eed9cdeb08401d6dcb6b7b2d375f9941521b21e4e88",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/code_samples/vv/batch_jagged_matmul.py",
+        "sha256": "37ad7190b50e1c715d1c2eed9cdeb08401d6dcb6b7b2d375f9941521b21e4e88"
+      },
+      "adaptation": "Copied original reference code; never an evaluated candidate."
+    },
+    {
+      "path": "knowledge/metrics/examples/gelu_mul.py",
+      "sha256": "0995fd8af6346aa8a71244671e2fe49f43867f6ce03776be603fd1a3ad9d2546",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/code_samples/vv/gelu_mul.py",
+        "sha256": "0995fd8af6346aa8a71244671e2fe49f43867f6ce03776be603fd1a3ad9d2546"
+      },
+      "adaptation": "Copied original reference code; never an evaluated candidate."
+    },
+    {
+      "path": "knowledge/metrics/examples/triton_customized_gate_fwd_cublas_nhead.py",
+      "sha256": "ff26dc389514baef8657c5087572c1bfaa9c45d6ce4cefc0ba3ebe1db75a467b",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/code_samples/vv/triton_customized_gate_fwd_cublas_nhead.py",
+        "sha256": "ff26dc389514baef8657c5087572c1bfaa9c45d6ce4cefc0ba3ebe1db75a467b"
+      },
+      "adaptation": "Copied original reference code; never an evaluated candidate."
+    },
+    {
+      "path": "knowledge/metrics/category-mte2.json",
+      "sha256": "eee31cf1588ad065e6b6e142ea9d47d21b8839bd5cb8786aa2067475aea82218",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/category_mte2.py",
+        "sha256": "fe652ffb2dbb84f0b870746aff6f52849374ae5da6a6fec4f50f1955e7bbe71f"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/category-mte3.json",
+      "sha256": "6e57238bdec341cc2958822db287d67986b4db062e4124a5620ef04352b38436",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/category_mte3.py",
+        "sha256": "4c8166c1f4fa88064ba22a9bebd3afdf4f3efe7105e902c14db1286aeec75aaa"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/category-scalar.json",
+      "sha256": "4251fabcf91a2d5b1c5c9ea7d532eed30bacf1d28469de250bb877bc3c7fe45b",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/category_scalar.py",
+        "sha256": "09b0f124d8aa9cca414dfb91a6f5db8b18a9c226ee3580296933354021205d64"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/category-underutilized.json",
+      "sha256": "3f68010414fd2ce96841b9bf8ce21f2dcbfd6b6ccc3fe91009203701704f818e",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/category_underutilized.py",
+        "sha256": "db353197a9bc948115a3bfc5d8e1fcc494e3ff93b5cfd9d6591be3971a34188b"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/category-vector.json",
+      "sha256": "132759742eba7496f8e8ed72a6f8a5b6a60de58d39d98dea2acbbd070897e526",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/category_vector.py",
+        "sha256": "356b7e56d886d9241e1c36a9e7de92a18921ba2505b3758f08f93af1d5512486"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/technique-autotune.json",
+      "sha256": "e802ca0c288e964ea8b0e2cdb7c1ed246269905c0c3fa8f5b9500161dd15f9f9",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/technique_autotune.py",
+        "sha256": "10174b54847e57690a81e29ea39c1ff3496d141ba1fadceb1b79f791b712ca1e"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/technique-bank-conflict.json",
+      "sha256": "432479157490e00759d346446e33be34b594fc0a5e424d92e2426565874472a9",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/technique_bank_conflict.py",
+        "sha256": "30bb152498cf7a96a4378b3aa2da61ac409acbf864fd1b394d25f16647d2dd9f"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/technique-compile-options.json",
+      "sha256": "70afeefdb31d8b79f61328f44861df251ca20cbebc287aa20eee2c488b4a9c8c",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/technique_compile_options.py",
+        "sha256": "50b043fc510d662b1abf7717e74ce3d7dea75c8e22c393e35477dd34e3be3c96"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/technique-loop-hoisting.json",
+      "sha256": "439a80a6043b9d444f1fb267e113c4b5ed20a77bfc86b5f309691cd840431d34",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/technique_loop_hoisting.py",
+        "sha256": "f936959ee9452f010abfb2c3aa841aab0f9932561165ae6db7dd13e1dc5ac3e8"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/technique-mte-efficiency.json",
+      "sha256": "6bb8de3f1bd64d0fb396ba63fcd036083a0a1beff9b6c8b58f78be6b34d7ddf6",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/technique_mte_efficiency.py",
+        "sha256": "abea011a2f5fcdca62bdfd6386e0e0770381ae460e7fae79f91cac9463e0419b"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/technique-ncores.json",
+      "sha256": "9f1db197e08d82a96dd2db6381b7a2df34ee3732f6135fdf4c3d049987a06831",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/technique_ncores.py",
+        "sha256": "4ea431b22285ec2c9652942bbae33ef12f73c51cdc6fd086a4d550ee4d596a7f"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/technique-scalar-reduction.json",
+      "sha256": "5114f854ffbc4681afa42e8885badad1b31d06c7ca7b2423f5a003276f1bee12",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/technique_scalar_reduction.py",
+        "sha256": "2aeb382cfb419c4a71236a1a8d4f7fc5ce2e571eeaa5d697c978aa926021be8f"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "knowledge/metrics/technique-tiling.json",
+      "sha256": "b7aa77f1e2c37e0a68fcfce2b92cb8e654a88dc204ecf47facfc6734fc4ffd20",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/technique_tiling.py",
+        "sha256": "0cb11b0f59794d1317744f0afaac06e63d6217aa0e87ca80af786476bf17d5f9"
+      },
+      "adaptation": "Converted original text constants verbatim; chose an original associated example where available."
+    },
+    {
+      "path": "prompts/diagnose-metrics.md",
+      "sha256": "cd42d3eb7f719af92354e3a374268796d2c57aee4113ca1cb949ac36b3d40562",
+      "adaptation": "RSI metric evidence and task constraints; follows ngo-agent profile/analyze/generate flow.",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/diagnose_prompt/judger_prompt.py",
+        "sha256": "82fdc2fcd0d715c6e6065ba160ae96a2dddfedb16664ccfed8846bd330ed2b5b"
+      }
+    },
+    {
+      "path": "prompts/generate-metrics.md",
+      "sha256": "d7052a66a40976d5b9edd0367c26c1669fcb11da201bf526456cf05e55a0188a",
+      "adaptation": "RSI metric evidence and task constraints; follows ngo-agent profile/analyze/generate flow.",
+      "source": {
+        "path": "src/ngo_agent/kernel_agent/triton_kernel_agent/templates/kernel_ascend_optimization.j2",
+        "sha256": "814880b07a4ace29631e9e7a50ef43dec5c8894a73779e575574cd84f7cf3bbb"
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "id": "category_mte2",
+      "document": "knowledge/metrics/category-mte2.json",
+      "example": null
+    },
+    {
+      "id": "category_mte3",
+      "document": "knowledge/metrics/category-mte3.json",
+      "example": null
+    },
+    {
+      "id": "category_scalar",
+      "document": "knowledge/metrics/category-scalar.json",
+      "example": null
+    },
+    {
+      "id": "category_underutilized",
+      "document": "knowledge/metrics/category-underutilized.json",
+      "example": null
+    },
+    {
+      "id": "category_vector",
+      "document": "knowledge/metrics/category-vector.json",
+      "example": null
+    },
+    {
+      "id": "technique_autotune",
+      "document": "knowledge/metrics/technique-autotune.json",
+      "example": "knowledge/metrics/examples/gelu_mul.py"
+    },
+    {
+      "id": "technique_bank_conflict",
+      "document": "knowledge/metrics/technique-bank-conflict.json",
+      "example": null
+    },
+    {
+      "id": "technique_compile_options",
+      "document": "knowledge/metrics/technique-compile-options.json",
+      "example": "knowledge/metrics/examples/triton_customized_gate_fwd_cublas_nhead.py"
+    },
+    {
+      "id": "technique_loop_hoisting",
+      "document": "knowledge/metrics/technique-loop-hoisting.json",
+      "example": "knowledge/metrics/examples/batch_jagged_matmul.py"
+    },
+    {
+      "id": "technique_mte_efficiency",
+      "document": "knowledge/metrics/technique-mte-efficiency.json",
+      "example": "knowledge/metrics/examples/batch_jagged_matmul.py"
+    },
+    {
+      "id": "technique_ncores",
+      "document": "knowledge/metrics/technique-ncores.json",
+      "example": "knowledge/metrics/examples/batch_jagged_matmul.py"
+    },
+    {
+      "id": "technique_scalar_reduction",
+      "document": "knowledge/metrics/technique-scalar-reduction.json",
+      "example": "knowledge/metrics/examples/gelu_mul.py"
+    },
+    {
+      "id": "technique_tiling",
+      "document": "knowledge/metrics/technique-tiling.json",
+      "example": "knowledge/metrics/examples/triton_customized_gate_fwd_cublas_nhead.py"
+    }
+  ]
+}

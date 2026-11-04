@@ -1,0 +1,579 @@
+schemaVersion: rsi.policy/v1
+id: policy.operator-search
+config_schema:
+  $ref: ./schemas/config.yaml
+input_schema:
+  $ref: ../../contracts/policies/candidate-input.yaml
+output_schema:
+  $ref: ./schemas/result.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+require:
+  agent:
+    contract: contract.agent
+  proposer:
+    contract: contract.proposer-operator
+  evaluator:
+    contract: contract.operatorbench
+  selector:
+    contract: contract.selector-metrics
+init:
+  steps:
+    - id: evaluate_baseline
+      use: evaluator
+      with:
+        action: evaluate
+        candidateRef: ${{ input.candidateRef }}
+        caseIds: ${{ config.caseIds }}
+    - id: check_baseline
+      use: selector
+      with:
+        incumbentMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+        candidateMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+    - id: initialize
+      state:
+        baselineMeasurement: ${{ init.evaluate_baseline.output.measurementRef }}
+        bestCandidateRef: ${{ input.candidateRef }}
+        bestMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+        analysisRef: null
+        historyRef: null
+        attemptCount: 0
+        repairCount: 0
+        currentCandidate: ${{ input.candidateRef }}
+        currentMeasurement: ${{ init.evaluate_baseline.output.measurementRef }}
+        attemptCandidates: []
+        attemptMeasurements: []
+        feasible: false
+        accepted: false
+        noChange: false
+        decisionRef: null
+        outcome: no-change
+        attempts: []
+        stopped: false
+        stopReason: max-attempts
+        staticHistoryRef: null
+        metricHistoryRef: null
+        diagnosticMeasurementRef: null
+        diagnosticRefs: []
+        metricsRounds: []
+        roundCount: 0
+        noImprovementCount: 0
+        metricsStopped: false
+        budgetStopped: false
+        roundDiagnosticMeasurementRef: null
+        metricParent: ${{ input.candidateRef }}
+        metricIncumbent: ${{ init.evaluate_baseline.output.measurementRef }}
+        candidateDiagnosticMeasurementRef: null
+        phase: static
+loop:
+  maxIterations: ${{ config.maxAttempts }}
+  while: ${{ !state.stopped }}
+  steps:
+    - id: admit_static
+      if:
+        ${{ !config.metricsEnabled || (budget.remaining.evaluationRuns == null ||
+        budget.remaining.evaluationRuns >= 2) && (budget.remaining.modelCalls == null ||
+        budget.remaining.modelCalls >= 6) && (budget.remaining.operations == null ||
+        budget.remaining.operations >= 20) && budget.remainingWallMs >= config.evaluationTimeoutMs +
+        3 * config.modelRequestTimeoutMs + config.retrievalTimeoutMs + config.evaluationTimeoutMs +
+        config.cleanupReserveMs }}
+      then:
+        - id: begin_attempt
+          state:
+            attemptCount: ${{ state.attemptCount + 1 }}
+            repairCount: 0
+            currentCandidate: ${{ input.candidateRef }}
+            attemptCandidates: []
+            attemptMeasurements: []
+            feasible: false
+            accepted: false
+            noChange: false
+            decisionRef: null
+        - id: propose
+          use: proposer
+          with:
+            action: propose
+            entryCandidateRef: ${{ input.candidateRef }}
+            baselineMeasurementRef: ${{ state.baselineMeasurement }}
+            attempt: ${{ state.attemptCount }}
+            goal: ${{ config.goal }}
+            analysisRef: ${{ state.analysisRef }}
+            historyRef: ${{ state.historyRef }}
+            phase: static
+        - id: retain_proposal
+          state:
+            analysisRef: ${{ loop.propose.output.analysisRef }}
+            currentCandidate: ${{ loop.propose.output.candidateRef }}
+            attemptCandidates:
+              - ${{ loop.propose.output.candidateRef }}
+        - id: handle_attempt
+          if: ${{ loop.propose.output.reasonCode == 'no-static-issues' }}
+          then:
+            steps:
+              - id: skip_static
+                state:
+                  stopped: true
+                  stopReason: no-static-issues
+            yield: null
+          else:
+            steps:
+              - id: assess
+                if: ${{ loop.propose.output.status == 'created' }}
+                then:
+                  - id: evaluate
+                    use: evaluator
+                    with:
+                      action: evaluate
+                      candidateRef: ${{ state.currentCandidate }}
+                      caseIds: ${{ config.caseIds }}
+                  - id: select
+                    use: selector
+                    with:
+                      incumbentMeasurementRef: ${{ state.baselineMeasurement }}
+                      candidateMeasurementRef: ${{ loop.evaluate.output.measurementRef }}
+                  - id: assessment
+                    state:
+                      currentMeasurement: ${{ loop.evaluate.output.measurementRef }}
+                      attemptMeasurements: ${{ append(state.attemptMeasurements, loop.evaluate.output.measurementRef) }}
+                      feasible: ${{ loop.select.output.candidateFeasible }}
+                      accepted: ${{ loop.select.output.accepted }}
+                      decisionRef: ${{ if(loop.select.output.candidateFeasible, loop.select.output.decisionRef, null) }}
+                  - id: repair_loop
+                    loop:
+                      maxIterations: ${{ config.repairLimit }}
+                      while: ${{ !state.feasible && !state.noChange }}
+                      steps:
+                        - id: admit_static_repair
+                          if:
+                            ${{ !config.metricsEnabled || (budget.remaining.evaluationRuns == null ||
+                            budget.remaining.evaluationRuns >= 3) && (budget.remaining.modelCalls ==
+                            null || budget.remaining.modelCalls >= 4) &&
+                            (budget.remaining.operations == null || budget.remaining.operations >=
+                            18) && budget.remainingWallMs >= 2 * config.evaluationTimeoutMs + 2 *
+                            config.modelRequestTimeoutMs + config.evaluationTimeoutMs +
+                            config.cleanupReserveMs }}
+                          then:
+                            - id: repair
+                              use: proposer
+                              with:
+                                action: repair
+                                failedCandidateRef: ${{ state.currentCandidate }}
+                                measurementRef: ${{ state.currentMeasurement }}
+                                analysisRef: ${{ state.analysisRef }}
+                                historyRef: ${{ state.historyRef }}
+                                attempt: ${{ state.attemptCount }}
+                                repairIndex: ${{ state.repairCount + 1 }}
+                                goal: ${{ config.goal }}
+                                phase: static
+                            - id: count_repair
+                              state:
+                                repairCount: ${{ state.repairCount + 1 }}
+                            - id: handle_repair
+                              if: ${{ loop.repair.output.status == 'created' }}
+                              then:
+                                - id: retain_repair
+                                  state:
+                                    currentCandidate: ${{ loop.repair.output.candidateRef }}
+                                    attemptCandidates: ${{ append(state.attemptCandidates, loop.repair.output.candidateRef) }}
+                                - id: repair_evaluate
+                                  use: evaluator
+                                  with:
+                                    action: evaluate
+                                    candidateRef: ${{ state.currentCandidate }}
+                                    caseIds: ${{ config.caseIds }}
+                                - id: repair_select
+                                  use: selector
+                                  with:
+                                    incumbentMeasurementRef: ${{ state.baselineMeasurement }}
+                                    candidateMeasurementRef: ${{ loop.repair_evaluate.output.measurementRef }}
+                                - id: repair_assessment
+                                  state:
+                                    currentMeasurement: ${{ loop.repair_evaluate.output.measurementRef }}
+                                    attemptMeasurements:
+                                      ${{ append(state.attemptMeasurements,
+                                      loop.repair_evaluate.output.measurementRef) }}
+                                    feasible: ${{ loop.repair_select.output.candidateFeasible }}
+                                    accepted: ${{ loop.repair_select.output.accepted }}
+                                    decisionRef:
+                                      ${{ if(loop.repair_select.output.candidateFeasible,
+                                      loop.repair_select.output.decisionRef, null) }}
+                              else:
+                                - id: stop_repair
+                                  state:
+                                    noChange: true
+                          else:
+                            - id: stop_static_repair_budget
+                              state:
+                                noChange: true
+                                stopped: true
+                                budgetStopped: true
+                                stopReason: budget
+                else:
+                  - id: unchanged
+                    state:
+                      noChange: true
+              - id: retain_outcome
+                state:
+                  outcome:
+                    ${{ if(loop.propose.output.status == 'failed', 'proposal-failed',
+                    if(length(state.attemptMeasurements) == 0, 'no-change', if(!state.feasible,
+                    'verification-failed', if(state.accepted, 'adopted', 'verified-no-gain')))) }}
+              - id: summarize
+                use: proposer
+                with:
+                  action: summarize
+                  entryCandidateRef: ${{ input.candidateRef }}
+                  analysisRef: ${{ state.analysisRef }}
+                  historyRef: ${{ state.historyRef }}
+                  attempt: ${{ state.attemptCount }}
+                  candidateRefs: ${{ state.attemptCandidates }}
+                  measurementRefs: ${{ state.attemptMeasurements }}
+                  decisionRef: ${{ state.decisionRef }}
+                  outcome: ${{ state.outcome }}
+                  phase: static
+            yield:
+              attempt: ${{ state.attemptCount }}
+              candidateRefs: ${{ state.attemptCandidates }}
+              measurementRefs: ${{ state.attemptMeasurements }}
+              decisionRef: ${{ state.decisionRef }}
+              summaryRef: ${{ loop.summarize.output.summaryRef }}
+              historyRef: ${{ loop.summarize.output.historyRef }}
+              outcome: ${{ state.outcome }}
+              accepted: ${{ state.accepted }}
+              repairCount: ${{ state.repairCount }}
+        - id: record_and_adopt
+          if: ${{ loop.propose.output.reasonCode != 'no-static-issues' }}
+          then:
+            - id: record_attempt
+              state:
+                historyRef: ${{ loop.handle_attempt.output.historyRef }}
+                attempts: ${{ append(state.attempts, loop.handle_attempt.output) }}
+            - id: adopt
+              if: ${{ state.accepted }}
+              then:
+                - id: retain_best
+                  state:
+                    bestCandidateRef: ${{ state.currentCandidate }}
+                    bestMeasurementRef: ${{ state.currentMeasurement }}
+                    stopped: true
+                    stopReason: accepted
+      else:
+        - id: stop_static_budget
+          state:
+            stopped: true
+            budgetStopped: true
+            stopReason: budget
+finish:
+  steps:
+    - id: begin_metrics_stage
+      state:
+        staticHistoryRef: ${{ state.historyRef }}
+    - id: run_metrics
+      if: ${{ config.metricsEnabled && !state.budgetStopped }}
+      then:
+        - id: metrics_phase
+          state:
+            phase: metrics
+            stopReason: max-rounds
+        - id: admit_initial_profile
+          if:
+            ${{ (budget.remaining.evaluationRuns == null || budget.remaining.evaluationRuns >= 2) &&
+            (budget.remaining.modelCalls == null || budget.remaining.modelCalls >= 0) &&
+            (budget.remaining.operations == null || budget.remaining.operations >= 10) &&
+            budget.remainingWallMs >= config.evaluationTimeoutMs + config.evaluationTimeoutMs +
+            config.cleanupReserveMs }}
+          then:
+            - id: profile_initial
+              use: evaluator
+              with:
+                action: profile
+                candidateRef: ${{ state.bestCandidateRef }}
+                caseIds: ${{ config.caseIds }}
+                assessmentMeasurementRef: ${{ state.bestMeasurementRef }}
+            - id: remember_initial_profile
+              state:
+                diagnosticMeasurementRef: ${{ finish.profile_initial.output.measurementRef }}
+                diagnosticRefs: ${{ append(state.diagnosticRefs, finish.profile_initial.output.measurementRef) }}
+            - id: initial_profile_unavailable
+              if: ${{ finish.profile_initial.output.collectionStatus != 'completed' }}
+              then:
+                - id: no_initial_profile
+                  state:
+                    metricsStopped: true
+                    stopReason: profiling-unavailable
+              else: []
+          else:
+            - id: stop_initial_profile_budget
+              state:
+                metricsStopped: true
+                budgetStopped: true
+                stopReason: budget
+        - id: metrics_loop
+          loop:
+            maxIterations: ${{ config.maxRounds }}
+            while: ${{ !state.metricsStopped }}
+            steps:
+              - id: admit_round
+                if:
+                  ${{ (budget.remaining.evaluationRuns == null || budget.remaining.evaluationRuns >= 3) &&
+                  (budget.remaining.modelCalls == null || budget.remaining.modelCalls >= 6) &&
+                  (budget.remaining.operations == null || budget.remaining.operations >= 24) &&
+                  budget.remainingWallMs >= 2 * config.evaluationTimeoutMs + 3 *
+                  config.modelRequestTimeoutMs + config.retrievalTimeoutMs +
+                  config.evaluationTimeoutMs + config.cleanupReserveMs }}
+                then:
+                  - id: begin_round
+                    state:
+                      roundCount: ${{ state.roundCount + 1 }}
+                      roundDiagnosticMeasurementRef: ${{ state.diagnosticMeasurementRef }}
+                      metricParent: ${{ state.bestCandidateRef }}
+                      metricIncumbent: ${{ state.bestMeasurementRef }}
+                      currentCandidate: ${{ state.bestCandidateRef }}
+                      currentMeasurement: ${{ state.bestMeasurementRef }}
+                      attemptCandidates: []
+                      attemptMeasurements: []
+                      repairCount: 0
+                      feasible: false
+                      accepted: false
+                      noChange: false
+                      decisionRef: null
+                      candidateDiagnosticMeasurementRef: null
+                  - id: metrics_propose
+                    use: proposer
+                    with:
+                      action: propose
+                      phase: metrics
+                      parentCandidateRef: ${{ state.metricParent }}
+                      incumbentMeasurementRef: ${{ state.metricIncumbent }}
+                      diagnosticMeasurementRef: ${{ state.diagnosticMeasurementRef }}
+                      round: ${{ state.roundCount }}
+                      historyRef: ${{ state.metricHistoryRef }}
+                      staticHistoryRef: ${{ state.staticHistoryRef }}
+                      goal: ${{ config.goal }}
+                  - id: retain_metric_proposal
+                    state:
+                      analysisRef: ${{ loop.metrics_propose.output.analysisRef }}
+                      currentCandidate: ${{ loop.metrics_propose.output.candidateRef }}
+                      attemptCandidates:
+                        - ${{ loop.metrics_propose.output.candidateRef }}
+                  - id: assess_metrics_proposal
+                    if: ${{ loop.metrics_propose.output.status == 'created' }}
+                    then:
+                      - id: metrics_evaluate
+                        use: evaluator
+                        with:
+                          action: evaluate
+                          candidateRef: ${{ state.currentCandidate }}
+                          caseIds: ${{ config.caseIds }}
+                      - id: metrics_select
+                        use: selector
+                        with:
+                          incumbentMeasurementRef: ${{ state.metricIncumbent }}
+                          candidateMeasurementRef: ${{ loop.metrics_evaluate.output.measurementRef }}
+                      - id: assess_metrics
+                        state:
+                          currentMeasurement: ${{ loop.metrics_evaluate.output.measurementRef }}
+                          attemptMeasurements:
+                            ${{ append(state.attemptMeasurements,
+                            loop.metrics_evaluate.output.measurementRef) }}
+                          feasible: ${{ loop.metrics_select.output.candidateFeasible }}
+                          accepted: ${{ loop.metrics_select.output.accepted }}
+                          decisionRef:
+                            ${{ if(loop.metrics_select.output.candidateFeasible,
+                            loop.metrics_select.output.decisionRef, null) }}
+                      - id: metrics_repair_loop
+                        loop:
+                          maxIterations: ${{ config.repairLimit }}
+                          while: ${{ !state.feasible && !state.noChange && !state.metricsStopped }}
+                          steps:
+                            - id: admit_repair
+                              if:
+                                ${{ (budget.remaining.evaluationRuns == null || budget.remaining.evaluationRuns >= 3) &&
+                                (budget.remaining.modelCalls == null || budget.remaining.modelCalls
+                                >= 4) && (budget.remaining.operations == null ||
+                                budget.remaining.operations >= 18) && budget.remainingWallMs >= 2 *
+                                config.evaluationTimeoutMs + 2 * config.modelRequestTimeoutMs +
+                                config.evaluationTimeoutMs + config.cleanupReserveMs }}
+                              then:
+                                - id: metrics_repair
+                                  use: proposer
+                                  with:
+                                    action: repair
+                                    phase: metrics
+                                    failedCandidateRef: ${{ state.currentCandidate }}
+                                    measurementRef: ${{ state.currentMeasurement }}
+                                    analysisRef: ${{ state.analysisRef }}
+                                    round: ${{ state.roundCount }}
+                                    repairIndex: ${{ state.repairCount + 1 }}
+                                    historyRef: ${{ state.metricHistoryRef }}
+                                    staticHistoryRef: ${{ state.staticHistoryRef }}
+                                    goal: ${{ config.goal }}
+                                - id: count_metrics_repair
+                                  state:
+                                    repairCount: ${{ state.repairCount + 1 }}
+                                - id: handle_metrics_repair
+                                  if: ${{ loop.metrics_repair.output.status == 'created' }}
+                                  then:
+                                    - id: retain_metrics_repair
+                                      state:
+                                        currentCandidate: ${{ loop.metrics_repair.output.candidateRef }}
+                                        attemptCandidates: ${{ append(state.attemptCandidates, loop.metrics_repair.output.candidateRef) }}
+                                    - id: metrics_repair_evaluate
+                                      use: evaluator
+                                      with:
+                                        action: evaluate
+                                        candidateRef: ${{ state.currentCandidate }}
+                                        caseIds: ${{ config.caseIds }}
+                                    - id: metrics_repair_select
+                                      use: selector
+                                      with:
+                                        incumbentMeasurementRef: ${{ state.metricIncumbent }}
+                                        candidateMeasurementRef: ${{ loop.metrics_repair_evaluate.output.measurementRef }}
+                                    - id: assess_metrics_repair
+                                      state:
+                                        currentMeasurement: ${{ loop.metrics_repair_evaluate.output.measurementRef }}
+                                        attemptMeasurements:
+                                          ${{ append(state.attemptMeasurements,
+                                          loop.metrics_repair_evaluate.output.measurementRef) }}
+                                        feasible: ${{ loop.metrics_repair_select.output.candidateFeasible }}
+                                        accepted: ${{ loop.metrics_repair_select.output.accepted }}
+                                        decisionRef:
+                                          ${{ if(loop.metrics_repair_select.output.candidateFeasible,
+                                          loop.metrics_repair_select.output.decisionRef, null) }}
+                                  else:
+                                    - id: end_metrics_repair
+                                      state:
+                                        noChange: true
+                              else:
+                                - id: stop_metrics_repair_budget
+                                  state:
+                                    noChange: true
+                                    metricsStopped: true
+                                    budgetStopped: true
+                                    stopReason: budget
+                    else:
+                      - id: metrics_no_candidate
+                        state:
+                          noChange: true
+                  - id: promote_metrics
+                    if: ${{ state.accepted }}
+                    then:
+                      - id: retain_metrics_best
+                        state:
+                          bestCandidateRef: ${{ state.currentCandidate }}
+                          bestMeasurementRef: ${{ state.currentMeasurement }}
+                      - id: profile_winner
+                        use: evaluator
+                        with:
+                          action: profile
+                          candidateRef: ${{ state.bestCandidateRef }}
+                          caseIds: ${{ config.caseIds }}
+                          assessmentMeasurementRef: ${{ state.bestMeasurementRef }}
+                      - id: remember_winner_profile
+                        state:
+                          diagnosticRefs: ${{ append(state.diagnosticRefs, loop.profile_winner.output.measurementRef) }}
+                          candidateDiagnosticMeasurementRef: ${{ loop.profile_winner.output.measurementRef }}
+                      - id: winner_profile_available
+                        if: ${{ loop.profile_winner.output.collectionStatus == 'completed' }}
+                        then:
+                          - id: adopt_winner_profile
+                            state:
+                              diagnosticMeasurementRef: ${{ loop.profile_winner.output.measurementRef }}
+                        else:
+                          - id: winner_profile_unavailable
+                            state:
+                              metricsStopped: true
+                              stopReason: profiling-unavailable
+                    else: []
+                  - id: metric_outcome
+                    state:
+                      outcome:
+                        ${{ if(loop.metrics_propose.output.status == 'failed', 'proposal-failed',
+                        if(length(state.attemptMeasurements) == 0, 'no-change', if(!state.feasible,
+                        'verification-failed', if(state.accepted, 'adopted', 'verified-no-gain'))))
+                        }}
+                  - id: metrics_summarize
+                    use: proposer
+                    with:
+                      action: summarize
+                      phase: metrics
+                      parentCandidateRef: ${{ state.metricParent }}
+                      incumbentMeasurementRef: ${{ state.metricIncumbent }}
+                      analysisRef: ${{ state.analysisRef }}
+                      historyRef: ${{ state.metricHistoryRef }}
+                      staticHistoryRef: ${{ state.staticHistoryRef }}
+                      round: ${{ state.roundCount }}
+                      candidateRefs: ${{ state.attemptCandidates }}
+                      measurementRefs: ${{ state.attemptMeasurements }}
+                      decisionRef: ${{ state.decisionRef }}
+                      candidateDiagnosticMeasurementRef: ${{ state.candidateDiagnosticMeasurementRef }}
+                      outcome: ${{ state.outcome }}
+                  - id: record_metric_round
+                    state:
+                      metricHistoryRef: ${{ loop.metrics_summarize.output.historyRef }}
+                      noImprovementCount:
+                        ${{ if(state.accepted, 0, if(state.feasible, state.noImprovementCount + 1,
+                        state.noImprovementCount)) }}
+                      metricRound:
+                        round: ${{ state.roundCount }}
+                        parentCandidateRef: ${{ state.metricParent }}
+                        candidateRefs: ${{ state.attemptCandidates }}
+                        measurementRefs: ${{ state.attemptMeasurements }}
+                        decisionRef: ${{ state.decisionRef }}
+                        summaryRef: ${{ loop.metrics_summarize.output.summaryRef }}
+                        historyRef: ${{ loop.metrics_summarize.output.historyRef }}
+                        diagnosticMeasurementRef: ${{ state.roundDiagnosticMeasurementRef }}
+                        candidateDiagnosticMeasurementRef: ${{ state.candidateDiagnosticMeasurementRef }}
+                        outcome: ${{ state.outcome }}
+                        accepted: ${{ state.accepted }}
+                        repairCount: ${{ state.repairCount }}
+                  - id: append_metric_round
+                    state:
+                      metricsRounds: ${{ append(state.metricsRounds, state.metricRound) }}
+                  - id: check_plateau
+                    if: ${{ !state.metricsStopped && state.noImprovementCount >= config.maxNoImprovement }}
+                    then:
+                      - id: plateau
+                        state:
+                          metricsStopped: true
+                          stopReason: no-improvement
+                    else: []
+                else:
+                  - id: stop_round_budget
+                    state:
+                      metricsStopped: true
+                      budgetStopped: true
+                      stopReason: budget
+      else: []
+    - id: evaluate_final
+      use: evaluator
+      with:
+        action: evaluate
+        candidateRef: ${{ state.bestCandidateRef }}
+        caseIds: ${{ config.caseIds }}
+    - id: check_final
+      use: selector
+      with:
+        incumbentMeasurementRef: ${{ state.bestMeasurementRef }}
+        candidateMeasurementRef: ${{ finish.evaluate_final.output.measurementRef }}
+output:
+  bestCandidateRef: ${{ state.bestCandidateRef }}
+  bestMeasurementRef: ${{ state.bestMeasurementRef }}
+  finalMeasurementRef: ${{ finish.evaluate_final.output.measurementRef }}
+  finalDecisionRef: ${{ finish.check_final.output.decisionRef }}
+  finalValidity: ${{ if(finish.check_final.output.candidateFeasible, 'valid', 'invalid') }}
+  finalTimingStable: ${{ if(finish.check_final.output.candidateFeasible,
+    if(finish.check_final.output.candidateValue >= finish.check_final.output.incumbentValue,
+    finish.check_final.output.candidateValue - finish.check_final.output.incumbentValue,
+    finish.check_final.output.incumbentValue - finish.check_final.output.candidateValue) /
+    ((finish.check_final.output.candidateValue + finish.check_final.output.incumbentValue) / 2) <=
+    0.05, null) }}
+  analysisRef: ${{ state.analysisRef }}
+  historyRef: ${{ if(state.metricHistoryRef == null, state.historyRef, state.metricHistoryRef) }}
+  attempts: ${{ state.attempts }}
+  stopReason: ${{ state.stopReason }}
+  staticHistoryRef: ${{ state.staticHistoryRef }}
+  metricsRounds: ${{ state.metricsRounds }}
+  diagnosticRefs: ${{ state.diagnosticRefs }}
+  noImprovementCount: ${{ state.noImprovementCount }}
+  phase: ${{ state.phase }}

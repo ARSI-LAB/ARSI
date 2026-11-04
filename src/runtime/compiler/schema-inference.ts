@@ -24,7 +24,7 @@ export function mergeSchemas(
           }
         : {}),
     };
-  const choices: Array<JsonValue> = Array.isArray(a.anyOf) ? a.anyOf : [a];
+  const choices: Array<JsonValue> = Array.isArray(a.anyOf) ? [...a.anyOf] : [a];
   if (!choices.some((c) => digest(c) === digest(b))) choices.push(b);
   return { anyOf: choices };
 }

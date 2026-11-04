@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "rsi.operator-technique/v1",
+  "id": "category_mte3",
+  "name": "mte3 瓶颈 —— MTE3 output data-movement pipe is the bottleneck (high MTE3 utilization; memory/bandwidth-bound)",
+  "matchText": "mte3 瓶颈 —— MTE3 output data-movement pipe is the bottleneck (high MTE3 utilization; memory/bandwidth-bound)\n\nMTE3 负责向量侧数据搬出（UB→GM），其利用率（aiv_mte3_ratio）偏高说明结果写回是瓶颈。\n可观测信号：msprof 中 aiv_mte3_ratio 在四根 AIV 管道中最高且超过 0.4。\n（优化技术条目待补充。）\n",
+  "content": "mte3 瓶颈 —— MTE3 output data-movement pipe is the bottleneck (high MTE3 utilization; memory/bandwidth-bound)\n\nMTE3 负责向量侧数据搬出（UB→GM），其利用率（aiv_mte3_ratio）偏高说明结果写回是瓶颈。\n可观测信号：msprof 中 aiv_mte3_ratio 在四根 AIV 管道中最高且超过 0.4。\n（优化技术条目待补充。）\n",
+  "example": null,
+  "sourceReference": "ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/npu_database/docs/category_mte3.py",
+  "licenseNotice": "# Copyright (c) Meta Platforms, Inc. and affiliates.\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n#     http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n"
+}

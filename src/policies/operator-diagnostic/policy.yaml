@@ -1,0 +1,51 @@
+schemaVersion: rsi.policy/v1
+id: policy.operator-diagnostic
+config_schema:
+  $ref: ./schemas/config.yaml
+input_schema:
+  $ref: ../../contracts/policies/candidate-input.yaml
+output_schema:
+  $ref: ./schemas/result.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+require:
+  evaluator:
+    contract: contract.operatorbench
+  selector:
+    contract: contract.selector-metrics
+init:
+  steps:
+    - id: evaluate_baseline
+      use: evaluator
+      with:
+        action: evaluate
+        candidateRef: ${{ input.candidateRef }}
+        caseIds: ${{ config.caseIds }}
+    - id: check_baseline
+      use: selector
+      with:
+        incumbentMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+        candidateMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+    - id: require_valid_baseline
+      if: ${{ !init.check_baseline.output.candidateFeasible }}
+      then:
+        - id: invalid_baseline
+          control: fail
+          reason: Diagnostic precheck requires a valid baseline assessment.
+    - id: profile_baseline
+      use: evaluator
+      with:
+        action: profile
+        candidateRef: ${{ input.candidateRef }}
+        caseIds: ${{ config.caseIds }}
+        assessmentMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+output:
+  bestCandidateRef: ${{ input.candidateRef }}
+  bestMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
+  finalMeasurementRef: null
+  finalDecisionRef: null
+  finalValidity: not-run
+  stopReason: diagnostic-only
+  attempts: []
+  diagnosticMeasurementRef: ${{ init.profile_baseline.output.measurementRef }}
+  collectionStatus: ${{ init.profile_baseline.output.collectionStatus }}

@@ -1,0 +1,86 @@
+# Calibration and independent retest annotate confidence; they do not gate generation.
+schemaVersion: rsi.recipe/v1
+id: operator-top3-metrics-search
+application:
+  ref: application.kernel
+  config:
+    target:
+      schema: ./target.yaml
+    baseline:
+      directory: ./baseline
+policy:
+  ref: policy.operator-search
+  config:
+    goal: Improve the Triton-Ascend top-3 kernel using static analysis followed by measured bottleneck analysis while preserving the complete task contract.
+    caseIds: [fixed]
+    maxAttempts: 3
+    repairLimit: 3
+    metricsEnabled: true
+    maxRounds: 10
+    maxNoImprovement: 5
+    evaluationTimeoutMs: 930000
+    modelRequestTimeoutMs: 120000
+    retrievalTimeoutMs: 300000
+    cleanupReserveMs: 60000
+bindings:
+  agent:
+    ref: agent.pi
+    config:
+      model: ${MODEL_NAME}
+      base_url: ${MODEL_ENDPOINT}
+      api_key: ${MODEL_API_KEY}
+      retries: 0
+  proposer:
+    ref: proposer.operator
+    config:
+      hardwareContextFile: ./hardware-context.md
+      modelRequestTimeoutMs: 120000
+      agentRef: agent
+      task:
+        directory: ./task
+      embedding:
+        python: REPLACE_WITH_EXPLICIT_EMBEDDING_PYTHON
+        modelDirectory: REPLACE_WITH_DEPLOYED_MODEL_DIRECTORY
+        identityFile: REPLACE_WITH_EMBEDDING_IDENTITY_FILE
+        device: cpu
+        timeoutMs: 300000
+        similarityThreshold: 0.6
+  evaluator:
+    ref: evaluator.operatorbench
+    config:
+      mode: sdk
+      task:
+        directory: ./task
+      protocol:
+        warmup: 5
+        repeat: 20
+        rtol: 0
+        atol: 0
+        timingScope: all-device-kernels
+      sdk:
+        python: REPLACE_WITH_EXPLICIT_SDK_PYTHON
+        device: 0
+        timeoutSeconds: 900
+        profiling:
+          enabled: false
+          collection: Default
+          warmup: 25
+          cacheEnabled: false
+          maxAttempts: 2
+          attemptTimeoutSeconds: 300
+          roundNum: 1
+  selector:
+    ref: selector.metric
+    config:
+      metric: latencyMeanMs
+      direction: minimize
+      eligibility:
+        - metric: candidateValid
+          min: 1
+      minRelativeImprovement: 0.02
+budget:
+  operations: 1024
+  evaluationRuns: 65
+  modelCalls: 152
+  elapsedWallMs: 7200000
+  cleanupReserveMs: 60000

@@ -6,6 +6,7 @@ import type {
 } from '../../contracts/index.js';
 import { object, string, canonical, digest } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
+import { budgetSnapshotSchema } from '../../contracts/runtime/services.js';
 import type { CompiledPolicy } from '../compiler/index.js';
 import { reflectionResultSchema } from '../revisions/declaration.js';
 import { evaluateTemplate } from './expression.js';
@@ -119,7 +120,8 @@ export async function executePolicy(
   if (restored.identity !== undefined && restored.identity !== identity)
     throw new Error('Policy checkpoint identity differs from locked inputs');
   const journal = object(restored.journal ?? {}),
-    boundaries = object(restored.boundaries ?? {});
+    boundaries = object(restored.boundaries ?? {}),
+    budgetObservations = object(restored.budgetObservations ?? {});
   const eventInfo = options.events && {
     ...options.events.info,
     policyId: string(policy.definition.id),
@@ -133,12 +135,36 @@ export async function executePolicy(
   };
   let queue = Promise.resolve();
   const persist = async (): Promise<void> => {
-    const snapshot = structuredClone({ identity, journal, boundaries });
+    const snapshot = structuredClone({
+      identity,
+      journal,
+      boundaries,
+      budgetObservations,
+    });
     queue = queue.then(() => {
       options.context.signal.throwIfAborted();
       return options.checkpoint(snapshot);
     });
     await queue;
+  };
+  // Persist observations before evaluating a boundary: a resumed branch must not
+  // change because its original budget has since been consumed or time elapsed.
+  const observeBudget = async (
+    path: string,
+    env: JsonObject,
+    cached = false,
+  ): Promise<void> => {
+    const prior = budgetObservations[path];
+    if (prior !== undefined) {
+      env.budget = structuredClone(prior);
+      return;
+    }
+    if (cached || typeof options.context.readBudget !== 'function') return;
+    const snapshot = object(await options.context.readBudget());
+    validate(budgetSnapshotSchema, snapshot, 'policy.budget');
+    budgetObservations[path] = structuredClone(snapshot);
+    env.budget = snapshot;
+    await persist();
   };
   const state = object(environment.state);
   const apply = (patch: JsonObject): void => {
@@ -176,6 +202,7 @@ export async function executePolicy(
         stepPath = `${path}/${id}`,
         stageFrame = object(env[stage]);
       const cached = journal[stepPath];
+      await observeBudget(`step:${stepPath}`, env, cached !== undefined);
       let output: JsonValue;
       if (cached !== undefined) {
         const record = object(cached);
@@ -364,6 +391,7 @@ export async function executePolicy(
     root: boolean,
     parallel = options.parallel ?? false,
   ): Promise<void> {
+    await observeBudget(`max:${path}`, env);
     const max = integer(
       evaluateTemplate(loop.maxIterations!, env),
       `${path}.maxIterations`,
@@ -373,6 +401,7 @@ export async function executePolicy(
     for (let index = 0; index < max; index++) {
       options.context.signal.throwIfAborted();
       env.loop = { index, input: loopInput };
+      await observeBudget(`while:${path}/${index}`, env);
       if (
         loop.while !== undefined &&
         !condition(evaluateTemplate(loop.while, env), `${path}.while`)
@@ -451,6 +480,7 @@ export async function executePolicy(
     options.context.signal.throwIfAborted();
   }
   options.context.signal.throwIfAborted();
+  await observeBudget('output', environment);
   const output = evaluateTemplate(policy.definition.output!, environment);
   validate(asSchema(policy.definition.output_schema), output, 'policy.output');
   if (eventInfo)

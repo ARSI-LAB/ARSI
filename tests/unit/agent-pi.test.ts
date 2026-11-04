@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   RuntimeContext,
+  agentContract,
   type JsonObject,
   type OperationDefinition,
 } from '../../src/contracts/index.js';
@@ -15,6 +16,8 @@ import {
   readVirtualFile,
 } from '../../src/plugins/agent-pi/service.js';
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
+import { object } from '../../src/shared/json.js';
+import { validate } from '../../src/shared/schema.js';
 import type { AgentPiConfig } from '../../src/plugins/agent-pi/schema.js';
 
 test('Agent uses SDK model fields and resolves environment references without persisting credentials', () => {
@@ -188,7 +191,7 @@ async function modelFixture(
     services,
     disconnected: () => disconnected,
     chargeAttempts: () => chargeAttempts,
-    run: (maxModelCalls = 8) =>
+    run: (maxModelCalls = 8, allowTools?: boolean) =>
       operation.execute(
         {
           prompt:
@@ -202,6 +205,7 @@ async function modelFixture(
             additionalProperties: false,
           },
           maxModelCalls,
+          ...(allowTools === undefined ? {} : { allowTools }),
         },
         context.extend(services),
       ),
@@ -233,6 +237,61 @@ test('Pi sends configured reasoning and output limits with final JSON', async ()
       32768,
     );
     assert.deepEqual(f.charges, [1]);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Agent contract accepts an optional boolean tool capability', () => {
+  const input = {
+    goal: 'Inspect source',
+    prompt: 'Return JSON',
+    outputSchema: { type: 'object' },
+  };
+  for (const allowTools of [undefined, true, false]) {
+    validate(
+      agentContract.input_schema,
+      { ...input, ...(allowTools === undefined ? {} : { allowTools }) },
+      'Agent input',
+    );
+  }
+  assert.throws(
+    () =>
+      validate(
+        agentContract.input_schema,
+        { ...input, allowTools: 'false' },
+        'Agent input',
+      ),
+    /allowTools/,
+  );
+});
+
+test('Pi omits tools when disabled and reserves the second model call for JSON correction', async () => {
+  const f = await modelFixture([{ content: 'invalid JSON' }, {}]);
+  try {
+    assert.deepEqual(await f.run(2, false), { ok: true });
+    assert.equal(f.requests.length, 2);
+    for (const request of f.requests) {
+      assert.equal(request.tools, undefined);
+    }
+    assert.deepEqual(f.charges, [1, 1]);
+    assert.match(JSON.stringify(f.requests[1]!.messages), /failed validation/);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Pi exposes authorized read and delegation tools by default', async () => {
+  const f = await modelFixture([{}]);
+  try {
+    assert.deepEqual(await f.run(), { ok: true });
+    assert.ok(Array.isArray(f.requests[0]!.tools));
+    assert.deepEqual(
+      f.requests[0]!.tools.map(
+        (tool) => object(object(tool).function).name,
+      ).sort(),
+      ['read_file', 'run_subagent'],
+    );
   } finally {
     await f.close();
   }

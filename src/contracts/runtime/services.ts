@@ -3,6 +3,35 @@ import type { JsonObject, JsonValue } from '../json.js';
 import type { EventPipeline } from './events.js';
 import type {} from './context.js';
 
+/** A detached observation, not a reservation for concurrent work. */
+export type BudgetSnapshot = {
+  limits: Record<string, number | null>;
+  used: Record<string, number>;
+  remaining: Record<string, number | null>;
+  remainingWallMs: number;
+};
+
+export const budgetSnapshotSchema: JsonObject = {
+  type: 'object',
+  properties: {
+    limits: {
+      type: 'object',
+      additionalProperties: { type: ['number', 'null'], minimum: 0 },
+    },
+    used: {
+      type: 'object',
+      additionalProperties: { type: 'number', minimum: 0 },
+    },
+    remaining: {
+      type: 'object',
+      additionalProperties: { type: ['number', 'null'], minimum: 0 },
+    },
+    remainingWallMs: { type: 'number', minimum: 0 },
+  },
+  required: ['limits', 'used', 'remaining', 'remainingWallMs'],
+  additionalProperties: false,
+};
+
 export interface ArtifactStore {
   putJson(value: unknown): Promise<string>;
   readJson(ref: string): Promise<JsonValue>;
@@ -63,6 +92,8 @@ declare module './context.js' {
       binding: string,
       input: JsonValue,
     ): Promise<JsonValue>;
+    /** Reads settled usage without charging or changing facts; unlimited counters are null. */
+    readBudget(this: RuntimeContext): Promise<BudgetSnapshot>;
     charge(this: RuntimeContext, metric: string, amount: number): Promise<void>;
     withInstance<T>(
       this: RuntimeContext,

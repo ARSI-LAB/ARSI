@@ -9,6 +9,8 @@ export type AgentInput = {
   outputSchema: JsonObject;
   agentRef?: string;
   maxModelCalls?: number;
+  /** Omit to allow authorized reading and delegation tools. */
+  allowTools?: boolean;
 };
 
 export type AgentOutput = JsonObject;
@@ -19,6 +21,7 @@ export const agentContract = defineContract({
     additionalProperties: false,
     properties: {
       agentRef: { type: 'string' },
+      allowTools: { type: 'boolean' },
       files: { additionalProperties: { type: 'string' }, type: 'object' },
       goal: { type: 'string' },
       input: {},

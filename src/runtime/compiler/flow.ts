@@ -4,6 +4,7 @@ import type {
   PluginContract,
 } from '../../contracts/index.js';
 import { object, string, unknownKeys } from '../../shared/json.js';
+import { budgetSnapshotSchema } from '../../contracts/runtime/services.js';
 import { reflectionResultSchema } from '../revisions/declaration.js';
 import {
   compileExpression,
@@ -57,6 +58,7 @@ class FlowCompiler {
       initialized: new Set(),
       available: { init: new Set(), loop: new Set(), finish: new Set() },
       types: {
+        budget: budgetSnapshotSchema,
         config: object(
           policy.config_schema ?? {
             type: 'object',

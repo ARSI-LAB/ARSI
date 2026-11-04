@@ -85,10 +85,21 @@ try {
   });
   assert.match(
     help,
-    /ember-rsi run <recipe.yaml>/,
+    /run \[options\] <recipe.yaml>/,
     'installed executable works outside its source checkout',
   );
-  assert.match(help, /reflection apply <revisionID>/);
+  assert.match(help, /reflection/);
+  for (const args of [
+    ['run', '--help'],
+    ['reflection', 'apply', '--help'],
+  ]) {
+    const detail = execFileSync(process.execPath, [command, ...args], {
+      cwd: outside,
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.match(detail, args[0] === 'run' ? /--resume/ : /<revisionID>/);
+  }
   const installedManifest = JSON.parse(
     await readFile(
       join(consumer, 'node_modules/ember-rsi/package.json'),
@@ -110,7 +121,7 @@ try {
     timeout: 30000,
     shell: process.platform === 'win32',
   });
-  assert.match(binHelp, /ember-rsi list/);
+  assert.match(binHelp, /list \[kind\]/);
 
   assert.deepEqual(
     JSON.parse(

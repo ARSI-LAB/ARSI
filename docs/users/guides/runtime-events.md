@@ -1,6 +1,6 @@
 # Runtime events guide
 
-English | [简体中文](../zh-CN/runtime-events.md) · [User guide](guide.md) · [Reflection](reflection.md)
+English | [简体中文](runtime-events_zh.md) · [Getting started](../getting-started.md) · [Reflection](reflection.md)
 
 Plugins access events through `RuntimeContext.event`: subscribe in `create(config, ctx)` and publish events or call services in `execute(input, ctx)` or a listener callback.
 

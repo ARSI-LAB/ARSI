@@ -1,6 +1,6 @@
 # Inference parameter search
 
-English | [简体中文](../zh-CN/parameter-search.md) · [User guide](guide.md)
+English | [简体中文](parameter-search_zh.md) · [Getting started](../getting-started.md)
 
 Choose one Policy per experiment. Both use `application.inference`, `evaluator.inferencebench`, and `selector.metric`:
 

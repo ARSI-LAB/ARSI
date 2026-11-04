@@ -3,6 +3,49 @@ import { createServer } from 'node:http';
 import type { RuntimeContext } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import type { LocalProvider } from './local-config.js';
+import { readFileTool } from './session.js';
+
+function providerFailure(value: unknown, status?: number): Error {
+  const body =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? object(value)
+      : {};
+  const error =
+    body.error && typeof body.error === 'object' ? object(body.error) : body;
+  const code = typeof error.code === 'string' ? error.code : '';
+  const message = typeof error.message === 'string' ? error.message : '';
+  if (
+    code === 'context_length_exceeded' ||
+    /context.{0,30}(?:window|limit|length)|input.{0,20}(?:too long|exceeds)/i.test(
+      message,
+    )
+  )
+    return new Error(
+      'Codex provider context limit exceeded; reduce task metadata or read smaller virtual-file ranges',
+    );
+  return new Error(
+    status
+      ? `Codex provider HTTP ${status}`
+      : 'Codex provider reported a failed response',
+  );
+}
+
+function allowedItem(value: unknown): void {
+  const item = object(value);
+  if (
+    item.type === 'message' ||
+    item.type === 'reasoning' ||
+    item.type === 'compaction'
+  )
+    return;
+  if (
+    item.type === 'function_call' &&
+    item.name === 'read_file' &&
+    !item.namespace
+  )
+    return;
+  throw new Error('Codex provider returned a forbidden tool call');
+}
 
 const maxBytes = 8 * 1024 * 1024;
 async function boundedBody(
@@ -32,21 +75,25 @@ function validateResponse(body: string): void {
     const event = object(JSON.parse(data));
     const type = string(event.type);
     if (
+      type === 'error' ||
+      type === 'response.failed' ||
+      type === 'response.incomplete'
+    )
+      throw providerFailure(event.response ?? event);
+    if (
       type === 'response.output_item.added' ||
       type === 'response.output_item.done'
     ) {
-      const item = object(event.item);
-      if (item.type !== 'message' && item.type !== 'reasoning')
-        throw new Error('Codex provider returned a forbidden tool call');
+      allowedItem(event.item);
     }
     if (type === 'response.completed') {
       const response = object(event.response);
+      if (response.status && response.status !== 'completed')
+        throw providerFailure(response);
       if (!Array.isArray(response.output))
         throw new Error('Invalid Codex response output');
       for (const value of response.output) {
-        const item = object(value);
-        if (item.type !== 'message' && item.type !== 'reasoning')
-          throw new Error('Codex provider returned a forbidden tool call');
+        allowedItem(value);
       }
       completed = true;
     }
@@ -97,9 +144,16 @@ export async function startGateway(
         signal.throwIfAborted();
         if (failure) throw failure;
         const body = object(JSON.parse(await boundedBody(req)));
-        // Supplied snapshots are in the prompt. No filesystem, shell, network or hosted tools.
-        body.tools = [];
-        body.tool_choice = 'none';
+        // The sole executable tool reads the supplied virtual snapshot through app-server RPC.
+        body.tools = [
+          {
+            type: 'function',
+            name: readFileTool.name,
+            description: readFileTool.description,
+            parameters: readFileTool.inputSchema,
+          },
+        ];
+        body.tool_choice = 'auto';
         body.stream = true;
         body.store = false;
         if (calls >= maxModelCalls)
@@ -137,9 +191,9 @@ export async function startGateway(
           redirect: 'error',
         });
         if (!response.ok) {
-          await response.body?.cancel();
           // Let Codex refresh its own expired login and retry through the same budget gate.
           if (response.status === 401) {
+            await response.body?.cancel();
             res.writeHead(401, { 'content-type': 'application/json' });
             res.end(
               JSON.stringify({
@@ -148,7 +202,14 @@ export async function startGateway(
             );
             return;
           }
-          throw new Error(`Codex provider HTTP ${response.status}`);
+          const body = response.body ? await boundedBody(response.body) : '';
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(body);
+          } catch {
+            parsed = {};
+          }
+          throw providerFailure(parsed, response.status);
         }
         if (!response.body)
           throw new Error('Codex provider returned an empty body');
@@ -164,6 +225,7 @@ export async function startGateway(
             : error instanceof Error
               ? error
               : new Error('Codex gateway request failed');
+        record('provider_error', { message: failure.message });
         // Provider text and credentials never cross back into Codex or diagnostic errors.
         res.writeHead(502, { 'content-type': 'application/json' });
         res.end(

@@ -8,7 +8,10 @@ export async function runCodexProcess(
   args: string[],
   input: string,
   signal: AbortSignal,
-  onLine?: (line: string, send: (message: unknown) => void) => void | boolean,
+  onLine?: (
+    line: string,
+    send: (message: unknown) => void,
+  ) => void | boolean | Promise<void | boolean>,
 ): Promise<void> {
   signal.throwIfAborted();
   const command = codexCommand(executable);
@@ -24,6 +27,7 @@ export async function runCodexProcess(
     child.stdout.setEncoding('utf8');
     let failure: unknown;
     let buffer = '';
+    let messages = Promise.resolve();
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const terminate = (signal: NodeJS.Signals): void => {
       try {
@@ -60,20 +64,31 @@ export async function runCodexProcess(
         while ((end = buffer.indexOf('\n')) !== -1) {
           const line = buffer.slice(0, end);
           buffer = buffer.slice(end + 1);
-          if (line.trim())
-            if (
-              onLine(line, (message) =>
-                child.stdin.write(JSON.stringify(message) + '\n'),
-              )
-            )
-              child.stdin.end();
+          if (line.trim()) {
+            messages = messages
+              .then(async () => {
+                if (failure || signal.aborted) return;
+                if (
+                  await onLine(line, (message) => {
+                    if (!child.stdin.destroyed)
+                      child.stdin.write(JSON.stringify(message) + '\n');
+                  })
+                )
+                  child.stdin.end();
+              })
+              .catch((error: unknown) => {
+                failure = error;
+                cancel();
+              });
+          }
         }
       } catch (error) {
         failure = error;
         cancel();
       }
     });
-    child.once('close', (code) => {
+    child.once('close', async (code) => {
+      await messages;
       if (killTimer) clearTimeout(killTimer);
       signal.removeEventListener('abort', cancel);
       if (signal.aborted) reject(signal.reason);

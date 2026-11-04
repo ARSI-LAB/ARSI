@@ -91,7 +91,7 @@ bindings:
     config: {}
 ```
 
-使用启动 RSI 的同一系统用户执行 `codex login status`；尚未登录时执行 `codex login`。RSI 继承 `CODEX_HOME` 及 provider 所需的环境变量。已安装的 CLI 必须支持 `app-server` 配置查询和 `exec`。[Codex 配置 Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、`timeoutMs`（默认 `600000`）和可选的 `model`。不填 `model` 时使用本机默认模型；填写时（例如 `config: { model: your-model }`）仅为本次执行指定模型，保留本机认证且不改写本机配置。请移除原先的 `base_url`、`api_key` 和 `thinkingLevel` 字段。本机 provider 必须使用 Responses API。RSI 仍通过本地网关逐次控制模型调用预算和拦截工具，并禁用任务中的 hooks、MCP 服务与插件。此绑定只配置优化器；评测器仍需单独配置模型凭据。
+使用启动 RSI 的同一系统用户执行 `codex login status`；尚未登录时执行 `codex login`。RSI 继承 `CODEX_HOME` 及 provider 所需的环境变量。已安装的 CLI 必须支持 app-server 配置查询、临时会话和实验性的动态工具（已验证 Codex CLI 0.166.0）。[Codex 配置 Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、`timeoutMs`（默认 `600000`）和可选的 `model`。不填 `model` 时使用本机默认模型；填写时（例如 `config: { model: your-model }`）仅为本次执行指定模型，保留本机认证且不改写本机配置。请移除原先的 `base_url`、`api_key` 和 `thinkingLevel` 字段。本机 provider 必须使用 Responses API。RSI 仍通过本地网关逐次控制模型调用预算，只允许受限的虚拟 `read_file` 工具。初始上下文只包含文件名，正文按需读取；默认每次读取 200 行、返回不超过 16 KiB 的序列化结果，最多 500 行和 32 KiB。使用 `startLine`/`lineCount` 选择行范围，通过 `byteOffset`/`nextByteOffset` 在所选范围内分页，单行 JSON 也可分段读取。Codex 维护真实会话历史和上下文压缩，RSI 不会在出站请求中偷偷注入证据。初始任务元数据上限为 128 KiB，大型证据应通过虚拟文件提供；上下文超限错误会立即终止。任务执行排除本机 model/developer 指令、hooks、MCP 服务和插件。实际模型、provider、推理设置、CLI 版本和非敏感配置指纹会被记录；同一实验和绑定中的配置变化会被拒绝，恢复执行时也会检查。需恢复已记录的配置或启动新实验。此绑定只配置优化器；评测器仍需单独配置模型凭据。
 
 ### Recipe 配置
 

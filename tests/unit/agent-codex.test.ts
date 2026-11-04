@@ -16,6 +16,7 @@ import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
 import { loadRecipe } from '../../src/runtime/loaders/index.js';
 import { stringify } from 'yaml';
+import { FileFacts } from '../../src/runtime/storage/index.js';
 
 const schema = {
   type: 'object',
@@ -76,10 +77,53 @@ function events(text: string): string {
     .join('');
 }
 
+function toolEvents(args: unknown): string {
+  const item = {
+    type: 'function_call',
+    id: 'fc_read',
+    call_id: 'call_read',
+    name: 'read_file',
+    arguments: JSON.stringify(args),
+  };
+  return [
+    {
+      type: 'response.created',
+      response: { id: 'resp_read', status: 'in_progress', output: [] },
+    },
+    {
+      type: 'response.output_item.added',
+      output_index: 0,
+      item: { ...item, arguments: '' },
+    },
+    {
+      type: 'response.function_call_arguments.delta',
+      item_id: item.id,
+      output_index: 0,
+      delta: item.arguments,
+    },
+    {
+      type: 'response.function_call_arguments.done',
+      item_id: item.id,
+      output_index: 0,
+      arguments: item.arguments,
+    },
+    { type: 'response.output_item.done', output_index: 0, item },
+    {
+      type: 'response.completed',
+      response: { id: 'resp_read', status: 'completed', output: [item] },
+    },
+  ]
+    .map((event) => 'data: ' + JSON.stringify(event) + '\n\n')
+    .join('');
+}
+
 async function fixture(
   replies: string[],
   options: {
     model?: string;
+    files?: Record<string, string>;
+    externalInstructions?: boolean;
+    prompt?: string;
     budget?: number;
     timeoutMs?: number;
     thinkingLevel?: 'off' | 'low';
@@ -121,9 +165,24 @@ async function fixture(
     }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.end(
-      reply === 'TOOL'
-        ? 'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"exec_command","arguments":"{}"}}\n\n'
-        : events(reply),
+      reply === 'CONTEXT'
+        ? 'data: ' +
+            JSON.stringify({
+              type: 'response.failed',
+              response: {
+                error: {
+                  code: 'context_length_exceeded',
+                  message:
+                    'Your input exceeds the context window; secret-diagnostic',
+                },
+              },
+            }) +
+            '\n\n'
+        : reply.startsWith('READ:')
+          ? toolEvents(JSON.parse(reply.slice(5)))
+          : reply === 'TOOL'
+            ? 'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"exec_command","arguments":"{}"}}\n\n'
+            : events(reply),
     );
   });
   await new Promise<void>((done, reject) => {
@@ -136,6 +195,8 @@ async function fixture(
   const codexHome = join(directory, 'user-codex');
   await mkdir(codexHome);
   const localConfig = {
+    auditDirectory: directory,
+    auditChatgpt: options.chatgpt ?? false,
     model: 'configured-model',
     model_provider: providerId,
     model_reasoning_effort: options.thinkingLevel ?? 'high',
@@ -207,42 +268,20 @@ async function fixture(
       ].join('\n'),
     );
   }
+  if (options.externalInstructions) {
+    const outside = join(codexHome, 'outside.md');
+    await writeFile(outside, 'OUTSIDE_SNAPSHOT_SENTINEL');
+    const path = join(codexHome, 'config.toml');
+    await writeFile(
+      path,
+      `model_instructions_file=${JSON.stringify(outside)}\ndeveloper_instructions="OUTSIDE_DEVELOPER_SENTINEL"\n` +
+        (await readFile(path, 'utf8')),
+    );
+  }
   const executable = join(directory, 'codex-test.cjs');
-  // A deterministic CLI double; the optional real CLI uses only this temporary provider.
   await writeFile(
     executable,
-    `#!${process.execPath}
-const fs = require('node:fs');
-const readline = require('node:readline');
-const config = JSON.parse(fs.readFileSync(process.env.CODEX_HOME + '/fixture.json', 'utf8'));
-if (process.argv.includes('app-server')) {
-  const rl = readline.createInterface({ input: process.stdin });
-  rl.on('line', line => {
-    const request = JSON.parse(line);
-    if (request.id) process.stdout.write(JSON.stringify({ id: request.id, result: request.id === 1 ? {} : { config } }) + '\\n');
-  });
-} else (async () => {
-  const dir = process.cwd();
-  const args = process.argv.slice(2);
-  fs.writeFileSync(${JSON.stringify(join(directory, 'execution.json'))}, JSON.stringify({ dir, home: process.env.CODEX_HOME, args }));
-  const overrides = Object.fromEntries(args.flatMap((value, i) => {
-    if (args[i-1] !== '-c') return [];
-    const eq = value.indexOf('=');
-    return [[value.slice(0, eq), value.slice(eq+1)]];
-  }));
-  const key = 'model_providers.' + (config.model_provider === 'openai' ? 'rsi-local-openai' : config.model_provider);
-  const base = JSON.parse(overrides[key + '.base_url']);
-  const token = JSON.parse(overrides[key + '.http_headers.X-RSI-Codex']);
-  let prompt = '';
-  for await (const chunk of process.stdin) prompt += chunk;
-  const response = await fetch(base + '/responses', { method: 'POST', headers: { authorization: 'Bearer ' + process.env.RSI_CODEX_TEST_KEY, 'X-RSI-Codex': token, ${options.chatgpt ? "'chatgpt-account-id': 'test-account'," : ''} }, body: JSON.stringify({ model: args.includes('--model') ? args[args.indexOf('--model') + 1] : config.model, input: prompt, reasoning: { effort: config.model_reasoning_effort }, tools: [{ type: 'function', name: 'exec_command' }] }) });
-  if (!response.ok) process.exit(1);
-  const body = await response.text();
-  const events = body.split('\\n').filter(x => x.startsWith('data: ')).map(x => JSON.parse(x.slice(6)));
-  const final = events.find(x => x.type === 'response.completed');
-  fs.writeFileSync(dir + '/output.json', final.response.output[0].content[0].text);
-})().catch(() => process.exit(1));
-`,
+    await readFile(resolve('tests/fixtures/codex-cli.cjs')),
   );
   await chmod(executable, 0o700);
   const previous = {
@@ -254,6 +293,9 @@ if (process.argv.includes('app-server')) {
   let charges = 0;
   const context = new RuntimeContext().extend({
     directory,
+    experimentId: 'codex-fixture',
+    bindingId: 'agent',
+    facts: new FileFacts(join(directory, 'facts')),
     signal: controller.signal,
     charge: async (metric: string, amount: number) => {
       assert.equal(metric, 'modelCalls');
@@ -263,7 +305,7 @@ if (process.argv.includes('app-server')) {
       charges++;
     },
   });
-  const operation = await createAgentCodex(
+  let operation = await createAgentCodex(
     {
       executable: process.env.RSI_TEST_CODEX_EXECUTABLE ?? executable,
       timeoutMs: options.timeoutMs ?? 20000,
@@ -274,13 +316,42 @@ if (process.argv.includes('app-server')) {
   return {
     directory,
     requests,
+    facts: context.facts,
+    async changeLocalModel(model: string) {
+      localConfig.model = model;
+      await writeFile(
+        join(codexHome, 'fixture.json'),
+        JSON.stringify(localConfig),
+      );
+      const path = join(codexHome, 'config.toml');
+      await writeFile(
+        path,
+        (await readFile(path, 'utf8')).replace(
+          /^model = .+$/m,
+          `model = ${JSON.stringify(model)}`,
+        ),
+      );
+    },
+    async recreate() {
+      await operation.dispose();
+      operation = await createAgentCodex(
+        {
+          executable: process.env.RSI_TEST_CODEX_EXECUTABLE ?? executable,
+          timeoutMs: options.timeoutMs ?? 20000,
+          ...(options.model ? { model: options.model } : {}),
+        },
+        context,
+      );
+    },
     charges: () => charges,
     run: (maxModelCalls = 2) =>
       operation.execute(
         {
           goal: 'Read snapshot',
-          prompt: 'Return the answer',
-          files: { '/private/not-a-host-file': 'snapshot-content' },
+          prompt: options.prompt ?? 'Return the answer',
+          files: options.files ?? {
+            '/private/not-a-host-file': 'snapshot-content',
+          },
           outputSchema: schema,
           maxModelCalls,
         },
@@ -306,11 +377,17 @@ test('Codex receives virtual files, charges each request, repairs invalid JSON a
     assert.deepEqual(await f.run(), { answer: 'ok' });
     assert.equal(f.charges(), 2);
     for (const request of f.requests) {
-      assert.deepEqual(request.tools, []);
-      assert.equal(request.tool_choice, 'none');
+      assert.deepEqual(
+        (request.tools as { name: string }[]).map((t) => t.name),
+        ['read_file'],
+      );
+      assert.equal(request.tool_choice, 'auto');
       assert.equal((request.reasoning as { effort: string }).effort, 'high');
       assert.equal(request.model, 'configured-model');
-      assert.ok(JSON.stringify(request.input).includes('snapshot-content'));
+      assert.ok(!JSON.stringify(request.input).includes('snapshot-content'));
+      assert.ok(
+        JSON.stringify(request.input).includes('/private/not-a-host-file'),
+      );
     }
     const diagnostics = await readFile(
       join(f.directory, 'diagnostics.jsonl'),
@@ -337,7 +414,7 @@ test('Codex receives virtual files, charges each request, repairs invalid JSON a
         '{"auth_mode":"apikey","OPENAI_API_KEY":"test-codex-key"}',
       );
       await assert.rejects(
-        readFile(join(execution.dir, 'output.json')),
+        readFile(join(execution.dir, 'instructions.md')),
         /ENOENT/,
       );
     }
@@ -470,7 +547,10 @@ for (const model of [undefined, 'selected-model']) {
         const execution = JSON.parse(
           await readFile(join(f.directory, 'execution.json'), 'utf8'),
         );
-        assert.equal(execution.args.includes('--model'), model !== undefined);
+        assert.equal(
+          execution.args.includes(`model=${JSON.stringify(model)}`),
+          model !== undefined,
+        );
       }
     } finally {
       await f.close();
@@ -484,5 +564,102 @@ test('Codex rejects empty model overrides', async () => {
       createAgentCodex({ model }, new RuntimeContext()),
       /agent.codex config/,
     );
+  }
+});
+
+test('Codex reads a bounded virtual file on demand without inlining a large snapshot', async () => {
+  const f = await fixture(
+    [
+      'READ:' + JSON.stringify({ path: 'context/huge.json', maxBytes: 4096 }),
+      '{"answer":"ok"}',
+    ],
+    {
+      files: {
+        'context/huge.json':
+          'needed-start-' + 'x'.repeat(4 * 1024 * 1024) + 'NOT_READ_TAIL',
+      },
+    },
+  );
+  try {
+    assert.deepEqual(await f.run(2), { answer: 'ok' });
+    assert.equal(f.charges(), 2);
+    assert.ok(!JSON.stringify(f.requests[0].input).includes('needed-start-'));
+    assert.ok(JSON.stringify(f.requests[1].input).includes('needed-start-'));
+    assert.ok(!JSON.stringify(f.requests[1].input).includes('NOT_READ_TAIL'));
+    assert.ok(Buffer.byteLength(JSON.stringify(f.requests[1].input)) < 20000);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex excludes local model and developer instruction files', async () => {
+  const f = await fixture(['{"answer":"ok"}'], { externalInstructions: true });
+  try {
+    assert.deepEqual(await f.run(1), { answer: 'ok' });
+    const body = JSON.stringify(f.requests);
+    assert.ok(!body.includes('OUTSIDE_SNAPSHOT_SENTINEL'));
+    assert.ok(!body.includes('OUTSIDE_DEVELOPER_SENTINEL'));
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex records effective settings and rejects model drift across resumed instances before inference', async () => {
+  const f = await fixture(['{"answer":"ok"}', '{"answer":"ok"}']);
+  try {
+    await f.run(1);
+    const configurations = await f.facts.list('agent-codex-configurations');
+    assert.equal(configurations.length, 1);
+    const text = JSON.stringify(configurations);
+    assert.ok(text.includes('configured-model'));
+    assert.ok(!text.includes('test-codex-key'));
+    assert.ok(!text.includes('127.0.0.1'));
+    await f.changeLocalModel('changed-model');
+    await f.recreate();
+    await assert.rejects(
+      f.run(1),
+      /configuration changed within this experiment/,
+    );
+    assert.equal(f.requests.length, 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex treats streamed context errors as terminal without exposing upstream diagnostics', async () => {
+  const f = await fixture(['CONTEXT']);
+  try {
+    await assert.rejects(
+      f.run(5),
+      (error) =>
+        error instanceof Error &&
+        /context limit exceeded/.test(error.message) &&
+        !error.message.includes('secret-diagnostic'),
+    );
+    assert.equal(f.requests.length, 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex rejects oversized initial instructions before inference', async () => {
+  const f = await fixture(['{"answer":"ok"}'], { prompt: 'x'.repeat(131072) });
+  try {
+    await assert.rejects(f.run(1), /initial task metadata exceeds byte limit/);
+    assert.equal(f.requests.length, 0);
+    assert.equal(f.charges(), 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex repairs an empty final response within the same charged session', async () => {
+  const f = await fixture(['', '{"answer":"ok"}']);
+  try {
+    assert.deepEqual(await f.run(2), { answer: 'ok' });
+    assert.equal(f.charges(), 2);
+    assert.ok(JSON.stringify(f.requests[1].input).includes('validationError'));
+  } finally {
+    await f.close();
   }
 });

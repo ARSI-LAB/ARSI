@@ -18,6 +18,7 @@ if (process.argv.includes('--version')) {
   const send = (value) => process.stdout.write(JSON.stringify(value) + '\n');
   let input = '';
   let pendingTool;
+  let nextToolId = 0;
   const rl = readline.createInterface({ input: process.stdin });
   const generate = async () => {
     const key =
@@ -55,7 +56,7 @@ if (process.argv.includes('--version')) {
     const item = events.find((x) => x.type === 'response.completed').response
       .output[0];
     if (item.type === 'function_call') {
-      pendingTool = item.call_id;
+      pendingTool = nextToolId++;
       send({
         id: pendingTool,
         method: 'item/tool/call',
@@ -112,7 +113,7 @@ if (process.argv.includes('--version')) {
         input += '\n' + request.params.input[0].text;
         send({ id: request.id, result: {} });
         await generate();
-      } else if (pendingTool && request.id === pendingTool) {
+      } else if (pendingTool !== undefined && request.id === pendingTool) {
         input += '\n' + JSON.stringify(request.result);
         await generate();
       }

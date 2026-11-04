@@ -27,6 +27,10 @@ test('CLI parses run options and repeatable global plugin directories', () => {
 test('CLI provides command-specific and nested help', () => {
   for (const args of [
     [],
+    ['-h'],
+    ['run', '-h'],
+    ['reflection', '-h'],
+    ['reflection', 'apply', '-h'],
     ['run', '--help'],
     ['help', 'run'],
     ['reflection', 'apply', '--help'],
@@ -75,4 +79,24 @@ test('CLI maps existing commands and defaults to execution inputs', () => {
   assert.equal(parseCommand(['serve']).port, 4317);
   assert.equal(parseCommand(['serve', '--port=65535']).port, 65535);
   assert.equal(parseCommand(['run', 'r.yaml']).resume, false);
+});
+
+test('CLI usage errors include focused help like evaluator', () => {
+  for (const args of [
+    ['run'],
+    ['run', 'r.yaml', '--resume'],
+    ['serve', '--port', '0'],
+  ]) {
+    assert.throws(
+      () => parseCommand(args),
+      (error: unknown) => {
+        assert.ok(error instanceof Error && 'helpText' in error);
+        assert.match(
+          String(error.helpText),
+          new RegExp('Usage: ember-rsi ' + args[0]),
+        );
+        return true;
+      },
+    );
+  }
 });

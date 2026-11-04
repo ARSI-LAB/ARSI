@@ -91,6 +91,9 @@ try {
   assert.match(help, /reflection/);
   for (const args of [
     ['run', '--help'],
+    ['run', '-h'],
+    ['reflection', '-h'],
+    ['reflection', 'apply', '-h'],
     ['reflection', 'apply', '--help'],
   ]) {
     const detail = execFileSync(process.execPath, [command, ...args], {
@@ -98,7 +101,14 @@ try {
       encoding: 'utf8',
       timeout: 30000,
     });
-    assert.match(detail, args[0] === 'run' ? /--resume/ : /<revisionID>/);
+    assert.match(
+      detail,
+      args[0] === 'run'
+        ? /--resume/
+        : args.length === 2
+          ? /apply/
+          : /<revisionID>/,
+    );
   }
   const installedManifest = JSON.parse(
     await readFile(

@@ -5,6 +5,15 @@ import {
   Argument,
 } from 'commander';
 
+export class CommandUsageError extends Error {
+  constructor(
+    message: string,
+    readonly helpText: string,
+  ) {
+    super(message);
+  }
+}
+
 interface ParsedCommand {
   command: string;
   args: string[];
@@ -31,7 +40,9 @@ export function parseCommand(argv: string[]): ParsedCommand {
       writeOut: (text) => {
         help += text;
       },
-      writeErr: () => {},
+      writeErr: (text) => {
+        help += text;
+      },
     })
     .showHelpAfterError();
   program.addHelpText(
@@ -46,7 +57,7 @@ export function parseCommand(argv: string[]): ParsedCommand {
     };
     if (command === 'run') {
       const opts = cmd.opts<{ id?: string; resume?: boolean }>();
-      if (opts.resume && !opts.id) throw new Error('--resume requires --id');
+      if (opts.resume && !opts.id) cmd.error('--resume requires --id');
       result.id = opts.id;
       result.resume = opts.resume ?? false;
     }
@@ -123,7 +134,7 @@ export function parseCommand(argv: string[]): ParsedCommand {
     )
     .action((_opts: unknown, cmd: Command) => capture('serve', [], cmd));
   const configure = (cmd: Command): void => {
-    cmd.exitOverride().allowExcessArguments(false);
+    cmd.exitOverride().allowExcessArguments(false).showHelpAfterError();
     for (const child of cmd.commands) configure(child);
   };
   configure(program);
@@ -132,6 +143,11 @@ export function parseCommand(argv: string[]): ParsedCommand {
   } catch (error) {
     if (error instanceof CommanderError && error.exitCode === 0)
       return { command: 'help', args: [], pluginDirectories: [], help };
+    if (error instanceof CommanderError)
+      throw new CommandUsageError(
+        error.message,
+        help || program.helpInformation(),
+      );
     throw error;
   }
   if (!result)

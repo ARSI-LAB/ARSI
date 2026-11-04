@@ -56,6 +56,21 @@
 
 ## 📦 安装与部署
 
+### Agent Instruction
+
+将下面这段指令复制给你的编程 Agent：
+
+```text
+请从 https://github.com/evolving-foundry/ember-rsi 安装 ember-rsi CLI 和配套 skill。
+按照 README 中的 CLI 手动安装说明，检查前置依赖、克隆仓库、安装依赖、构建并安装 CLI。
+将完整的 skills/ember-rsi 目录（包括引用资料和模板）复制到当前 Agent 支持的 skill 目录，替换同名 skill 前先询问。
+运行 ember-rsi --help，并确认当前 Agent 能发现和读取该 skill。本次只完成安装，不启动实验或调用模型。
+```
+
+### Manual Installation
+
+#### 1. 安装 CLI
+
 需要 **Node.js >=24.19.0 且 <25**、**pnpm 11.22.0**、Git，以及相关 GitHub 仓库的读取权限。AgentBundle 和 Evaluator SDK 通过固定的 Git 依赖安装，并在安装过程中构建，无需准备同级源码目录。
 
 ```sh
@@ -69,6 +84,16 @@ pnpm add -g .
 # 检查安装后的 CLI 是否可用。
 ember-rsi --help
 ```
+
+#### 2. 安装 skill
+
+在目标项目目录执行以下命令，并选择要安装到的编程 Agent：
+
+```sh
+npx skills add evolving-foundry/ember-rsi --skill ember-rsi
+```
+
+如需用户级安装，添加 `-g`。按 Agent 的要求重新加载或重启，然后确认能发现和读取 `ember-rsi` skill。
 
 后续命令均在 `ember-rsi` 仓库根目录执行，使用已安装的 `ember-rsi` CLI。
 

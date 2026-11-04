@@ -52,6 +52,7 @@ export async function register(registry) {
 id: external.policy
 input_schema: { type: object }
 output_schema: { type: object }
+steps: []
 output: { loaded: true }
 `,
   );
@@ -59,8 +60,8 @@ output: { loaded: true }
     join(root, 'recipe.yaml'),
     `schemaVersion: rsi.recipe/v1
 id: external-recipe
-application: { ref: external.application, config: {} }
-policy: { ref: external.policy, config: {}, input: {} }
+application: { plugin: external.application, config: {} }
+policy: { id: external.policy, config: {}, input: {} }
 bindings: {}
 budget: { operations: 5, elapsedWallMs: 30000 }
 `,

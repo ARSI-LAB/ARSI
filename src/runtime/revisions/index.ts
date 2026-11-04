@@ -48,6 +48,7 @@ export interface ReflectionOptions {
   generatorBinding: string;
   state: JsonObject;
   bindings: Record<string, Binding>;
+  sourceResources?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   context: RuntimeContext;
   directory: string;
   revisionRefs: JsonObject;
@@ -234,7 +235,7 @@ export async function reflect(
           const binding = object(value);
           return [
             key,
-            { ref: string(binding.ref), config: object(binding.config) },
+            { plugin: string(binding.plugin), config: object(binding.config) },
           ];
         }),
       );
@@ -274,7 +275,8 @@ export async function reflect(
         if (!binding) return false;
         try {
           return (
-            options.getDefinition(binding.ref).contract.id === 'contract.agent'
+            options.getDefinition(binding.plugin).contract.id ===
+            'contract.agent'
           );
         } catch {
           return false;
@@ -309,7 +311,7 @@ export async function reflect(
       safeId(key);
       const binding = options.bindings[key];
       if (!binding) throw new Error(`Unknown reflection target ${key}`);
-      const plugin = options.getDefinition(binding.ref),
+      const plugin = options.getDefinition(binding.plugin),
         fields = resourceFields(plugin.configSchema, binding.config);
       const parent = await currentRevision(options, key, binding);
       parents[key] = parent;
@@ -324,7 +326,9 @@ export async function reflect(
         : selectedFields.map((field) => ({
             pointer: field.pointer,
             kind: field.kind,
-            path: string(pointerValue(binding.config, field.pointer)),
+            path:
+              options.sourceResources?.[key]?.[field.pointer] ??
+              string(pointerValue(binding.config, field.pointer)),
             artifactPath: resourcePath(key, field.pointer),
           }));
       originals.set(key, sourceResources);
@@ -410,8 +414,8 @@ export async function reflect(
         experimentId: options.context.experimentId,
         policyScopeId: options.invocation.policyScopeId,
         binding: key,
-        pluginRef: binding.ref,
-        pluginId: binding.ref,
+        pluginRef: binding.plugin,
+        pluginId: binding.plugin,
         config: binding.config,
         sourceResources: originals.get(key)!,
         resourceRef: before,
@@ -581,7 +585,7 @@ export async function reflect(
     for (const key of Object.keys(options.config.targets)) {
       if (!changedTargets.has(key)) continue;
       const binding = options.bindings[key]!,
-        plugin = options.getDefinition(binding.ref);
+        plugin = options.getDefinition(binding.plugin);
       const config = structuredClone(binding.config);
       for (const field of resourceFields(plugin.configSchema, config)) {
         const path = resourcePath(key, field.pointer);
@@ -615,8 +619,8 @@ export async function reflect(
         kind: 'generated',
         rootRef: parentRevision?.rootRef ?? parents[key]!,
         sourceResources: originals.get(key)!,
-        pluginRef: binding.ref,
-        pluginId: binding.ref,
+        pluginRef: binding.plugin,
+        pluginId: binding.plugin,
         config,
         resourceRef: after,
         reflectionId: identity,

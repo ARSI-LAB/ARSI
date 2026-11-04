@@ -42,22 +42,6 @@ export class Registry {
         `Binding ${binding}: requires contract ${required.id}, but ${pluginId} implements ${actual.id} with different type or schemas`,
       );
   }
-  assertPolicyContract(
-    required: PluginContract,
-    policy: JsonObject,
-    binding: string,
-  ): void {
-    if (
-      digest({
-        input: required.input_schema,
-        output: required.output_schema,
-      }) !==
-      digest({ input: policy.input_schema, output: policy.output_schema })
-    )
-      throw new Error(
-        `Binding ${binding}: child Policy ${String(policy.id)} does not implement contract ${required.id}`,
-      );
-  }
   constructor() {
     this.context.provide('rsiRegistry', this);
   }

@@ -1,36 +1,16 @@
-<h1 align="center">
-  <img src="docs/users/assets/ember-rsi-logo.png" alt="ember-rsi" width="520">
-</h1>
+# ![ember-rsi](docs/users/assets/ember-rsi-logo.png)
 
-<h3 align="center">Multiple self-improvement strategies in one framework · Make Everything RSI-able.</h3>
+### Multiple self-improvement strategies in one framework · Make Everything RSI-able.
 
-<p align="center">
-  Generate candidates, evaluate their performance, and iterate in one framework, from agent harnesses to AI infrastructure.
-</p>
+Generate candidates, evaluate their performance, and iterate in one framework, from agent harnesses to AI infrastructure.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&amp;logoColor=white" alt="Node.js 24.x">
-  <img src="https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&amp;logoColor=white" alt="pnpm 11.22.0">
-  <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License: Apache-2.0">
-</p>
+![Node.js 24.x](https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&logoColor=white)![pnpm 11.22.0](https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&logoColor=white)![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)
 
-<p align="center">
-  English | <a href="./README.zh-CN.md">中文</a>
-</p>
+English | [中文](./README.zh-CN.md)
 
-<p align="center">
-  <a href="#overview">Overview</a> ·
-  <a href="#architecture">How it works</a> ·
-  <a href="#installation">Installation</a> ·
-  <a href="#usage">Using ember-rsi</a> ·
-  <a href="#web-workspace">Experiment viewer</a> ·
-  <a href="#experiment-results">Experiment results</a> ·
-  <a href="#user-guide">User guides</a>
-</p>
+[Overview](#overview) · [How it works](#architecture) · [Installation](#installation) · [Using ember-rsi](#usage) · [Experiment viewer](#web-workspace) · [Experiment results](#experiment-results) · [User guides](#user-guide)
 
 
-
-<a id="overview"></a>
 
 ## ℹ️ Overview
 
@@ -42,8 +22,6 @@
 
 
 
-<a id="architecture"></a>
-
 ## 🔄 How it works
 
 ![ember-rsi architecture showing Recipe and Policy configuration, the RSI core, the Application plugin loop, and component improvement through Memory and Reflection](docs/users/assets/rsi-architecture-handdrawn.png)
@@ -54,9 +32,22 @@
 
 
 
-<a id="installation"></a>
-
 ## 📦 Installation and deployment
+
+### Agent Instruction
+
+Copy this instruction into your coding agent:
+
+```text
+Install the ember-rsi CLI and companion skill from https://github.com/evolving-foundry/ember-rsi.
+Follow the README's manual CLI installation instructions: check prerequisites, clone the repository, install dependencies, build, and install the CLI.
+Copy the complete skills/ember-rsi directory, including references and templates, into a skill directory supported by this agent. Ask before replacing an existing skill with the same name.
+Run ember-rsi --help and confirm that this agent can discover and read the skill. Complete installation only; do not start experiments or make model calls.
+```
+
+### Manual Installation
+
+#### 1. Install the CLI
 
 You need **Node.js >=24.19.0 and <25**, **pnpm 11.22.0**, Git, and read access to the GitHub repositories. AgentBundle and the Evaluator SDK are installed from the pinned Git dependencies and built during installation; sibling checkouts are not required.
 
@@ -72,27 +63,25 @@ pnpm add -g .
 ember-rsi --help
 ```
 
-Run the remaining commands from the `ember-rsi` repository root using the installed `ember-rsi` CLI.
+#### 2. Install the skill
 
+Run this from your target project and select the coding agent to install to:
 
+```sh
+npx skills add evolving-foundry/ember-rsi --skill ember-rsi
+```
 
-<a id="usage"></a>
+Add `-g` for a user-wide installation. Reload or restart your agent as required, then confirm that it can discover and read the `ember-rsi` skill.
 
 ## 🛠️ Using ember-rsi
 
-
-
 ### Quick start
-
-
 
 #### 1. Configure models and the evaluation environment
 
 This walkthrough uses the WorkBuddy Office scenario from the [Harness² example](examples/harness/dsh-harness2/README.md). Follow the [Evaluator's WorkBuddy setup guide](https://github.com/evolving-foundry/ember-evaluator/blob/master/docs/users/benchmarks/workbuddy.md) to prepare Docker, the dataset, and container images. Make sure both the host and the evaluation containers can reach the model endpoint.
 
 Expand the option for your system and replace the placeholders with your settings.
-
-
 
 Linux / macOS / WSL (Bash)
 
@@ -111,10 +100,6 @@ export MODEL_ENDPOINT="https://your-model-service.example/v1"
 export MODEL_API_KEY="your-api-key"
 ```
 
-
-
-
-
 Windows (PowerShell)
 
 ```powershell
@@ -131,8 +116,6 @@ $env:EVALUATOR_MODEL_NAME = 'your-evaluation-model'
 $env:MODEL_ENDPOINT = 'https://your-model-service.example/v1'
 $env:MODEL_API_KEY = 'your-api-key'
 ```
-
-
 
 #### 2. Validate, run, and resume an experiment
 
@@ -159,8 +142,6 @@ Resume an interrupted experiment from the original working directory using the s
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --resume
 ```
 
-
-
 ##### Built-in RSI strategies
 
 Choose a strategy for your optimization target and follow its example to set up the environment, validate the Recipe, and run the experiment.
@@ -174,11 +155,7 @@ Choose a strategy for your optimization target and follow its example to set up 
 | `policy.parameter-optuna` | Searches inference parameters with Optuna TPE or random sampling and supports constraint-aware sampling and recovery by replaying trial history.          | [Inference TPE search](examples/artifacts/inference/parameter-tpe/README.md)   |
 
 
-
-
 ### Extending ember-rsi
-
-
 
 #### For developers
 
@@ -193,8 +170,6 @@ Start with Recipe configuration and extend the framework as needed. The [user gu
 | Host experiments in another platform or service                   | Embed the Runtime with the Node.js APIs `createRuntime` and `validateRecipe`.                                                                         |
 
 
-
-
 #### For AI coding agents
 
 Load the RSI Skill in a coding agent and provide the optimization goal, permitted edits, and budget. The agent can choose or write a Recipe, validate the configuration, and, once authorized, run the experiment, inspect results, and diagnose failures.
@@ -202,8 +177,6 @@ Load the RSI Skill in a coding agent and provide the optimization goal, permitte
 - The [RSI Skill entrypoint](skills/ember-rsi/SKILL.md) uses the reference material and templates in the full `skills/ember-rsi/` directory. Use the [minimal example](skills/ember-rsi/references/quickstart.md) to check that the Recipe and plugins work together.
 
 
-
-<a id="web-workspace"></a>
 
 ## 🖥️ Experiment viewer
 
@@ -216,8 +189,6 @@ ember-rsi serve --port 4317
 ![Demo of the ember-rsi WikiSkill experiment viewer](docs/users/assets/rsi-studio-wikiskill-compact.gif)
 
 
-
-<a id="experiment-results"></a>
 
 ## 📊 Experiment results
 
@@ -239,8 +210,6 @@ ember-rsi serve --port 4317
 
 
 
-<a id="user-guide"></a>
-
 ## 📖 User guides
 
 - [User guide](docs/users/en/guide.md) for concepts and experiment configuration
@@ -248,8 +217,6 @@ ember-rsi serve --port 4317
 - [Inference parameter search](docs/users/en/parameter-search.md) for tuning inference services
 - [Runtime events](docs/users/en/runtime-events.md) for event subscriptions and extensions
 - Complete experiment Recipes for [DSH Harness²](examples/harness/dsh-harness2/README.md), [DSH WikiSkill (Terminal-Bench 4.0)](examples/harness/dsh-wikiskill/README.md), [vLLM grid search](examples/artifacts/inference/parameter-grid/README.md), and [vLLM TPE search](examples/artifacts/inference/parameter-tpe/README.md)
-
-
 
 ## 🙏 Acknowledgments
 

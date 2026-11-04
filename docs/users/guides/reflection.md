@@ -1,10 +1,10 @@
 # Reflection guide
 
-English | [简体中文](../zh-CN/reflection.md) · [User guide](guide.md) · [Runtime events](runtime-events.md)
+English | [简体中文](reflection_zh.md) · [Getting started](../getting-started.md) · [Runtime events](runtime-events.md)
 
 Reflection reviews completed execution evidence and proposes guidance-resource changes for future plugin calls. Developers choose what to observe, what can change, and where to invoke it. The Runtime prepares input, validates proposals, and activates accepted revisions within the experiment.
 
-The explicit `configFile` interface described here is implemented. The built-in [Harness² Policy](../../../src/policies/harness2/policy.yaml) declares a default Reflection file, but its invocation step is commented out. Declaring a configuration alone does not run Reflection.
+The built-in Harness² Policy declares a Reflection configuration for the Invariant and Domain Proposers. Its `improve_guidance` step is commented out by default. See the [Harness² Policy](../../../src/policies/harness2/policy.yaml) and its [Reflection configuration](../../../src/policies/harness2/reflection.yaml).
 
 ## 1. Configure a Reflection module
 
@@ -89,7 +89,7 @@ steps:
     type: reflection
 ```
 
-This is an excerpt, not a standalone Policy. Preserve the rest of the Policy's schemas, dependencies, and flow. For the built-in Harness² source, enabling its commented step changes the Policy for users of that build; to keep a separate behavior, register your own Policy ID and select it from the Recipe. See [Policy registration](guide.md#4-write-a-policy).
+This excerpt requires the rest of the Policy's schemas, dependencies, and flow. To use a different Reflection schedule, register your own Policy ID and select it from the Recipe. See [Policy registration](writing-policies.md#register-a-policy).
 
 | Configuration and flow                            | Result                                                                                                               |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |

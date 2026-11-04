@@ -1,6 +1,6 @@
 # 推理参数搜索
 
-[English](../en/parameter-search.md) | 简体中文 · [用户指南](guide.md)
+[English](parameter-search.md) | 简体中文 · [快速入门](../getting-started_zh.md)
 
 每个实验选择一种 Policy，两者共用 `application.inference`、`evaluator.inferencebench` 和 `selector.metric`：
 

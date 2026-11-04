@@ -171,7 +171,7 @@ ember-rsi show my-harness2-task
 ```
 
 - Candidates, evaluation metrics, call receipts, and evidence are stored in `.rsi/` in the current directory by default. Review the evaluation status, scores, and deliverables together.
-- For details, see the [user guide](docs/users/en/guide.md), [Reflection guide](docs/users/en/reflection.md), and [runtime events guide](docs/users/en/runtime-events.md).
+- For details, see the [getting started guide](docs/users/getting-started.md), [Reflection guide](docs/users/guides/reflection.md), and [runtime events guide](docs/users/guides/runtime-events.md).
 
 Resume an interrupted experiment from the original working directory using the same Recipe and experiment ID.
 
@@ -197,7 +197,7 @@ Choose a strategy for your optimization target and follow its example to set up 
 
 #### For developers
 
-Start with Recipe configuration and extend the framework as needed. The [user guide](docs/users/en/guide.md#3-customize-bindings-and-plugins) includes Policy and plugin examples.
+Start with Recipe configuration and extend the framework as needed. See the examples for [writing Policies](docs/users/guides/writing-policies.md) and [writing plugins](docs/users/guides/writing-plugins.md).
 
 | Goal                                                              | Extension point                                                                                                                                       |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -305,10 +305,11 @@ ember-rsi dashboard
 
 ## 📖 User guides
 
-- [User guide](docs/users/en/guide.md) for concepts and experiment configuration
-- [Reflection guide](docs/users/en/reflection.md) for improving component guidance
-- [Inference parameter search](docs/users/en/parameter-search.md) for tuning inference services
-- [Runtime events](docs/users/en/runtime-events.md) for event subscriptions and extensions
+- [Getting started](docs/users/getting-started.md) for writing a first Recipe and finding follow-on guides
+- [Architecture and core concepts](docs/users/concepts/architecture.md) for the roles of Applications, Policies, plugins, and the Runtime
+- [Reflection guide](docs/users/guides/reflection.md) for improving component guidance
+- [Inference parameter search](docs/users/guides/parameter-search.md) for tuning inference services
+- [Runtime events](docs/users/guides/runtime-events.md) for event subscriptions and extensions
 - Complete experiment Recipes for [DSH Harness²](examples/harness/dsh-harness2/README.md), [DSH WikiSkill (Terminal-Bench 4.0)](examples/harness/dsh-wikiskill/README.md), [vLLM grid search](examples/artifacts/inference/parameter-grid/README.md), and [vLLM TPE search](examples/artifacts/inference/parameter-tpe/README.md)
 
 ## 🙏 Acknowledgments

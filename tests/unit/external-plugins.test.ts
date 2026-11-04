@@ -141,7 +141,7 @@ test('CLI loads external implementation and Policy for catalog, validate and exe
     }
     await assert.rejects(
       run('catalog', '--plugin-dir'),
-      /--plugin-dir needs a value/,
+      /--plugin-dir.*argument missing/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -252,7 +252,7 @@ test('home discovery loads extensions once and CLI describes schemas', async () 
     }[];
     assert.ok(policies.length && policies.every((entry) => entry.require));
     assert.deepEqual(await run('list'), []);
-    await assert.rejects(run('list', 'typo'), /Expected list/);
+    await assert.rejects(run('list', 'typo'), /invalid.*kind|Allowed choices/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -42,6 +42,29 @@ export async function readLocalConfig(
   return config;
 }
 
+export async function readCodexVersion(
+  executable: string,
+  directory: string,
+  signal: AbortSignal,
+): Promise<string> {
+  let version = '';
+  await runCodexProcess(
+    executable,
+    directory,
+    ['--version'],
+    '',
+    signal,
+    (line) => {
+      if (!/^codex(?:-cli)?\s+\S+/.test(line) || line.length > 256)
+        throw new Error('Cannot identify installed Codex version');
+      version = line.trim();
+      return true;
+    },
+  );
+  if (!version) throw new Error('Codex returned no version');
+  return version;
+}
+
 export type LocalProvider = {
   id: string;
   name: string;
@@ -107,7 +130,10 @@ function checkedBaseUrl(value: string): string {
 }
 
 /** Override task capabilities only; authentication, model and reasoning stay owned by Codex. */
-export function executionOverrides(config: JsonObject): string[] {
+export function executionOverrides(
+  config: JsonObject,
+  instructionFile?: string,
+): string[] {
   const values = [
     'approval_policy="never"',
     'web_search="disabled"',
@@ -125,7 +151,18 @@ export function executionOverrides(config: JsonObject): string[] {
     'features.responses_websockets_v2=false',
     'skills.include_instructions=false',
     'notify=[]',
+    'developer_instructions=""',
+    'analytics.enabled=false',
   ];
+  if (instructionFile) {
+    values.push(`model_instructions_file=${JSON.stringify(instructionFile)}`);
+    values.push(
+      `experimental_compact_prompt_file=${JSON.stringify(instructionFile + '.compact')}`,
+    );
+    values.push(
+      'compact_prompt="Summarize this RSI task, preserving its goal, authorized file names, tool results and output schema."',
+    );
+  }
   const servers = Object.keys(
     config.mcp_servers ? object(config.mcp_servers) : {},
   );

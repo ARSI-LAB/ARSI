@@ -114,6 +114,10 @@ test('interrupted experiments recover locked definitions and resources after all
     manager.run(recipe, { id: 'locked', signal: controller.signal }),
     /pause after saved step/,
   );
+  await manager.facts.write('experiments', 'locked', {
+    ...(await manager.get('locked')),
+    startedAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+  });
   await Promise.all([rm(prompt), rm(policy), rm(recipe)]);
   const restored = await manager.run(recipe, { id: 'locked', resume: true });
   assert.deepEqual(restored.output, {

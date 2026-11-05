@@ -60,7 +60,9 @@ export const createArtifactSelector: OperationDefinition<
           },
           ['selectedIndex', 'reason'],
         ),
-        maxModelCalls: config.maxModelCalls ?? 4,
+        ...(config.maxModelCalls === undefined
+          ? {}
+          : { maxModelCalls: config.maxModelCalls }),
       };
       const result = await context.invokeAgent(request);
       const selected = candidates[Number(result.selectedIndex)];

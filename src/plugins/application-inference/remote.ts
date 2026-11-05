@@ -201,12 +201,14 @@ export async function createRemoteBackend(
     remote.executable === undefined ? 'python3' : string(remote.executable);
   const scriptDigest = digest(await readFile(script, 'utf8'));
   const parametersFile = safePath(remote.parametersFile ?? 'tuning.json');
-  const timeout = positive(remote.timeoutMs, 600000, 'remote.timeoutMs');
-  const readinessTimeout = positive(
-    health.timeoutMs,
-    timeout,
-    'healthcheck.timeoutMs',
-  );
+  const timeout =
+    remote.timeoutMs === undefined
+      ? undefined
+      : positive(remote.timeoutMs, 0, 'remote.timeoutMs');
+  const readinessTimeout =
+    health.timeoutMs === undefined
+      ? undefined
+      : positive(health.timeoutMs, 0, 'healthcheck.timeoutMs');
   const interval = positive(health.intervalMs, 250, 'healthcheck.intervalMs');
   const cleanupTimeout = positive(
     object(config.shutdown ?? {}).gracePeriodMs,
@@ -222,25 +224,28 @@ export async function createRemoteBackend(
   const active = new Set<string>();
   const calibration =
     remote.calibration === undefined ? null : object(remote.calibration);
-  const calibrationValues: number[] = [];
+  let calibrationSweep: { start: number; step: number; steps: number } | null =
+    null;
   if (calibration) {
     const start = ratio(calibration.start, 'remote.calibration.start');
     const min = ratio(calibration.min, 'remote.calibration.min');
     const step = ratio(calibration.step, 'remote.calibration.step');
-    if (min > start || (start - min) / step > 1000)
-      throw new Error('remote.calibration: invalid or excessive search range');
+    const steps = Math.floor((start - min + 1e-12) / step);
+    if (
+      min > start ||
+      !Number.isSafeInteger(steps) ||
+      (steps > 0 && step < 1e-12)
+    )
+      throw new Error(
+        'remote.calibration: invalid search range or step precision',
+      );
     positive(calibration.maxNumSeqs, 1, 'remote.calibration.maxNumSeqs');
     positive(
       calibration.maxNumBatchedTokens,
       1,
       'remote.calibration.maxNumBatchedTokens',
     );
-    for (
-      let index = 0;
-      index <= Math.floor((start - min + 1e-12) / step);
-      index++
-    )
-      calibrationValues.push(Number((start - step * index).toFixed(12)));
+    calibrationSweep = { start, step, steps };
   }
   const invoke = async (
     request: JsonObject,
@@ -250,7 +255,9 @@ export async function createRemoteBackend(
       executable,
       script,
       request,
-      AbortSignal.any([signal, AbortSignal.timeout(timeout)]),
+      timeout === undefined
+        ? signal
+        : AbortSignal.any([signal, AbortSignal.timeout(timeout)]),
     );
     assertIdentity(response, request);
     return response;
@@ -259,10 +266,13 @@ export async function createRemoteBackend(
     request: JsonObject,
     context: Pick<RuntimeContext, 'signal'>,
   ): Promise<JsonObject> => {
-    const signal = AbortSignal.any([
-      context.signal,
-      AbortSignal.timeout(readinessTimeout),
-    ]);
+    const signal =
+      readinessTimeout === undefined
+        ? context.signal
+        : AbortSignal.any([
+            context.signal,
+            AbortSignal.timeout(readinessTimeout),
+          ]);
     while (true) {
       signal.throwIfAborted();
       const status = await invoke({ ...request, action: 'status' }, signal);
@@ -339,7 +349,10 @@ export async function createRemoteBackend(
     if (!saved || saved.status !== 'stopped') {
       // A published ownership intent precedes the first private fact. Confirm stop
       // using that intent if interruption occurred before the fact was written.
-      await stopRemote(request, AbortSignal.timeout(cleanupTimeout));
+      await stopRemote(
+        request,
+        AbortSignal.any([context.signal, AbortSignal.timeout(cleanupTimeout)]),
+      );
       await services.facts.write(namespace, instanceId, {
         ...saved,
         request,
@@ -494,9 +507,12 @@ export async function createRemoteBackend(
       const previousCalibration = calibration
         ? await fact(services, calibrationKey)
         : null;
-      if (calibration && !previousCalibration) {
+      if (calibration && calibrationSweep && !previousCalibration) {
         let selected: JsonObject | null = null;
-        for (const value of calibrationValues) {
+        const { start: initial, step, steps } = calibrationSweep;
+        for (let index = 0; index <= steps; index++) {
+          context.signal.throwIfAborted();
+          const value = Number((initial - step * index).toFixed(12));
           const probeParameters = {
             ...parameters,
             max_num_seqs: calibration.maxNumSeqs,

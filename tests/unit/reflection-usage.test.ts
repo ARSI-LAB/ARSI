@@ -12,7 +12,7 @@ import {
 import { createRuntime } from '../../src/runtime/context.js';
 import { object, string } from '../../src/shared/json.js';
 import { measurementFixture } from '../helpers/manager-fixture.js';
-test('explicit Reflection uses its default budget and a subsequent real Proposer sends activated guidance to its Agent', async (t) => {
+test('Reflection without a local budget exceeds 50 calls and a subsequent Proposer uses activated guidance', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-reflection-use-'));
   const runtime = await createRuntime({ rootDirectory: directory });
   t.after(async () => {
@@ -92,15 +92,11 @@ test('explicit Reflection uses its default budget and a subsequent real Proposer
           const request = object(raw);
           if (request.goal === 'Improve guidance') {
             generated++;
-            assert.equal(request.maxModelCalls, 50);
-            assert.equal(context.scope?.limits.modelCalls, 50);
+            assert.equal(request.maxModelCalls, undefined);
+            assert.equal(context.scope?.limits.modelCalls, undefined);
             assert.equal(context.scope?.limits.elapsedWallMs, undefined);
             assert.ok(string(request.prompt).trim());
-            for (let i = 0; i < 50; i++) await context.charge('modelCalls', 1);
-            await assert.rejects(
-              context.charge('modelCalls', 1),
-              /Reflection modelCalls budget exceeded/,
-            );
+            for (let i = 0; i < 51; i++) await context.charge('modelCalls', 1);
             return {
               edits: [
                 {
@@ -212,7 +208,7 @@ test('explicit Reflection uses its default budget and a subsequent real Proposer
     'budgets',
     'usage.experiment',
   );
-  assert.equal(budgets.modelCalls, 50);
+  assert.equal(budgets.modelCalls, 51);
 });
 test('real Proposer calls without Measurements expose linked versions, actual Agent requests, traces and candidate patches', async (t) => {
   const directory = await mkdtemp(

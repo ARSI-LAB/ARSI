@@ -8,7 +8,10 @@ export type AgentCodexConfig = {
   timeoutMs?: number;
   thinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 };
-export type ResolvedAgentCodexConfig = Required<AgentCodexConfig>;
+export type ResolvedAgentCodexConfig = Required<
+  Omit<AgentCodexConfig, 'timeoutMs'>
+> &
+  Pick<AgentCodexConfig, 'timeoutMs'>;
 
 export const configSchema: JsonSchema = {
   type: 'object',
@@ -26,7 +29,6 @@ export const configSchema: JsonSchema = {
       type: 'integer',
       minimum: 1,
       maximum: 2147483647,
-      default: 600000,
     },
     thinkingLevel: {
       enum: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],

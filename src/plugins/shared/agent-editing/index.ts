@@ -19,7 +19,7 @@ import { object, string, strings } from '../../../shared/json.js';
 import { validate } from '../../../shared/schema.js';
 import type { AgentEditingConfig } from './schema.js';
 export { agentConfigSchema, type AgentEditingConfig } from './schema.js';
-export const editOutputSchema: JsonSchema = {
+export const editOutputSchema = {
   type: 'object',
   properties: {
     edits: {
@@ -38,7 +38,7 @@ export const editOutputSchema: JsonSchema = {
   },
   required: ['edits', 'reason'],
   additionalProperties: false,
-};
+} satisfies JsonSchema;
 export interface ReadOnlyEditContext {
   files: JsonObject;
   evidence: JsonValue;
@@ -122,6 +122,7 @@ export async function requestEdit(
   ref: string | null,
   context: RuntimeContext,
   readOnly?: ReadOnlyEditContext,
+  outputSchema: JsonSchema = editOutputSchema,
 ): Promise<JsonObject> {
   const files = await resourceFiles(ref, context);
   if (readOnly)
@@ -187,14 +188,14 @@ export async function requestEdit(
       observations: input.observations ?? null,
       ...readOnly?.input,
     },
-    outputSchema: object(editOutputSchema),
+    outputSchema: object(outputSchema),
     agentRef: config.agentRef ?? 'agent.default',
     ...(config.maxModelCalls === undefined
       ? {}
       : { maxModelCalls: config.maxModelCalls }),
   };
   const result = await context.invokeAgent(request);
-  validate(editOutputSchema, result, 'Agent edit output');
+  validate(outputSchema, result, 'Agent edit output');
   if (Array.isArray(result.edits))
     for (const raw of result.edits) {
       const path = string(object(raw).path);
@@ -287,6 +288,7 @@ export async function applyEdits(
   result: JsonObject,
   context: RuntimeContext,
   constraints: JsonObject = {},
+  createOnly: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   const edits = await validateEdits(directory, result, context, constraints);
   for (const edit of edits) {
@@ -295,7 +297,10 @@ export async function applyEdits(
     if (edit.content === null) await rm(absolute, { force: true });
     else {
       await mkdir(dirname(absolute), { recursive: true });
-      await writeFile(absolute, edit.content, { mode: 0o644 });
+      await writeFile(absolute, edit.content, {
+        mode: 0o644,
+        flag: createOnly.has(edit.path) ? 'wx' : 'w',
+      });
     }
   }
 }

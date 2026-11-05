@@ -18,7 +18,7 @@ export const patchEditOutputSchema: JsonSchema = {
       type: 'array',
       maxItems: 32,
       items: {
-        oneOf: [
+        anyOf: [
           {
             type: 'object',
             additionalProperties: false,

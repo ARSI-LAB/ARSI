@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { JsonObject } from '../../../contracts/index.js';
-import { recordSchema } from '../../../contracts/models/measurement.js';
-import { digest, object, string } from '../../../shared/json.js';
-import { validate } from '../../../shared/schema.js';
+import type { JsonObject } from '../../contracts/index.js';
+import { recordSchema } from '../../contracts/models/measurement.js';
+import { digest, object, string } from '../../shared/json.js';
+import { validate } from '../../shared/schema.js';
 
 const text: JsonObject = { type: 'string', minLength: 1 };
 const shape = {

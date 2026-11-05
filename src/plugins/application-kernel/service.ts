@@ -12,9 +12,11 @@ import {
   createFileApplication,
   readInstance,
 } from '../shared/file-application/files.js';
-import { parseKernelExecution } from '../shared/file-application/kernel-execution.js';
 import { string } from '../../shared/json.js';
-import type { KernelApplicationConfig } from './schema.js';
+import {
+  parseKernelExecution,
+  type KernelApplicationConfig,
+} from './schema.js';
 
 export const createApplicationKernel: OperationDefinition<
   ApplicationInput,

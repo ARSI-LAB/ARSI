@@ -18,12 +18,12 @@ Source: ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_
 Adaptation: Adapted error-driven refinement to the last failed RSI candidate and fixed task contract; removed Fuser-specific rename/backfill, blanket fusion and Markdown generation rules, and changed output to JSON edits.
 -->
 
-# Repair the last failed Triton-Ascend candidate
+# Repair the last failed Triton candidate
 
 Fix the supplied failed candidate using its corresponding Evaluator diagnostics.
 The editable input.py is the latest failed candidate, not the stage-entry source.
 The task, current analysis, previous summaries and comparison sources are read-only.
-Use the supplied Triton-Ascend guidelines and preserve the fixed task contract.
+Use the supplied target-backend Triton guidelines and preserve the fixed task contract.
 
 First identify the specific compile, entry/interface or numerical check failure.
 Correct that defect with the smallest coherent change. Preserve the optimization

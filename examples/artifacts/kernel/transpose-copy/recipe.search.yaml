@@ -11,7 +11,7 @@ policy:
   id: policy.operator-search
   config:
     goal:
-      Improve the Triton-Ascend transpose-copy kernel using static analysis followed by
+      Improve the Triton transpose-copy kernel using static analysis followed by
       measured bottleneck analysis while preserving the complete task contract.
     caseIds:
       - fixed

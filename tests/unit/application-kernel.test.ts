@@ -33,7 +33,7 @@ import { object, string } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 
 const baselineSource =
-  '# UTF-8 source: 算子\ndef kernel_function(x):\n    return x\n';
+  '# UTF-8 source: operator \u03bb\ndef kernel_function(x):\n    return x\n';
 const target: JsonObject = {
   schemaVersion: 'rsi.target/v1',
   id: 'kernel',

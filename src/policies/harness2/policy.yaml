@@ -62,6 +62,7 @@ defaults:
         evidenceView: execution
         agentRef: agent
         prompt: ./prompts/invariant.md
+        editProtocol: patch
         guidance: ./guidance/invariant-proposer
         skills: [./skills/harness-edit]
         maxModelCalls: 24
@@ -71,6 +72,7 @@ defaults:
         evidenceView: execution
         agentRef: agent
         prompt: ./prompts/domain.md
+        editProtocol: patch
         guidance: ./guidance/domain-proposer
         skills: [./skills/harness-edit]
         maxModelCalls: 24
@@ -80,6 +82,7 @@ defaults:
         evidenceView: execution
         agentRef: agent
         prompt: ./prompts/compose.md
+        editProtocol: patch
         skills: [./skills/harness-edit]
         maxModelCalls: 24
     # Final selection compares anonymous deliverables via the delivery capability,
@@ -118,60 +121,77 @@ steps:
           slot: ${{ slot }}
           candidateRef: ${{ input.candidateRef }}
           measurementRef: ${{ steps.execute_base.output.measurementRef }}
-      - id: invariant
+      - id: probes
         type: foreach
-        foreach: ${{ steps.base.output }}
-        as: base
-        key: ${{ base.slot }}
-        concurrency: ${{ config.concurrency }}
+        foreach: [inv, dom]
+        as: arm
+        key: ${{ arm }}
+        concurrency: 2
         steps:
-          - id: propose_inv
-            type: invoke
-            use: invariantProposer
-            with:
-              parent: ${{ input.candidateRef }}
-              goal: Improve general execution, tool use, and completion checks.
-              evidenceRefs:
-                - ${{ base.measurementRef }}
-              memoryRef: ${{ state.wikiRef }}
-          - id: execute_inv
-            type: invoke
-            use: evaluator
-            with:
-              candidateRef: ${{ steps.propose_inv.output.candidateRef }}
-              taskIds:
-                - ${{ config.dataset.taskIds[loop.index] }}
-        output:
-          candidateRef: ${{ steps.propose_inv.output.candidateRef }}
-          measurementRef: ${{ steps.execute_inv.output.measurementRef }}
-      - id: domain
-        type: foreach
-        foreach: ${{ steps.base.output }}
-        as: base
-        key: ${{ base.slot }}
-        concurrency: ${{ config.concurrency }}
-        steps:
-          - id: propose_dom
-            type: invoke
-            use: domainProposer
-            with:
-              parent: ${{ input.candidateRef }}
-              goal:
-                Improve task-family analysis and deliverable generation using authorized
-                evidence.
-              evidenceRefs:
-                - ${{ base.measurementRef }}
-              memoryRef: ${{ state.wikiRef }}
-          - id: execute_dom
-            type: invoke
-            use: evaluator
-            with:
-              candidateRef: ${{ steps.propose_dom.output.candidateRef }}
-              taskIds:
-                - ${{ config.dataset.taskIds[loop.index] }}
-        output:
-          candidateRef: ${{ steps.propose_dom.output.candidateRef }}
-          measurementRef: ${{ steps.execute_dom.output.measurementRef }}
+          - id: run_arm
+            type: if
+            if: ${{ arm == 'inv' }}
+            then:
+              steps:
+                - id: invariant
+                  type: foreach
+                  foreach: ${{ steps.base.output }}
+                  as: base
+                  key: ${{ base.slot }}
+                  concurrency: ${{ config.concurrency }}
+                  steps:
+                    - id: propose_inv
+                      type: invoke
+                      use: invariantProposer
+                      with:
+                        parent: ${{ input.candidateRef }}
+                        goal: Improve general execution, tool use, and completion checks.
+                        evidenceRefs:
+                          - ${{ base.measurementRef }}
+                        memoryRef: ${{ state.wikiRef }}
+                    - id: execute_inv
+                      type: invoke
+                      use: evaluator
+                      with:
+                        candidateRef: ${{ steps.propose_inv.output.candidateRef }}
+                        taskIds:
+                          - ${{ config.dataset.taskIds[loop.index] }}
+                  output:
+                    candidateRef: ${{ steps.propose_inv.output.candidateRef }}
+                    measurementRef: ${{ steps.execute_inv.output.measurementRef }}
+              output: ${{ steps.invariant.output }}
+            else:
+              steps:
+                - id: domain
+                  type: foreach
+                  foreach: ${{ steps.base.output }}
+                  as: base
+                  key: ${{ base.slot }}
+                  concurrency: ${{ config.concurrency }}
+                  steps:
+                    - id: propose_dom
+                      type: invoke
+                      use: domainProposer
+                      with:
+                        parent: ${{ input.candidateRef }}
+                        goal:
+                          Improve task-family analysis and deliverable generation using authorized
+                          evidence.
+                        evidenceRefs:
+                          - ${{ base.measurementRef }}
+                        memoryRef: ${{ state.wikiRef }}
+                    - id: execute_dom
+                      type: invoke
+                      use: evaluator
+                      with:
+                        candidateRef: ${{ steps.propose_dom.output.candidateRef }}
+                        taskIds:
+                          - ${{ config.dataset.taskIds[loop.index] }}
+                  output:
+                    candidateRef: ${{ steps.propose_dom.output.candidateRef }}
+                    measurementRef: ${{ steps.execute_dom.output.measurementRef }}
+              output: ${{ steps.domain.output }}
+        output: ${{ steps.run_arm.output }}
       - id: compose
         type: foreach
         foreach: ${{ steps.base.output }}
@@ -187,7 +207,7 @@ steps:
               goal:
                 Compose supported, compatible improvements while preserving a complete,
                 runnable application.
-              sources: ${{ concat(steps.invariant.output, steps.domain.output) }}
+              sources: ${{ flatten(steps.probes.output) }}
               evidenceRefs:
                 - ${{ base.measurementRef }}
               memoryRef: ${{ state.wikiRef }}
@@ -229,8 +249,8 @@ steps:
                   unresolved edit attribution; do not cache task answers.
                 evidenceRefs:
                   ${{ concat(concat(pluck(steps.base.output, 'measurementRef'),
-                  pluck(steps.invariant.output, 'measurementRef')),
-                  concat(pluck(steps.domain.output, 'measurementRef'),
+                  pluck(steps.probes.output[0], 'measurementRef')),
+                  concat(pluck(steps.probes.output[1], 'measurementRef'),
                   pluck(steps.compose.output, 'measurementRef'))) }}
                 # Compare snapshots with H0, every probe and the saved selection,
                 # without exposing grades to the learning operation.
@@ -238,8 +258,8 @@ steps:
                   baselineCandidateRef: ${{ input.candidateRef }}
                   probes:
                     base: ${{ steps.base.output }}
-                    invariant: ${{ steps.invariant.output }}
-                    domain: ${{ steps.domain.output }}
+                    invariant: ${{ steps.probes.output[0] }}
+                    domain: ${{ steps.probes.output[1] }}
                     compose: ${{ steps.compose.output }}
                   selection: ${{ steps.select.output }}
             - id: save_memory

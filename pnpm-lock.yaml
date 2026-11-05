@@ -188,8 +188,8 @@ importers:
         specifier: 15.0.0
         version: 15.0.0
       ember-evaluator:
-        specifier: git+https://github.com/evolving-foundry/ember-evaluator.git#c77805d479cc6fcc403f76512e715fc467252f60
-        version: git+https://github.com/evolving-foundry/ember-evaluator.git#c77805d479cc6fcc403f76512e715fc467252f60(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
+        specifier: git+https://github.com/evolving-foundry/ember-evaluator.git#0.0.1
+        version: git+https://github.com/evolving-foundry/ember-evaluator.git#a585889ecbf6e33fc3900507e72712bade5201df(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
       exceljs:
         specifier: 4.4.0
         version: 4.4.0
@@ -1400,6 +1400,11 @@ packages:
     version: 0.5.0
     engines: {node: '>=22'}
 
+  agent-bundle-core@https://codeload.github.com/evolving-foundry/agentbundle/tar.gz/3034a3ba6292e9b01f1b28799aec90d8e11e106f#path:/packages/core:
+    resolution: {gitHosted: true, path: /packages/core, tarball: https://codeload.github.com/evolving-foundry/agentbundle/tar.gz/3034a3ba6292e9b01f1b28799aec90d8e11e106f}
+    version: 0.5.0
+    engines: {node: '>=22'}
+
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
     peerDependencies:
@@ -1748,8 +1753,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  ember-evaluator@git+https://github.com/evolving-foundry/ember-evaluator.git#c77805d479cc6fcc403f76512e715fc467252f60:
-    resolution: {commit: c77805d479cc6fcc403f76512e715fc467252f60, repo: https://github.com/evolving-foundry/ember-evaluator.git, type: git}
+  ember-evaluator@git+https://github.com/evolving-foundry/ember-evaluator.git#a585889ecbf6e33fc3900507e72712bade5201df:
+    resolution: {commit: a585889ecbf6e33fc3900507e72712bade5201df, repo: https://github.com/evolving-foundry/ember-evaluator.git, type: git}
     version: 0.1.0
     engines: {node: '>=24.19.0'}
     hasBin: true
@@ -4424,6 +4429,10 @@ snapshots:
     dependencies:
       yaml: 2.9.1
 
+  agent-bundle-core@https://codeload.github.com/evolving-foundry/agentbundle/tar.gz/3034a3ba6292e9b01f1b28799aec90d8e11e106f#path:/packages/core:
+    dependencies:
+      yaml: 2.9.1
+
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
       ajv: 8.20.0
@@ -4779,7 +4788,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  ember-evaluator@git+https://github.com/evolving-foundry/ember-evaluator.git#c77805d479cc6fcc403f76512e715fc467252f60(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7):
+  ember-evaluator@git+https://github.com/evolving-foundry/ember-evaluator.git#a585889ecbf6e33fc3900507e72712bade5201df(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7):
     dependencies:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@earendil-works/chord': 1.1.0
@@ -4792,7 +4801,7 @@ snapshots:
       '@earendil-works/pi-tui': 1.1.0
       '@iarna/toml': 2.2.5
       '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.7)
-      agent-bundle-core: git+https://github.com/evolving-foundry/agentbundle.git#3034a3ba6292e9b01f1b28799aec90d8e11e106f&path:/packages/core
+      agent-bundle-core: https://codeload.github.com/evolving-foundry/agentbundle/tar.gz/3034a3ba6292e9b01f1b28799aec90d8e11e106f#path:/packages/core
       cross-spawn: 7.0.6
       hyparquet: 1.31.1
       semver: 7.8.5

@@ -128,6 +128,8 @@ function ApplyRevision({
       : null,
     parseApplication,
     null,
+    false,
+    { cache: false },
   );
   useEffect(() => {
     if (open) dialog.current?.showModal();

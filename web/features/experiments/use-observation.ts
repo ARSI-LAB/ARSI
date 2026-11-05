@@ -25,7 +25,7 @@ function usePolling<T>(
   path: string | null,
   load: (signal: AbortSignal) => Promise<T>,
   interval: number | null,
-  cache: QueryCache<T>,
+  cache: QueryCache<T> | null,
   maxAge: number,
 ): QueryState<T> {
   const previousInterval = useRef(interval);
@@ -44,13 +44,15 @@ function usePolling<T>(
     let timer: ReturnType<typeof setTimeout>;
     async function update(): Promise<void> {
       try {
-        const data = await cache.read(
-          path!,
-          load,
-          controller.signal,
-          maxAge,
-          revision > 0 || stopped,
-        );
+        const data = cache
+          ? await cache.read(
+              path!,
+              load,
+              controller.signal,
+              maxAge,
+              revision > 0 || stopped,
+            )
+          : await load(controller.signal);
         if (!controller.signal.aborted) setState({ path, data, error: '' });
       } catch (error) {
         if (!controller.signal.aborted)
@@ -73,7 +75,7 @@ function usePolling<T>(
     };
   }, [path, load, revision, cache, interval, maxAge]);
   const current = state.path === path ? state : undefined;
-  const data = current?.data ?? (path ? cache.peek(path) : undefined);
+  const data = current?.data ?? (path ? cache?.peek(path) : undefined);
   return {
     data,
     error: current?.error ?? '',
@@ -86,17 +88,19 @@ export function useObservation<T>(
   parse: (raw: unknown) => T,
   interval: number | null = 4000,
   cacheCompleted = false,
+  options?: { cache: false },
 ): QueryState<T> {
   const load = useCallback(
     (signal: AbortSignal) => readObservation(path ?? '', parse, signal),
     [path, parse],
   );
   const cache = useMemo(() => parserCache(parse), [parse]);
+  // A response fetched while running must never be promoted to permanent reuse.
   return usePolling(
-    path,
+    path === null ? null : cacheCompleted ? `completed:${path}` : path,
     load,
     interval,
-    cache,
+    options?.cache === false ? null : cache,
     cacheCompleted ? Infinity : (interval ?? 15000),
   );
 }

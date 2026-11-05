@@ -53,6 +53,12 @@ require:
     contract: contract.operatorbench
   selector:
     contract: contract.selector-metrics
+defaults:
+  bindings:
+    proposer:
+      plugin: proposer.operator
+      config:
+        promptsDirectory: ./prompts
 steps:
   - id: evaluate_baseline
     use: evaluator

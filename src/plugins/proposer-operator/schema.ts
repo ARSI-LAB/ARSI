@@ -56,6 +56,7 @@ export type EmbeddingConfig = {
 };
 export type OperatorProposerConfig = {
   agentRef: string;
+  promptsDirectory: string;
   hardwareContextFile?: string;
   historyWindow?: number;
   modelRequestTimeoutMs?: number;
@@ -148,6 +149,7 @@ const refs = (minimum: number, maximum: number): JsonObject => ({
 export const configSchema = recordSchema(
   {
     agentRef: { ...ref, default: 'agent' },
+    promptsDirectory: { ...ref, 'x-rsi-path': 'directory' },
     hardwareContextFile: { ...ref, 'x-rsi-path': 'file' },
     historyWindow: { type: 'integer', minimum: 1, maximum: 10, default: 5 },
     modelRequestTimeoutMs: {
@@ -187,7 +189,7 @@ export const configSchema = recordSchema(
       ],
     ),
   },
-  ['task', 'embedding'],
+  ['promptsDirectory', 'task', 'embedding'],
 );
 export const staticDiagnosisSchema: JsonObject = {
   type: 'array',

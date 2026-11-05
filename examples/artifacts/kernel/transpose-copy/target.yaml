@@ -1,5 +1,5 @@
 schemaVersion: rsi.target/v1
-id: target.qianchuan-top3
+id: target.transpose-copy
 entries:
   - path: input.py
     kind: file

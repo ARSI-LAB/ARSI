@@ -2,6 +2,7 @@ import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environm
 import assert from 'node:assert/strict';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test, { type TestContext } from 'node:test';
 import { parse, stringify } from 'yaml';
 import {
@@ -12,6 +13,7 @@ import {
   type OperationDefinition,
 } from '../../src/contracts/index.js';
 import { createRuntime } from '../../src/runtime/context.js';
+import { loadRecipe } from '../../src/runtime/loaders/index.js';
 import { object, string } from '../../src/shared/json.js';
 import {
   prepareOperatorProposerFixture,
@@ -118,6 +120,30 @@ async function setup(
   runtime.registry.registerOperation(agent);
   return { ...fixture, ...runtime, requests };
 }
+
+test('operator search inherits policy prompt paths while resolving recipe overrides from the recipe', async (t) => {
+  const f = await setup(t);
+  const recipe = await loadRecipe(f.recipePath, f.registry);
+  assert.equal(
+    recipe.bindings.proposer!.config.promptsDirectory,
+    fileURLToPath(
+      new URL('../../src/policies/operator-search/prompts', import.meta.url),
+    ),
+  );
+  assert.equal(
+    object(recipe.bindings.proposer!.config.task).directory,
+    join(f.root, 'example/task'),
+  );
+  const overridden = object(parse(await readFile(f.recipePath, 'utf8')));
+  object(object(object(overridden.bindings).proposer).config).promptsDirectory =
+    './custom-prompts';
+  await writeFile(f.recipePath, stringify(overridden));
+  const custom = await loadRecipe(f.recipePath, f.registry);
+  assert.equal(
+    custom.bindings.proposer!.config.promptsDirectory,
+    join(f.root, 'example/custom-prompts'),
+  );
+});
 
 test('static SDK search summarizes a failed repair chain and delivers it to a fresh entry attempt before adopting and retesting', async (t) => {
   const f = await setup(t, {

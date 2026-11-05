@@ -3,29 +3,23 @@ import { errorText } from '../../shared/errors.js';
 import {
   pointerValue,
   assignPointer,
-  resourceFields,
-  parseFiles,
-  putFile,
-  text,
   resourcePath,
   selectedResourceFields,
   validateEditableDestinations,
-  type TreeFile,
-  type Mapping,
 } from './resources.js';
-export { resourceFields } from './resources.js';
 import type { ReflectionConfig } from './validation.js';
-export { validateReflection } from './validation.js';
 import { mkdir, readFile, lstat, writeFile, chmod } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type {
   Binding,
   BudgetScope,
+  FileTreeFile,
   RuntimeContext,
   JsonObject,
   JsonValue,
   OperationDefinition,
 } from '../../contracts/index.js';
+import { parseFileTree } from '../../contracts/index.js';
 import {
   object,
   string,
@@ -34,36 +28,55 @@ import {
   canonical,
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
+import { configPathFields } from '../../shared/config-paths.js';
 import { inside, safeId } from '../storage/index.js';
-export type ReflectionScope = BudgetScope;
-export interface ReflectionResult extends JsonObject {
-  reflectionId: string;
-  status: 'activated' | 'no-change' | 'skipped' | 'rejected';
-  reason: string;
-  revisionRefs: JsonObject;
-}
+import {
+  isTerminal,
+  readReflectionRecord,
+  readReflectionResult,
+  type ReflectionResult,
+  type ReflectionStatus,
+  type ReflectionTerminalStatus,
+} from './records.js';
+type Mapping = {
+  kind: string;
+  binding: string;
+  pointer: string;
+  changes: JsonValue[];
+  maxBytes?: number;
+};
 export interface ReflectionOptions {
   config: ReflectionConfig;
   invocation: { policyScopeId: string; stepPath: string };
   generatorBinding: string;
   state: JsonObject;
-  bindings: Record<string, Binding>;
+  bindings: Readonly<Record<string, Binding>>;
   sourceResources?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   context: RuntimeContext;
   directory: string;
-  revisionRefs: JsonObject;
+  revisionRefs: Readonly<JsonObject>;
+  /** Publish initial parents only after every target snapshot is durable. */
+  initialize(parents: JsonObject): void;
   getDefinition(id: string): OperationDefinition;
   invoke(
     binding: string,
     value: JsonValue,
     key: string,
-    scope: ReflectionScope,
+    scope: BudgetScope,
   ): Promise<JsonValue>;
   save(
     changes: Record<string, Binding>,
     revisions: JsonObject,
     activationId: string,
   ): Promise<void>;
+}
+function parseFiles(value: JsonValue): Map<string, FileTreeFile> {
+  return new Map(parseFileTree(value).files.map((file) => [file.path, file]));
+}
+function text(file: FileTreeFile): string {
+  return new TextDecoder('utf-8', { fatal: true }).decode(
+    Buffer.from(file.base64, 'base64'),
+  );
 }
 async function optionalFact(
   options: ReflectionOptions,
@@ -78,22 +91,22 @@ async function optionalFact(
     throw error;
   }
 }
-async function currentRevision(
+function currentRevision(
   options: ReflectionOptions,
   key: string,
   binding: Binding,
-): Promise<string> {
+): string {
   const active = options.revisionRefs[key];
   if (typeof active === 'string') return active;
-  const ref =
+  return (
     'revision-' +
     digest({
       experiment: options.context.experimentId,
       binding: key,
       policyScopeId: options.invocation.policyScopeId,
       config: binding.config,
-    });
-  return ref;
+    })
+  );
 }
 /** Confirm an activation or its descendants without rolling back a later active version. */
 async function activationIncludes(
@@ -131,7 +144,8 @@ export async function reflect(
       policyScopeId: options.invocation.policyScopeId,
       stepPath: options.invocation.stepPath,
     });
-  const prior = await optionalFact(options, 'reflection', identity);
+  const rawPrior = await optionalFact(options, 'reflection', identity);
+  const prior = rawPrior ? readReflectionRecord(rawPrior) : null;
   const metadata: JsonObject = {
     interface: 'explicit-reflection/v1',
     reflectionId: identity,
@@ -155,13 +169,27 @@ export async function reflect(
       ? prior.startedAt
       : new Date().toISOString();
   let persisted: JsonObject = prior ?? {};
+  const save = async (
+    status: ReflectionStatus,
+    data: JsonObject = {},
+  ): Promise<void> => {
+    persisted = {
+      ...persisted,
+      ...data,
+      ...metadata,
+      startedAt: scopeStartedAt,
+      status,
+      reason: typeof data.reason === 'string' ? data.reason : status,
+    };
+    await options.context.facts.write('reflection', identity, persisted);
+  };
   const finish = async (
-    status: string,
+    status: ReflectionTerminalStatus,
     data: JsonObject = {},
   ): Promise<ReflectionResult> => {
-    const result: ReflectionResult = {
+    const result = readReflectionResult({
       reflectionId: identity,
-      status: terminalStatus(status),
+      status,
       reason:
         status === 'rejected' && typeof data.error === 'string'
           ? data.error
@@ -171,30 +199,15 @@ export async function reflect(
               ? data.error
               : status,
       revisionRefs: status === 'activated' ? object(data.revisions ?? {}) : {},
-    };
-    persisted = {
-      ...persisted,
-      ...data,
-      ...metadata,
-      startedAt: scopeStartedAt,
-      status,
-      reason: result.reason,
-      ...(isTerminal(status) ? { result } : {}),
-    };
-    await options.context.facts.write('reflection', identity, persisted);
+    });
+    await save(status, { ...data, reason: result.reason, result });
     return result;
   };
-  if (prior && isTerminal(String(prior.status))) {
-    const result = object(prior.result);
-    const reason = result.reason;
-    if (typeof reason !== 'string')
-      throw new Error('Persisted Reflection result.reason: expected string');
-    return {
-      reflectionId: identity,
-      status: terminalStatus(string(result.status)),
-      reason,
-      revisionRefs: object(result.revisionRefs),
-    };
+  if (prior && isTerminal(prior.status)) {
+    const result = readReflectionResult(prior.result, identity);
+    if (result.status !== prior.status)
+      throw new Error('Reflection result status mismatch');
+    return result;
   }
   const elapsedLimit = options.config.budget.elapsedWallMs;
   const elapsed = Date.now() - Date.parse(scopeStartedAt);
@@ -204,15 +217,16 @@ export async function reflect(
     elapsedLimit === undefined
       ? undefined
       : AbortSignal.timeout(Math.max(0, elapsedLimit - Math.max(0, elapsed)));
-  const scope: ReflectionScope = {
+  const scope: BudgetScope = {
     id: identity,
     signal: localTimeout
       ? AbortSignal.any([options.context.signal, localTimeout])
       : options.context.signal,
     limits: {
-      modelCalls: options.config.budget.modelCalls,
+      ...(options.config.budget.modelCalls === undefined
+        ? {}
+        : { modelCalls: options.config.budget.modelCalls }),
       ...(elapsedLimit === undefined ? {} : { elapsedWallMs: elapsedLimit }),
-      evidenceBytes: 32 * 1024 * 1024,
     },
   };
   const assertScope = (): void => {
@@ -228,7 +242,7 @@ export async function reflect(
     | Awaited<ReturnType<RuntimeContext['workspaces']['create']>>
     | undefined;
   try {
-    if (!prior) await finish('started');
+    if (!prior) await save('started');
     if (prior?.status === 'validated') {
       const changes = Object.fromEntries(
         Object.entries(object(prior.bindings)).map(([key, value]) => {
@@ -247,14 +261,13 @@ export async function reflect(
           const binding = options.bindings[key];
           if (
             !binding ||
-            (await currentRevision(options, key, binding)) !== parents[key]
+            currentRevision(options, key, binding) !== parents[key]
           )
             throw new Error(
               'Reflection recovery conflicts with current active revisions',
             );
         }
         await options.save(changes, revisions, identity);
-        Object.assign(options.revisionRefs, revisions);
       }
       return finish('activated', prior);
     }
@@ -263,7 +276,7 @@ export async function reflect(
       names: options.config.evidence,
       identity,
       capturedAt: scopeStartedAt,
-      maxBytes: scope.limits.evidenceBytes,
+      maxBytes: 32 * 1024 * 1024,
       policyScopeId: options.invocation.policyScopeId,
       moduleKey: options.config.path,
       configDigest: options.config.digest,
@@ -290,7 +303,7 @@ export async function reflect(
         ? { priorRef: prior.evidenceViewRef }
         : {}),
     });
-    await finish('evidence-prepared', {
+    await save('evidence-prepared', {
       evidenceViewRef: collected.ref,
       callIds: collected.callIds,
     });
@@ -299,7 +312,14 @@ export async function reflect(
     const parents: JsonObject = {},
       manifest: JsonObject = {},
       mappings = new Map<string, Mapping>();
-    const projected = new Map<string, TreeFile>();
+    // A prepared boundary must replay the same generator input and resource snapshot.
+    const legacyEditLimits =
+      prior?.status === 'prepared' &&
+      Object.hasOwn(
+        object(object(prior.input).editConstraints),
+        'maxChangedFiles',
+      );
+    const projected = new Map<string, FileTreeFile>();
     const originals = new Map<string, JsonObject[]>();
     const register = (path: string, mapping: Mapping): void => {
       if (mappings.has(path))
@@ -312,8 +332,8 @@ export async function reflect(
       const binding = options.bindings[key];
       if (!binding) throw new Error(`Unknown reflection target ${key}`);
       const plugin = options.getDefinition(binding.plugin),
-        fields = resourceFields(plugin.configSchema, binding.config);
-      const parent = await currentRevision(options, key, binding);
+        fields = configPathFields(plugin.configSchema, binding.config);
+      const parent = currentRevision(options, key, binding);
       parents[key] = parent;
       const parentFact = await optionalFact(options, 'revisions', parent);
       const selectedFields = selectedResourceFields(
@@ -378,7 +398,7 @@ export async function reflect(
           binding: key,
           pointer,
           changes: ['create', 'modify'],
-          maxBytes: 65536,
+          ...(legacyEditLimits ? { maxBytes: 65536 } : {}),
         });
       }
     }
@@ -400,7 +420,11 @@ export async function reflect(
       });
       await chmod(destination, file.mode);
     }
-    await putFile(workspace.directory, 'manifest.json', canonical(manifest));
+    await writeFile(
+      join(workspace.directory, 'manifest.json'),
+      canonical(manifest),
+      { mode: 0o644 },
+    );
     const before = await options.context.artifacts.capture(workspace.directory);
     for (const key of Object.keys(options.config.targets)) {
       const parent = string(parents[key]);
@@ -421,10 +445,7 @@ export async function reflect(
         resourceRef: before,
       });
     }
-    // Publish initial pointers only after every target snapshot is durable.
-    for (const [key, parent] of Object.entries(parents))
-      if (options.revisionRefs[key] === undefined)
-        options.revisionRefs[key] = parent;
+    options.initialize(parents);
     assertScope();
     if (!collected.callCount)
       return finish('skipped', {
@@ -440,8 +461,9 @@ export async function reflect(
         allowedPaths: [...mappings.keys()].map((path) =>
           path.endsWith('/') ? path + '**/*' : path,
         ),
-        maxChangedFiles: 16,
-        maxChangedBytes: 131072,
+        ...(legacyEditLimits
+          ? { maxChangedFiles: 16, maxChangedBytes: 131072 }
+          : {}),
       },
     };
     if (prior?.status === 'prepared') {
@@ -452,7 +474,7 @@ export async function reflect(
       )
         throw new Error('Prepared Reflection input changed before recovery');
     } else
-      await finish('prepared', {
+      await save('prepared', {
         startedAt: scopeStartedAt,
         parents,
         resourceRef: before,
@@ -506,7 +528,7 @@ export async function reflect(
         b = newTree.get(path);
       if (canonical(a ?? null) === canonical(b ?? null)) continue;
       changedFiles++;
-      if (changedFiles > 16)
+      if (legacyEditLimits && changedFiles > 16)
         throw new Error('Reflection exceeds changed-file limit');
       const mapping =
         mappings.get(path) ??
@@ -523,11 +545,12 @@ export async function reflect(
         throw new Error('Reflection resource mode change denied');
       const bytes = b ? Buffer.from(b.base64, 'base64').length : 0;
       total += bytes;
-      if (bytes > mapping.maxBytes || total > 131072)
+      if (legacyEditLimits && (bytes > 65536 || total > 131072))
         throw new Error('Reflection resource exceeds byte limit');
       if (b) text(b);
     }
     for (const [path, mapping] of mappings) {
+      if (mapping.maxBytes === undefined) continue;
       const size = [...newTree]
         .filter(([file]) =>
           path.endsWith('/') ? file.startsWith(path) : file === path,
@@ -587,7 +610,7 @@ export async function reflect(
       const binding = options.bindings[key]!,
         plugin = options.getDefinition(binding.plugin);
       const config = structuredClone(binding.config);
-      for (const field of resourceFields(plugin.configSchema, config)) {
+      for (const field of configPathFields(plugin.configSchema, config)) {
         const path = resourcePath(key, field.pointer);
         if (field.kind === 'file' && !newTree.has(path))
           throw new Error(`Required resource ${field.pointer} removed`);
@@ -635,10 +658,9 @@ export async function reflect(
       revisions,
       reason: generationReason,
     };
-    await finish('validated', prepared);
+    await save('validated', prepared);
     assertScope();
     await options.save(changes, revisions, identity);
-    Object.assign(options.revisionRefs, revisions);
     return finish('activated', prepared);
   } catch (error) {
     const saved = await optionalFact(options, 'reflection', identity);
@@ -664,17 +686,4 @@ export async function reflect(
   } finally {
     if (workspace) await options.context.workspaces.release(workspace.ref);
   }
-}
-function isTerminal(status: string): boolean {
-  return ['activated', 'no-change', 'rejected', 'skipped'].includes(status);
-}
-function terminalStatus(status: string): ReflectionResult['status'] {
-  if (
-    status === 'activated' ||
-    status === 'no-change' ||
-    status === 'skipped' ||
-    status === 'rejected'
-  )
-    return status;
-  return 'rejected';
 }

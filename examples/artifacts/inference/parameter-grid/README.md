@@ -14,8 +14,8 @@ Arrays and objects are atomic choices; object key order does not distinguish
 choices. Null writes a JSON null; it does not remove or omit a parameter. Numeric
 values must be finite, and all values must be valid JSON. Lists retain declaration
 order. Interval fields (`min`, `max`, `step`) are no longer accepted.
-Any number of axes can be combined; the complete Cartesian product is limited
-to 1,000,000 points.
+The Cartesian product size must fit in a JavaScript safe integer so the search
+cursor can represent each point exactly.
 For example, this single experiment proposes 16 combinations:
 
 ```yaml
@@ -26,9 +26,10 @@ searchSpace:
     values: [2048, 4096, 8192, 16384]
 ```
 
-Set the policy's `maxCandidates` and evaluation budgets to cover all 16 points;
-the proposer does not override policy limits. Include the baseline in the grid
-or measure it separately. Resume with the same ordered configuration and cursor.
+The grid Policy defaults `maxCandidates` to 1,000. To cover all 16 points,
+allow at least 16 candidates and ensure the evaluation budgets cover them.
+Include the baseline in the grid or measure it separately. Resume with the same
+ordered configuration and cursor.
 
 For adaptive sampling, see the [TPE recipe](../parameter-tpe/README.md).
 
@@ -53,6 +54,10 @@ not upload `tuning.json`. Use the supplied `memoryUtilization` for
 identify and clean up the same instance. Return queried device/model/software
 identities, not placeholder values; the script documents each response.
 
+`remote.timeoutMs` limits each lifecycle command. The readiness wait uses
+`healthcheck.timeoutMs` when set and otherwise inherits `remote.timeoutMs`.
+Omitting both leaves readiness governed by experiment budgets and cancellation.
+
 The deployment adapter must validate supported engine parameters and map each
 value to the engine's argument format: booleans may require enable/disable flags,
 and structured values may require JSON serialization. Do not stringify every
@@ -71,9 +76,10 @@ string axis and a boolean axis alongside the numeric axes:
   values: [false, true]
 ```
 
-Adding those axes to the four-point recipe yields 16 combinations. Update
-`maxCandidates` and evaluation budgets accordingly. Existing range-based recipes
-must be migrated for new runs; resume requires the original locked configuration.
+Adding those axes to the four-point recipe yields 16 combinations. Review the
+configured `maxCandidates` and evaluation budgets before running the expanded
+grid. Existing range-based recipes must be migrated for new runs; resume requires
+the original locked configuration.
 
 Use a dedicated Linux tuning host. Replace `192.0.2.10` in the recipe with the
 service address reachable from the Evaluator client. Serve the model name from

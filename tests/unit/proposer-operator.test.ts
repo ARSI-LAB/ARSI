@@ -35,7 +35,7 @@ import {
   configSchema,
   type OperatorProposerConfig,
 } from '../../src/plugins/proposer-operator/schema.js';
-import { loadRecipe } from '../../src/runtime/loaders/index.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { parseConfig } from '../../src/shared/schema.js';
 import {
   prepareOperatorProposerFixture,
@@ -292,7 +292,7 @@ test('operator generation receives configured prompts and rejects analysis after
         requests[1]!.prompt.startsWith('Configured generation sentinel\n'),
       );
       await writeFile(generate, 'Changed generation sentinel\n');
-      const configured = await loadRecipe(
+      const configured = await Recipe.load(
         fixture.recipePath,
         fixture.runtime.registry,
       );

@@ -9,7 +9,7 @@ import type {
 } from '../../src/contracts/index.js';
 import { operatorProposerContract } from '../../src/contracts/plugin-types/proposer-operator.js';
 import { Registry } from '../../src/runtime/registry/index.js';
-import { readPolicy } from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 import { operatorbenchDefinition } from '../../src/plugins/evaluator-operatorbench/index.js';
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
 import { metricSelectorDefinition } from '../../src/plugins/selector-metrics/index.js';
@@ -38,7 +38,7 @@ test('static search compiles with the operator three-action contract and the dec
   registry.registerOperation(operatorbenchDefinition);
   registry.registerOperation(metricSelectorDefinition);
   try {
-    const policy = await readPolicy(
+    const policy = await Policy.load(
       resolve('src/policies/operator-search/policy.yaml'),
       registry,
     );

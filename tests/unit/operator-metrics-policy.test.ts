@@ -8,8 +8,7 @@ import {
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
-import { readPolicy } from '../../src/runtime/compiler/index.js';
-import { executePolicy } from '../../src/runtime/policy/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 import { object, string } from '../../src/shared/json.js';
 
 async function run(
@@ -22,7 +21,7 @@ async function run(
 ) {
   const registry = new Registry();
   await registerBuiltins(registry);
-  const policy = await readPolicy(
+  const policy = await Policy.load(
     resolve('src/policies/operator-search/policy.yaml'),
     registry,
   );
@@ -154,10 +153,14 @@ async function run(
     maxNoImprovement: 5,
   };
   try {
-    const output = object(await executePolicy(policy, {}, config, execution));
+    const output = object(
+      await policy.execute({ ...execution, input: {}, config }),
+    );
     const count = calls.length;
-    const resumed = await executePolicy(policy, {}, config, {
+    const resumed = await policy.execute({
       ...execution,
+      input: {},
+      config,
       restore: checkpoint,
     });
     assert.deepEqual(resumed, output);

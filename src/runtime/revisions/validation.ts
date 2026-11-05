@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type {
   Binding,
   JsonObject,
+  JsonValue,
   JsonSchema,
   OperationDefinition,
   PluginContract,
@@ -16,12 +17,12 @@ import {
   unknownKeys,
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { readYaml, resolveConfig } from '../loaders/index.js';
+import { configPathFields } from '../../shared/config-paths.js';
+import { readYaml } from '../loaders/yaml.js';
+import { resolveConfig } from '../loaders/config.js';
 import { safeId } from '../storage/index.js';
 import {
-  count,
   pointerValue,
-  resourceFields,
   selectedResourceFields,
   validateEditableDestinations,
 } from './resources.js';
@@ -33,7 +34,12 @@ export interface ReflectionConfig {
   targets: Record<string, { resources: string[] }>;
   goal: string;
   implementation: { contract: string; ref: string; config: JsonObject };
-  budget: { modelCalls: number; elapsedWallMs?: number };
+  budget: { modelCalls?: number; elapsedWallMs?: number };
+}
+function count(value: JsonValue, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+    throw new Error(`${label} must be a nonnegative integer`);
+  return value;
 }
 
 function uniqueNames(value: unknown, label: string): string[] {
@@ -51,7 +57,7 @@ async function validatePaths(
   config: JsonObject,
   label: string,
 ): Promise<void> {
-  for (const field of resourceFields(schema, config)) {
+  for (const field of configPathFields(schema, config)) {
     const path = string(pointerValue(config, field.pointer));
     const info = await lstat(path).catch((error: unknown) => {
       throw new Error(
@@ -147,15 +153,11 @@ export async function validateReflection(
     if (!goal.trim()) throw new Error(`goal: file is empty ${goalFile}`);
     const rawBudget = object(definition.budget ?? {}, 'budget');
     unknownKeys(rawBudget, ['modelCalls', 'timeoutSeconds'], 'budget');
-    const budget: ReflectionConfig['budget'] = {
-      modelCalls: count(rawBudget.modelCalls, 50, 'budget.modelCalls'),
-    };
+    const budget: ReflectionConfig['budget'] = {};
+    if (rawBudget.modelCalls !== undefined)
+      budget.modelCalls = count(rawBudget.modelCalls, 'budget.modelCalls');
     if (rawBudget.timeoutSeconds !== undefined) {
-      const seconds = count(
-        rawBudget.timeoutSeconds,
-        0,
-        'budget.timeoutSeconds',
-      );
+      const seconds = count(rawBudget.timeoutSeconds, 'budget.timeoutSeconds');
       const elapsedWallMs = seconds * 1000;
       if (
         seconds <= 0 ||
@@ -225,7 +227,8 @@ export async function validateReflection(
           new URL('../../plugins/reflection-agent/prompt.md', import.meta.url),
         );
       // Zero is rejected by the module before starting this model-backed generator.
-      config.maxModelCalls = Math.max(1, budget.modelCalls);
+      if (budget.modelCalls !== undefined)
+        config.maxModelCalls = Math.max(1, budget.modelCalls);
     }
     validate(plugin.configSchema, config, 'implementation.config');
     const resolvedConfig = resolveConfig(

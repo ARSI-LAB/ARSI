@@ -3,7 +3,11 @@ import type {} from './context.js';
 export interface BudgetScope {
   id: string;
   signal: AbortSignal;
-  limits: { modelCalls: number; elapsedWallMs?: number; evidenceBytes: number };
+  limits: {
+    modelCalls?: number;
+    elapsedWallMs?: number;
+    evidenceBytes?: number;
+  };
 }
 declare module './context.js' {
   interface RuntimeContext {

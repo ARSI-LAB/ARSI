@@ -308,3 +308,23 @@ test('Manager rejects legacy checkpoints before replaying plugin effects', async
     await fixture.dispose();
   }
 });
+
+test('Manager rejects an unknown saved experiment status before resume mutations', async () => {
+  const fixture = await managerFixture(async () => ({}));
+  try {
+    await fixture.run();
+    const saved = await fixture.manager.get('test');
+    saved.status = 'unexpected-status';
+    await fixture.manager.facts.write('experiments', 'test', saved);
+    await assert.rejects(
+      fixture.manager.run(join(fixture.manager.rootDirectory, 'recipe.yaml'), {
+        id: 'test',
+        resume: true,
+      }),
+      /Experiment.*status.*unsupported/,
+    );
+    assert.deepEqual(await fixture.manager.get('test'), saved);
+  } finally {
+    await fixture.dispose();
+  }
+});

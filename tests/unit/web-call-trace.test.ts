@@ -87,7 +87,7 @@ test('candidate creation paths follow recorded parent calls rather than later ev
   await facts.write('calls', 'commit', {
     experimentId: 'run-alpha',
     callId: 'commit',
-    path: 'propose',
+    path: 'steps/iteration-7',
     parentCallId: 'propose',
     output: { candidateRef: 'round-candidate' },
   });

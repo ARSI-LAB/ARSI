@@ -50,6 +50,12 @@ export function executionEvidencePackets(full: JsonObject): {
   evidence: JsonObject;
 } {
   const original = object(full.files);
+  const contentOf = (file: JsonObject): string => {
+    const content = original[string(file.path)];
+    if (typeof content !== 'string')
+      throw new Error('Execution evidence file must contain text');
+    return content;
+  };
   if (!Array.isArray(full.measurements))
     throw new Error('Missing execution measurements');
   const files: JsonObject = {};
@@ -81,8 +87,7 @@ export function executionEvidencePackets(full: JsonObject): {
           });
           continue;
         }
-        if (entry.kind === 'final-text')
-          final.push(string(original[file.path]));
+        if (entry.kind === 'final-text') final.push(contentOf(file));
         if (entry.kind === 'trajectory') traceFiles.push(file);
       }
     }
@@ -96,7 +101,7 @@ export function executionEvidencePackets(full: JsonObject): {
       traceFiles.find((f) => /\.jsonl$/i.test(sourcePath(f)));
     const sections: string[] = [];
     if (main) {
-      const normalized = trajectory(string(original[string(main.path)]));
+      const normalized = trajectory(contentOf(main));
       const errors = normalized
         .split('\n')
         .filter((line) =>
@@ -110,12 +115,12 @@ export function executionEvidencePackets(full: JsonObject): {
         `Trajectory (${sourcePath(main)}; original line numbers):\n${normalized}`,
       );
     }
-    const seen = new Set(main ? [string(original[string(main.path)])] : []);
+    const seen = new Set(main ? [contentOf(main)] : []);
     // Large payloads remain bounded; do not expose installation/configuration files.
     for (const file of traceFiles.filter((f) =>
       sourcePath(f).startsWith('tool-outputs/'),
     )) {
-      const text = string(original[string(file.path)]);
+      const text = contentOf(file);
       if (!text.trim() || seen.has(text)) continue;
       seen.add(text);
       sections.push(

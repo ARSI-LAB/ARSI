@@ -9,6 +9,7 @@ import {
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Manager } from '../../src/runtime/manager/index.js';
+import { PolicyCheckpoints } from '../../src/runtime/policy/checkpoint.js';
 import { object, string } from '../../src/shared/json.js';
 
 test('interrupted experiments recover locked definitions and resources after all source files disappear', async (t) => {
@@ -114,6 +115,10 @@ test('interrupted experiments recover locked definitions and resources after all
     manager.run(recipe, { id: 'locked', signal: controller.signal }),
     /pause after saved step/,
   );
+  await manager.facts.write('experiments', 'locked', {
+    ...(await manager.get('locked')),
+    startedAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+  });
   await Promise.all([rm(prompt), rm(policy), rm(recipe)]);
   const restored = await manager.run(recipe, { id: 'locked', resume: true });
   assert.deepEqual(restored.output, {
@@ -175,10 +180,11 @@ test('Manager resumes after a committed loop boundary without replaying calls', 
       }),
       /pause after loop boundary/,
     );
-    const checkpoint = await fixture.manager.facts.read(
-      'checkpoints',
+    const checkpoint = await new PolicyCheckpoints(
+      fixture.manager.facts,
       'mid-loop',
-    );
+    ).restore();
+    assert(checkpoint);
     assert(Object.values(object(checkpoint.boundaries)).includes(true));
     assert.equal(
       (await fixture.manager.run(recipePath, { id: 'mid-loop', resume: true }))

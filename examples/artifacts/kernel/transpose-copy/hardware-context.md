@@ -1,18 +1,18 @@
 # User hardware context
 
-These template values are not verified measurements of the current NPU. Review,
-edit, remove, or extend them before starting an experiment. Missing information
-must not be invented.
+The target device and its specifications are unknown until supplied by the user.
+Replace unknown values with verified details before starting an experiment.
+Missing information must not be invented.
 
-| Template field | Template value    |
-| -------------- | ----------------- |
-| name           | ASCEND 950PR 128G |
-| vector_count   | 56                |
-| cube_count     | 28                |
-| ub_size_kb     | 248               |
-| L1_cache_kb    | 512               |
-| L2_cache_mb    | 128               |
-| hbm_gb         | 128               |
+| Hardware field | User-provided value |
+| -------------- | ------------------- |
+| name           | Unknown target NPU  |
+| vector_count   | Unknown             |
+| cube_count     | Unknown             |
+| ub_size_kb     | Unknown             |
+| L1_cache_kb    | Unknown             |
+| L2_cache_mb    | Unknown             |
+| hbm_gb         | Unknown             |
 
 These are user-editable context values, not implicit defaults for programmatic
 utilization calculations. Task semantics, correctness checks, and the authorized

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RuntimeContext, type AgentInput } from '../../src/contracts/index.js';
-import { requestOperatorAgent } from '../../src/plugins/proposer-operator/agent.js';
+import { requestOperatorAgent } from '../../src/plugins/proposer-operator/execution-context.js';
 
 test('operator stages derive separate scopes, preserve cancellation and reject an existing scope', async () => {
   const scopes: string[] = [];

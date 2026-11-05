@@ -16,7 +16,7 @@ import {
 } from '../../src/contracts/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
-import { readHistory } from '../../src/plugins/proposer-operator/context.js';
+import { readHistory } from '../../src/plugins/proposer-operator/execution-context.js';
 import {
   prepareOperatorProposerFixture,
   operatorFixtureSource,

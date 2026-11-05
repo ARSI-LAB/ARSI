@@ -48,6 +48,7 @@ import { metricSelectorDefinition } from '../../src/plugins/selector-metrics/ind
 import { gridProposerDefinition } from '../../src/plugins/proposer-grid/index.js';
 import { kernelApplicationDefinition } from '../../src/plugins/application-kernel/index.js';
 import { operatorbenchDefinition } from '../../src/plugins/evaluator-operatorbench/index.js';
+import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
 
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -147,6 +148,7 @@ export type ConcreteConfigChecks = [
         | typeof gridProposerDefinition
         | typeof kernelApplicationDefinition
         | typeof operatorbenchDefinition
+        | typeof operatorProposerDefinition
       >,
       false
     >
@@ -280,6 +282,12 @@ export type ConcreteOperationChecks = [
       [OperatorbenchInput, OperatorbenchOutput]
     >
   >,
+  Check<
+    Equal<
+      IO<typeof operatorProposerDefinition>,
+      [OperatorProposerInput, OperatorProposerOutput]
+    >
+  >,
   Check<Equal<MetricSelectorOutput['candidateValue'], number | null>>,
   Check<
     Equal<
@@ -367,6 +375,16 @@ export type ConcreteOperationChecks = [
     >
   >,
 ];
+
+test('operator plugin definitions use their public contract objects', () => {
+  for (const [definition, contract] of [
+    [kernelApplicationDefinition, contracts.applicationContract],
+    [operatorbenchDefinition, contracts.operatorbenchContract],
+    [operatorProposerDefinition, contracts.operatorProposerContract],
+  ] as const) {
+    assert.equal(definition.contract, contract, definition.id);
+  }
+});
 
 test('typed inputs and outputs satisfy public contract Schemas', () => {
   const cases = [

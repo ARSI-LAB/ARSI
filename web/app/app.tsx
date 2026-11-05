@@ -1,3 +1,4 @@
+import { ViewBoundary } from '../components/view-boundary';
 import React, { useEffect } from 'react';
 import { route } from './routing';
 import { rememberView } from './view-memory';
@@ -13,21 +14,23 @@ export function App(): React.JSX.Element {
   useEffect(() => rememberView(hash), [hash]);
   return (
     <WorkspaceLayout routeKey={`${id ?? ''}:${view}`} isList={!id}>
-      {id ? (
-        <Experiment
-          key={id}
-          id={id}
-          view={view}
-          candidate={candidate}
-          artifact={artifact}
-          call={call}
-          measurement={measurement}
-          file={file}
-          directory={directory}
-        />
-      ) : (
-        <Experiments />
-      )}
+      <ViewBoundary resetKey={`${id ?? ''}:${view}`}>
+        {id ? (
+          <Experiment
+            key={id}
+            id={id}
+            view={view}
+            candidate={candidate}
+            artifact={artifact}
+            call={call}
+            measurement={measurement}
+            file={file}
+            directory={directory}
+          />
+        ) : (
+          <Experiments />
+        )}
+      </ViewBoundary>
     </WorkspaceLayout>
   );
 }

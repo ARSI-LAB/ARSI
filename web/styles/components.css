@@ -283,3 +283,79 @@ select:not([multiple]):not([size]) {
     background-image: none;
   }
 }
+
+.loading-feedback {
+  display: grid;
+  gap: var(--space-3);
+  padding-block: var(--space-4);
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.loading-feedback-lines {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 560px;
+}
+.loading-feedback-lines span {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--muted);
+}
+.loading-feedback-lines span:nth-child(2) {
+  width: 85%;
+}
+.loading-feedback-lines span:nth-child(3) {
+  width: 60%;
+}
+
+:is(
+  .quiet-button,
+  .view-nav a,
+  .compact-call,
+  .learning-record,
+  .harness-version,
+  .diff-file-option,
+  .inspector-row,
+  .inspector-tabs button,
+  .inspector-toolbar button,
+  .inspector-pagination button,
+  .inspector-detail button,
+  summary
+) {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+@media (hover: hover) {
+  .compact-call:hover:not([aria-current='true']),
+  .learning-record:hover:not([aria-current='true']) {
+    background: var(--muted);
+    border-color: var(--input);
+  }
+  .view-nav a:hover:not([aria-current]),
+  summary:hover {
+    color: var(--primary);
+    background: var(--muted);
+  }
+  .text-link:hover {
+    color: var(--accent-hover);
+    text-decoration-thickness: 2px;
+  }
+  :is(
+      .inspector-tabs,
+      .inspector-toolbar,
+      .inspector-pagination,
+      .inspector-detail
+    )
+    button:hover:not(:disabled):not([aria-pressed='true']) {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+}
+.compact-call:focus-visible,
+.learning-record:focus-visible,
+.view-nav a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -3px;
+}

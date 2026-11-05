@@ -1,3 +1,7 @@
+import {
+  comparisonStages,
+  type ComparisonPolicy,
+} from './policy-presentation.js';
 import type {
   CallSummary,
   CandidateSummary,
@@ -18,31 +22,12 @@ export interface HarnessStage {
   round: string;
   variant: 'Base' | 'Invariant' | 'Domain' | 'Composed';
 }
-/** Recognize the recorded Harness2 branches, not arbitrary loop names. */
-export function harnessStage(
-  path: string | null | undefined,
-): HarnessStage | null {
-  const match =
-    /(?:^|\/)loop\/(\d+)\/(base|invariant|domain|compose)\/[^/]+\/(execute_base|propose_inv|execute_inv|propose_dom|execute_dom|compose_candidate|execute_composed)(?:\/|$)/.exec(
-      path ?? '',
-    );
-  if (!match) return null;
-  const variants = {
-    base: 'Base',
-    invariant: 'Invariant',
-    domain: 'Domain',
-    compose: 'Composed',
-  } as const;
-  return {
-    round: `Round ${Number(match[1]) + 1}`,
-    variant: variants[match[2] as keyof typeof variants],
-  };
-}
 export function buildRoundLabels(
   candidates: CandidateSummary[],
   calls: CallSummary[],
   measurements: MeasurementSummary[],
   records: MetricRecord[] = [],
+  policy: ComparisonPolicy | null = null,
 ): {
   candidate(ref: string): string;
   evaluation(ref: string): string;
@@ -50,11 +35,19 @@ export function buildRoundLabels(
   task(ref: string): string | null;
   evaluationGroup(refs: string[]): string | null;
   isHarness: boolean;
+  candidateStage(ref: string): HarnessStage | null;
 } {
+  const comparison = comparisonStages(
+    policy,
+    candidates,
+    calls,
+    measurements,
+    records,
+  );
   const names = new Map<string, string>();
   const groups = new Map<string, CandidateSummary[]>();
   for (const candidate of candidates) {
-    const origin = harnessStage(candidate.originPath);
+    const origin = comparison?.candidates.get(candidate.ref);
     const name =
       candidate.parentRef === null
         ? 'Baseline'
@@ -81,7 +74,7 @@ export function buildRoundLabels(
     while (call && !seen.has(call.callId)) {
       seen.add(call.callId);
       const path = call.path ?? '';
-      const phase = harnessStage(path);
+      const phase = comparison?.evaluations.get(measurement.ref);
       if (phase) {
         harness.set(measurement.ref, phase);
         evaluations.set(measurement.ref, `${phase.round} · ${phase.variant}`);
@@ -132,11 +125,8 @@ export function buildRoundLabels(
       repeated.set(label, [...(repeated.get(label) ?? []), measurement.ref]);
   }
   return {
-    isHarness:
-      harness.size > 0 ||
-      candidates.some(
-        (candidate) => harnessStage(candidate.originPath) !== null,
-      ),
+    isHarness: comparison !== null,
+    candidateStage: (ref) => comparison?.candidates.get(ref) ?? null,
     harness: (ref) => harness.get(ref) ?? null,
     task,
     evaluationGroup: (refs) => {

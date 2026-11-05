@@ -38,6 +38,7 @@ export interface CallDetail extends CallSummary {
   output: JsonPreview | null;
 }
 export interface CandidateSummary {
+  originPath?: string | null;
   ref: string;
   parentRef: string | null;
   artifactRef: string;
@@ -87,7 +88,27 @@ export interface ResultReference {
 export interface ArtifactPreview {
   ref: string;
   kind: 'json' | 'file-tree';
-  files: Page<{ path: string; bytes: number }> | null;
+  files: Page<{ path: string; bytes: number; digest?: string }> | null;
   content: JsonPreview | null;
   unavailable: string | null;
+}
+
+/** Ordered, bounded previews of recorded agent events. */
+export interface CallTrace
+  extends Page<{
+    sequence: number;
+    at: string | null;
+    type: string;
+    content: JsonPreview | null;
+  }> {
+  unavailable: string | null;
+  incomplete: boolean;
+}
+
+export interface ObservationSource {
+  directory: string | null;
+}
+
+export interface CallInstructions {
+  prompt: JsonPreview | null;
 }

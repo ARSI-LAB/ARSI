@@ -172,7 +172,10 @@ test('observation client rejects invalid payloads and propagates failures and ca
     async () =>
       new Response(JSON.stringify({ error: 'Unavailable' }), { status: 503 }),
   );
-  await assert.rejects(readObservation('', parseExperiments), /Unavailable/);
+  await assert.rejects(
+    readObservation('', parseExperiments),
+    /Connection unavailable/,
+  );
   t.mock.restoreAll();
   const controller = new AbortController();
   controller.abort(new Error('Navigated away'));

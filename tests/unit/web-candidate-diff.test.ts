@@ -44,6 +44,8 @@ test('snapshot comparison uses GET only, detects equal-size edits, and never tre
     },
   };
   const methods: string[] = [];
+  const requestedPaths: (string | null)[] = [];
+  let useDigests = false;
   t.mock.method(
     globalThis,
     'fetch',
@@ -54,8 +56,12 @@ test('snapshot comparison uses GET only, detects equal-size edits, and never tre
       const entries = Object.entries(files[ref]!).map(([path, text]) => ({
         path,
         bytes: text.length,
+        ...(useDigests && ['same.txt', 'edit.txt'].includes(path)
+          ? { digest: text }
+          : {}),
       }));
       const path = url.searchParams.get('path');
+      requestedPaths.push(path);
       return new Response(
         JSON.stringify({
           ref,
@@ -90,6 +96,17 @@ test('snapshot comparison uses GET only, detects equal-size edits, and never tre
     ],
   );
   assert.ok(methods.every((method) => method === 'GET'));
+  useDigests = true;
+  requestedPaths.length = 0;
+  const optimized = await loadCandidateDiff(
+    'experiment',
+    'parent',
+    'current',
+    new AbortController().signal,
+  );
+  assert.deepEqual(optimized, result);
+  assert.equal(requestedPaths.includes('same.txt'), false);
+  assert.equal(requestedPaths.filter((path) => path === 'edit.txt').length, 2);
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(

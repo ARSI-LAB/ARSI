@@ -85,10 +85,31 @@ try {
   });
   assert.match(
     help,
-    /ember-rsi run <recipe.yaml>/,
+    /run \[options\] <recipe.yaml>/,
     'installed executable works outside its source checkout',
   );
-  assert.match(help, /reflection apply <revisionID>/);
+  assert.match(help, /reflection/);
+  for (const args of [
+    ['run', '--help'],
+    ['run', '-h'],
+    ['reflection', '-h'],
+    ['reflection', 'apply', '-h'],
+    ['reflection', 'apply', '--help'],
+  ]) {
+    const detail = execFileSync(process.execPath, [command, ...args], {
+      cwd: outside,
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.match(
+      detail,
+      args[0] === 'run'
+        ? /--resume/
+        : args.length === 2
+          ? /apply/
+          : /<revisionID>/,
+    );
+  }
   const installedManifest = JSON.parse(
     await readFile(
       join(consumer, 'node_modules/ember-rsi/package.json'),
@@ -110,7 +131,7 @@ try {
     timeout: 30000,
     shell: process.platform === 'win32',
   });
-  assert.match(binHelp, /ember-rsi list/);
+  assert.match(binHelp, /list \[kind\]/);
 
   assert.deepEqual(
     JSON.parse(
@@ -155,7 +176,7 @@ export function register(registry) {
   );
   await writeFile(
     join(extension, 'policy.yaml'),
-    'schemaVersion: rsi.policy/v1\nid: external.policy\ninput_schema: { type: object }\noutput_schema: { type: object }\noutput: {}\n',
+    'schemaVersion: rsi.policy/v1\nid: external.policy\ninput_schema: { type: object }\noutput_schema: { type: object }\nsteps: []\noutput: {}\n',
   );
   const externalCatalog = JSON.parse(
     execFileSync(
@@ -306,7 +327,7 @@ import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
 import {dirname,resolve} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,readPolicy,proposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext} from 'ember-rsi';
+import {createRuntime,Policy,Binding,proposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext} from 'ember-rsi';
 import {RuntimeContext as ContractContext} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
 const context=new RuntimeContext().extend({traceId:'consumer'});
@@ -335,14 +356,14 @@ try {
   const goalFile=fileURLToPath(new URL('plugins/reflection-agent/goals/'+goal+'/prompt.md',installed));
   const configFile=resolve(${JSON.stringify(outside)},'reflection-'+goal+'.json');
   await writeFile(configFile,JSON.stringify({evidence:['proposer'],targets:{proposer:{resources:['guidance']}},goal:goalFile,implementation:{contract:'contract.reflection',ref:'reflection.agent',config:{agentRef:'agent'}}}));
-  const configuration=await validateReflection(configFile,{proposer:{ref:'proposer.agent',config:{prompt,guidance:targetDirectory}},agent:{ref:'agent.pi',config:{}}},id=>runtime.registry.get(id),id=>runtime.registry.contract(id));
+  const configuration=await validateReflection(configFile,{proposer:Binding.resolve({name:'proposer',registry:runtime.registry,required:proposerContract,override:{declaration:{plugin:'proposer.agent',config:{prompt,guidance:targetDirectory,agentRef:'agent'}},directory:${JSON.stringify(outside)}}}).toJSON(),agent:Binding.resolve({name:'agent',registry:runtime.registry,required:runtime.registry.get('agent.pi').contract,override:{declaration:{plugin:'agent.pi',config:{}},directory:${JSON.stringify(outside)}}}).toJSON()},id=>runtime.registry.get(id),id=>runtime.registry.contract(id));
   assert.equal(configuration.goal,await readFile(goalFile,'utf8'),'explicit installed goal selection loads contents');
   assert.equal(await realpath(configuration.implementation.config.prompt),await realpath(prompt),'installed generic prompt is the default');
  }
  for(const id of runtime.registry.catalog().policies){
-  const path=runtime.registry.policy(id),policy=await readPolicy(path,runtime.registry);
-  assert.equal(policy.definition.schemaVersion,'rsi.policy/v1');
-  const requirement=policy.require.invariantProposer??policy.require.proposer;
+  const path=runtime.registry.policy(id),policy=await Policy.load(path,runtime.registry);
+  assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
+  const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;
   assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?parameterSearchProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
   assert.deepEqual(runtime.registry.get('proposer.agent').contract,proposerContract);
   const reflection=policy.defaults.reflection;
@@ -390,14 +411,14 @@ try {
  await writeFile(policyPath,JSON.stringify({
   schemaVersion:'rsi.policy/v1',id:'consumer.policy',input_schema:{type:'object'},output_schema:{type:'object'},
   require:{worker:{contract:contract.id},unused:{contract:contract.id}},
-  init:{steps:[{id:'first',use:'worker',with:{}},{id:'second',use:'worker',with:{}}]},output:{}
+  steps:[{id:'first',type:'invoke',use:'worker',with:{}},{id:'second',type:'invoke',use:'worker',with:{}}],output:{}
  }));
  runtime.registry.registerPolicy('consumer.policy',policyPath);
  const recipePath=resolve(${JSON.stringify(outside)},'consumer-recipe.yaml');
  await writeFile(recipePath,JSON.stringify({
-  schemaVersion:'rsi.recipe/v1',id:'consumer.recipe',application:{ref:'consumer.application',config:{}},
-  policy:{ref:'consumer.policy',config:{},input:{}},budget:{operations:10,elapsedWallMs:10000},
-  bindings:{worker:{ref:'consumer.worker',config:{}},unused:{ref:'consumer.worker',config:{}}}
+  schemaVersion:'rsi.recipe/v1',id:'consumer.recipe',application:{plugin:'consumer.application',config:{}},
+  policy:{id:'consumer.policy',config:{},input:{}},budget:{operations:10,elapsedWallMs:10000},
+  bindings:{worker:{plugin:'consumer.worker',config:{}},unused:{plugin:'consumer.worker',config:{}}}
  }));
  const experiment=await runtime.manager.run(recipePath,{id:'consumer.experiment'});
  assert.equal(experiment.status,'succeeded');assert.equal(experiment.recipeId,'consumer.recipe');

@@ -52,6 +52,7 @@ export async function register(registry) {
 id: external.policy
 input_schema: { type: object }
 output_schema: { type: object }
+steps: []
 output: { loaded: true }
 `,
   );
@@ -59,8 +60,8 @@ output: { loaded: true }
     join(root, 'recipe.yaml'),
     `schemaVersion: rsi.recipe/v1
 id: external-recipe
-application: { ref: external.application, config: {} }
-policy: { ref: external.policy, config: {}, input: {} }
+application: { plugin: external.application, config: {} }
+policy: { id: external.policy, config: {}, input: {} }
 bindings: {}
 budget: { operations: 5, elapsedWallMs: 30000 }
 `,
@@ -141,7 +142,7 @@ test('CLI loads external implementation and Policy for catalog, validate and exe
     }
     await assert.rejects(
       run('catalog', '--plugin-dir'),
-      /--plugin-dir needs a value/,
+      /--plugin-dir.*argument missing/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -252,7 +253,7 @@ test('home discovery loads extensions once and CLI describes schemas', async () 
     }[];
     assert.ok(policies.length && policies.every((entry) => entry.require));
     assert.deepEqual(await run('list'), []);
-    await assert.rejects(run('list', 'typo'), /Expected list/);
+    await assert.rejects(run('list', 'typo'), /invalid.*kind|Allowed choices/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

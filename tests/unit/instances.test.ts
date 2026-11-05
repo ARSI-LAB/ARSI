@@ -106,7 +106,7 @@ test('failed creation revokes staged subscriptions and closes the factory contex
   };
   const { instances, events } = await fixture(t, definition);
   await assert.rejects(
-    instances.acquire('worker', { ref: definition.id, config: {} }),
+    instances.acquire('worker', { plugin: definition.id, config: {} }),
     /factory failed/,
   );
   events.event.emit('test/instance-notification');
@@ -153,7 +153,7 @@ test('shutdown during shared lazy creation disposes the late instance without ac
   };
   const { instances, events } = await fixture(t, definition);
   t.after(() => release());
-  const binding = { ref: definition.id, config: {} };
+  const binding = { plugin: definition.id, config: {} };
   const first = instances.acquire('worker', binding);
   const second = instances.acquire('worker', binding);
   const results = Promise.all([
@@ -190,7 +190,7 @@ test('an acquire reserves the old instance before its first await during replace
     },
   };
   const { instances, context } = await fixture(t, definition);
-  const binding = { ref: definition.id, config: { version: 1 } };
+  const binding = { plugin: definition.id, config: { version: 1 } };
   const old = await instances.prepare('worker', binding);
   const replacement = await instances.prepare('worker', {
     ...binding,
@@ -264,7 +264,7 @@ test('retirement retains an aborted listener until settlement and disposes its i
   });
   const { instances, events } = await fixture(t, definition);
   const instance = await instances.prepare('worker', {
-    ref: definition.id,
+    plugin: definition.id,
     config: {},
   });
   instances.activate('worker', instance);
@@ -321,7 +321,7 @@ test('a call uses the revision and instance pinned before admission even if the 
   };
   t.after(() => continueAdmission());
   const { instances, registry, facts, context } = await fixture(t, definition);
-  let binding: Binding = { ref: definition.id, config: { version: 1 } };
+  let binding: Binding = { plugin: definition.id, config: { version: 1 } };
   const original = await instances.prepare('worker', binding);
   const replacement = await instances.prepare('worker', {
     ...binding,
@@ -338,14 +338,13 @@ test('a call uses the revision and instance pinned before admission even if the 
     binding: () => binding,
     operation: (bindingId, activeBinding) =>
       instances.acquire(bindingId, activeBinding),
-    initialCandidate: () => null,
     charge: async () => {},
     diagnose: () => {},
     onFailure: () => {},
   });
   const first = invoke('worker', {}, context('_root', 'root'), 'first');
   await admissionEntered;
-  binding = { ref: definition.id, config: { version: 2 } };
+  binding = { plugin: definition.id, config: { version: 2 } };
   revisionRefs.worker = 'revision-new';
   instances.activate('worker', replacement);
   const retirement = instances.dispose(original);

@@ -7,7 +7,6 @@ import {
   type OperationDefinition,
 } from '../../src/contracts/index.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
-
 const annotation = Symbol('test.annotation');
 declare module '../../src/contracts/index.js' {
   interface RuntimeContext {
@@ -42,7 +41,6 @@ test('derived contexts retain typed extensions, symbols and live getters without
   assert.equal(cleanup.testTrace, 'updated');
   assert.equal(cleanup instanceof RuntimeContext, true);
 });
-
 test('Manager inherits extensions and execution constraints through concurrent child calls', async () => {
   const seen: RuntimeContext[] = [];
   const factoryContexts: RuntimeContext[] = [];
@@ -104,7 +102,7 @@ test('Manager inherits extensions and execution constraints through concurrent c
     {
       context: base,
       plugins: [worker],
-      bindings: { worker: { ref: worker.id, config: {} } },
+      bindings: { worker: { plugin: worker.id, config: {} } },
       budget: { modelCalls: 2 },
     },
   );
@@ -133,7 +131,6 @@ test('Manager inherits extensions and execution constraints through concurrent c
     await fixture.dispose();
   }
 });
-
 test('experiment context overrides stay local while Manager supplies its services', async () => {
   const base = new RuntimeContext().extend({ testTrace: 'runtime' });
   const fixture = await managerFixture(

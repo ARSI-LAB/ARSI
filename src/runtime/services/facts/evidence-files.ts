@@ -12,7 +12,7 @@ export async function projectEvidenceFiles(options: {
   measurements: JsonObject[];
   artifacts: ArtifactStore;
   view: EvidenceView;
-  maxBytes: number;
+  maxBytes?: number;
 }): Promise<JsonObject> {
   if (options.view !== 'execution')
     throw new Error('File evidence requires the execution view');
@@ -24,13 +24,16 @@ export async function projectEvidenceFiles(options: {
     measurements,
     files,
   };
+  const maxBytes = options.maxBytes;
   let bytes = 0;
   const store = (path: string, content: string): void => {
-    bytes += Buffer.byteLength(content);
-    if (bytes > options.maxBytes)
-      throw new Error(
-        'Full execution evidence exceeds virtual-file byte limit',
-      );
+    if (maxBytes !== undefined) {
+      bytes += Buffer.byteLength(content);
+      if (bytes > maxBytes)
+        throw new Error(
+          'Full execution evidence exceeds virtual-file byte limit',
+        );
+    }
     files[path] = content;
   };
   for (let mi = 0; mi < options.measurements.length; mi++) {
@@ -165,7 +168,10 @@ export async function projectEvidenceFiles(options: {
       }
     }
   }
-  if (Buffer.byteLength(JSON.stringify(result)) > options.maxBytes)
+  if (
+    maxBytes !== undefined &&
+    Buffer.byteLength(JSON.stringify(result)) > maxBytes
+  )
     throw new Error(
       'Full execution evidence index exceeds virtual-file size limit',
     );

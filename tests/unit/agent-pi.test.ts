@@ -349,7 +349,7 @@ test('Pi defaults to low reasoning and disables transport or session retries', a
     assert.equal(f.requests[0]!.reasoning_effort, 'low');
     assert.equal(
       f.requests[0]!.max_completion_tokens ?? f.requests[0]!.max_tokens,
-      32768,
+      undefined,
     );
     assert.deepEqual(f.charges, [1]);
     assert.equal(f.chargeAttempts(), 1);

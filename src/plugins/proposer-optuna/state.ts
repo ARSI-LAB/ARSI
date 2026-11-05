@@ -43,7 +43,6 @@ const stateSchema: JsonSchema = shape({
   comparisonKey: optionalRef,
   history: {
     type: 'array',
-    maxItems: 1000,
     items: shape({
       parameters: { type: 'object' },
       status: { enum: ['pending', 'complete', 'duplicate'] },

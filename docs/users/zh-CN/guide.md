@@ -41,7 +41,7 @@ flowchart TB
 
 ### Target 与证据
 
-对于文件型 Application，[Target](../../../examples/harness/dsh-harness2/target.yaml) 定义允许的文件模式、操作、编码与大小限制、保护路径以及一次提交的修改总量限制。候选编辑必须通过这些检查。
+对于文件型 Application，[Target](../../../examples/harness/dsh-harness2/target.yaml) 定义允许的文件模式、操作、编码和保护路径。文件规则中的 `content.maxBytes` 可限制单个文件的大小，`constraints.maxChangedFiles` 或 `constraints.maxChangedBytes` 可限制一次提交的改动规模。候选编辑必须通过已配置的检查。
 
 证据服务向模型插件提供以下投影：
 
@@ -51,7 +51,7 @@ flowchart TB
 | `training-summary` | 执行证据，加上训练分数和有界评测反馈。WikiSkill 用它学习。               |
 | `delivery`         | 用于交付物选择的匿名内容，不包含评测分数。                               |
 
-应通过 [Runtime 证据服务](../../../src/runtime/services/facts/evidence.ts) 向优化模型提供输入，而不是直接传入原始评测记录。投影可能省略或缩短内容，缺失证据仍应视为未知。这些服务和 Target 检查不构成任意第三方插件代码的沙箱；Policy 也必须避免将独立测试任务用于学习。
+应通过 [Runtime 证据服务](../../../src/runtime/services/facts/evidence.ts) 向优化模型提供输入，而不是直接传入原始评测记录。JSON 投影可能省略或缩短内容。`files` 模式的读取只在调用方或其执行作用域设置字节限制时应用该限制。缺失证据仍应视为未知。这些服务和 Target 检查不构成任意第三方插件代码的沙箱；Policy 也必须避免将独立测试任务用于学习。
 
 ### Memory 与 Reflection
 
@@ -78,7 +78,7 @@ RSI 不会自动加载 `.env` 文件。请在启动 CLI 或 Web 服务的进程�
 
 优化器 Agent 和被评测的 Solver 可以使用不同模型。Harness² Recipe 中的 `bindings.evaluator.config.services.default.model` 读取必填的 `EVALUATOR_MODEL_NAME` 环境变量，与 `MODEL_NAME` 独立，没有固定默认值。
 
-[Agent 配置 Schema](../../../src/plugins/agent-pi/schema.ts) 默认设置为 `thinkingLevel: low`、`maxTokens: 32768`、`contextWindow: 262144`、`timeoutMs: 600000` 和 `retries: 0`。可以显式指定 `thinkingLevel: off`。请选择模型端点支持的限制和思考设置。这些默认值配置 RSI 的 Agent 后端，不设置被评测 Solver 的思考行为。
+[Agent 配置 Schema](../../../src/plugins/agent-pi/schema.ts) 默认设置为 `thinkingLevel: low`、`contextWindow: 262144` 和 `retries: 0`。可设置 `maxTokens` 来限制模型输出，或设置 `timeoutMs` 来限制单次模型请求的用时。省略字段时，框架不施加对应上限。请选择模型端点支持的设置。
 
 所有 `agent.pi` 会话默认提供 `run_subagent`，子代理也可继续委派。各 Agent 自主决定是否委派及如何分工，不额外限制委派层数或子代理数量；各层共用 Runtime 预算和取消机制，启动子代理不会重置预算。子代理使用同一 Agent 绑定，拥有独立对话和明确传入的虚拟文件。详见 [Reflection 机制](reflection.md#reflection-机制)。
 
@@ -127,6 +127,14 @@ bindings:
     plugin: agent.pi
     config:
       thinkingLevel: low
+      maxTokens: 32768
+      timeoutMs: 600000
+  memoryUpdater:
+    config:
+      maxModelCalls: 24
+  selector:
+    config:
+      maxModelCalls: 24
   evaluator:
     plugin: evaluator.agentbench
     config:
@@ -154,11 +162,35 @@ budget:
   cleanupReserveMs: 60000
 ```
 
-将它放在 [Harness² 基线和 Target](../../../examples/harness/dsh-harness2/README.md) 旁边，并将模型替换为端点支持的模型。评测模型必须支持配置的输出上限。预算是上限，不是预期用量或费用估计。
+将它放在 [Harness² 基线和 Target](../../../examples/harness/dsh-harness2/README.md) 旁边，并将模型替换为端点支持的模型。评测模型必须支持配置的输出上限。实验预算只在对应字段显式设置时生效。省略 `elapsedWallMs` 时实验没有截止时间，省略 `cleanupReserveMs` 时清理没有单独的截止时间。
 
 Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和 `memory`。目标与交付物评分标准由 Policy 定义，不能通过 `goals` 或 `deliveryRubric` 配置。`k` 控制探索槽位数，`concurrency` 限制 Policy 分支并发数；Evaluator 调度器另有并发设置。固定 `k` 时，当前流程调用 Evaluator 的次数为 `4 × k × 任务数`（基线、通用改进、领域改进、合成）；其他 Policy 的一次 Evaluator 调用可以包含多个任务。
 
-[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受 `maxRounds`、可选的 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。它从训练证据学习，通过验证集测量决定候选是否被接受，并在学习循环之后评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
+[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受 `maxRounds`（默认 3）、可选的 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。它从训练证据学习，通过验证集测量决定候选是否被接受，并在学习循环之后评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
+
+### 显式配置原有默认上限
+
+可按下表显式写回原框架默认值，或设置自己的上限。Recipe 路径使用示例里的绑定名。自定义 Policy 也可在 `defaults.bindings.<binding>.config` 声明插件配置。Policy 已有的显式设置继续生效。Harness² 的提案和合成绑定各限制 24 次模型调用，WikiSkill 的 proposer 限制 24 次，Harness² 随包提供的 Reflection 配置限制单次调用最多 50 次模型调用、600 秒。模型调用次数限制依赖能准确计数的后端，例如 `agent.pi`。原生 `agent.codex` 将调用次数标记为不可得，可使用下表中的执行时间限制。
+
+| 位置 | 字段 | 原框架默认值 | 限制范围 |
+| --- | --- | --- | --- |
+| Recipe | `budget.elapsedWallMs`、`budget.cleanupReserveMs` | `86400000`、`60000` | 实验墙钟时间和独立的清理时限，单位为毫秒。 |
+| Recipe | `budget.modelCalls` | 原本就需显式设置 | 具有计数能力的后端记入实验的总模型调用次数。Pi 包含其子代理和纠错调用。原生 Codex 将此计数标记为不可得。 |
+| Recipe | `bindings.agent.config.maxTokens`（`agent.pi`） | `32768` | 每次模型请求的输出 token 上限。值须在 `contextWindow` 范围内。 |
+| Recipe | `bindings.agent.config.timeoutMs` | Pi 原先为 `600000`，原生 Codex 仅应用显式超时 | `agent.pi` 的单次请求时限，或 `agent.codex` 的整次调用时限。 |
+| Recipe | `bindings.<binding>.config.maxModelCalls`（`proposer.agent`、`memory.agent`、`selector.artifact`） | 经正常 Recipe 加载后为 `24` | `agent.pi` 等能准确计数的后端在单次 Agent 调用内的模型请求次数。Policy 步骤直接调用 `contract.agent` 时，设置 `steps[].with.maxModelCalls`。Pi 子代理继承显式值作为各自会话的上限。 |
+| Recipe | `bindings.evaluator.config.services.<service>.maxTokens`（`evaluator.agentbench`） | `65536` | 所选评测模型服务每轮的输出 token 上限。 |
+| Recipe | `application.config.remote.timeoutMs`、`application.config.healthcheck.timeoutMs` | 远程命令和远程就绪均为 `600000`，本地就绪为 `120000` | 远程就绪等待继承显式设置的远程超时，单独设置健康检查超时可覆盖。 |
+| Recipe | `bindings.proposer.config.python.timeoutMs`、`bindings.proposer.config.maxSamplingAttempts`（`proposer.optuna`） | `30000`、`1000` | 单次 Python 调用时限（毫秒）和总采样次数（含重复尝试）。Policy 的 `maxTrials` 单独限制评测次数。 |
+| `reflection.configFile` 指向的 Reflection 文件 | `budget.modelCalls`、`budget.timeoutSeconds` | 模型调用为 `50`，时间原本就需显式设置 | 单次 Reflection 的局部预算。正数调用上限依赖后端准确计数。显式设置 `modelCalls: 0` 会阻止内置模型生成器启动。 |
+| `application.config.target.schema` 指向的 Target 文件 | `entries[].content.maxBytes`、`constraints.maxChangedFiles`、`constraints.maxChangedBytes` | `1048576`、`32`、`1048576` | 文件大小、修改文件数和修改总字节数。 |
+| Policy 调用步骤 | `steps[].with.editConstraints.maxChangedFiles`、`steps[].with.editConstraints.maxChangedBytes`、`steps[].with.editConstraints.maxChangedSubtrees` | 编辑器默认 32 个文件和 `1048576` 字节。Target 原先按条目数设置子树上限。 | 在被调用契约支持时限制本次编辑。`maxChangedSubtrees` 适用于 Target 校验。 |
+
+其余移除的上限属于框架内部。可用的控制方式取决于执行范围。
+
+- **Policy 和搜索规模。** `foreach` 与 `range` 移除了 10,000 项上限。`foreach` 的 `steps[].concurrency` 接受正安全整数，默认仍为 `1`，内置 Policy 仍可限制自己的配置范围。`loop.maxIterations` 的最大值仍为 100,000。Grid 原有的 1,000,000 点空间上限没有对应配置项。可通过 `bindings.proposer.config.searchSpace` 控制空间，通过 `policy.config.maxCandidates` 控制评测次数。远程校准范围通过 `application.config.remote.calibration.start`、`min` 和 `step` 调整，原有的 1,000 步跨度检查没有独立开关。
+- **证据与编辑。** 插件代码可用 `RuntimeContext.readEvidence` 的 `maxBytes` 选项为完整文件证据读取恢复原有的 32 MiB 上限。Memory 对比原有的 32 MiB、16 个探测组及每组 100 项上限，共享编辑器原有的 2 MiB 可编辑快照、32 条编辑及单条 128 KiB 上限，以及 Reflection 修订原有的 16 个文件、单资源 64 KiB 和单次修订 128 KiB 上限，都没有直接对应的 YAML 配置项。支持的文件编辑仍受上表中的 Target 和单次编辑约束限制。Reflection 仍控制证据预览大小并校验授权资源路径。
+- **传输、采样与清理。** Pi 原有的 128 KiB 结构化输出上限，以及 Optuna 原有的 8 MiB worker 输入输出、每次建议 32 次采样和 1,000 条历史记录上限，都没有直接配置项。上表的 Pi token 数、调用次数和 Optuna 采样次数按各自范围限制执行。原生 Codex 由本机 CLI 负责模型执行和恢复，RSI 提供上文所述的整次调用超时及分页虚拟文件读取。Inference 恢复释放使用 Runtime 清理预算，替代原先固定的 10 秒计时。Application 的停止宽限期可通过 `application.config.shutdown.gracePeriodMs` 单独设置。
 
 ### CLI
 
@@ -179,7 +211,7 @@ ember-rsi catalog
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --resume
 ```
 
-默认存储位于当前目录的 `.rsi/`。已完成调用可以复用收据和检查点；外部操作结果未知时需要核对，不能据此承诺所有操作只执行一次。应分别查看状态、测量和证据，零分不一定表示执行失败。`agent.pi` 的模型输出纠错有次数限制，并计入模型调用预算；未显式配置时不进行传输重试。
+默认存储位于当前目录的 `.rsi/`。已完成调用可以复用收据和检查点；外部操作结果未知时需要核对，不能据此承诺所有操作只执行一次。应分别查看状态、测量和证据，零分不一定表示执行失败。`agent.pi` 的模型输出纠错计入已配置的模型调用预算。传输重试需要显式启用。
 
 ### Web 观察
 
@@ -276,7 +308,7 @@ Policy 使用 `rsi.policy/v1`，Recipe 使用 `rsi.recipe/v1`。Policy 声明输
 | `control`    | 执行 `break`、`continue`，或附带原因的 `fail`。                      |
 | `reflection` | 串行调用已声明的 Reflection 模块。                                   |
 
-`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
+`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。`maxIterations` 为必填项，求值结果须为 0 到 100,000 之间的整数。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
 
 典型搜索先评测基线，再循环提案、评测和选择，保存被接受的状态，最后通过普通后续步骤评测独立测试集。并行 foreach 分支返回输出，交给后续串行步骤汇总。Reflection 使用 `type: reflection`，不能在并行分支执行。绑定只选择插件，不支持子 Policy、固定的 `init`/`finish` 作用域或 Runtime 报告阶段标签。成功、失败和取消时的资源清理由 Runtime 负责。
 

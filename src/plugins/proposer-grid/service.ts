@@ -32,8 +32,8 @@ function axes(space: GridProposerConfig['searchSpace']): {
       );
     names.add(name);
     total *= entry.values.length;
-    if (!Number.isSafeInteger(total) || total > 1000000)
-      throw new Error('searchSpace cardinality must not exceed 1000000');
+    if (!Number.isSafeInteger(total))
+      throw new Error('searchSpace cardinality exceeds the safe integer range');
     return {
       name,
       values: structuredClone(entry.values),

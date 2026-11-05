@@ -33,7 +33,7 @@ export interface ReflectionConfig {
   targets: Record<string, { resources: string[] }>;
   goal: string;
   implementation: { contract: string; ref: string; config: JsonObject };
-  budget: { modelCalls: number; elapsedWallMs?: number };
+  budget: { modelCalls?: number; elapsedWallMs?: number };
 }
 
 function uniqueNames(value: unknown, label: string): string[] {
@@ -147,15 +147,11 @@ export async function validateReflection(
     if (!goal.trim()) throw new Error(`goal: file is empty ${goalFile}`);
     const rawBudget = object(definition.budget ?? {}, 'budget');
     unknownKeys(rawBudget, ['modelCalls', 'timeoutSeconds'], 'budget');
-    const budget: ReflectionConfig['budget'] = {
-      modelCalls: count(rawBudget.modelCalls, 50, 'budget.modelCalls'),
-    };
+    const budget: ReflectionConfig['budget'] = {};
+    if (rawBudget.modelCalls !== undefined)
+      budget.modelCalls = count(rawBudget.modelCalls, 'budget.modelCalls');
     if (rawBudget.timeoutSeconds !== undefined) {
-      const seconds = count(
-        rawBudget.timeoutSeconds,
-        0,
-        'budget.timeoutSeconds',
-      );
+      const seconds = count(rawBudget.timeoutSeconds, 'budget.timeoutSeconds');
       const elapsedWallMs = seconds * 1000;
       if (
         seconds <= 0 ||
@@ -225,7 +221,8 @@ export async function validateReflection(
           new URL('../../plugins/reflection-agent/prompt.md', import.meta.url),
         );
       // Zero is rejected by the module before starting this model-backed generator.
-      config.maxModelCalls = Math.max(1, budget.modelCalls);
+      if (budget.modelCalls !== undefined)
+        config.maxModelCalls = Math.max(1, budget.modelCalls);
     }
     validate(plugin.configSchema, config, 'implementation.config');
     const resolvedConfig = resolveConfig(

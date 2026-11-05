@@ -313,18 +313,19 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
     assert.equal(next.action, 'suggest');
     if (next.action === 'suggest' && next.status === 'candidate')
       assert.deepEqual(next.parameters, { x: 2 });
+    let samples = 0;
     const repeated = await createOptunaProposer(config, context, async () => ({
       environment,
-      parameters: { x: 1 },
+      parameters: { x: ++samples <= 32 ? 1 : 2 },
     }));
-    const stopped = await repeated.execute(
+    const afterDuplicates = await repeated.execute(
       { action: 'suggest', stateRef: observed.stateRef },
       context,
     );
-    assert.equal(stopped.action, 'suggest');
-    if (stopped.action === 'suggest' && stopped.status === 'stopped')
-      assert.equal(stopped.reason, 'sampling-limit');
-    else assert.fail('Duplicate sampling must stop without another candidate');
+    assert.equal(samples, 33);
+    assert.equal(afterDuplicates.action, 'suggest');
+    assert.equal(afterDuplicates.status, 'candidate');
+    assert.deepEqual(afterDuplicates.parameters, { x: 2 });
     const drifted = await createOptunaProposer(config, context, async () => ({
       environment: { ...environment, python: '3.12' },
       parameters: { x: 2 },
@@ -368,7 +369,6 @@ test('worker bounds failures, propagates cancellation, and reaps the process', a
         script,
         {},
         new AbortController().signal,
-        2000,
       ),
       { ok: true },
     );

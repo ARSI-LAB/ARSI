@@ -1,8 +1,9 @@
+import { ViewBoundary } from '../../components/view-boundary';
 import { TraceInspector } from './trace-inspector';
 import { PluginCallSummary } from './plugin-call-summary';
 import { callLabels, ownerCallId } from './call-labels';
 import { useCallRecords, useRoundLabels } from './round-labels';
-import { roundLabel } from './round-label-model';
+import { type HarnessStage } from './round-label-model';
 import React from 'react';
 import {
   parseCallDetail,
@@ -22,6 +23,27 @@ import {
 import { Card, CardContent, CardHeader } from '../../components/ui/card';
 import { callDurations } from './charts/metric-data';
 import { useObservation } from './use-observation';
+
+function useCallStages(
+  measurements: MeasurementSummary[],
+): Map<string, HarnessStage> {
+  const labels = useRoundLabels();
+  const stages = new Map<string, HarnessStage>();
+  const ambiguous = new Set<string>();
+  for (const measurement of measurements) {
+    const stage = labels.harness(measurement.ref);
+    if (!stage) continue;
+    const prior = stages.get(measurement.callId);
+    if (
+      prior &&
+      (prior.round !== stage.round || prior.variant !== stage.variant)
+    )
+      ambiguous.add(measurement.callId);
+    stages.set(measurement.callId, stage);
+  }
+  for (const id of ambiguous) stages.delete(id);
+  return stages;
+}
 
 function Instructions({
   id,
@@ -104,7 +126,8 @@ function CallPayload({
     finished,
   );
   const current = summary ?? result.data;
-  const identity = current ? callLabels(current, calls) : null;
+  const stages = useCallStages(measurements);
+  const identity = current ? callLabels(current, calls, stages) : null;
   const related = measurements.filter((item) => item.callId === callId);
   return (
     <section className="call-detail" aria-label="Selected call details">
@@ -112,7 +135,12 @@ function CallPayload({
       {current ? (
         <>
           <div className="section-heading">
-            <h3>{identity?.title}</h3>
+            <h3>
+              {identity?.title}
+              {identity?.round ? (
+                <span className="call-round">{identity.round}</span>
+              ) : null}
+            </h3>
             <Status value={current.status} />
           </div>
           {current.error ? (
@@ -221,9 +249,8 @@ function CallPayload({
             onToggle={(event) => setShowPayload(event.currentTarget.open)}
           >
             <summary>Input / Output</summary>
-            {showPayload ? (
+            {showPayload && result.data ? (
               <>
-                <Feedback {...result} />
                 <Preview label="Input" value={result.data?.input ?? null} />
                 <Preview label="Output" value={result.data?.output ?? null} />
               </>
@@ -243,16 +270,22 @@ export function Calls({
   call?: string;
 }): React.JSX.Element {
   const location = useRoute();
-  const labels = useRoundLabels();
   const [roundFilter, setRoundFilter] = React.useState('');
-  const [componentFilter, setComponentFilter] = React.useState('');
+  const [componentFilter, setComponentFilter] = React.useState<string[] | null>(
+    null,
+  );
   const offset = location.offset ?? 0,
     search = location.search ?? '',
     status = location.status ?? '';
   const setOffset = (value: number): void =>
     replaceRouteSelection({ offset: value });
   const { calls: result, measurements } = useCallRecords();
-  const calls = result.data?.items ?? [];
+  const calls = React.useMemo(() => result.data?.items ?? [], [result.data]);
+  const stages = useCallStages(measurements.data?.items ?? []);
+  const byId = new Map(calls.map((item) => [item.callId, item]));
+  const identities = new Map(
+    calls.map((item) => [item.callId, callLabels(item, calls, stages, byId)]),
+  );
   const statuses = [
     ...new Set([
       'running',
@@ -268,23 +301,28 @@ export function Calls({
   const rounds = [
     ...new Set(
       componentCalls.map(
-        (item) => roundLabel(item.path) ?? 'No round recorded',
+        (item) => identities.get(item.callId)!.round ?? 'No round recorded',
       ),
     ),
   ].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const components = [
     ...new Set(componentCalls.map((item) => item.pluginId)),
   ].sort();
+  const selectedComponents =
+    componentFilter ??
+    components.filter((plugin) => !plugin.startsWith('application.'));
+  const changeComponents = (value: string[] | null): void => {
+    setComponentFilter(value);
+    replaceRouteSelection({ offset: 0, call: undefined });
+  };
   const filtered = componentCalls.filter(
     (item) =>
       (!status || item.status === status) &&
-      (!labels.isHarness ||
-        !roundFilter ||
-        (roundLabel(item.path) ?? 'No round recorded') === roundFilter) &&
-      (!labels.isHarness ||
-        !componentFilter ||
-        item.pluginId === componentFilter) &&
-      `${callLabels(item, calls).title} ${item.path ?? ''} ${item.pluginId} ${item.bindingId} ${item.callId} ${item.error ?? ''}`
+      (!roundFilter ||
+        (identities.get(item.callId)!.round ?? 'No round recorded') ===
+          roundFilter) &&
+      selectedComponents.includes(item.pluginId) &&
+      `${identities.get(item.callId)!.title} ${identities.get(item.callId)!.round ?? ''} ${item.path ?? ''} ${item.pluginId} ${item.bindingId} ${item.callId} ${item.error ?? ''}`
         .toLowerCase()
         .includes(search.trim().toLowerCase()),
   );
@@ -309,41 +347,106 @@ export function Calls({
         {result.data ? (
           <>
             <div className="call-filters">
-              {labels.isHarness ? (
-                <>
-                  <label>
-                    Round
-                    <select
-                      value={roundFilter}
-                      onChange={(event) => {
-                        setRoundFilter(event.target.value);
-                        replaceRouteSelection({ offset: 0, call: undefined });
-                      }}
+              <>
+                <label>
+                  Round
+                  <select
+                    value={roundFilter}
+                    onChange={(event) => {
+                      setRoundFilter(event.target.value);
+                      replaceRouteSelection({ offset: 0, call: undefined });
+                    }}
+                  >
+                    <option value="">All rounds</option>
+                    {rounds.map((round) => (
+                      <option key={round}>{round}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="component-filter">
+                  <span id="component-filter-label">Component</span>
+                  <details
+                    className="component-multiselect"
+                    onBlur={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget))
+                        event.currentTarget.open = false;
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.currentTarget.open = false;
+                        event.currentTarget.querySelector('summary')?.focus();
+                      }
+                    }}
+                  >
+                    <summary aria-labelledby="component-filter-label component-filter-value">
+                      <span id="component-filter-value">
+                        {selectedComponents.length === components.length
+                          ? 'All components'
+                          : selectedComponents.length === 0
+                            ? 'No components'
+                            : `${selectedComponents.length} selected`}
+                      </span>
+                      <svg
+                        className="component-filter-chevron"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </summary>
+                    <div
+                      className="component-filter-menu"
+                      role="group"
+                      aria-label="Components"
                     >
-                      <option value="">All rounds</option>
-                      {rounds.map((round) => (
-                        <option key={round}>{round}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Component
-                    <select
-                      value={componentFilter}
-                      onChange={(event) => {
-                        setComponentFilter(event.target.value);
-                        replaceRouteSelection({ offset: 0, call: undefined });
-                      }}
-                    >
-                      <option value="">All components</option>
+                      <div className="component-filter-actions">
+                        <button
+                          type="button"
+                          onClick={() => changeComponents(components)}
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => changeComponents([])}
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => changeComponents(null)}
+                        >
+                          Reset
+                        </button>
+                      </div>
                       {components.map((plugin) => (
-                        <option key={plugin}>{plugin}</option>
+                        <label key={plugin}>
+                          <input
+                            type="checkbox"
+                            checked={selectedComponents.includes(plugin)}
+                            onChange={(event) =>
+                              changeComponents(
+                                event.target.checked
+                                  ? [...selectedComponents, plugin]
+                                  : selectedComponents.filter(
+                                      (value) => value !== plugin,
+                                    ),
+                              )
+                            }
+                          />
+                          <span>{plugin}</span>
+                        </label>
                       ))}
-                    </select>
-                  </label>
-                </>
-              ) : null}
-              <label>
+                    </div>
+                  </details>
+                </div>
+              </>
+              <label className="call-search-filter">
                 Search calls
                 <input
                   className="call-search"
@@ -353,6 +456,7 @@ export function Calls({
                     replaceRouteSelection({
                       search: event.target.value,
                       offset: 0,
+                      call: undefined,
                     });
                   }}
                   placeholder="Step, plugin, binding, ID, or error"
@@ -366,6 +470,7 @@ export function Calls({
                     replaceRouteSelection({
                       status: event.target.value,
                       offset: 0,
+                      call: undefined,
                     });
                   }}
                 >
@@ -380,7 +485,7 @@ export function Calls({
             </div>
             <p className="muted">{filtered.length} component calls</p>
             <div className="call-workspace">
-              <div>
+              <div className="call-list-panel">
                 <nav className="compact-calls" aria-label="Recorded calls">
                   {visible.map((item) => {
                     const seconds = durations.get(item.callId);
@@ -405,15 +510,29 @@ export function Calls({
                           offset: pageOffset,
                         })}
                       >
-                        <div className="section-heading">
-                          <Status value={item.status} />
+                        <div className="compact-call-heading">
+                          <strong>{identities.get(item.callId)!.title}</strong>
+                          {identities.get(item.callId)!.round ? (
+                            <span className="call-round">
+                              {identities.get(item.callId)!.round}
+                            </span>
+                          ) : null}
+                          {item.status !== 'succeeded' ? (
+                            <span
+                              className="compact-call-status"
+                              data-status={item.status}
+                              title={item.status}
+                              aria-label={item.status}
+                            >
+                              {item.status}
+                            </span>
+                          ) : null}
                         </div>
-                        <strong>{callLabels(item, calls).title}</strong>
                         <small>
                           {item.pluginId.startsWith('application.')
                             ? `${(item.path?.startsWith('call-') ? null : item.path?.split('/').at(-1)) ?? item.bindingId} · `
                             : ''}
-                          {callLabels(item, calls).plugins} ·{' '}
+                          {identities.get(item.callId)!.plugins} ·{' '}
                           {seconds === null || seconds === undefined
                             ? 'Duration not recorded'
                             : `${seconds.toLocaleString(undefined, { maximumFractionDigits: 2 })} s`}
@@ -471,13 +590,15 @@ export function Calls({
                       </a>
                     </p>
                   ) : null}
-                  <CallPayload
-                    key={selected}
-                    id={id}
-                    callId={selected}
-                    calls={calls}
-                    measurements={measurements.data?.items ?? []}
-                  />
+                  <ViewBoundary key={selected}>
+                    <CallPayload
+                      key={selected}
+                      id={id}
+                      callId={selected}
+                      calls={calls}
+                      measurements={measurements.data?.items ?? []}
+                    />
+                  </ViewBoundary>
                 </div>
               ) : null}
             </div>

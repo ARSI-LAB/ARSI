@@ -1,4 +1,5 @@
 import { ObservationQueries } from '../../runtime/services/observation.js';
+import { registerLearningRoutes } from './learning.js';
 import { registerObservationRoutes } from './observation.js';
 import { errorText } from '../../shared/errors.js';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -12,7 +13,7 @@ import type { JsonObject } from '../../contracts/index.js';
 export interface ServerRuntime {
   manager: Pick<
     Manager,
-    'list' | 'get' | 'run' | 'cancel' | 'facts' | 'artifacts'
+    'list' | 'get' | 'run' | 'cancel' | 'facts' | 'artifacts' | 'reflection'
   > & { readonly directory?: string };
   registry: Pick<Registry, 'catalog'>;
 }
@@ -50,14 +51,13 @@ export async function createServer(
       .code(failure.statusCode ?? (failure.code === 'ENOENT' ? 404 : 400))
       .send({ error: failure.message });
   });
-  registerObservationRoutes(
-    app,
-    new ObservationQueries(
-      runtime.manager.facts,
-      runtime.manager.artifacts,
-      runtime.manager.directory,
-    ),
+  const queries = new ObservationQueries(
+    runtime.manager.facts,
+    runtime.manager.artifacts,
+    runtime.manager.directory,
   );
+  registerObservationRoutes(app, queries);
+  registerLearningRoutes(app, runtime.manager, queries);
   app.get('/api/catalog', async () => runtime.registry.catalog());
   app.get('/api/experiments', async () => {
     const entries = await runtime.manager.list();

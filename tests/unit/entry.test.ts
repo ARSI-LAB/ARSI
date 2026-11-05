@@ -11,6 +11,9 @@ test('HTTP exposes catalog and rejects cross-origin mutation before dispatch', a
   let runs = 0;
   const server = await createServer({
     manager: {
+      reflection: () => {
+        throw new Error('Unexpected reflection call');
+      },
       facts: new FileFacts(join(directory, 'facts')),
       artifacts: new FileArtifacts(join(directory, 'artifacts')),
       list: async () => [],

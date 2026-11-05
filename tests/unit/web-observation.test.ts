@@ -36,6 +36,9 @@ test('observation HTTP projects existing facts, isolates experiments and never m
   const before = await snapshot();
   const server = await createServer({
     manager: {
+      reflection: () => {
+        throw new Error('Unexpected reflection call');
+      },
       facts,
       artifacts,
       list: () => facts.list('experiments'),

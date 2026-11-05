@@ -54,9 +54,9 @@ not upload `tuning.json`. Use the supplied `memoryUtilization` for
 identify and clean up the same instance. Return queried device/model/software
 identities, not placeholder values; the script documents each response.
 
-The `remote.timeoutMs` and `healthcheck.timeoutMs` settings limit each lifecycle
-command and the readiness wait, respectively. Each deadline applies only when
-its setting is supplied.
+`remote.timeoutMs` limits each lifecycle command. The readiness wait uses
+`healthcheck.timeoutMs` when set and otherwise inherits `remote.timeoutMs`.
+Omitting both leaves readiness governed by experiment budgets and cancellation.
 
 The deployment adapter must validate supported engine parameters and map each
 value to the engine's argument format: booleans may require enable/disable flags,

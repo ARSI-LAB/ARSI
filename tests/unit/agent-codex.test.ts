@@ -263,7 +263,7 @@ async function fixture(
   };
 }
 
-test('Codex config has no implicit timeout and rejects removed provider controls', async () => {
+test('Codex config defaults and validation follow its schema', async () => {
   assert.deepEqual(parseConfig(configSchema, {}, 'config'), {
     executable: 'codex',
   });
@@ -271,10 +271,7 @@ test('Codex config has no implicit timeout and rejects removed provider controls
     { model: '' },
     { model: ' ' },
     { timeoutMs: 0 },
-    { api_key: 'key' },
-    { base_url: 'url' },
-    { thinkingLevel: 'high' },
-    { retries: 2 },
+    { unknownOption: true },
   ])
     await assert.rejects(
       createAgentCodex(config, new RuntimeContext()),

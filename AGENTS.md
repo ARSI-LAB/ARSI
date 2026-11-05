@@ -19,10 +19,10 @@ This file defines repository-wide development workflow, engineering conventions,
 | `src/plugins/application-kernel/`                            | Triton-Ascend source candidate validation and workspace lifecycle                                                    |
 | `src/plugins/agent-pi/`                                       | Agent execution backend                                                                                              |
 | `src/plugins/{proposer-agent,memory-agent,reflection-agent}/` | Application candidate proposals, experience consolidation, and general guidance revision proposals                   |
-| `src/plugins/proposer-operator/` | Static operator context validation and versioned optimization prompts and knowledge |
+| `src/plugins/proposer-operator/` | Operator candidate proposals using versioned prompts and explicitly supplied external knowledge |
 | `src/plugins/evaluator-{agentbench,inferencebench}/`         | Two SDK-backed evaluation plugins                                                                                   |
 | `src/plugins/shared/evaluator-adapter/`                     | Shared Evaluator SDK execution, configuration/result mapping, metrics, and evidence adapters; not a public plugin    |
-| `src/plugins/evaluator-operatorbench/`                       | SDK-backed operator assessments, metrics, timing evidence and cleanup normalization                               |
+| `src/plugins/evaluator-operatorbench/`                       | Evaluator SDK invocation and RSI Measurement/evidence mapping for operator assessments                               |
 | `src/plugins/{selector-metrics,selector-artifacts}/`          | Metric selection and anonymous artifact selection                                                                    |
 | `src/plugins/shared/agent-editing/`                           | Editing tools shared by business plugins; not registered as a separate public plugin                                 |
 | `src/policies/`                                               | Complete Policies, their Reflection rules, and shared Prompts                                                        |

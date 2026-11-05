@@ -15,7 +15,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkOperatorConsumer } from './check-operator-consumer.mjs';
 import { checkSdkConsumer } from './check-sdk-consumer.mjs';
-import { parse, stringify } from 'yaml';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const temporary = await realpath(await mkdtemp(join(tmpdir(), 'rsi-package-')));
 const networkConfigPath = join(temporary, 'network.yaml');
@@ -236,8 +235,6 @@ export function register(registry) {
     [...catalog.policies].sort(),
     [
       'policy.harness2',
-      'policy.operator-baseline',
-      'policy.operator-diagnostic',
       'policy.operator-search',
       'policy.parameter-grid',
       'policy.parameter-optuna',
@@ -346,66 +343,6 @@ export function register(registry) {
   await cp(join(root, 'tests/fixtures/operator-sdk/worker.mjs'), sdkWorker);
   const { chmod } = await import('node:fs/promises');
   await chmod(sdkWorker, 0o755);
-  const sdkRecipe = parse(
-    await readFile(join(operatorExample, 'recipe.sdk.yaml'), 'utf8'),
-  );
-  sdkRecipe.bindings.evaluator.config.sdk.python = sdkWorker;
-  sdkRecipe.bindings.evaluator.config.sdk.timeoutSeconds = 15;
-  const sdkRecipePath = join(operatorExample, 'recipe.sdk.fixture.yaml');
-  await writeFile(sdkRecipePath, stringify(sdkRecipe));
-  const operatorValidation = JSON.parse(
-    execFileSync(process.execPath, [command, 'validate', sdkRecipePath], {
-      env: consumerEnv,
-      cwd: outside,
-      encoding: 'utf8',
-      timeout: 30000,
-    }),
-  );
-  assert.equal(
-    operatorValidation.valid,
-    true,
-    'installed package validates SDK-only baseline without Agent bindings',
-  );
-  assert.deepEqual(Object.keys(sdkRecipe.bindings).sort(), [
-    'evaluator',
-    'selector',
-  ]);
-  const sdkExperimentId = 'package-operator-sdk-fixture';
-  const sdkExperiment = JSON.parse(
-    execFileSync(
-      process.execPath,
-      [command, 'run', sdkRecipePath, '--id', sdkExperimentId],
-      { env: consumerEnv, cwd: outside, encoding: 'utf8', timeout: 30000 },
-    ),
-  );
-  assert.equal(sdkExperiment.status, 'succeeded');
-  assert.equal(sdkExperiment.output.finalValidity, 'valid');
-  assert.equal(sdkExperiment.output.attempts.length, 0);
-  assert.equal(sdkExperiment.usage.evaluationRuns, 2);
-  assert.equal(sdkExperiment.usage.modelCalls ?? 0, 0);
-  const resumedSdkExperiment = JSON.parse(
-    execFileSync(
-      process.execPath,
-      [command, 'run', sdkRecipePath, '--id', sdkExperimentId, '--resume'],
-      {
-        env: consumerEnv,
-        cwd: outside,
-        encoding: 'utf8',
-        timeout: 30000,
-      },
-    ),
-  );
-  assert.deepEqual(resumedSdkExperiment.output, sdkExperiment.output);
-  assert.deepEqual(resumedSdkExperiment.usage, sdkExperiment.usage);
-  const shownOperator = JSON.parse(
-    execFileSync(process.execPath, [command, 'show', sdkExperimentId], {
-      env: consumerEnv,
-      cwd: outside,
-      encoding: 'utf8',
-      timeout: 30000,
-    }),
-  );
-  assert.deepEqual(shownOperator, sdkExperiment);
   execFileSync(
     process.execPath,
     [
@@ -444,7 +381,7 @@ import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext} from 'ember-rsi';
-import {RuntimeContext as ContractContext,parseKernelExecution,parseFileTree} from 'ember-rsi/contracts';
+import {RuntimeContext as ContractContext} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
 const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
 async function packageResource(path){
@@ -466,23 +403,8 @@ try {
  assert.throws(()=>validate(operatorProposerContract.input_schema,{...firstProposal,action:'diagnose'}));
  assert.throws(()=>validate(operatorProposerContract.input_schema,{...firstProposal,baselineMeasurementRef:undefined}));
  const operatorDirectory=await realpath(fileURLToPath(new URL('plugins/proposer-operator/',installed)));
- const knowledge=JSON.parse(await readFile(await packageResource(resolve(operatorDirectory,'knowledge/manifest.json')),'utf8'));
- assert.equal(knowledge.schemaVersion,'rsi.operator-knowledge/v1');
- assert.deepEqual(knowledge.techniques.map(technique=>technique.id).sort(),['core_partition','loop_invariant_hoisting','masked_accumulator','pass_merge']);
- assert.ok(Array.isArray(knowledge.metrics)&&knowledge.metrics.length>0,'metric knowledge ships in the installed package');
- const resourcePaths=new Set();
- for(const resource of knowledge.resources){
-  const location=await packageResource(resolve(operatorDirectory,resource.path));
-  const local=relative(operatorDirectory,await realpath(location));
-  assert.ok(local!==''&&local!=='..'&&!local.startsWith('..'+sep)&&!isAbsolute(local),'operator resource stays within its installed directory');
-  assert.ok(!resourcePaths.has(resource.path),'operator manifest paths are unique');resourcePaths.add(resource.path);
-  const bytes=await readFile(location);assert.ok(bytes.length>0,'installed operator resource is nonempty');
-  assert.equal(createHash('sha256').update(bytes).digest('hex'),resource.sha256,'installed operator resource matches its manifest');
- }
- for(const technique of knowledge.techniques){assert.ok(resourcePaths.has(technique.document));assert.ok(resourcePaths.has(technique.example));}
- for(const metric of knowledge.metrics){assert.ok(resourcePaths.has(metric.document));if(metric.example)assert.ok(resourcePaths.has(metric.example));}
- for(const prompt of ['prompts/diagnose-metrics.md','prompts/generate-metrics.md'])assert.ok(resourcePaths.has(prompt),'metric prompts ship and are integrity checked');
- for(const resource of ['python/retrieve.py','python/requirements.txt'])assert.ok((await readFile(await packageResource(resolve(operatorDirectory,resource)),'utf8')).length);
+ for(const directory of ['knowledge','python'])await assert.rejects(stat(resolve(operatorDirectory,directory)),{code:'ENOENT'});
+ for(const prompt of ['diagnose.md','generate.md','diagnose-metrics.md','generate-metrics.md','repair.md','summarize.md'])assert.ok((await readFile(await packageResource(resolve(operatorDirectory,'prompts',prompt)),'utf8')).length);
  assert.deepEqual(runtime.registry.get('proposer.operator').contract,operatorProposerContract);
  const {prepareDocumentPreviews}=await import(new URL('plugins/reflection-agent/document-previews.js',installed));
  const {validateReflection}=await import(new URL('runtime/revisions/validation.js',installed));
@@ -513,8 +435,7 @@ try {
   const path=await packageResource(runtime.registry.policy(id)),policy=await Policy.load(path,runtime.registry);
   assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
   const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;
-  if(id==='policy.operator-baseline'||id==='policy.operator-diagnostic')assert.deepEqual(Object.keys(policy.requirements).sort(),['evaluator','selector']);
-  else assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?parameterSearchProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
+  assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?parameterSearchProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
   assert.deepEqual(runtime.registry.get('proposer.agent').contract,proposerContract);
   const reflection=policy.defaults.reflection;
   if(reflection&&typeof reflection==='object'&&!Array.isArray(reflection))await readFile(await packageResource(resolve(dirname(path),reflection.configFile)),'utf8');
@@ -528,28 +449,6 @@ try {
   }
   if(id==='policy.operator-search')for(const resource of ['schemas/config.yaml','schemas/result.yaml'])assert.ok((await readFile(await packageResource(resolve(dirname(path),resource)),'utf8')).length);
  }
- const sdkExperiment=await runtime.manager.get(${JSON.stringify(sdkExperimentId)});
- const sdkMeasurements=(await runtime.manager.facts.list('measurements')).filter(m=>m.experimentId===sdkExperiment.id);
- assert.equal(sdkMeasurements.length,2);
- const sdkRunIds=[];
- for(const measurement of sdkMeasurements){
-  assert.deepEqual(measurement.metrics.latencyMeanMs.value,{kind:'scalar',value:10});
-  assert.equal(measurement.metrics.latencyMs,undefined);
-  const provenance=await runtime.manager.artifacts.readJson(measurement.provenance.artifactRef);
-  assert.equal(provenance.mode,'sdk');assert.equal(provenance.realNpuRuns,null);sdkRunIds.push(provenance.runId);
-  const conditions=await runtime.manager.artifacts.readJson(measurement.conditions.artifactRef);
-  assert.equal(conditions.evaluation.environment.device,'TEST-FIXTURE');
- }
- assert.notEqual(sdkRunIds[0],sdkRunIds[1]);
- assert.ok(!(await runtime.manager.facts.list('calls')).some(c=>c.experimentId===sdkExperiment.id&&['agent','proposer'].includes(c.bindingId)));
- const sdkCandidates=(await runtime.manager.facts.list('candidates')).filter(c=>c.experimentId===sdkExperiment.id);
- assert.equal(sdkCandidates.length,1);
- const sourceTree=parseFileTree(await runtime.manager.artifacts.readJson(sdkCandidates[0].artifactRef));
- const sourceBytes=Buffer.from(sourceTree.files.find(f=>f.path==='input.py').base64,'base64');
- assert.deepEqual(sourceBytes,await readFile(${JSON.stringify(join(operatorExample, 'baseline/input.py'))}));
- const sdkInstances=(await runtime.manager.facts.list('instances')).filter(i=>i.experimentId===sdkExperiment.id);
- assert.equal(sdkInstances.length,2);
- for(const instance of sdkInstances){assert.equal(instance.status,'released');parseKernelExecution(instance.execution);}
  const lifecycle=[],deliveries=[],admissions=[];
  let creations=0,disposals=0;
  runtime.registry.registerOperation({
@@ -621,7 +520,7 @@ console.log('Installed resources and managed ctx.event subscriptions, publishing
     `
 import type { Context, Events } from '@deepseek-ai/cordis';
 import { Registry } from 'ember-rsi';
-import { defineContract, RuntimeContext, type JsonObject, type Operation, type OperationDefinition, type EventPipeline, type KernelExecution, type OperatorbenchInput, type OperatorbenchOutput, type OperatorProposerInput, type OperatorProposerOutput, type MetricSelectorOutput } from 'ember-rsi/contracts';
+import { defineContract, RuntimeContext, type JsonObject, type Operation, type OperationDefinition, type EventPipeline, type OperatorbenchInput, type OperatorbenchOutput, type OperatorProposerInput, type OperatorProposerOutput, type MetricSelectorOutput } from 'ember-rsi/contracts';
 declare module 'ember-rsi/contracts' {
  interface RuntimeContext { traceId?: string; }
 }
@@ -649,8 +548,6 @@ export type PublicChecks=[
  Check<Equal<OperatorProposerOutput['action'],'propose'|'repair'|'summarize'>>,
  Check<Equal<Extract<OperatorProposerInput,{action:'propose';phase:'static'}>['baselineMeasurementRef'],string>>,
  Check<Equal<Extract<OperatorProposerOutput,{action:'propose';status:'created'}>['diffRef'],string>>,
- Check<Equal<KernelExecution['kind'],'kernel-source'>>,
- Check<Equal<KernelExecution['entryPoint'],'kernel_function'>>,
  Check<Equal<MetricSelectorOutput['candidateValue'],number|null>>,
  Check<Equal<Parameters<Notice>[0],{count:number}>>,
  Check<Equal<Parameters<Notice>[1],RuntimeContext>>,
@@ -766,7 +663,7 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
     );
   }
   console.log(
-    'Package consumption passed: isolated tarball install, executable, catalog, Recipe validation, SDK-only operator baseline, operator contract/knowledge resources and public context/event/kernel/operator typing.',
+    'Package consumption passed: isolated tarball install, executable, catalog, Recipe validation, operator search with external retrieval resources, operator contracts and public context/event/kernel/operator typing.',
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

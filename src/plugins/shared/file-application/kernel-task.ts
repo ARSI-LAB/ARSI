@@ -1,10 +1,38 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { JsonObject } from '../../contracts/index.js';
-import { digest, object, string } from '../../shared/json.js';
-import { validate } from '../../shared/schema.js';
-import { taskSchema } from './schema.js';
+import type { JsonObject } from '../../../contracts/index.js';
+import { recordSchema } from '../../../contracts/models/measurement.js';
+import { digest, object, string } from '../../../shared/json.js';
+import { validate } from '../../../shared/schema.js';
+
+const text: JsonObject = { type: 'string', minLength: 1 };
+const shape = {
+  type: 'array',
+  minItems: 1,
+  items: { type: 'integer', minimum: 1 },
+};
+const tensorSchema = recordSchema({ shape, dtype: { const: 'float16' } });
+const taskSchema = recordSchema({
+  schemaVersion: { const: 'rsi.kernel-task/v1' },
+  id: text,
+  cases: {
+    type: 'array',
+    minItems: 1,
+    maxItems: 100,
+    items: recordSchema({ id: text, seed: { type: 'integer', minimum: 0 } }),
+  },
+  contract: recordSchema({
+    inputs: { type: 'array', minItems: 1, items: tensorSchema },
+    output: recordSchema({
+      shape,
+      dtype: { const: 'float16' },
+      contiguous: { type: 'boolean' },
+      independent: { type: 'boolean' },
+    }),
+    inputUnmodified: { type: 'boolean' },
+  }),
+});
 
 const sha = (bytes: Uint8Array): string =>
   createHash('sha256').update(bytes).digest('hex');

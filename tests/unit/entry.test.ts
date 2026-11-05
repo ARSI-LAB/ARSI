@@ -36,8 +36,6 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
     ]);
     assert.deepEqual(catalog.policies.sort(), [
       'policy.harness2',
-      'policy.operator-baseline',
-      'policy.operator-diagnostic',
       'policy.operator-search',
       'policy.parameter-grid',
       'policy.parameter-optuna',

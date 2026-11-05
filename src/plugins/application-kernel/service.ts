@@ -12,6 +12,7 @@ import {
   createFileApplication,
   readInstance,
 } from '../shared/file-application/files.js';
+import { parseKernelExecution } from '../shared/file-application/kernel-execution.js';
 import { string } from '../../shared/json.js';
 import type { KernelApplicationConfig } from './schema.js';
 
@@ -54,14 +55,14 @@ export const createApplicationKernel: OperationDefinition<
         string(instance?.candidateRef, 'instance.candidateRef'),
       );
       context.signal.throwIfAborted();
-      return {
+      return parseKernelExecution({
         ...identity,
         kind: 'kernel-source',
         format: 'triton-ascend',
         directory,
         artifactRef: candidate.artifactRef,
         entryPoint: 'kernel_function',
-      };
+      });
     },
     async release(): Promise<void> {},
     async dispose(): Promise<void> {},

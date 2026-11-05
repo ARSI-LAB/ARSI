@@ -16,7 +16,6 @@ import type {
   InferencebenchInput,
   InferencebenchOutput,
   JsonObject,
-  KernelExecution,
   JsonValue,
   MemoryInput,
   MemoryOutput,
@@ -281,8 +280,6 @@ export type ConcreteOperationChecks = [
       [OperatorbenchInput, OperatorbenchOutput]
     >
   >,
-  Check<Equal<KernelExecution['entryPoint'], 'kernel_function'>>,
-  Check<Equal<KernelExecution['format'], 'triton-ascend'>>,
   Check<Equal<MetricSelectorOutput['candidateValue'], number | null>>,
   Check<
     Equal<

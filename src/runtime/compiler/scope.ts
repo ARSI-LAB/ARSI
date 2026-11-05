@@ -5,14 +5,7 @@ import {
   expressions,
 } from '../policy/expression.js';
 export { safeIdentifier } from '../policy/steps.js';
-export const scopeRoots = [
-  'application',
-  'budget',
-  'config',
-  'input',
-  'state',
-  'steps',
-];
+export const scopeRoots = ['application', 'config', 'input', 'state', 'steps'];
 export interface Scope {
   readonly names: readonly string[];
   readonly frames: readonly {

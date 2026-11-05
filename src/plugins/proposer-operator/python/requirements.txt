@@ -1,8 +1,0 @@
-# Dedicated CPU retrieval environment; keep separate from the Evaluator venv.
-# Fixed metadata-compatible candidate for Python 3.12. Real model validation is explicit.
-# https://pypi.org/pypi/sentence-transformers/5.1.2/json
-# https://pypi.org/pypi/transformers/4.57.3/json
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.7.1+cpu
-sentence-transformers==5.1.2
-transformers==4.57.3

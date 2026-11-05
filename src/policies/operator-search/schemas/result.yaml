@@ -99,7 +99,6 @@ properties:
       - max-rounds
       - no-improvement
       - profiling-unavailable
-      - budget
   staticHistoryRef:
     anyOf:
       - type: string

@@ -1,5 +1,5 @@
-import type { JsonObject, JsonSchema } from '../index.js';
-import { validate } from '../../shared/schema.js';
+import type { JsonObject, JsonSchema } from '../../../contracts/index.js';
+import { validate } from '../../../shared/schema.js';
 
 /** The Application owns the source workspace until its instance is released. */
 export type KernelExecution = JsonObject & {

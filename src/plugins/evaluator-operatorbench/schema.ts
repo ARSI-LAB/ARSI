@@ -6,32 +6,6 @@ export const hashSchema: JsonObject = {
   type: 'string',
   pattern: '^[a-f0-9]{64}$',
 };
-const shape = {
-  type: 'array',
-  minItems: 1,
-  items: { type: 'integer', minimum: 1 },
-};
-const tensorSchema = recordSchema({ shape, dtype: { const: 'float16' } });
-export const taskSchema = recordSchema({
-  schemaVersion: { const: 'rsi.kernel-task/v1' },
-  id: text,
-  cases: {
-    type: 'array',
-    minItems: 1,
-    maxItems: 100,
-    items: recordSchema({ id: text, seed: { type: 'integer', minimum: 0 } }),
-  },
-  contract: recordSchema({
-    inputs: { type: 'array', minItems: 1, items: tensorSchema },
-    output: recordSchema({
-      shape,
-      dtype: { const: 'float16' },
-      contiguous: { type: 'boolean' },
-      independent: { type: 'boolean' },
-    }),
-    inputUnmodified: { type: 'boolean' },
-  }),
-});
 export type SdkOperatorbenchConfig = {
   mode: 'sdk';
   task: { directory: string };

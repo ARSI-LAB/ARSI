@@ -95,8 +95,6 @@ properties:
     minimum: 0
   metricsStopped:
     type: boolean
-  budgetStopped:
-    type: boolean
   roundDiagnosticMeasurementRef:
     type:
       - string
@@ -150,7 +148,6 @@ required:
   - roundCount
   - noImprovementCount
   - metricsStopped
-  - budgetStopped
   - roundDiagnosticMeasurementRef
   - metricParent
   - metricIncumbent

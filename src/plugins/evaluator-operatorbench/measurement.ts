@@ -3,14 +3,15 @@ import type {
   JsonValue,
   RuntimeContext,
 } from '../../contracts/index.js';
-import type { KernelExecution } from '../../contracts/models/kernel.js';
+import type { KernelExecution } from '../shared/file-application/kernel-execution.js';
 import {
   evaluationFeedbackSchema,
   measurementEvidenceSchema,
   measurementItemsSchema,
   validateMeasurement,
 } from '../../contracts/models/measurement.js';
-import { digest, object } from '../../shared/json.js';
+import { digest, object, string } from '../../shared/json.js';
+import { validate } from '../../shared/schema.js';
 import { typed } from '../shared/evaluator-adapter/measurement.js';
 import { definition } from '../shared/evaluator-adapter/metric.js';
 import {
@@ -18,7 +19,7 @@ import {
   sdkProvenanceSchema,
   sdkDetailsSchema,
 } from './schema.js';
-import type { SdkOperatorResult } from './sdk-result.js';
+import type { SdkOperatorResult } from './result.js';
 
 export async function recordSdkMeasurement(
   result: SdkOperatorResult,
@@ -188,13 +189,6 @@ export async function recordSdkMeasurement(
       },
     ],
   };
-  // Preserve the normalized profiling object for the existing training-summary reader.
-  const profile = await typed(
-    context,
-    'rsi.operator-sdk-details/v1',
-    sdkDetailsSchema,
-    details,
-  );
   const now = new Date().toISOString();
   const measurement = object({
     schemaVersion: 'rsi.measurement/v1',
@@ -234,12 +228,11 @@ export async function recordSdkMeasurement(
     metrics,
     itemsRef: await context.artifacts.putJson(catalog),
     evidenceIndexRef,
-    profile,
+    profile: detailRef,
     diagnosticsRef: rawRef,
     extensions: [],
   });
   // These are the same public boundaries used by every evaluator.
-  const { validate } = await import('../../shared/schema.js');
   validate(measurementEvidenceSchema, {
     schemaVersion: 'rsi.measurement-evidence/v1',
     entries,
@@ -247,4 +240,65 @@ export async function recordSdkMeasurement(
   validate(measurementItemsSchema, catalog);
   validateMeasurement(measurement);
   return context.recordMeasurement(measurement);
+}
+
+export async function readProfileAssessment(
+  ref: string,
+  candidateRef: string,
+  identity: {
+    taskDigest: string;
+    sdkBuildDigest: string;
+    adapterDigest: string;
+    caseId: string;
+    seed: number;
+  },
+  context: RuntimeContext,
+): Promise<{
+  conditions: JsonObject;
+  sourceDigest: string;
+  comparisonKey: string;
+}> {
+  const measurement = await context.readMeasurement(ref);
+  if (
+    measurement.experimentId !== context.experimentId ||
+    measurement.candidateRef !== candidateRef ||
+    measurement.status !== 'succeeded' ||
+    measurement.coverage !== 'complete' ||
+    object(object(object(measurement.metrics).candidateValid).value).value !== 1
+  )
+    throw new Error(
+      'Diagnostic assessment must be valid and belong to this candidate and experiment',
+    );
+  const conditions = object(
+    await context.artifacts.readJson(
+      string(object(measurement.conditions).artifactRef),
+    ),
+  );
+  const provenance = object(
+    await context.artifacts.readJson(
+      string(object(measurement.provenance).artifactRef),
+    ),
+  );
+  if (
+    conditions.taskDigest !== identity.taskDigest ||
+    conditions.sdkBuildDigest !== identity.sdkBuildDigest ||
+    conditions.adapterDigest !== identity.adapterDigest ||
+    provenance.cleanup !== 'confirmed'
+  )
+    throw new Error(
+      'Diagnostic assessment task, build or cleanup identity mismatch',
+    );
+  const evaluation = object(conditions.evaluation);
+  if (
+    object(evaluation.contract).caseId !== identity.caseId ||
+    digest(object(evaluation.protocol).seeds) !== digest([identity.seed])
+  )
+    throw new Error('Diagnostic assessment case or seed mismatch');
+  if (evaluation.operation === 'profile')
+    throw new Error('Diagnostic cannot certify another diagnostic');
+  return {
+    conditions: evaluation,
+    sourceDigest: string(provenance.sourceDigest),
+    comparisonKey: string(measurement.comparisonKey),
+  };
 }

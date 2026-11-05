@@ -67,4 +67,4 @@ accepted, outcome, candidate/measurement/decision references, edits, or any othe
 program-owned field. RSI attaches those validated facts to the stored summary.
 Return JSON only, without a Markdown fence or surrounding prose.
 
-Acceptance records an observed improvement in this search, not calibrated performance confidence. Do not claim a reliable speedup from acceptance alone; calibration and independent retest confidence are reported separately by RSI.
+Acceptance records the Selector's decision from the supplied measurements. Report timing differences as observations from those measurements. Claims about reliable speedup require independent repeat measurements and environment evidence supplied with this attempt.

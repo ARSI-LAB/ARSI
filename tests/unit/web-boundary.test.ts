@@ -6,11 +6,12 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { readObservation } from '../../web/api/observation-client.js';
 
-test('Web uses the public contracts as types and never imports Runtime or plugin implementations', async () => {
+test('Web imports only public contract types and the pure execution path reader', async () => {
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const web = resolve(root, 'web');
   const sourceRoot = resolve(root, 'src') + sep;
   const contracts = resolve(root, 'src/contracts') + sep;
+  const execution = resolve(root, 'src/shared/execution-path.js');
   const verify = (
     filename: string,
     specifier: string,
@@ -20,11 +21,23 @@ test('Web uses the public contracts as types and never imports Runtime or plugin
     const target = resolve(dirname(filename), specifier);
     if (target.startsWith(sourceRoot)) {
       assert.ok(
-        target.startsWith(contracts) && typeOnly,
-        `${filename} must use public contracts as types only: ${specifier}`,
+        (target.startsWith(contracts) && typeOnly) || target === execution,
+        `${filename} must use public contract types or the pure execution path reader: ${specifier}`,
       );
     }
   };
+  const consumer = resolve(web, 'consumer.ts');
+  verify(consumer, '../src/shared/execution-path.js', false);
+  for (const specifier of [
+    '../src/runtime/manager/index.js',
+    '../src/plugins/agent-pi/index.js',
+    '../src/contracts/index.js',
+    '../src/contracts/runtime/context.js',
+    '../src/contracts/runtime/execution.js',
+    '../src/shared/json.js',
+  ]) {
+    assert.throws(() => verify(consumer, specifier, false));
+  }
   for (const name of await readdir(web, { recursive: true })) {
     if (!/\.tsx?$/.test(name)) continue;
     const filename = resolve(web, name);

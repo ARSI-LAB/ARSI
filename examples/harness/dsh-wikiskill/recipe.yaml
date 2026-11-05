@@ -27,6 +27,12 @@ policy:
         - terminal-bench/react-lead-form
 
 bindings:
+  agent:
+    plugin: agent.pi
+    config:
+      # Explicit optimizer request/execution deadlines (ms).
+      timeoutMs: 1800000
+      executionTimeoutMs: 3600000
   evaluator:
     plugin: evaluator.agentbench
     config:
@@ -47,8 +53,4 @@ bindings:
       run:
         timeoutSeconds: 3600
 budget:
-  operations: 400
-  evaluationRuns: 8
-  modelCalls: 160
   elapsedWallMs: 172800000
-  cleanupReserveMs: 60000

@@ -2,9 +2,9 @@ import { dirname, resolve } from 'node:path';
 import type { JsonObject } from '../../contracts/json.js';
 import { recipeDeclarationSchema } from '../../contracts/recipe.js';
 import { applicationContract } from '../../contracts/plugin-types/application.js';
-import { object, string } from '../../shared/json.js';
+import { object, string, freezeSnapshot } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { Policy } from '../compiler/index.js';
+import { Policy } from '../policy/index.js';
 import { validateTemplate } from '../compiler/scope.js';
 import type { Registry } from '../registry/index.js';
 import { reflectionConfigFile } from '../revisions/declaration.js';
@@ -14,7 +14,6 @@ import {
 } from '../revisions/validation.js';
 import { Binding } from './binding.js';
 import { resolveConfig } from './config.js';
-import { freezeSnapshot } from './immutable.js';
 import { readYaml } from './yaml.js';
 
 export interface RecipeLoadOptions {
@@ -47,7 +46,7 @@ function parseBudget(value: unknown): Record<string, number> {
         throw new Error(
           `recipe.budget.${key}: expected a nonnegative safe integer`,
         );
-      if (key.endsWith('Ms') && (limit <= 0 || limit > 4294967295))
+      if (key.endsWith('Ms') && (limit <= 0 || limit > 2147483647))
         throw new Error(
           `recipe.budget.${key}: expected a positive integer within the timer limit`,
         );

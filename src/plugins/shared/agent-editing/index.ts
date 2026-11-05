@@ -19,12 +19,11 @@ import { object, string, strings } from '../../../shared/json.js';
 import { validate } from '../../../shared/schema.js';
 import type { AgentEditingConfig } from './schema.js';
 export { agentConfigSchema, type AgentEditingConfig } from './schema.js';
-export const editOutputSchema: JsonSchema = {
+export const editOutputSchema = {
   type: 'object',
   properties: {
     edits: {
       type: 'array',
-      maxItems: 32,
       items: {
         type: 'object',
         properties: {
@@ -39,7 +38,7 @@ export const editOutputSchema: JsonSchema = {
   },
   required: ['edits', 'reason'],
   additionalProperties: false,
-};
+} satisfies JsonSchema;
 export interface ReadOnlyEditContext {
   files: JsonObject;
   evidence: JsonValue;
@@ -104,7 +103,6 @@ export async function resourceFiles(
   if (ref === null) return {};
   const tree = parseFileTree(await services.artifacts.readJson(ref));
   const files: JsonObject = {};
-  let size = 0;
   for (const f of tree.files) {
     const content = Buffer.from(f.base64, 'base64');
     if (content.includes(0)) continue;
@@ -114,9 +112,6 @@ export async function resourceFiles(
     } catch {
       continue;
     }
-    size += content.length;
-    if (size > 2 * 1024 * 1024)
-      throw new Error('Editable text snapshot exceeds size limit');
     files[string(f.path)] = decoded;
   }
   return files;
@@ -127,6 +122,7 @@ export async function requestEdit(
   ref: string | null,
   context: RuntimeContext,
   readOnly?: ReadOnlyEditContext,
+  outputSchema: JsonSchema = editOutputSchema,
 ): Promise<JsonObject> {
   const files = await resourceFiles(ref, context);
   if (readOnly)
@@ -192,12 +188,14 @@ export async function requestEdit(
       observations: input.observations ?? null,
       ...readOnly?.input,
     },
-    outputSchema: object(editOutputSchema),
+    outputSchema: object(outputSchema),
     agentRef: config.agentRef ?? 'agent.default',
-    maxModelCalls: config.maxModelCalls ?? 24,
+    ...(config.maxModelCalls === undefined
+      ? {}
+      : { maxModelCalls: config.maxModelCalls }),
   };
   const result = await context.invokeAgent(request);
-  validate(editOutputSchema, result, 'Agent edit output');
+  validate(outputSchema, result, 'Agent edit output');
   if (Array.isArray(result.edits))
     for (const raw of result.edits) {
       const path = string(object(raw).path);
@@ -219,24 +217,15 @@ export async function validateEdits(
   constraints: JsonObject = {},
   allowDuplicatePaths = false,
 ): Promise<{ path: string; content: string | null }[]> {
-  if (!Array.isArray(result.edits) || result.edits.length > 32)
-    throw new Error('Expected bounded edits array');
+  if (!Array.isArray(result.edits)) throw new Error('Expected edits array');
   const allowed =
     constraints.allowedPaths === undefined
       ? null
       : strings(constraints.allowedPaths);
-  const maxFiles = Math.min(
-    32,
-    typeof constraints.maxChangedFiles === 'number'
-      ? constraints.maxChangedFiles
-      : 32,
-  );
-  const maxBytes = Math.min(
-    1048576,
-    !allowDuplicatePaths && typeof constraints.maxChangedBytes === 'number'
-      ? constraints.maxChangedBytes
-      : 1048576,
-  );
+  const maxFiles = constraints.maxChangedFiles;
+  const maxBytes = allowDuplicatePaths
+    ? undefined
+    : constraints.maxChangedBytes;
   const seen = new Set<string>();
   const removed = new Set<string>();
   const edits: { path: string; content: string | null }[] = [];
@@ -254,7 +243,7 @@ export async function validateEdits(
     if (allowed && !allowed.some((pattern) => matchesGlob(path, pattern)))
       throw new Error(`Resource edit path is not authorized: ${path}`);
     seen.add(path);
-    if (seen.size > maxFiles)
+    if (typeof maxFiles === 'number' && seen.size > maxFiles)
       throw new Error('Resource edit maxChangedFiles exceeded');
     const absolute = inside(directory, path);
     let node = directory;
@@ -285,7 +274,7 @@ export async function validateEdits(
         throw new Error('Invalid edit content');
       const length = Buffer.byteLength(edit.content);
       total += length;
-      if (length > 131072 || total > maxBytes)
+      if (typeof maxBytes === 'number' && total > maxBytes)
         throw new Error('Resource edit exceeds byte limit');
     }
     if (edit.content === null) removed.add(absolute);
@@ -299,6 +288,7 @@ export async function applyEdits(
   result: JsonObject,
   context: RuntimeContext,
   constraints: JsonObject = {},
+  createOnly: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   const edits = await validateEdits(directory, result, context, constraints);
   for (const edit of edits) {
@@ -307,7 +297,10 @@ export async function applyEdits(
     if (edit.content === null) await rm(absolute, { force: true });
     else {
       await mkdir(dirname(absolute), { recursive: true });
-      await writeFile(absolute, edit.content, { mode: 0o644 });
+      await writeFile(absolute, edit.content, {
+        mode: 0o644,
+        flag: createOnly.has(edit.path) ? 'wx' : 'w',
+      });
     }
   }
 }

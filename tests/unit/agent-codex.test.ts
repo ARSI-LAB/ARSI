@@ -16,6 +16,7 @@ import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { configSchema } from '../../src/plugins/agent-codex/schema.js';
 import { parseConfig } from '../../src/shared/schema.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { stringify } from 'yaml';
 import { object } from '../../src/shared/json.js';
 
@@ -113,6 +114,7 @@ async function fixture(
   replies: string[],
   options: {
     model?: string;
+    thinkingLevel?: string;
     timeoutMs?: number;
     retries?: number;
     approvalRequired?: boolean;
@@ -216,6 +218,9 @@ async function fixture(
     {
       executable: process.env.RSI_TEST_CODEX_EXECUTABLE ?? executable,
       ...(options.model === undefined ? {} : { model: options.model }),
+      ...(options.thinkingLevel === undefined
+        ? {}
+        : { thinkingLevel: options.thinkingLevel }),
       ...(options.timeoutMs === undefined
         ? {}
         : { timeoutMs: options.timeoutMs }),
@@ -270,6 +275,7 @@ test('Codex config defaults and validation follow its schema', async () => {
   for (const config of [
     { model: '' },
     { model: ' ' },
+    { thinkingLevel: ' ' },
     { timeoutMs: 0 },
     { unknownOption: true },
   ])
@@ -324,6 +330,16 @@ test('Codex preserves native personal instructions, provider requests and tools'
     await f.close();
   }
 });
+test('Codex overrides local reasoning effort for the session', async () => {
+  const f = await fixture(['{"answer":"ok"}'], { thinkingLevel: 'medium' });
+  try {
+    assert.deepEqual(await f.run(), { answer: 'ok' });
+    assert.deepEqual(f.requests[0].reasoning, { effort: 'medium' });
+  } finally {
+    await f.close();
+  }
+});
+
 test('Codex performs paged snapshot reads with independent numeric RPC IDs and no RSI model-call cap', async () => {
   const f = await fixture(
     [
@@ -393,7 +409,7 @@ for (const scenario of [
   {
     name: 'explicit timeout',
     reply: 'WAIT',
-    timeoutMs: 200,
+    timeoutMs: 5000,
     error: /timed out/,
   },
 ])
@@ -442,12 +458,9 @@ test('existing Policy accepts the native Codex binding', async () => {
     homeDirectory: false,
   });
   try {
-    const recipe = await import('../../src/runtime/loaders/index.js').then(
-      (m) =>
-        m.loadRecipe(
-          resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
-          runtime.registry,
-        ),
+    const recipe = await Recipe.load(
+      resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
+      runtime.registry,
     );
     const declaration = recipe.toJSON();
     object(declaration.bindings).agent = { plugin: 'agent.codex', config: {} };

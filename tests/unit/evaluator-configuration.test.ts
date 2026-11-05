@@ -24,7 +24,7 @@ test('inferencebench rejects non-AgentX benchmarks before invoking the SDK', () 
   );
 });
 
-test('agentbench supplies the default output limit without overriding explicit service limits', () => {
+test('agentbench forwards only explicitly configured service output limits', () => {
   const config: EvaluatorConfig = {
     services: {
       default: { model: 'test', base_url: 'http://localhost' },
@@ -40,7 +40,7 @@ test('agentbench supplies the default output limit without overriding explicit s
     '/call',
   );
   const services = object(native.services);
-  assert.equal(object(services.default).maxTokens, 65536);
+  assert.equal(Object.hasOwn(object(services.default), 'maxTokens'), false);
   assert.equal(object(services.custom).maxTokens, 32768);
   assert.deepEqual(config, before);
 });

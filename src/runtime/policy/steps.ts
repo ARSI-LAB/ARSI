@@ -6,6 +6,7 @@ import type {
   PluginContract,
 } from '../../contracts/index.js';
 import {
+  freezeSnapshot,
   canonical,
   digest,
   object,
@@ -94,14 +95,6 @@ export const reservedNames = [
   'constructor',
 ];
 export const safeIdentifier = /^[A-Za-z][A-Za-z0-9_-]*$/;
-/** Definition data is frozen; each evaluation and serialization receives an owned copy. */
-export function immutable<T>(value: T): T {
-  if (value && typeof value === 'object') {
-    for (const child of Object.values(value)) immutable(child);
-    Object.freeze(value);
-  }
-  return value;
-}
 function declaration(
   value: JsonObject,
   type: StepType,
@@ -119,7 +112,7 @@ function declaration(
 }
 function required(value: JsonValue | undefined, label: string): JsonValue {
   if (value === undefined) throw new Error(`${label} is required`);
-  return immutable(structuredClone(value));
+  return freezeSnapshot(structuredClone(value));
 }
 export function boundedInteger(
   value: JsonValue,
@@ -147,7 +140,7 @@ function readBlock(value: JsonValue | undefined, label: string): StepBlock {
   unknownKeys(block, ['steps', 'output'], label);
   return Object.freeze({
     steps: parseSteps(block.steps, label),
-    output: immutable(structuredClone(block.output ?? null)),
+    output: freezeSnapshot(structuredClone(block.output ?? null)),
   });
 }
 function blockJSON(block: StepBlock): JsonObject {
@@ -164,7 +157,7 @@ export class InvokeStep implements Step {
   constructor(value: JsonObject) {
     this.id = declaration(value, this.type, ['use', 'with']);
     this.bindingName = string(value.use, `${this.id}.use`);
-    this.inputTemplate = immutable(
+    this.inputTemplate = freezeSnapshot(
       structuredClone(value.with === undefined ? {} : value.with),
     );
     Object.freeze(this);
@@ -200,7 +193,7 @@ export class StateStep implements Step {
   readonly patchTemplate: JsonObject;
   constructor(value: JsonObject) {
     this.id = declaration(value, this.type, ['state']);
-    this.patchTemplate = immutable(
+    this.patchTemplate = freezeSnapshot(
       structuredClone(object(value.state, `${this.id}.state`)),
     );
     Object.freeze(this);
@@ -317,11 +310,11 @@ export class LoopStep implements Step {
     );
     if (!expressions(this.maxIterations).length)
       boundedInteger(this.maxIterations, `${this.id}.maxIterations`, 100000);
-    this.condition = immutable(
+    this.condition = freezeSnapshot(
       structuredClone(value.while === undefined ? true : value.while),
     );
     this.steps = parseSteps(value.steps, this.id);
-    this.output = immutable(structuredClone(value.output ?? null));
+    this.output = freezeSnapshot(structuredClone(value.output ?? null));
     Object.freeze(this);
   }
   validate(context: StepValidationContext): void {
@@ -398,13 +391,18 @@ export class ForEachStep implements Step {
         `${this.id}.as: reserved or unsafe name ${this.itemName}`,
       );
     this.key = required(value.key, `${this.id}.key`);
-    this.concurrency = immutable(
+    this.concurrency = freezeSnapshot(
       structuredClone(value.concurrency === undefined ? 1 : value.concurrency),
     );
     if (!expressions(this.concurrency).length)
-      boundedInteger(this.concurrency, `${this.id}.concurrency`, 64, 1);
+      boundedInteger(
+        this.concurrency,
+        `${this.id}.concurrency`,
+        Number.MAX_SAFE_INTEGER,
+        1,
+      );
     this.steps = parseSteps(value.steps, this.id);
-    this.output = immutable(structuredClone(value.output ?? null));
+    this.output = freezeSnapshot(structuredClone(value.output ?? null));
     Object.freeze(this);
   }
   validate(context: StepValidationContext): void {
@@ -427,14 +425,12 @@ export class ForEachStep implements Step {
   }
   async execute(context: StepContext): Promise<StepResult> {
     const items = context.evaluate(this.items);
-    if (!Array.isArray(items) || items.length > 10000)
-      throw new Error(
-        `${context.stepPath}: foreach requires at most 10000 items`,
-      );
+    if (!Array.isArray(items))
+      throw new Error(`${context.stepPath}: foreach requires an array`);
     const concurrency = boundedInteger(
       context.evaluate(this.concurrency),
       `${context.stepPath}.concurrency`,
-      64,
+      Number.MAX_SAFE_INTEGER,
       1,
     );
     const parallel = context.parallel || concurrency > 1;

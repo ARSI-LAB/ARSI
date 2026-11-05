@@ -2,7 +2,9 @@ import { Context } from '@deepseek-ai/cordis';
 import type {
   JsonObject,
   JsonValue,
+  Operation,
   OperationDefinition,
+  RuntimeContext,
 } from '../../contracts/index.js';
 import {
   defineContract,
@@ -10,11 +12,20 @@ import {
 } from '../../contracts/contract.js';
 import { validate } from '../../shared/schema.js';
 import { json, digest } from '../../shared/json.js';
+
+interface Registration {
+  definition: OperationDefinition;
+  createManaged(
+    config: JsonObject,
+    context: RuntimeContext,
+  ): Promise<Operation>;
+  implementationId: string;
+}
+
 export class Registry {
   readonly context = new Context();
-  private readonly definitions = new Map<string, OperationDefinition>();
+  private readonly registrations = new Map<string, Registration>();
   private readonly policyFiles = new Map<string, string>();
-  private readonly implementationIds = new Map<string, string>();
   private readonly references = new Map<string, number>();
   private readonly contracts = new Map<string, PluginContract>();
   registerContract(value: PluginContract): PluginContract {
@@ -73,17 +84,20 @@ export class Registry {
     );
     if (unknown) throw new Error(`Plugin definition: unknown field ${unknown}`);
     if (
-      this.definitions.has(definition.id) ||
+      this.registrations.has(definition.id) ||
       this.policyFiles.has(definition.id)
     )
       throw new Error(`Duplicate ID ${definition.id}`);
     const contract = this.registerContract(definition.contract);
+    const create = async (config: JsonObject, services: RuntimeContext) => {
+      validate(definition.configSchema, config, 'plugin config');
+      return definition.create(config as C, services);
+    };
     const registered: OperationDefinition = {
       ...definition,
       contract,
       async create(config, services) {
-        validate(definition.configSchema, config, 'plugin config');
-        const operation = await definition.create(config as C, services);
+        const operation = await create(config, services);
         return {
           async execute(input, context) {
             validate(contract.input_schema, input, 'plugin input');
@@ -92,46 +106,66 @@ export class Registry {
             validate(contract.output_schema, output, 'plugin output');
             return output;
           },
+          ...(operation.canRetry
+            ? {
+                canRetry: (input, receipt, context) =>
+                  operation.canRetry!(input as I, receipt, context),
+              }
+            : {}),
           dispose: () => operation.dispose(),
         };
       },
     };
-    this.definitions.set(definition.id, registered);
-    this.implementationIds.set(
-      definition.id,
-      definition.implementationDigest ??
+    const registration: Registration = {
+      definition: registered,
+      createManaged: create,
+      implementationId:
+        definition.implementationDigest ??
         digest({
           factory: definition.create.toString(),
           contract,
           config: definition.configSchema,
         }),
-    );
+    };
+    this.registrations.set(definition.id, registration);
     const fiber = this.context.plugin({
       name: definition.id,
       apply: (ctx: Context) => {
         ctx.provide(definition.id, registered);
         ctx.effect(() => () => {
-          this.definitions.delete(definition.id);
+          if (this.registrations.get(definition.id) === registration)
+            this.registrations.delete(definition.id);
         });
       },
     });
     return () => {
+      if (this.registrations.get(definition.id) !== registration) return;
       if (this.references.get(definition.id))
         throw new Error(`Plugin ${definition.id} is still in use`);
-      this.definitions.delete(definition.id);
-      this.implementationIds.delete(definition.id);
+      this.registrations.delete(definition.id);
       void fiber.dispose();
     };
   }
   registerPolicy(id: string, path: string): void {
-    if (this.definitions.has(id) || this.policyFiles.has(id))
+    if (this.registrations.has(id) || this.policyFiles.has(id))
       throw new Error(`Duplicate ID ${id}`);
     this.policyFiles.set(id, path);
   }
   get(id: string): OperationDefinition {
-    const definition = this.definitions.get(id);
-    if (!definition) throw new Error(`Unknown plugin ${id}`);
-    return definition;
+    return this.registration(id).definition;
+  }
+  /** Internal Manager factory: config is checked; CallExecutor owns IO validation and receipts. */
+  createManagedOperation(
+    id: string,
+    config: JsonObject,
+    context: RuntimeContext,
+  ): Promise<Operation> {
+    return this.registration(id).createManaged(config, context);
+  }
+  private registration(id: string): Registration {
+    const registration = this.registrations.get(id);
+    if (!registration) throw new Error(`Unknown plugin ${id}`);
+    return registration;
   }
   policy(id: string): string {
     const path = this.policyFiles.get(id);
@@ -140,25 +174,26 @@ export class Registry {
   }
   catalog(): { plugins: string[]; policies: string[] } {
     return {
-      plugins: [...this.definitions.keys()],
+      plugins: [...this.registrations.keys()],
       policies: [...this.policyFiles.keys()],
     };
   }
   identity(id: string): string {
-    const d = this.get(id);
+    const registration = this.registration(id);
+    const d = registration.definition;
     return digest({
       id,
       contract: d.contract,
       config: d.configSchema,
-      implementation: this.implementationIds.get(id)!,
+      implementation: registration.implementationId,
     });
   }
   async dispose(): Promise<void> {
     if ([...this.references.values()].some((count) => count > 0))
       throw new Error('Runtime plugins are still in use');
     await this.context.fiber.dispose();
+    this.registrations.clear();
     this.policyFiles.clear();
-    this.implementationIds.clear();
     this.contracts.clear();
   }
 }

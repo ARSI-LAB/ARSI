@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import type { JsonSchema } from '../../src/contracts/index.js';
-import { resolveConfig } from '../../src/runtime/loaders/index.js';
+import { resolveConfig } from '../../src/runtime/loaders/config.js';
 
 test('configuration paths follow declarations, including nested arrays and local Schema references', () => {
   const directory = resolve('fixtures/recipe');

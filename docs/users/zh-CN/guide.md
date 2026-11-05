@@ -93,7 +93,7 @@ bindings:
 
 使用启动 RSI 的同一系统用户执行 `codex login status`；尚未登录时执行 `codex login`。已安装的 CLI 必须支持 app-server 临时会话和动态工具（已验证 CLI 0.166.0）。Codex 自行读取本机认证、provider、指令、权限、工具、重试和压缩配置。RSI 直接启动 `codex app-server`，不再使用模型代理或覆盖这些配置。每次调用在临时工作目录执行，使用对该目录生效的配置和全局指导，不会自动加载 RSI checkout 的项目 `AGENTS.md` 或 `.codex` 配置。
 
-[Codex 配置 Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、可选的 `model` 和 `timeoutMs`。不填 `model` 时使用本机默认模型；填写时仅为本次调用指定模型，不改写本机配置。RSI 不再提供默认超时；显式填写 `timeoutMs` 才会约束整次调用。实验取消和总时限仍会传递到子进程。请移除原先的 `base_url`、`api_key` 和 `thinkingLevel` 字段。
+[Codex 配置 Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、可选的 `model` 和 `timeoutMs`。不填 `model` 时使用本机默认模型；填写时仅为本次调用指定模型，不改写本机配置。RSI 不再提供默认超时；显式填写 `timeoutMs` 才会约束整次调用。实验取消和总时限仍会传递到子进程。
 
 RSI 只提供业务任务输入、文件名列表、授权虚拟 `read_file` 工具和输出 Schema。正文按需读取：默认每页 200 行、16 KiB 序列化结果，最多 500 行和 32 KiB。使用 `startLine`/`lineCount` 选择行范围，通过 `byteOffset`/`nextByteOffset` 在范围内分页，单行 JSON 也能分段读取。Codex 的原生能力遵循用户本机配置。RSI 校验最终 JSON，不再添加额外的输出修正或重试循环。这种非交互 API 调用无法代答交互输入或审批请求，遇到时会明确报错，不会自动批准或修改本机策略。
 

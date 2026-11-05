@@ -90,7 +90,6 @@ defaults:
         agentRef: agent
         prompt: ./proposer.md
         evidenceView: training-summary
-        maxModelCalls: 24
     selector:
       plugin: selector.metric
       config:

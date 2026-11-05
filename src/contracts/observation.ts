@@ -23,6 +23,8 @@ export interface ExperimentOverview extends ExperimentSummary {
   output: JsonPreview | null;
 }
 export interface CallSummary {
+  /** Persisted Reflection trigger location, separate from the call execution path. */
+  triggerPath?: string | null;
   callId: string;
   parentCallId: string | null;
   bindingId: string;

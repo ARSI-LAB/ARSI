@@ -58,8 +58,6 @@ export async function runCodexProcess(
       if (!onLine || failure) return;
       try {
         buffer += chunk;
-        if (Buffer.byteLength(buffer) > 8 * 1024 * 1024)
-          throw new Error('Codex protocol exceeds byte limit');
         let end: number;
         while ((end = buffer.indexOf('\n')) !== -1) {
           const line = buffer.slice(0, end);

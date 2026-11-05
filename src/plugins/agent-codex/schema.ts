@@ -5,10 +5,9 @@ export type AgentCodexConfig = {
   model?: string;
   timeoutMs?: number;
 };
-export type ResolvedAgentCodexConfig = Required<
-  Omit<AgentCodexConfig, 'model'>
-> &
-  Pick<AgentCodexConfig, 'model'>;
+export type ResolvedAgentCodexConfig = AgentCodexConfig & {
+  executable: string;
+};
 
 export const configSchema: JsonSchema = {
   type: 'object',
@@ -20,7 +19,6 @@ export const configSchema: JsonSchema = {
       type: 'integer',
       minimum: 1,
       maximum: 2147483647,
-      default: 600000,
     },
   },
 };

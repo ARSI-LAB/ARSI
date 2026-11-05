@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -14,16 +14,9 @@ import {
   type AgentCodexConfig,
   type ResolvedAgentCodexConfig,
 } from './schema.js';
-import { startGateway } from './gateway.js';
-import {
-  readLocalConfig,
-  readCodexVersion,
-  localProvider,
-  executionOverrides,
-} from './local-config.js';
-import { acceptConfiguration, configurationSnapshot } from './configuration.js';
 import { runSession } from './session.js';
 
+/** Adapt task input and validated JSON output; Codex owns its provider and execution settings. */
 export const createAgentCodex: OperationDefinition<
   AgentInput,
   AgentOutput,
@@ -34,8 +27,6 @@ export const createAgentCodex: OperationDefinition<
     rawConfig,
     'agent.codex config',
   );
-  // Manager can admit concurrent calls on one binding; serialize only configuration acceptance.
-  let configurationGate = Promise.resolve();
   return {
     async execute(request, context) {
       json(request);
@@ -43,13 +34,15 @@ export const createAgentCodex: OperationDefinition<
       context.signal.throwIfAborted();
       const controller = new AbortController();
       const signal = AbortSignal.any([context.signal, controller.signal]);
-      const timer = setTimeout(
-        () => controller.abort(new Error('Codex execution timed out')),
-        config.timeoutMs,
-      );
-      timer.unref();
+      const timer =
+        config.timeoutMs === undefined
+          ? undefined
+          : setTimeout(
+              () => controller.abort(new Error('Codex execution timed out')),
+              config.timeoutMs,
+            );
+      timer?.unref();
       let directory: string | undefined;
-      let gateway: Awaited<ReturnType<typeof startGateway>> | undefined;
       const record = (type: string, data: unknown): void => {
         appendFileSync(
           join(context.directory, 'diagnostics.jsonl'),
@@ -60,95 +53,25 @@ export const createAgentCodex: OperationDefinition<
       try {
         await mkdir(context.directory, { recursive: true });
         directory = await mkdtemp(join(tmpdir(), 'rsi-codex-'));
-        const local = await readLocalConfig(
-          config.executable,
-          directory,
-          signal,
-        );
-        const version = await readCodexVersion(
-          config.executable,
-          directory,
-          signal,
-        );
-        const provider = localProvider(local);
-        gateway = await startGateway(
-          provider,
-          config.timeoutMs,
-          context,
-          signal,
-          request.maxModelCalls ?? 24,
-          record,
-        );
-        const instructionFile = join(directory, 'instructions.md');
-        await writeFile(instructionFile, request.prompt, { mode: 0o600 });
-        await writeFile(
-          instructionFile + '.compact',
-          'Summarize this RSI task. Preserve its goal, authorized file names, tool results and output schema.',
-          { mode: 0o600 },
-        );
-        const id = provider.id === 'openai' ? 'rsi-local-openai' : provider.id;
-        const key = `model_providers.${id}`;
-        const args = [
-          ...executionOverrides(local, instructionFile),
-          ...[
-            `model_provider=${JSON.stringify(id)}`,
-            `${key}.name=${JSON.stringify(provider.name)}`,
-            `${key}.requires_openai_auth=${provider.requiresOpenaiAuth}`,
-            `${key}.base_url=${JSON.stringify(gateway.url + '/api')}`,
-            `${key}.http_headers.X-RSI-Codex=${JSON.stringify(gateway.token)}`,
-            `${key}.supports_websockets=false`,
-            `${key}.request_max_retries=0`,
-            `${key}.stream_max_retries=0`,
-            ...(config.model === undefined
-              ? []
-              : [`model=${JSON.stringify(config.model)}`]),
-          ].flatMap((value) => ['-c', value]),
-        ];
-        try {
-          return await runSession({
-            executable: config.executable,
-            directory,
-            args,
-            request,
-            signal,
-            record,
-            async onConfiguration(effective) {
-              const snapshot = configurationSnapshot(
-                version,
-                local,
-                provider,
-                effective,
-              );
-              const accepted = configurationGate.then(async () => {
-                signal.throwIfAborted();
-                const fingerprint = await acceptConfiguration(
-                  context,
-                  snapshot,
-                );
-                record('execution_configuration', { ...snapshot, fingerprint });
-              });
-              configurationGate = accepted.catch(() => {});
-              await accepted;
-            },
-          });
-        } catch (error) {
-          throw gateway.failure() ?? error;
-        }
-      } catch (error) {
-        record('error', {
-          message: signal.aborted
-            ? 'Codex execution cancelled'
-            : 'Codex execution failed',
+        // App-server reports tokens, not an authoritative per-upstream-request counter.
+        // Do not report invented modelCalls or pretend their budget can be enforced here.
+        record('usage_capabilities', {
+          modelCalls: 'unavailable',
+          tokenUsage: 'native',
+          maxModelCallsEnforced: false,
         });
-        throw error;
+        return await runSession({
+          executable: config.executable,
+          directory,
+          model: config.model,
+          request,
+          signal,
+          record,
+        });
       } finally {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         controller.abort();
-        try {
-          await gateway?.close();
-        } finally {
-          if (directory) await rm(directory, { recursive: true, force: true });
-        }
+        if (directory) await rm(directory, { recursive: true, force: true });
       }
     },
     async dispose() {},

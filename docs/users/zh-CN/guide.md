@@ -91,7 +91,13 @@ bindings:
     config: {}
 ```
 
-使用启动 RSI 的同一系统用户执行 `codex login status`；尚未登录时执行 `codex login`。RSI 继承 `CODEX_HOME` 及 provider 所需的环境变量。已安装的 CLI 必须支持 app-server 配置查询、临时会话和实验性的动态工具（已验证 Codex CLI 0.166.0）。[Codex 配置 Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、`timeoutMs`（默认 `600000`）和可选的 `model`。不填 `model` 时使用本机默认模型；填写时（例如 `config: { model: your-model }`）仅为本次执行指定模型，保留本机认证且不改写本机配置。请移除原先的 `base_url`、`api_key` 和 `thinkingLevel` 字段。本机 provider 必须使用 Responses API。RSI 仍通过本地网关逐次控制模型调用预算，只允许受限的虚拟 `read_file` 工具。初始上下文只包含文件名，正文按需读取；默认每次读取 200 行、返回不超过 16 KiB 的序列化结果，最多 500 行和 32 KiB。使用 `startLine`/`lineCount` 选择行范围，通过 `byteOffset`/`nextByteOffset` 在所选范围内分页，单行 JSON 也可分段读取。Codex 维护真实会话历史和上下文压缩，RSI 不会在出站请求中偷偷注入证据。初始任务元数据上限为 128 KiB，大型证据应通过虚拟文件提供；上下文超限错误会立即终止。任务执行排除本机 model/developer 指令、hooks、MCP 服务和插件。实际模型、provider、推理设置、CLI 版本和非敏感配置指纹会被记录；同一实验和绑定中的配置变化会被拒绝，恢复执行时也会检查。需恢复已记录的配置或启动新实验。此绑定只配置优化器；评测器仍需单独配置模型凭据。
+使用启动 RSI 的同一系统用户执行 `codex login status`；尚未登录时执行 `codex login`。已安装的 CLI 必须支持 app-server 临时会话和动态工具（已验证 CLI 0.166.0）。Codex 自行读取本机认证、provider、指令、权限、工具、重试和压缩配置。RSI 直接启动 `codex app-server`，不再使用模型代理或覆盖这些配置。每次调用在临时工作目录执行，使用对该目录生效的配置和全局指导，不会自动加载 RSI checkout 的项目 `AGENTS.md` 或 `.codex` 配置。
+
+[Codex 配置 Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、可选的 `model` 和 `timeoutMs`。不填 `model` 时使用本机默认模型；填写时仅为本次调用指定模型，不改写本机配置。RSI 不再提供默认超时；显式填写 `timeoutMs` 才会约束整次调用。实验取消和总时限仍会传递到子进程。请移除原先的 `base_url`、`api_key` 和 `thinkingLevel` 字段。
+
+RSI 只提供业务任务输入、文件名列表、授权虚拟 `read_file` 工具和输出 Schema。正文按需读取：默认每页 200 行、16 KiB 序列化结果，最多 500 行和 32 KiB。使用 `startLine`/`lineCount` 选择行范围，通过 `byteOffset`/`nextByteOffset` 在范围内分页，单行 JSON 也能分段读取。Codex 的原生能力遵循用户本机配置。RSI 校验最终 JSON，不再添加额外的输出修正或重试循环。这种非交互 API 调用无法代答交互输入或审批请求，遇到时会明确报错，不会自动批准或修改本机策略。
+
+原生 app-server 事件能提供 token 用量，但没有准确的上游请求尝试计数。因此此后端不强制执行 `maxModelCalls` 或实验 `modelCalls` 预算，也不会把轮次或工具调用数当作模型请求数。诊断记录会明确标记调用次数不可得；RSI 缺少 `modelCalls` 计数不代表 Codex 没有发送请求。需要时间边界时，可使用取消、实验总时限或显式 `timeoutMs`。本机配置变化对后续调用生效；RSI 记录原生报告的模型、provider、推理设置和 token 用量，不锁定配置。此绑定只配置优化器，评测器凭据仍独立配置。
 
 ### Recipe 配置
 
@@ -200,7 +206,7 @@ ember-rsi serve --port 4317
 
 插件按 `schema.ts`（配置）、`service.ts`（业务逻辑与清理）、`index.ts`（组装定义）组织，复用公共契约的输入输出 Schema。仓库内插件导入本地契约；外部工程从 `ember-rsi` 或 `ember-rsi/contracts` 导入，不使用私有 `src/*` 子路径。
 
-自定义 Agent 必须返回符合请求中 `input.outputSchema` 的对象，限制可用工具和文件，传递取消信号，以 `context.charge('modelCalls', 1)` 为实际模型尝试记账，并释放资源。实现 Agent 契约不会自动让任意后端校验请求中的输出 Schema；后端需要执行该校验。内置 Proposer 的编辑协议见 [共享编辑代码](../../../src/plugins/shared/agent-editing/index.ts)。
+自定义 Agent 必须返回符合请求中 `input.outputSchema` 的对象，说明执行权限，传递取消信号并释放资源。拥有模型传输控制权的后端通过 `context.charge('modelCalls', 1)` 为实际请求尝试记账；原生 Codex 等无法准确计数的后端需要标明用量不可得，也不能宣称能强制执行模型调用预算。实现 Agent 契约不会自动让任意后端校验请求中的输出 Schema；后端需要执行该校验。内置 Proposer 的编辑协议见 [共享编辑代码](../../../src/plugins/shared/agent-editing/index.ts)。
 
 ### 为 CLI 注册外部扩展
 

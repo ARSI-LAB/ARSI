@@ -2,21 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import {
-  chmod,
-  mkdir,
   mkdtemp,
   readFile,
   rm,
   writeFile,
+  mkdir,
+  stat,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
+import { configSchema } from '../../src/plugins/agent-codex/schema.js';
+import { parseConfig } from '../../src/shared/schema.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
-import { loadRecipe } from '../../src/runtime/loaders/index.js';
 import { stringify } from 'yaml';
-import { FileFacts } from '../../src/runtime/storage/index.js';
 
 const schema = {
   type: 'object',
@@ -24,22 +24,30 @@ const schema = {
   required: ['answer'],
   additionalProperties: false,
 };
-function events(text: string): string {
-  const item = {
-    id: 'msg_test',
-    type: 'message',
-    role: 'assistant',
-    status: 'completed',
-    content: [{ type: 'output_text', text, annotations: [] }],
-  };
+function events(reply: string, serial: number): string {
+  const item = reply.startsWith('READ:')
+    ? {
+        id: `fc_${serial}`,
+        type: 'function_call',
+        call_id: `call_${serial}`,
+        name: 'read_file',
+        arguments: reply.slice(5),
+      }
+    : {
+        id: `msg_${serial}`,
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [{ type: 'output_text', text: reply, annotations: [] }],
+      };
   const response = {
-    id: 'resp_test',
+    id: `resp_${serial}`,
     object: 'response',
     status: 'completed',
     output: [item],
     usage: { input_tokens: 10, output_tokens: 3, total_tokens: 13 },
   };
-  return [
+  const rows: unknown[] = [
     {
       type: 'response.created',
       response: { ...response, status: 'in_progress', output: [] },
@@ -47,448 +55,398 @@ function events(text: string): string {
     {
       type: 'response.output_item.added',
       output_index: 0,
-      item: { ...item, status: 'in_progress', content: [] },
+      item: {
+        ...item,
+        ...(item.type === 'function_call'
+          ? { arguments: '' }
+          : { content: [] }),
+      },
     },
-    {
-      type: 'response.content_part.added',
-      item_id: item.id,
-      output_index: 0,
-      content_index: 0,
-      part: { type: 'output_text', text: '', annotations: [] },
-    },
-    {
-      type: 'response.output_text.delta',
-      item_id: item.id,
-      output_index: 0,
-      content_index: 0,
-      delta: text,
-    },
-    {
-      type: 'response.output_text.done',
-      item_id: item.id,
-      output_index: 0,
-      content_index: 0,
-      text,
-    },
+  ];
+  if (item.type === 'function_call')
+    rows.push(
+      {
+        type: 'response.function_call_arguments.delta',
+        item_id: item.id,
+        output_index: 0,
+        delta: item.arguments,
+      },
+      {
+        type: 'response.function_call_arguments.done',
+        item_id: item.id,
+        output_index: 0,
+        arguments: item.arguments,
+      },
+    );
+  else
+    rows.push(
+      {
+        type: 'response.content_part.added',
+        item_id: item.id,
+        output_index: 0,
+        content_index: 0,
+        part: { type: 'output_text', text: '', annotations: [] },
+      },
+      {
+        type: 'response.output_text.delta',
+        item_id: item.id,
+        output_index: 0,
+        content_index: 0,
+        delta: reply,
+      },
+      {
+        type: 'response.output_text.done',
+        item_id: item.id,
+        output_index: 0,
+        content_index: 0,
+        text: reply,
+      },
+    );
+  rows.push(
     { type: 'response.output_item.done', output_index: 0, item },
     { type: 'response.completed', response },
-  ]
-    .map((event) => `data: ${JSON.stringify(event)}\n\n`)
-    .join('');
+  );
+  return rows.map((row) => `data: ${JSON.stringify(row)}\n\n`).join('');
 }
-
-function toolEvents(args: unknown, serial = 0): string {
-  const item = {
-    type: 'function_call',
-    id: `fc_read_${serial}`,
-    call_id: `call_read_${serial}`,
-    name: 'read_file',
-    arguments: JSON.stringify(args),
-  };
-  return [
-    {
-      type: 'response.created',
-      response: { id: 'resp_read', status: 'in_progress', output: [] },
-    },
-    {
-      type: 'response.output_item.added',
-      output_index: 0,
-      item: { ...item, arguments: '' },
-    },
-    {
-      type: 'response.function_call_arguments.delta',
-      item_id: item.id,
-      output_index: 0,
-      delta: item.arguments,
-    },
-    {
-      type: 'response.function_call_arguments.done',
-      item_id: item.id,
-      output_index: 0,
-      arguments: item.arguments,
-    },
-    { type: 'response.output_item.done', output_index: 0, item },
-    {
-      type: 'response.completed',
-      response: { id: 'resp_read', status: 'completed', output: [item] },
-    },
-  ]
-    .map((event) => 'data: ' + JSON.stringify(event) + '\n\n')
-    .join('');
-}
-
 async function fixture(
   replies: string[],
   options: {
     model?: string;
-    files?: Record<string, string>;
-    externalInstructions?: boolean;
-    prompt?: string;
-    budget?: number;
     timeoutMs?: number;
-    thinkingLevel?: 'off' | 'low';
-    chatgpt?: boolean;
+    retries?: number;
+    approvalRequired?: boolean;
+    rpcError?: boolean;
+    turnFailure?: boolean;
+    files?: Record<string, string>;
   } = {},
 ) {
-  const directory = await mkdtemp(join(tmpdir(), 'rsi-codex-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'codex-native-'));
+  const home = join(directory, 'home');
+  await mkdir(home);
   const requests: JsonObject[] = [];
   const controller = new AbortController();
   const server = createServer(async (req, res) => {
-    let body = '';
-    for await (const chunk of req) body += String(chunk);
-    if (options.chatgpt && req.url !== '/backend-api/codex/responses') {
+    if (req.method !== 'POST' || req.url !== '/v1/responses') {
       res.writeHead(404).end();
       return;
     }
-    assert.equal(
-      req.url,
-      options.chatgpt ? '/backend-api/codex/responses' : '/v1/responses',
-    );
-    if (options.chatgpt && process.env.RSI_TEST_CODEX_EXECUTABLE)
-      assert.ok(req.headers.authorization?.startsWith('Bearer eyJ'));
-    else assert.equal(req.headers.authorization, 'Bearer test-codex-key');
-    assert.equal(req.headers['x-rsi-codex'], undefined);
-    assert.equal(
-      req.headers['chatgpt-account-id'],
-      options.chatgpt ? 'test-account' : undefined,
-    );
+    let body = '';
+    for await (const chunk of req) body += String(chunk);
     requests.push(JSON.parse(body));
+    assert.equal(req.headers.authorization, 'Bearer test-key');
+    assert.equal(req.headers['x-rsi-codex'], undefined);
     const reply = replies[requests.length - 1] ?? 'invalid';
     if (reply === 'WAIT') return;
     if (reply === 'CANCEL') {
       controller.abort(new Error('Test cancelled'));
       return;
     }
-    if (reply === 'ERROR') {
-      res.writeHead(400).end('test-codex-key');
+    if (reply === 'HTTP500') {
+      res
+        .writeHead(500, { 'content-type': 'application/json' })
+        .end('{"error":{"message":"Temporary failure"}}');
       return;
     }
-    res.writeHead(200, { 'content-type': 'text/event-stream' });
-    res.end(
-      reply === 'CONTEXT'
-        ? 'data: ' +
-            JSON.stringify({
-              type: 'response.failed',
-              response: {
-                error: {
-                  code: 'context_length_exceeded',
-                  message:
-                    'Your input exceeds the context window; secret-diagnostic',
-                },
-              },
-            }) +
-            '\n\n'
-        : reply.startsWith('READ:')
-          ? toolEvents(JSON.parse(reply.slice(5)), requests.length)
-          : reply === 'TOOL'
-            ? 'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"exec_command","arguments":"{}"}}\n\n'
-            : events(reply),
-    );
+    res
+      .writeHead(200, { 'content-type': 'text/event-stream' })
+      .end(events(reply, requests.length));
   });
   await new Promise<void>((done, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', done);
   });
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('No address');
-  const providerId = options.chatgpt ? 'openai' : 'configured';
-  const codexHome = join(directory, 'user-codex');
-  await mkdir(codexHome);
-  const localConfig = {
+  if (!address || typeof address === 'string')
+    throw new Error('Missing local address');
+  const config = {
     auditDirectory: directory,
-    auditChatgpt: options.chatgpt ?? false,
     model: 'configured-model',
-    model_provider: providerId,
-    model_reasoning_effort: options.thinkingLevel ?? 'high',
+    model_provider: 'local',
+    model_reasoning_effort: 'low',
+    requestMaxRetries: options.retries ?? 0,
+    approvalRequired: options.approvalRequired ?? false,
+    rpcError: options.rpcError ?? false,
+    turnFailure: options.turnFailure ?? false,
+    systemInstructions: 'PERSONAL_SYSTEM_MARKER',
+    developerInstructions: 'PERSONAL_DEVELOPER_MARKER',
     model_providers: {
-      [providerId]: {
-        name: 'Configured provider',
-        base_url: `http://127.0.0.1:${address.port}/v1`,
-        env_key: 'RSI_CODEX_TEST_KEY',
-        wire_api: 'responses',
-      },
-    },
-    chatgpt_base_url: `http://127.0.0.1:${address.port}/backend-api`,
-    mcp_servers: {
-      'test.server': { command: 'must-not-start', required: true },
+      local: { base_url: `http://127.0.0.1:${address.port}/v1` },
     },
   };
-  await writeFile(join(codexHome, 'fixture.json'), JSON.stringify(localConfig));
+  await writeFile(join(home, 'fixture.json'), JSON.stringify(config));
+  await writeFile(join(home, 'instructions.md'), config.systemInstructions);
   await writeFile(
-    join(codexHome, 'auth.json'),
-    '{"auth_mode":"apikey","OPENAI_API_KEY":"test-codex-key"}',
-  );
-  if (options.chatgpt) {
-    const payload = {
-      exp: 4102444800,
-      'https://api.openai.com/auth': {
-        chatgpt_account_id: 'test-account',
-        chatgpt_plan_type: 'plus',
-        chatgpt_user_id: 'test-user',
-      },
-    };
-    const jwt =
-      'eyJhbGciOiJub25lIn0.' +
-      Buffer.from(JSON.stringify(payload)).toString('base64url') +
-      '.test';
-    await writeFile(
-      join(codexHome, 'auth.json'),
-      JSON.stringify({
-        auth_mode: 'chatgpt',
-        tokens: {
-          id_token: jwt,
-          access_token: jwt,
-          refresh_token: 'test-refresh',
-          account_id: 'test-account',
-        },
-        last_refresh: new Date().toISOString(),
-      }),
-    );
-  }
-  await writeFile(
-    join(codexHome, 'config.toml'),
+    join(home, 'config.toml'),
     [
-      'model = "configured-model"',
-      `model_provider = "${providerId}"`,
-      `model_reasoning_effort = "${options.thinkingLevel ?? 'high'}"`,
-      `[model_providers.${providerId}]`,
-      'name = "Configured provider"',
-      `base_url = "http://127.0.0.1:${address.port}/v1"`,
-      'env_key = "RSI_CODEX_TEST_KEY"',
-      'wire_api = "responses"',
+      'model="configured-model"',
+      'model_provider="local"',
+      'model_reasoning_effort="low"',
+      `model_instructions_file=${JSON.stringify(join(home, 'instructions.md'))}`,
+      'developer_instructions="PERSONAL_DEVELOPER_MARKER"',
+      '[model_providers.local]',
+      'name="Local fixture"',
+      `base_url="http://127.0.0.1:${address.port}/v1"`,
+      'env_key="RSI_CODEX_TEST_KEY"',
+      'wire_api="responses"',
+      'supports_websockets=false',
+      `request_max_retries=${options.retries ?? 0}`,
+      'stream_max_retries=0',
     ].join('\n'),
   );
-  if (options.chatgpt) {
-    await writeFile(
-      join(codexHome, 'config.toml'),
-      [
-        'model = "configured-model"',
-        'model_reasoning_effort = "high"',
-        `chatgpt_base_url = "http://127.0.0.1:${address.port}/backend-api"`,
-      ].join('\n'),
-    );
-  }
-  if (options.externalInstructions) {
-    const outside = join(codexHome, 'outside.md');
-    await writeFile(outside, 'OUTSIDE_SNAPSHOT_SENTINEL');
-    const path = join(codexHome, 'config.toml');
-    await writeFile(
-      path,
-      `model_instructions_file=${JSON.stringify(outside)}\ndeveloper_instructions="OUTSIDE_DEVELOPER_SENTINEL"\n` +
-        (await readFile(path, 'utf8')),
-    );
-  }
-  const executable = join(directory, 'codex-test.cjs');
+  const executable = join(directory, 'codex.cjs');
   await writeFile(
     executable,
     await readFile(resolve('tests/fixtures/codex-cli.cjs')),
   );
-  await chmod(executable, 0o700);
   const previous = {
-    key: process.env.RSI_CODEX_TEST_KEY,
     home: process.env.CODEX_HOME,
+    key: process.env.RSI_CODEX_TEST_KEY,
   };
-  process.env.RSI_CODEX_TEST_KEY = 'test-codex-key';
-  process.env.CODEX_HOME = codexHome;
-  let charges = 0;
+  process.env.CODEX_HOME = home;
+  process.env.RSI_CODEX_TEST_KEY = 'test-key';
   const context = new RuntimeContext().extend({
     directory,
-    experimentId: 'codex-fixture',
-    bindingId: 'agent',
-    facts: new FileFacts(join(directory, 'facts')),
     signal: controller.signal,
-    charge: async (metric: string, amount: number) => {
-      assert.equal(metric, 'modelCalls');
-      assert.equal(amount, 1);
-      if (charges >= (options.budget ?? Infinity))
-        throw new Error('Budget rejected');
-      charges++;
+    async charge() {
+      throw new Error('Must not invent or intercept native modelCalls');
     },
   });
-  let operation = await createAgentCodex(
+  const operation = await createAgentCodex(
     {
       executable: process.env.RSI_TEST_CODEX_EXECUTABLE ?? executable,
-      timeoutMs: options.timeoutMs ?? 20000,
       ...(options.model === undefined ? {} : { model: options.model }),
+      ...(options.timeoutMs === undefined
+        ? {}
+        : { timeoutMs: options.timeoutMs }),
     },
     context,
   );
   return {
     directory,
     requests,
-    facts: context.facts,
-    async changeLocalModel(model: string) {
-      localConfig.model = model;
-      await writeFile(
-        join(codexHome, 'fixture.json'),
-        JSON.stringify(localConfig),
-      );
-      const path = join(codexHome, 'config.toml');
-      await writeFile(
-        path,
-        (await readFile(path, 'utf8')).replace(
-          /^model = .+$/m,
-          `model = ${JSON.stringify(model)}`,
-        ),
-      );
-    },
-    async recreate() {
-      await operation.dispose();
-      operation = await createAgentCodex(
-        {
-          executable: process.env.RSI_TEST_CODEX_EXECUTABLE ?? executable,
-          timeoutMs: options.timeoutMs ?? 20000,
-          ...(options.model ? { model: options.model } : {}),
-        },
-        context,
-      );
-    },
-    charges: () => charges,
-    run: (maxModelCalls = 2) =>
+    run: (maxModelCalls = 1) =>
       operation.execute(
         {
-          goal: 'Read snapshot',
-          prompt: options.prompt ?? 'Return the answer',
-          files: options.files ?? {
-            '/private/not-a-host-file': 'snapshot-content',
-          },
+          goal: 'Read authorized evidence',
+          prompt: 'Return a JSON answer.',
+          input: { example: true },
+          files: options.files ?? { 'evidence.txt': 'SNAPSHOT_CONTENT' },
           outputSchema: schema,
           maxModelCalls,
         },
         context,
       ),
+    async changeModel(model: string) {
+      config.model = model;
+      await writeFile(join(home, 'fixture.json'), JSON.stringify(config));
+      const path = join(home, 'config.toml');
+      await writeFile(
+        path,
+        (await readFile(path, 'utf8')).replace(
+          'model="configured-model"',
+          `model=${JSON.stringify(model)}`,
+        ),
+      );
+    },
     async close() {
       controller.abort();
       server.closeAllConnections();
       await new Promise<void>((done) => server.close(() => done()));
       await operation.dispose();
-      if (previous.key === undefined) delete process.env.RSI_CODEX_TEST_KEY;
-      else process.env.RSI_CODEX_TEST_KEY = previous.key;
       if (previous.home === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previous.home;
+      if (previous.key === undefined) delete process.env.RSI_CODEX_TEST_KEY;
+      else process.env.RSI_CODEX_TEST_KEY = previous.key;
       await rm(directory, { recursive: true, force: true });
     },
   };
 }
 
-test('Codex receives virtual files, charges each request, repairs invalid JSON and cleans isolated execution state', async () => {
-  const f = await fixture(['{"answer":3}', '{"answer":"ok"}']);
-  try {
-    assert.deepEqual(await f.run(), { answer: 'ok' });
-    assert.equal(f.charges(), 2);
-    for (const request of f.requests) {
-      assert.deepEqual(
-        (request.tools as { name: string }[]).map((t) => t.name),
-        ['read_file'],
-      );
-      assert.equal(request.tool_choice, 'auto');
-      assert.equal((request.reasoning as { effort: string }).effort, 'high');
-      assert.equal(request.model, 'configured-model');
-      assert.ok(!JSON.stringify(request.input).includes('snapshot-content'));
-      assert.ok(
-        JSON.stringify(request.input).includes('/private/not-a-host-file'),
-      );
-    }
-    const diagnostics = await readFile(
-      join(f.directory, 'diagnostics.jsonl'),
-      'utf8',
+test('Codex config has no implicit timeout and rejects removed provider controls', async () => {
+  assert.deepEqual(parseConfig(configSchema, {}, 'config'), {
+    executable: 'codex',
+  });
+  for (const config of [
+    { model: '' },
+    { model: ' ' },
+    { timeoutMs: 0 },
+    { api_key: 'key' },
+    { base_url: 'url' },
+    { thinkingLevel: 'high' },
+    { retries: 2 },
+  ])
+    await assert.rejects(
+      createAgentCodex(config, new RuntimeContext()),
+      /agent.codex config/,
     );
-    assert.ok(diagnostics.includes('validation_failed'));
-    assert.ok(!diagnostics.includes('test-codex-key'));
-    assert.ok(!diagnostics.includes('snapshot-content'));
-    if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
-      const execution = JSON.parse(
-        await readFile(join(f.directory, 'execution.json'), 'utf8'),
-      );
-      assert.equal(execution.home, join(f.directory, 'user-codex'));
-      assert.ok(
-        execution.args.some((arg: string) =>
-          arg.includes('\"test.server\"={enabled=false,required=false}'),
-        ),
-      );
-      assert.ok(execution.args.includes('features.hooks=false'));
-      assert.ok(execution.args.includes('features.plugins=false'));
-      assert.ok(!execution.args.join(' ').includes('test-codex-key'));
-      assert.equal(
-        await readFile(join(execution.home, 'auth.json'), 'utf8'),
-        '{"auth_mode":"apikey","OPENAI_API_KEY":"test-codex-key"}',
-      );
-      await assert.rejects(
-        readFile(join(execution.dir, 'instructions.md')),
-        /ENOENT/,
-      );
-    }
-  } finally {
-    await f.close();
-  }
 });
-
-for (const scenario of [
-  {
-    name: 'budget denial',
-    replies: ['{"answer":"ok"}'],
-    options: { budget: 0 },
-    error: /Budget rejected/,
-    calls: 0,
-  },
-  {
-    name: 'model-call limit',
-    replies: ['invalid'],
-    options: {},
-    error: /model-call limit/,
-    calls: 1,
-  },
-  {
-    name: 'provider failure',
-    replies: ['ERROR'],
-    options: {},
-    error: /HTTP 400/,
-    calls: 1,
-  },
-  {
-    name: 'forbidden host tool',
-    replies: ['TOOL'],
-    options: {},
-    error: /forbidden tool/,
-    calls: 1,
-  },
-  {
-    name: 'cancellation',
-    replies: ['CANCEL'],
-    options: {},
-    error: /Test cancelled/,
-    calls: 1,
-  },
-  {
-    name: 'timeout',
-    replies: ['WAIT'],
-    options: { timeoutMs: 1000 },
-    error: /timed out/,
-    calls: 1,
-  },
-]) {
-  test(`Codex enforces ${scenario.name}`, async () => {
-    const f = await fixture(scenario.replies, scenario.options);
+for (const model of [undefined, 'selected-model'])
+  test(`Codex uses ${model ?? 'the local default model'} without changing local settings`, async () => {
+    const f = await fixture(['{"answer":"ok"}'], { model });
     try {
-      await assert.rejects(f.run(1), scenario.error);
-      assert.equal(f.requests.length, scenario.calls);
-      assert.equal(f.charges(), scenario.calls);
+      assert.deepEqual(await f.run(), { answer: 'ok' });
+      assert.equal(f.requests[0].model, model ?? 'configured-model');
+      const diagnostics = await readFile(
+        join(f.directory, 'diagnostics.jsonl'),
+        'utf8',
+      );
+      assert.ok(diagnostics.includes('"modelCalls":"unavailable"'));
+      assert.ok(!diagnostics.includes('test-key'));
+      if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
+        const x = JSON.parse(
+          await readFile(join(f.directory, 'execution.json'), 'utf8'),
+        );
+        assert.deepEqual(x.args, ['app-server']);
+        for (const name of [
+          'baseInstructions',
+          'developerInstructions',
+          'approvalPolicy',
+          'sandbox',
+        ])
+          assert.equal(Object.hasOwn(x.thread, name), false);
+        assert.deepEqual(x.turn.outputSchema, schema);
+      }
     } finally {
       await f.close();
     }
   });
-}
-
-test('existing Policy accepts Codex Recipe binding without business-plugin changes', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'rsi-codex-recipe-'));
-  const runtime = await createRuntime({ rootDirectory: directory });
+test('Codex preserves native personal instructions, provider requests and tools', async () => {
+  const f = await fixture(['{"answer":"ok"}']);
   try {
-    assert.equal(
-      runtime.registry.get('agent.codex').contract.id,
-      'contract.agent',
+    await f.run();
+    const body = JSON.stringify(f.requests[0]);
+    assert.ok(body.includes('PERSONAL_SYSTEM_MARKER'));
+    assert.ok(body.includes('PERSONAL_DEVELOPER_MARKER'));
+    assert.ok(
+      (f.requests[0].tools as { name: string }[]).some(
+        (t) => t.name === 'exec_command',
+      ),
     );
-    const recipe = await loadRecipe(
-      resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
+  } finally {
+    await f.close();
+  }
+});
+test('Codex performs paged snapshot reads with independent numeric RPC IDs and no RSI model-call cap', async () => {
+  const f = await fixture(
+    [
+      'READ:' + JSON.stringify({ path: 'huge.json', maxBytes: 1024 }),
+      'READ:' + JSON.stringify({ path: 'one.txt' }),
+      'READ:' + JSON.stringify({ path: 'two.txt' }),
+      '{"answer":"ok"}',
+    ],
+    {
+      files: {
+        'huge.json':
+          'SNAPSHOT_START' + 'x'.repeat(4 * 1024 * 1024) + 'UNREAD_END',
+        'one.txt': 'one',
+        'two.txt': 'two',
+      },
+    },
+  );
+  try {
+    assert.deepEqual(await f.run(1), { answer: 'ok' });
+    assert.equal(f.requests.length, 4);
+    assert.ok(!JSON.stringify(f.requests[0].input).includes('SNAPSHOT_START'));
+    assert.ok(JSON.stringify(f.requests[1].input).includes('SNAPSHOT_START'));
+    assert.ok(!JSON.stringify(f.requests).includes('UNREAD_END'));
+  } finally {
+    await f.close();
+  }
+});
+test('Codex native provider retries are not disabled or latched by RSI', async () => {
+  const f = await fixture(['HTTP500', '{"answer":"ok"}'], { retries: 1 });
+  try {
+    assert.deepEqual(await f.run(1), { answer: 'ok' });
+    assert.equal(f.requests.length, 2);
+  } finally {
+    await f.close();
+  }
+});
+test('Codex accepts local model changes between executions without a configuration lock', async () => {
+  const f = await fixture(['{"answer":"ok"}', '{"answer":"ok"}']);
+  try {
+    await f.run();
+    await f.changeModel('changed-model');
+    await f.run();
+    assert.deepEqual(
+      f.requests.map((r) => r.model),
+      ['configured-model', 'changed-model'],
+    );
+  } finally {
+    await f.close();
+  }
+});
+test('Codex validates the final JSON without a separate RSI correction loop', async () => {
+  const f = await fixture(['{"answer":3}', '{"answer":"ok"}']);
+  try {
+    await assert.rejects(f.run(), /agent output/);
+    assert.equal(f.requests.length, 1);
+  } finally {
+    await f.close();
+  }
+});
+for (const scenario of [
+  {
+    name: 'cancellation',
+    reply: 'CANCEL',
+    timeoutMs: undefined,
+    error: /Test cancelled/,
+  },
+  {
+    name: 'explicit timeout',
+    reply: 'WAIT',
+    timeoutMs: 200,
+    error: /timed out/,
+  },
+])
+  test(`Codex propagates ${scenario.name} and releases temporary state`, async () => {
+    const f = await fixture([scenario.reply], {
+      timeoutMs: scenario.timeoutMs,
+    });
+    try {
+      await assert.rejects(f.run(), scenario.error);
+      if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
+        const x = JSON.parse(
+          await readFile(join(f.directory, 'execution.json'), 'utf8'),
+        );
+        await assert.rejects(stat(x.dir), /ENOENT/);
+      }
+    } finally {
+      await f.close();
+    }
+  });
+test('Codex surfaces interactive approval requests without silently approving or overriding policy', async () => {
+  const f = await fixture([], { approvalRequired: true });
+  try {
+    await assert.rejects(f.run(), /interactive input or approval/);
+    assert.equal(f.requests.length, 0);
+  } finally {
+    await f.close();
+  }
+});
+for (const scenario of [
+  { options: { rpcError: true }, error: /Model unavailable.*-32602/ },
+  { options: { turnFailure: true }, error: /Authentication expired/ },
+])
+  test(`Codex preserves native failure details ${JSON.stringify(scenario.options)}`, async () => {
+    const f = await fixture([], scenario.options);
+    try {
+      await assert.rejects(f.run(), scenario.error);
+      assert.equal(f.requests.length, 0);
+    } finally {
+      await f.close();
+    }
+  });
+test('existing Policy accepts the native Codex binding', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'codex-recipe-'));
+  const runtime = await createRuntime({
+    rootDirectory: directory,
+    homeDirectory: false,
+  });
+  try {
+    const recipe = await import('../../src/runtime/loaders/index.js').then(
+      (m) =>
+        m.loadRecipe(resolve('examples/harness/dsh-wikiskill/recipe.yaml')),
     );
     recipe.bindings.agent = { ref: 'agent.codex', config: {} };
     const path = join(directory, 'recipe.yaml');
@@ -497,194 +455,5 @@ test('existing Policy accepts Codex Recipe binding without business-plugin chang
   } finally {
     await runtime.dispose();
     await rm(directory, { recursive: true, force: true });
-  }
-});
-
-for (const thinkingLevel of [undefined, 'off', 'low'] as const) {
-  test(`Codex inherits local reasoning ${thinkingLevel ?? 'default'}`, async () => {
-    const f = await fixture(['{"answer":"ok"}'], { thinkingLevel });
-    try {
-      assert.deepEqual(await f.run(1), { answer: 'ok' });
-      assert.equal(f.requests.length, 1);
-      assert.deepEqual(f.requests[0].reasoning, {
-        effort: thinkingLevel ?? 'high',
-      });
-    } finally {
-      await f.close();
-    }
-  });
-}
-
-test('Codex forwards local ChatGPT authentication and account headers', async () => {
-  const f = await fixture(['{"answer":"ok"}'], { chatgpt: true });
-  try {
-    assert.deepEqual(await f.run(1), { answer: 'ok' });
-    assert.equal(f.charges(), 1);
-  } finally {
-    await f.close();
-  }
-});
-
-test('Codex rejects obsolete API and reasoning configuration', async () => {
-  for (const field of ['base_url', 'api_key', 'thinkingLevel']) {
-    await assert.rejects(
-      createAgentCodex({ [field]: 'obsolete' }, new RuntimeContext()),
-      /agent.codex config/,
-    );
-  }
-});
-
-for (const model of [undefined, 'selected-model']) {
-  test(`Codex uses ${model ?? 'the local default model'}`, async () => {
-    const f = await fixture(['{"answer":"ok"}'], { model });
-    try {
-      const path = join(f.directory, 'user-codex', 'config.toml');
-      const before = await readFile(path, 'utf8');
-      assert.deepEqual(await f.run(1), { answer: 'ok' });
-      assert.equal(f.requests[0].model, model ?? 'configured-model');
-      assert.equal(await readFile(path, 'utf8'), before);
-      if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
-        const execution = JSON.parse(
-          await readFile(join(f.directory, 'execution.json'), 'utf8'),
-        );
-        assert.equal(
-          execution.args.includes(`model=${JSON.stringify(model)}`),
-          model !== undefined,
-        );
-      }
-    } finally {
-      await f.close();
-    }
-  });
-}
-
-test('Codex rejects empty model overrides', async () => {
-  for (const model of ['', '   ']) {
-    await assert.rejects(
-      createAgentCodex({ model }, new RuntimeContext()),
-      /agent.codex config/,
-    );
-  }
-});
-
-test('Codex reads a bounded virtual file on demand without inlining a large snapshot', async () => {
-  const f = await fixture(
-    [
-      'READ:' + JSON.stringify({ path: 'context/huge.json', maxBytes: 4096 }),
-      '{"answer":"ok"}',
-    ],
-    {
-      files: {
-        'context/huge.json':
-          'needed-start-' + 'x'.repeat(4 * 1024 * 1024) + 'NOT_READ_TAIL',
-      },
-    },
-  );
-  try {
-    assert.deepEqual(await f.run(2), { answer: 'ok' });
-    assert.equal(f.charges(), 2);
-    assert.ok(!JSON.stringify(f.requests[0].input).includes('needed-start-'));
-    assert.ok(JSON.stringify(f.requests[1].input).includes('needed-start-'));
-    assert.ok(!JSON.stringify(f.requests[1].input).includes('NOT_READ_TAIL'));
-    assert.ok(Buffer.byteLength(JSON.stringify(f.requests[1].input)) < 20000);
-  } finally {
-    await f.close();
-  }
-});
-
-test('Codex excludes local model and developer instruction files', async () => {
-  const f = await fixture(['{"answer":"ok"}'], { externalInstructions: true });
-  try {
-    assert.deepEqual(await f.run(1), { answer: 'ok' });
-    const body = JSON.stringify(f.requests);
-    assert.ok(!body.includes('OUTSIDE_SNAPSHOT_SENTINEL'));
-    assert.ok(!body.includes('OUTSIDE_DEVELOPER_SENTINEL'));
-  } finally {
-    await f.close();
-  }
-});
-
-test('Codex records effective settings and rejects model drift across resumed instances before inference', async () => {
-  const f = await fixture(['{"answer":"ok"}', '{"answer":"ok"}']);
-  try {
-    await f.run(1);
-    const configurations = await f.facts.list('agent-codex-configurations');
-    assert.equal(configurations.length, 1);
-    const text = JSON.stringify(configurations);
-    assert.ok(text.includes('configured-model'));
-    assert.ok(!text.includes('test-codex-key'));
-    assert.ok(!text.includes('127.0.0.1'));
-    await f.changeLocalModel('changed-model');
-    await f.recreate();
-    await assert.rejects(
-      f.run(1),
-      /configuration changed within this experiment/,
-    );
-    assert.equal(f.requests.length, 1);
-  } finally {
-    await f.close();
-  }
-});
-
-test('Codex treats streamed context errors as terminal without exposing upstream diagnostics', async () => {
-  const f = await fixture(['CONTEXT']);
-  try {
-    await assert.rejects(
-      f.run(5),
-      (error) =>
-        error instanceof Error &&
-        /context limit exceeded/.test(error.message) &&
-        !error.message.includes('secret-diagnostic'),
-    );
-    assert.equal(f.requests.length, 1);
-  } finally {
-    await f.close();
-  }
-});
-
-test('Codex rejects oversized initial instructions before inference', async () => {
-  const f = await fixture(['{"answer":"ok"}'], { prompt: 'x'.repeat(131072) });
-  try {
-    await assert.rejects(f.run(1), /initial task metadata exceeds byte limit/);
-    assert.equal(f.requests.length, 0);
-    assert.equal(f.charges(), 0);
-  } finally {
-    await f.close();
-  }
-});
-
-test('Codex repairs an empty final response within the same charged session', async () => {
-  const f = await fixture(['', '{"answer":"ok"}']);
-  try {
-    assert.deepEqual(await f.run(2), { answer: 'ok' });
-    assert.equal(f.charges(), 2);
-    assert.ok(JSON.stringify(f.requests[1].input).includes('validationError'));
-  } finally {
-    await f.close();
-  }
-});
-
-test('Codex distinguishes numeric server tool requests from client responses with the same IDs', async () => {
-  const f = await fixture(
-    [
-      'READ:' + JSON.stringify({ path: 'one.txt' }),
-      'READ:' + JSON.stringify({ path: 'two.txt' }),
-      'READ:' + JSON.stringify({ path: 'three.txt' }),
-      '{"answer":"ok"}',
-    ],
-    {
-      files: { 'one.txt': 'first', 'two.txt': 'second', 'three.txt': 'third' },
-    },
-  );
-  try {
-    assert.deepEqual(await f.run(4), { answer: 'ok' });
-    assert.equal(f.charges(), 4);
-    const diagnostics = await readFile(
-      join(f.directory, 'diagnostics.jsonl'),
-      'utf8',
-    );
-    assert.equal(diagnostics.split('"type":"virtual_file_read"').length - 1, 3);
-  } finally {
-    await f.close();
   }
 });

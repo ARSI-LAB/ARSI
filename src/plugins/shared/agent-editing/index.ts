@@ -8,15 +8,12 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, matchesGlob } from 'node:path';
 import type {
-  ApplicationOutput,
   RuntimeContext,
   JsonObject,
   JsonSchema,
   JsonValue,
-  Workspace,
 } from '../../../contracts/index.js';
 import { parseFileTree } from '../../../contracts/index.js';
-import { applicationContract } from '../../../contracts/plugin-types/application.js';
 import { inside } from '../../../runtime/storage/index.js';
 import { object, string, strings } from '../../../shared/json.js';
 import { validate } from '../../../shared/schema.js';
@@ -313,38 +310,6 @@ export async function applyEdits(
       await writeFile(absolute, edit.content, { mode: 0o644 });
     }
   }
-}
-/** The caller owns workspace release, including failed commits. */
-export async function commitEdits(
-  workspace: Workspace,
-  result: JsonObject,
-  parentRef: string,
-  context: RuntimeContext,
-  constraints?: JsonObject,
-): Promise<Extract<ApplicationOutput, { action: 'commit' }>> {
-  await applyEdits(workspace.directory, result, context, constraints);
-  const committed = await context.application({
-    action: 'commit',
-    parentCandidateRef: parentRef,
-    editRef: workspace.ref,
-    ...(constraints ? { editConstraints: constraints } : {}),
-  });
-  validate(
-    applicationContract.output_schema,
-    committed,
-    'Application commit output',
-  );
-  if (committed.action !== 'commit')
-    throw new Error('Application did not return a commit result');
-  const status = committed.status;
-  if (status !== 'created' && status !== 'no-change')
-    throw new Error('Invalid Application commit status');
-  return {
-    action: 'commit',
-    status,
-    candidateRef: string(committed.candidateRef),
-    diffRef: committed.diffRef === null ? null : string(committed.diffRef),
-  };
 }
 export async function editResource(
   config: AgentEditingConfig,

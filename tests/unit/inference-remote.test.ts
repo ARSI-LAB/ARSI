@@ -265,6 +265,7 @@ test('remote readiness cancellation explicitly cleans owned remote service', asy
   const bad = {
     ...config,
     endpoint: { ...endpoint, origin: 'http://127.0.0.1:1' },
+    healthcheck: { intervalMs: 10 },
   };
   const services = servicesFor(f.root);
   const app = await inferenceDefinition.create(bad, services);

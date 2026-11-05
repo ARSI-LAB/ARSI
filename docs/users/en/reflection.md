@@ -45,7 +45,7 @@ budget:
 
 For `reflection.agent`, omit `prompt` to use the bundled Reflection prompt, or supply your own file. Relative resource paths in this implementation configuration resolve against the selected Reflection file. Do not configure `maxContextBytes` or `maxModelCalls` here: context handling is internal, and model calls belong in `budget.modelCalls`.
 
-`budget.modelCalls` defaults to **50**, including when `budget` is omitted, empty, or only specifies a timeout. An explicit nonnegative integer overrides it; `0` prevents the built-in model-backed generator from making new model calls. `timeoutSeconds`, when present, must be a positive integer within the timer limit. Without it, there is no extra local Reflection timeout; experiment and Agent timeouts still apply.
+Set `budget.modelCalls` to a nonnegative integer to limit model calls per invocation. Setting it to `0` prevents new model calls. Set `budget.timeoutSeconds` to a positive integer within the timer range to limit invocation time. Each omitted field leaves that dimension unrestricted by Reflection. Configured experiment and Agent limits also apply.
 
 See the [configuration validator](../../../src/runtime/revisions/validation.ts) and [built-in example](../../../src/policies/harness2/reflection.yaml).
 
@@ -109,7 +109,7 @@ reflection:
 
 This selects a **complete replacement file** for the root Policy, which must already declare `defaults.reflection`. It does not merge individual fields or insert a call into the flow. The override path resolves against the Recipe; paths inside the selected file resolve against that file.
 
-If the replacement omits `budget`, the framework defaults apply rather than the original file's values. Invalid replacements fail validation; there is no fallback to the default file.
+If the replacement omits `budget`, Reflection runs without a local model-call or time budget. Invalid replacements fail validation.
 
 ## 3. Let a custom plugin consume revised resources
 
@@ -145,7 +145,7 @@ bindings:
 
 In the Reflection file, `targets.domainProposer.resources: [guidance]` authorizes the configured guidance directory. It does not authorize `prompt` merely because `prompt` is a Schema path resource. Ordinary strings without `x-rsi-path` cannot be selected. Unknown resources, missing paths, or invalid file/directory types fail before the generator call.
 
-The current `configFile` interface authorizes resource contents, not arbitrary configuration fields or Policy rewrites. It permits creation/modification within the authorized paths and checks the proposal's parent revisions and change bounds; do not assume resource deletion is allowed. See [revision handling](../../../src/runtime/revisions/index.ts).
+The `configFile` interface authorizes creation and modification of resource content within the selected paths. Runtime validates the proposal's parent revisions and resource paths before activation. See [revision handling](../../../src/runtime/revisions/index.ts).
 
 The plugin must read the paths it receives. The built-in Proposer calls `loadAgentPrompt(config)` for each edit request: it reads the base prompt, recursively reads sorted Markdown files from `config.guidance`, and appends the guidance text to the Agent request. See [shared editing code](../../../src/plugins/shared/agent-editing/index.ts). Merely declaring `x-rsi-path` does not insert file contents into prompts or change plugin behavior. Custom plugins own resource formats and their actual use.
 

@@ -41,7 +41,7 @@ flowchart TB
 
 ### Target 与证据
 
-对于文件型 Application，[Target](../../../examples/harness/dsh-harness2/target.yaml) 定义允许的文件模式、操作、编码与大小限制、保护路径以及一次提交的修改总量限制。候选编辑必须通过这些检查。
+对于文件型 Application，[Target](../../../examples/harness/dsh-harness2/target.yaml) 定义允许的文件模式、操作、编码和保护路径。文件规则中的 `content.maxBytes` 可限制单个文件的大小，`constraints.maxChangedFiles` 或 `constraints.maxChangedBytes` 可限制一次提交的改动规模。候选编辑必须通过已配置的检查。
 
 证据服务向模型插件提供以下投影：
 
@@ -51,7 +51,7 @@ flowchart TB
 | `training-summary` | 执行证据，加上训练分数和有界评测反馈。WikiSkill 用它学习。               |
 | `delivery`         | 用于交付物选择的匿名内容，不包含评测分数。                               |
 
-应通过 [Runtime 证据服务](../../../src/runtime/services/facts/evidence.ts) 向优化模型提供输入，而不是直接传入原始评测记录。投影可能省略或缩短内容，缺失证据仍应视为未知。这些服务和 Target 检查不构成任意第三方插件代码的沙箱；Policy 也必须避免将独立测试任务用于学习。
+应通过 [Runtime 证据服务](../../../src/runtime/services/facts/evidence.ts) 向优化模型提供输入，而不是直接传入原始评测记录。JSON 投影可能省略或缩短内容。`files` 模式的读取只在调用方或其执行作用域设置字节限制时应用该限制。缺失证据仍应视为未知。这些服务和 Target 检查不构成任意第三方插件代码的沙箱；Policy 也必须避免将独立测试任务用于学习。
 
 ### Memory 与 Reflection
 
@@ -78,7 +78,7 @@ RSI 不会自动加载 `.env` 文件。请在启动 CLI 或 Web 服务的进程�
 
 优化器 Agent 和被评测的 Solver 可以使用不同模型。Harness² Recipe 中的 `bindings.evaluator.config.services.default.model` 读取必填的 `EVALUATOR_MODEL_NAME` 环境变量，与 `MODEL_NAME` 独立，没有固定默认值。
 
-[Agent 配置 Schema](../../../src/plugins/agent-pi/schema.ts) 默认设置为 `thinkingLevel: low`、`maxTokens: 32768`、`contextWindow: 262144`、`timeoutMs: 600000` 和 `retries: 0`。可以显式指定 `thinkingLevel: off`。请选择模型端点支持的限制和思考设置。这些默认值配置 RSI 的 Agent 后端，不设置被评测 Solver 的思考行为。
+[Agent 配置 Schema](../../../src/plugins/agent-pi/schema.ts) 默认设置为 `thinkingLevel: low`、`contextWindow: 262144` 和 `retries: 0`。可设置 `maxTokens` 来限制模型输出，或设置 `timeoutMs` 来限制单次模型请求的用时。省略字段时，框架不施加对应上限。请选择模型端点支持的设置。
 
 所有 `agent.pi` 会话默认提供 `run_subagent`，子代理也可继续委派。各 Agent 自主决定是否委派及如何分工，不额外限制委派层数或子代理数量；各层共用 Runtime 预算和取消机制，启动子代理不会重置预算。子代理使用同一 Agent 绑定，拥有独立对话和明确传入的虚拟文件。详见 [Reflection 机制](reflection.md#reflection-机制)。
 
@@ -137,11 +137,11 @@ budget:
   cleanupReserveMs: 60000
 ```
 
-将它放在 [Harness² 基线和 Target](../../../examples/harness/dsh-harness2/README.md) 旁边，并将模型替换为端点支持的模型。评测模型必须支持配置的输出上限。预算是上限，不是预期用量或费用估计。
+将它放在 [Harness² 基线和 Target](../../../examples/harness/dsh-harness2/README.md) 旁边，并将模型替换为端点支持的模型。评测模型必须支持配置的输出上限。实验预算只在对应字段显式设置时生效。省略 `elapsedWallMs` 时实验没有截止时间，省略 `cleanupReserveMs` 时清理没有单独的截止时间。
 
 Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和 `memory`。目标与交付物评分标准由 Policy 定义，不能通过 `goals` 或 `deliveryRubric` 配置。`k` 控制探索槽位数，`concurrency` 限制 Policy 分支并发数；Evaluator 调度器另有并发设置。固定 `k` 时，当前流程调用 Evaluator 的次数为 `4 × k × 任务数`（基线、通用改进、领域改进、合成）；其他 Policy 的一次 Evaluator 调用可以包含多个任务。
 
-[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受 `maxRounds`、可选的 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。它从训练证据学习，通过验证集测量决定候选是否被接受，并在学习循环之后评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
+[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受可选的 `maxRounds` 和 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。省略 `maxRounds` 时，学习循环不设轮数上限。它从训练证据学习，通过验证集测量决定候选是否被接受，并在学习循环之后评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
 
 ### CLI
 
@@ -162,7 +162,7 @@ ember-rsi catalog
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --resume
 ```
 
-默认存储位于当前目录的 `.rsi/`。已完成调用可以复用收据和检查点；外部操作结果未知时需要核对，不能据此承诺所有操作只执行一次。应分别查看状态、测量和证据，零分不一定表示执行失败。`agent.pi` 的模型输出纠错有次数限制，并计入模型调用预算；未显式配置时不进行传输重试。
+默认存储位于当前目录的 `.rsi/`。已完成调用可以复用收据和检查点；外部操作结果未知时需要核对，不能据此承诺所有操作只执行一次。应分别查看状态、测量和证据，零分不一定表示执行失败。`agent.pi` 的模型输出纠错计入已配置的模型调用预算。传输重试需要显式启用。
 
 ### Web 观察
 
@@ -254,12 +254,12 @@ Policy 使用 `rsi.policy/v1`，Recipe 使用 `rsi.recipe/v1`。Policy 声明输
 | `invoke`     | 通过 `use` 与可选的 `with` 调用依赖插件绑定。                        |
 | `state`      | 原子校验并提交共享状态更新；并行分支禁止写入。                       |
 | `if`         | 选择 `{ steps, output? }` 形式的 `then` 或 `else` 块。               |
-| `loop`       | 通过 `maxIterations`、可选 `while` 执行有界循环，支持可选 `output`。 |
+| `loop`       | 循环执行 `steps`，可选 `maxIterations`、`while` 和 `output`。         |
 | `foreach`    | 使用稳定且唯一的键、有界并发和可选逐项 `output` 遍历。               |
 | `control`    | 执行 `break`、`continue`，或附带原因的 `fail`。                      |
 | `reflection` | 串行调用已声明的 Reflection 模块。                                   |
 
-`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
+`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。省略 `maxIterations` 或将其设为 `null` 时，不设迭代次数上限。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
 
 典型搜索先评测基线，再循环提案、评测和选择，保存被接受的状态，最后通过普通后续步骤评测独立测试集。并行 foreach 分支返回输出，交给后续串行步骤汇总。Reflection 使用 `type: reflection`，不能在并行分支执行。绑定只选择插件，不支持子 Policy、固定的 `init`/`finish` 作用域或 Runtime 报告阶段标签。成功、失败和取消时的资源清理由 Runtime 负责。
 

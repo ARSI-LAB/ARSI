@@ -326,19 +326,35 @@ test('grid rejects invalid JSON choices and obsolete interval fields', async () 
       ),
       /searchSpace|values|number|finite JSON|Forbidden|additional properties/,
     );
+});
+
+test('grid supports large spaces when their cursors are safe integers', async () => {
+  const context = new RuntimeContext().extend({
+    signal: new AbortController().signal,
+  });
+  const searchSpace = Array.from({ length: 53 }, (_, index) => ({
+    name: `axis_${index}`,
+    values: [0, 1],
+  }));
+  const path = 'tuning.json';
+  const totalCandidates = 2 ** 52;
+  const proposer = await gridProposerDefinition.create(
+    { path, searchSpace: searchSpace.slice(0, -1) },
+    context,
+  );
+  try {
+    assert.deepEqual(
+      await proposer.execute(
+        { parent: 'baseline', cursor: totalCandidates },
+        context,
+      ),
+      { status: 'exhausted', nextCursor: totalCandidates, totalCandidates },
+    );
+  } finally {
+    await proposer.dispose();
+  }
   await assert.rejects(
-    definition.create(
-      {
-        path: 'tuning.json',
-        searchSpace: [
-          ...Array.from({ length: 20 }, (_, i) => ({
-            name: `axis_${i}`,
-            values: [0, 1],
-          })),
-        ],
-      },
-      new RuntimeContext(),
-    ),
+    gridProposerDefinition.create({ path, searchSpace }, context),
     /cardinality/,
   );
 });

@@ -27,7 +27,7 @@ test('Optuna Policy feeds every measured result back before the next proposal an
     const output = object(
       await policy.execute({
         input: { candidateRef: 'baseline' },
-        config: { maxTrials: 4 },
+        config: {},
         application: {},
         context: new RuntimeContext().extend({
           signal: new AbortController().signal,
@@ -111,7 +111,7 @@ test('Optuna Policy feeds every measured result back before the next proposal an
     assert.deepEqual(
       await policy.execute({
         input: { candidateRef: 'baseline' },
-        config: { maxTrials: 4 },
+        config: {},
         application: {},
         context: new RuntimeContext().extend({
           signal: new AbortController().signal,

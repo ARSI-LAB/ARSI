@@ -134,7 +134,7 @@ export const createApplicationInference: OperationDefinition<
           [...resumed].map(async ([instanceId, context]) => {
             await application.execute(
               { action: 'release', instanceId },
-              context.extend({ signal: AbortSignal.timeout(10000) }),
+              context.extend({ signal: context.cleanup }),
             );
             resumed.delete(instanceId);
           }),
@@ -330,9 +330,14 @@ export const createApplicationInference: OperationDefinition<
       if (!path.startsWith('/') || path.startsWith('//'))
         throw new Error('healthcheck.path must be a local absolute path');
       const deadline =
-          Date.now() +
-          positive(health.timeoutMs, 120000, 'healthcheck.timeoutMs'),
-        interval = positive(health.intervalMs, 250, 'healthcheck.intervalMs');
+        health.timeoutMs === undefined
+          ? undefined
+          : Date.now() + positive(health.timeoutMs, 0, 'healthcheck.timeoutMs');
+      const interval = positive(
+        health.intervalMs,
+        250,
+        'healthcheck.intervalMs',
+      );
       while (true) {
         context.signal.throwIfAborted();
         if (
@@ -343,14 +348,16 @@ export const createApplicationInference: OperationDefinition<
           throw new Error(
             `Inference service exited before readiness: ${spawnState.error?.message ?? child.exitCode}`,
           );
-        if (Date.now() >= deadline)
+        if (deadline !== undefined && Date.now() >= deadline)
           throw new Error('Inference service readiness timeout');
         try {
           const response = await fetch(origin + path, {
             signal: AbortSignal.any([
               context.signal,
               AbortSignal.timeout(
-                Math.min(5000, Math.max(1, deadline - Date.now())),
+                deadline === undefined
+                  ? 5000
+                  : Math.min(5000, Math.max(1, deadline - Date.now())),
               ),
             ]),
           });

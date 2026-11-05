@@ -80,7 +80,9 @@ export function createSubagentTool(
         input: task.input ?? null,
         files,
         outputSchema,
-        maxModelCalls: parent.maxModelCalls ?? 24,
+        ...(parent.maxModelCalls === undefined
+          ? {}
+          : { maxModelCalls: parent.maxModelCalls }),
       });
       signal.throwIfAborted();
       return {

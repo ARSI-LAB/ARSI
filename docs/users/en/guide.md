@@ -41,7 +41,7 @@ See the [Proposer contract](../../../src/contracts/plugin-types/proposer.ts), [i
 
 ### Targets and evidence
 
-For file-based Applications, a [Target](../../../examples/harness/dsh-harness2/target.yaml) defines allowed file patterns, operations, encodings and size limits, protected paths, and commit-wide change limits. Candidate edits must pass those checks.
+For file-based Applications, a [Target](../../../examples/harness/dsh-harness2/target.yaml) defines allowed file patterns, operations, encodings, and protected paths. Set `content.maxBytes` on a file rule to limit file size. Set `constraints.maxChangedFiles` or `constraints.maxChangedBytes` to limit the size of a commit. Candidate edits must pass the configured checks.
 
 Evidence services provide projections for model-backed plugins:
 
@@ -51,7 +51,7 @@ Evidence services provide projections for model-backed plugins:
 | `training-summary` | Execution evidence plus training scores and bounded evaluation feedback. WikiSkill uses this for learning.                          |
 | `delivery`         | Anonymous deliverable content for artifact selection, without evaluator scores.                                                     |
 
-Use [Runtime evidence services](../../../src/runtime/services/facts/evidence.ts) rather than supplying raw evaluator records to optimizer models. Projections can omit or shorten content; missing evidence remains unknown. These services and Target checks do not sandbox arbitrary third-party plugin code. A Policy must also keep held-out tasks out of learning input.
+Use [Runtime evidence services](../../../src/runtime/services/facts/evidence.ts) rather than supplying raw evaluator records to optimizer models. JSON projections can omit or shorten content. Reads in `files` mode apply a byte limit only if the caller or its scope sets one. Missing evidence remains unknown. These services and Target checks do not sandbox arbitrary third-party plugin code. A Policy must also keep held-out tasks out of learning input.
 
 ### Memory and Reflection
 
@@ -78,7 +78,7 @@ RSI does not automatically load `.env` files. Export variables in the process th
 
 The optimizer Agent and the evaluated solver can use different models. In the Harness² Recipe, `bindings.evaluator.config.services.default.model` reads the required `EVALUATOR_MODEL_NAME` environment variable separately from `MODEL_NAME`, with no fixed default.
 
-The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `maxTokens: 32768`, `contextWindow: 262144`, `timeoutMs: 600000`, and `retries: 0`. You can explicitly set `thinkingLevel: off`. Choose limits and reasoning settings supported by your endpoint. These defaults configure RSI's Agent backend; they do not set the evaluated solver's reasoning behavior.
+The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` to request an output limit or `timeoutMs` to set a per-request deadline. When omitted, the framework supplies no limit for either setting. Choose settings supported by your endpoint.
 
 Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
 
@@ -137,11 +137,11 @@ budget:
   cleanupReserveMs: 60000
 ```
 
-Place it beside the [Harness² baseline and Target](../../../examples/harness/dsh-harness2/README.md), and replace the model with one your endpoint supports. The evaluator model must support the configured output limit. Budgets are ceilings, not expected usage or a cost estimate.
+Place it beside the [Harness² baseline and Target](../../../examples/harness/dsh-harness2/README.md), and replace the model with one your endpoint supports. The evaluator model must support the configured output limit. Each experiment budget applies only when its field is set. Omit `elapsedWallMs` to run without an experiment deadline and `cleanupReserveMs` to let cleanup finish without its own deadline.
 
 Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy.config`. Goals and the delivery rubric are defined by the Policy; `goals` and `deliveryRubric` are not accepted configuration fields. `k` controls exploration slots; `concurrency` limits concurrent Policy branches. The Evaluator scheduler has a separate concurrency setting. With fixed `k`, the current flow makes `4 × k × task count` evaluator calls (base, invariant, domain, composition); one evaluator call can contain multiple tasks in other Policies.
 
-[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) instead accepts `maxRounds`, optional `stopAtScore`, and disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
+[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) accepts optional `maxRounds` and `stopAtScore`, plus disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. Omit `maxRounds` to run the learning loop without a round limit. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
 
 ### CLI
 
@@ -162,7 +162,7 @@ Use the same working directory, Recipe, and experiment ID to resume an interrupt
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --resume
 ```
 
-The default store is `.rsi/` under the current directory. Completed calls can reuse saved receipts and checkpoints; unknown external outcomes require reconciliation and are not a guarantee of exactly-once execution. Inspect status, measurements, and evidence separately: a zero score is not necessarily an execution failure. Model-output correction in `agent.pi` is bounded and charged to the model-call budget; transport retries remain disabled unless configured.
+The default store is `.rsi/` under the current directory. Completed calls can reuse saved receipts and checkpoints; unknown external outcomes require reconciliation and are not a guarantee of exactly-once execution. Inspect status, measurements, and evidence separately: a zero score is not necessarily an execution failure. Model-output correction in `agent.pi` counts toward any configured model-call budget. Transport retries are opt-in.
 
 ### Web observation
 
@@ -254,12 +254,12 @@ Every step declares `id` and `type` in one ordered top-level `steps` array. A Po
 | `invoke`     | Call a required plugin binding with `use` and optional `with`.                       |
 | `state`      | Atomically validate and commit shared state updates; forbidden in parallel branches. |
 | `if`         | Choose `then` or `else` blocks shaped as `{ steps, output? }`.                       |
-| `loop`       | Run bounded `steps` with `maxIterations`, optional `while`, and optional `output`.   |
+| `loop`       | Run `steps` with optional `maxIterations`, `while`, and `output`.                    |
 | `foreach`    | Iterate with stable unique keys, bounded concurrency, and optional item `output`.    |
 | `control`    | `break`, `continue`, or `fail` with a reason.                                        |
 | `reflection` | Invoke the declared Reflection module serially.                                      |
 
-Expressions such as `${{ input.candidateRef }}` and `${{ steps.propose.output.candidateRef }}` connect data through a bounded pure expression language. Visible completed steps resolve through lexical `steps` scopes; `loop.index` is the nearest loop index. If/foreach output is evaluated in its local block, while loop output is evaluated outside the loop. Retain per-round values in declared state if later steps need them, including the zero-round case. State-update expressions read the pre-update state.
+Expressions such as `${{ input.candidateRef }}` and `${{ steps.propose.output.candidateRef }}` connect data through a bounded pure expression language. Visible completed steps resolve through lexical `steps` scopes; `loop.index` is the nearest loop index. An omitted or null `maxIterations` leaves the iteration count unrestricted. If/foreach output is evaluated in its local block, while loop output is evaluated outside the loop. Retain per-round values in declared state if later steps need them, including the zero-round case. State-update expressions read the pre-update state.
 
 A typical search measures a baseline, proposes and evaluates candidates in a loop, selects by metrics, saves accepted state, then performs held-out evaluation through later ordinary steps. Parallel foreach branches return outputs for serial aggregation. Reflection uses `type: reflection` and cannot execute in a parallel branch. Bindings select plugins only; there are no child Policies, fixed `init`/`finish` scopes or Runtime report labels. Runtime owns resource cleanup, including errors and cancellation.
 

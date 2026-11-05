@@ -4,18 +4,11 @@ import type { RuntimeContext } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import type { ResolvedAgentCodexConfig } from './schema.js';
 
-const maxBytes = 8 * 1024 * 1024;
-async function boundedBody(
+async function readBody(
   source: AsyncIterable<Uint8Array | string>,
 ): Promise<string> {
   const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of source) {
-    const buffer = Buffer.from(chunk);
-    size += buffer.length;
-    if (size > maxBytes) throw new Error('Codex transport exceeds byte limit');
-    chunks.push(buffer);
-  }
+  for await (const chunk of source) chunks.push(Buffer.from(chunk));
   return Buffer.concat(chunks).toString('utf8');
 }
 
@@ -60,7 +53,7 @@ export async function startGateway(
   config: ResolvedAgentCodexConfig,
   context: RuntimeContext,
   signal: AbortSignal,
-  maxModelCalls: number,
+  maxModelCalls: number | undefined,
   record: (type: string, data: unknown) => void,
 ): Promise<{
   url: string;
@@ -91,7 +84,7 @@ export async function startGateway(
       try {
         signal.throwIfAborted();
         if (failure) throw failure;
-        const body = object(JSON.parse(await boundedBody(req)));
+        const body = object(JSON.parse(await readBody(req)));
         // Supplied snapshots are in the prompt. No filesystem, shell, network or hosted tools.
         body.tools = [];
         body.tool_choice = 'none';
@@ -100,7 +93,7 @@ export async function startGateway(
         if (config.thinkingLevel === 'off') delete body.reasoning;
         body.stream = true;
         body.store = false;
-        if (calls >= maxModelCalls)
+        if (maxModelCalls !== undefined && calls >= maxModelCalls)
           throw new Error('Agent model-call limit reached');
         await context.charge('modelCalls', 1);
         calls++;
@@ -126,7 +119,7 @@ export async function startGateway(
         }
         if (!response.body)
           throw new Error('Codex provider returned an empty body');
-        const output = await boundedBody(response.body);
+        const output = await readBody(response.body);
         validateResponse(output);
         signal.throwIfAborted();
         res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -146,7 +139,7 @@ export async function startGateway(
     pending.add(work);
     void work.finally(() => pending.delete(work));
   });
-  server.requestTimeout = config.timeoutMs;
+  server.requestTimeout = config.timeoutMs ?? 0;
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);

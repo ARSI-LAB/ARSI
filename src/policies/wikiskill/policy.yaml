@@ -90,7 +90,6 @@ defaults:
         agentRef: agent
         prompt: ./proposer.md
         evidenceView: training-summary
-        maxModelCalls: 24
     selector:
       plugin: selector.metric
       config:
@@ -132,7 +131,7 @@ steps:
             score: ${{ steps.baseline_score.output.selectedValue }}
   - id: search
     type: loop
-    maxIterations: ${{ config.maxRounds }}
+    maxIterations: ${{ get(config, 'maxRounds', null) }}
     while: ${{ config.stopAtScore == null || state.score < config.stopAtScore }}
     steps:
       - id: train

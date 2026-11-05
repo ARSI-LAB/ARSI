@@ -22,13 +22,13 @@ import {
 } from '../../shared/config-paths.js';
 export { configPathFields as resourceFields } from '../../shared/config-paths.js';
 export type { FileTreeFile as TreeFile } from '../../contracts/index.js';
-export interface Mapping extends JsonObject {
+export type Mapping = {
   kind: string;
   binding: string;
   pointer: string;
   changes: JsonValue[];
-  maxBytes: number;
-}
+  maxBytes?: number;
+};
 /** Match a selected field and the configured Schema paths beneath collections. */
 export function selectedResourceFields(
   schema: JsonSchema,
@@ -115,15 +115,10 @@ export async function validateEditableDestinations(
     ),
   );
 }
-export function count(
-  value: JsonValue | undefined,
-  fallback: number,
-  label: string,
-): number {
-  const n = value ?? fallback;
-  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0)
+export function count(value: JsonValue, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
     throw new Error(`${label} must be a nonnegative integer`);
-  return n;
+  return value;
 }
 export function segments(pointer: string): string[] {
   if (!pointer.startsWith('/')) throw new Error('Expected JSON Pointer');

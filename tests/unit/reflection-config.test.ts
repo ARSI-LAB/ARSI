@@ -121,7 +121,7 @@ test('Reflection parses one complete config, preserving per-target permissions a
     proposer: { resources: ['guidance'] },
     other: { resources: ['prompt'] },
   });
-  assert.deepEqual(parsed.budget, { modelCalls: 50 });
+  assert.deepEqual(parsed.budget, {});
   assert.deepEqual(parsed.implementation.config, {
     instructions: join(root, 'prompt.md'),
     mode: 'conservative',
@@ -137,12 +137,12 @@ test('Reflection parses one complete config, preserving per-target permissions a
     parsed.digest,
   );
 });
-test('Reflection budget has one default, optional timeout and explicit zero or larger values', async (t) => {
+test('Reflection budgets apply only when explicitly configured', async (t) => {
   const { definition, load } = await fixture(t);
   const defaults: JsonObject[] = [{}, { timeoutSeconds: 600 }];
   for (const budget of defaults) {
     const parsed = await load({ ...definition, budget });
-    assert.equal(parsed.budget.modelCalls, 50);
+    assert.equal(parsed.budget.modelCalls, undefined);
     assert.equal(
       parsed.budget.elapsedWallMs,
       'timeoutSeconds' in budget ? 600000 : undefined,
@@ -155,6 +155,7 @@ test('Reflection budget has one default, optional timeout and explicit zero or l
     );
   const invalid: JsonObject[] = [
     { modelCalls: -1 },
+    { modelCalls: null },
     { modelCalls: 1.5 },
     { modelCalls: Number.MAX_SAFE_INTEGER + 1 },
     { timeoutSeconds: 0 },
@@ -226,7 +227,7 @@ test('Reflection requires explicit registered implementation, contract and built
     implementation: { ...builtin, config: { agentRef: 'agent' } },
   });
   assert.equal(parsed.implementation.config.agentRef, 'agent');
-  assert.equal(parsed.implementation.config.maxModelCalls, 50);
+  assert.equal(parsed.implementation.config.maxModelCalls, undefined);
   assert.equal(parsed.implementation.config.maxContextBytes, undefined);
   assert.ok(
     (

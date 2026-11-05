@@ -29,8 +29,7 @@ implementation:
     evidenceView: execution
     agentRef: agent
 budget:
-  modelCalls: 50
-  timeoutSeconds: 600
+  timeoutSeconds: 3600
 ```
 
 | Field                     | Meaning                                                                                                                             |
@@ -46,6 +45,8 @@ budget:
 For `reflection.agent`, omit `prompt` to use the bundled Reflection prompt, or supply your own file. Relative resource paths in this implementation configuration resolve against the selected Reflection file. Do not configure `maxContextBytes` or `maxModelCalls` here: context handling is internal, and model calls belong in `budget.modelCalls`.
 
 Set `budget.modelCalls` to a nonnegative integer to limit model calls per invocation. Setting it to `0` prevents new model calls. Set `budget.timeoutSeconds` to a positive integer within the timer range to limit invocation time. Each omitted field leaves that dimension unrestricted by Reflection. Configured experiment and Agent limits also apply.
+
+The example above and packaged Harness² Reflection file set a 60-minute local timeout without a model-call ceiling. An Agent's configured `executionTimeoutMs` also applies when Reflection invokes `agent.pi`. Omit `budget.timeoutSeconds` when no separate Reflection deadline is needed.
 
 See the [configuration validator](../../../src/runtime/revisions/validation.ts) and [built-in example](../../../src/policies/harness2/reflection.yaml).
 

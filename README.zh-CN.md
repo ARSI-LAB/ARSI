@@ -23,7 +23,7 @@
   <a href="#architecture">工作原理</a> ·
   <a href="#installation">安装与部署</a> ·
   <a href="#usage">使用 ember-rsi</a> ·
-  <a href="#web-workspace">可视化观察台</a> ·
+  <a href="#web-workspace">查看实验进度</a> ·
   <a href="#experiment-results">实验效果</a> ·
   <a href="#user-guide">使用指南</a>
 </p>
@@ -212,17 +212,21 @@ ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --
 
 <a id="web-workspace"></a>
 
-## 🖥️ 实验可视化
+## 🖥️ 查看实验进度
 
-启动本地只读 Web 工作区，随后在浏览器打开 <http://127.0.0.1:4317> 即可查看：
+下面两个命令都要在执行 `ember-rsi run` 的同一个目录下运行。它们从该目录下的 `.rsi/` 读取实验数据。
+
+在终端查看实验状态时，把实验 ID 传给 `show`。
 
 ```sh
-ember-rsi serve --port 4317
+ember-rsi show my-harness2-task
 ```
 
-<p align="center">
-  <img src="docs/users/assets/rsi-studio-wikiskill-compact.gif" alt="ember-rsi WikiSkill 实验可视化观察台演示" width="1200">
-</p>
+也可以启动本地只读 Dashboard，然后在浏览器打开终端显示的地址，查看实验进度。
+
+```sh
+ember-rsi dashboard
+```
 
 <a id="experiment-results"></a>
 

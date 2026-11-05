@@ -78,9 +78,9 @@ RSI does not automatically load `.env` files. Export variables in the process th
 
 The optimizer Agent and the evaluated solver can use different models. In the Harness² Recipe, `bindings.evaluator.config.services.default.model` reads the required `EVALUATOR_MODEL_NAME` environment variable separately from `MODEL_NAME`, with no fixed default.
 
-The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` to request an output limit or `timeoutMs` to set a per-request deadline. When omitted, the framework supplies no limit for either setting. Choose settings supported by your endpoint.
+The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` to request an output limit, `timeoutMs` for each model request, or `executionTimeoutMs` for the complete Agent invocation. The execution timeout includes model requests, tool calls, output correction, context compaction and retry backoff; it does not reset between requests. These fields have no implicit limits. Both timeout fields accept integer milliseconds from `1` to `2147483647`. Choose settings supported by your endpoint.
 
-Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
+Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget or extend its parent's execution deadline. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
 
 To use the installed Codex CLI and its existing local login, provider, model and reasoning configuration, replace the Agent binding with:
 
@@ -127,21 +127,14 @@ bindings:
     plugin: agent.pi
     config:
       thinkingLevel: low
-      maxTokens: 32768
-      timeoutMs: 600000
-  memoryUpdater:
-    config:
-      maxModelCalls: 24
-  selector:
-    config:
-      maxModelCalls: 24
+      timeoutMs: 1800000
+      executionTimeoutMs: 3600000
   evaluator:
     plugin: evaluator.agentbench
     config:
       services:
         default:
           model: ${EVALUATOR_MODEL_NAME}
-          maxTokens: 65536
           base_url: ${MODEL_ENDPOINT}
           api_key: ${MODEL_API_KEY}
       benchmark:
@@ -155,14 +148,10 @@ bindings:
       run:
         timeoutSeconds: 4500
 budget:
-  operations: 1400
-  evaluationRuns: 4
-  modelCalls: 1400
   elapsedWallMs: 259200000
-  cleanupReserveMs: 60000
 ```
 
-Place it beside the [Harness² baseline and Target](../../../examples/harness/dsh-harness2/README.md), and replace the model with one your endpoint supports. The evaluator model must support the configured output limit. Each experiment budget applies only when its field is set. Omit `elapsedWallMs` to run without an experiment deadline and `cleanupReserveMs` to let cleanup finish without its own deadline.
+Place it beside the [Harness² baseline and Target](../../../examples/harness/dsh-harness2/README.md), and replace the model with one your endpoint supports. The example retains the 4,500-second evaluator task timeout and 72-hour experiment wall budget. Pi uses a 30-minute request timeout and 60-minute execution timeout. Model-call and output-token ceilings are omitted.
 
 Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy.config`. Goals and the delivery rubric are defined by the Policy; `goals` and `deliveryRubric` are not accepted configuration fields. `k` controls exploration slots; `concurrency` limits concurrent Policy branches. The Evaluator scheduler has a separate concurrency setting. With fixed `k`, the current flow makes `4 × k × task count` evaluator calls (base, invariant, domain, composition); one evaluator call can contain multiple tasks in other Policies.
 
@@ -170,7 +159,11 @@ Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy
 
 ### Configure former defaults
 
-Use these paths to retain a former framework default or set your own value. Recipe paths use the binding names in the examples. A custom Policy can also declare plugin configuration under `defaults.bindings.<binding>.config`. Settings inherited from a Policy still apply. Harness² sets 24 calls for each proposal and composition binding, WikiSkill sets 24 for its proposer, and the packaged Harness² Reflection file sets 50 calls and 600 seconds per invocation. Model-call limits rely on a backend with authoritative request accounting, such as `agent.pi`. Native `agent.codex` reports the request count as unavailable and supports the duration limits shown below.
+Use these paths to opt into a limit. Recipe paths use the binding names in the examples. A custom Policy can also declare plugin configuration under `defaults.bindings.<binding>.config`. User-configured limits still apply, including those inherited from a custom Policy.
+
+Both bundled Recipes set Pi's `timeoutMs: 1800000` and `executionTimeoutMs: 3600000`. Harness² retains its 4,500-second evaluator task timeout and 72-hour experiment wall budget; WikiSkill retains 3,600 seconds per evaluator task and a 48-hour experiment wall budget. The packaged Harness² Reflection file sets `budget.timeoutSeconds: 3600`. None of these configurations sets a model-call or output-token ceiling.
+
+Backend and model-service defaults remain for omitted settings. Pi's underlying HTTP client uses a 10-minute timeout when `timeoutMs` is omitted. The Evaluator SDK uses its selected profile or fallback task timeout when `run.timeoutSeconds` is omitted. Model-call limits require authoritative request accounting, such as `agent.pi`; native `agent.codex` reports that count as unavailable.
 
 | Location | Field | Former framework value | What it limits |
 | --- | --- | --- | --- |
@@ -178,6 +171,7 @@ Use these paths to retain a former framework default or set your own value. Reci
 | Recipe | `budget.modelCalls` | Already explicit | Total model calls charged by accounting-capable backends. Pi includes its subagents and corrections. Native Codex reports this count as unavailable. |
 | Recipe | `bindings.agent.config.maxTokens` (`agent.pi`) | `32768` | Model output tokens per request. The value must fit `contextWindow`. |
 | Recipe | `bindings.agent.config.timeoutMs` | `600000` for Pi. Native Codex uses an explicit timeout only. | Per-request time for `agent.pi`, or complete-call time for `agent.codex`. |
+| Recipe | `bindings.agent.config.executionTimeoutMs` (`agent.pi`) | No implicit limit | Complete Agent invocation, including tools, corrections, compaction, retry backoff and awaited subagents. Parent deadlines also cancel descendants. |
 | Recipe | `bindings.<binding>.config.maxModelCalls` (`proposer.agent`, `memory.agent`, `selector.artifact`) | `24` after normal Recipe loading | Model calls per Agent invocation when the backend can account for requests, including `agent.pi`. For a Policy step that directly invokes `contract.agent`, set `steps[].with.maxModelCalls` instead. Pi subagents inherit an explicit per-session cap. |
 | Recipe | `bindings.evaluator.config.services.<service>.maxTokens` (`evaluator.agentbench`) | `65536` | Output tokens per model turn for the selected evaluator service. |
 | Recipe | `application.config.remote.timeoutMs`, `application.config.healthcheck.timeoutMs` | `600000` for remote commands and remote readiness, `120000` for local readiness | Remote readiness inherits an explicitly set remote timeout unless overridden by the health check field. |
@@ -216,12 +210,12 @@ The default store is `.rsi/` under the current directory. Completed calls can re
 ### Web observation
 
 ```sh
-ember-rsi serve --port 4317
+ember-rsi dashboard --port 4317
 ```
 
-Open `http://127.0.0.1:4317`. The built Web UI is a **read-only observation workspace** for experiment lists, summaries, candidates, measurements, calls, and charts. Start, resume, and cancel experiments through the CLI; the current UI has no Recipe editor, start button, or cancellation button. Separate CLI and server processes use the same on-disk store when started from the same directory.
+Run this command from an experiment workspace containing a `.rsi` directory. Open the address printed by the dashboard. The built Web UI is a **read-only observation workspace** for experiment lists, summaries, candidates, measurements, calls, and charts. Start, resume, and cancel experiments through the CLI; the current UI has no Recipe editor, start button, or cancellation button. Separate CLI and server processes use the same on-disk store when started from the same directory.
 
-`pnpm dev:web` starts Vite development mode and proxies `/api` to port 4317 by default; it needs a backend. `serve` serves built assets. The server listens on loopback and checks Host/Origin; it does not provide user authentication for a public deployment.
+`pnpm dev:web` starts Vite development mode and proxies `/api` to port 4317 by default; it needs a backend. `dashboard` serves built assets. The server listens on loopback and checks Host/Origin; it does not provide user authentication for a public deployment.
 
 ## 3. Customize bindings and plugins
 

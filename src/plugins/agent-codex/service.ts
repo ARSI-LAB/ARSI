@@ -64,6 +64,7 @@ export const createAgentCodex: OperationDefinition<
           executable: config.executable,
           directory,
           model: config.model,
+          reasoningEffort: config.thinkingLevel,
           request,
           signal,
           record,

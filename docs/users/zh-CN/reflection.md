@@ -29,8 +29,7 @@ implementation:
     evidenceView: execution
     agentRef: agent
 budget:
-  modelCalls: 50
-  timeoutSeconds: 600
+  timeoutSeconds: 3600
 ```
 
 | 字段                      | 含义                                                                                 |
@@ -46,6 +45,8 @@ budget:
 对于 `reflection.agent`，省略 `prompt` 时使用随包提供的 Reflection 提示词，也可以提供自己的文件。实现配置中的相对资源路径以选中的 Reflection 文件为基准。不要在这里配置 `maxContextBytes` 或 `maxModelCalls`：上下文处理由框架负责，模型调用限制应放在 `budget.modelCalls`。
 
 将 `budget.modelCalls` 设为非负整数可限制单次 Reflection 的模型调用次数，设为 `0` 会阻止新增模型调用。将 `budget.timeoutSeconds` 设为计时器范围内的正整数可限制单次执行时间。省略哪个字段，Reflection 就不施加对应的局部上限。已配置的实验和 Agent 限制也会生效。
+
+上面的示例和随包提供的 Harness² Reflection 文件均设置 60 分钟局部超时，不设置模型调用次数上限。Reflection 调用 `agent.pi` 时，Agent 中显式配置的 `executionTimeoutMs` 也会生效。不需要独立的 Reflection 截止时间时，可省略 `budget.timeoutSeconds`。
 
 源码见 [配置校验器](../../../src/runtime/revisions/validation.ts) 和 [内置示例](../../../src/policies/harness2/reflection.yaml)。
 

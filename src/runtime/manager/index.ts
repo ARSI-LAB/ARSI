@@ -261,13 +261,13 @@ export class Manager {
     cancellationPoll.unref();
     const started = Date.now();
     let experimentStartedAt = new Date(started).toISOString();
-    const timeout = AbortSignal.timeout(
-      recipe.budget.elapsedWallMs ?? 86400000,
-    );
+    const elapsedWallMs = recipe.budget.elapsedWallMs;
     let signal = AbortSignal.any([
       controller.signal,
       stopping.signal,
-      timeout,
+      ...(elapsedWallMs === undefined || options.resume
+        ? []
+        : [AbortSignal.timeout(elapsedWallMs)]),
       ...(options.signal ? [options.signal] : []),
     ]);
     const registrations = new Map<string, () => void>();
@@ -279,7 +279,7 @@ export class Manager {
     // Definition locking can fail before the call executor is assembled.
     let activeCalls: CallExecutor | undefined;
     let services: RuntimeContext;
-    const cleanupMs = recipe.budget.cleanupReserveMs ?? 60000;
+    const cleanupMs = recipe.budget.cleanupReserveMs;
     let acceptingBusiness = true;
     let terminalSaveAttempted = false;
     let terminal: 'succeeded' | 'failed' | 'cancelled' | undefined;
@@ -691,15 +691,15 @@ export class Manager {
           typeof previous.startedAt === 'string'
             ? previous.startedAt
             : experimentStartedAt;
-        const remaining =
-          (recipe.budget.elapsedWallMs ?? 86400000) -
-          (Date.now() - Date.parse(experimentStartedAt));
-        if (remaining <= 0)
-          throw new Error('Experiment wall-time budget exceeded');
-        signal = AbortSignal.any([
-          signal,
-          AbortSignal.timeout(Math.ceil(remaining)),
-        ]);
+        if (elapsedWallMs !== undefined) {
+          const elapsed = Date.now() - Date.parse(experimentStartedAt);
+          if (!Number.isFinite(elapsed))
+            throw new Error('Invalid persisted experiment start time');
+          const remaining = elapsedWallMs - Math.max(0, elapsed);
+          if (remaining <= 0)
+            throw new Error('Experiment wall-time budget exceeded');
+          signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
+        }
         initial = object(previous.application);
         restore = await checkpoints.restore();
         await this.facts.write('controls', id, {

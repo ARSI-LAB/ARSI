@@ -88,6 +88,94 @@ async function fixture(t: TestContext, definition: OperationDefinition) {
   return { instances, events, registry, facts, context };
 }
 
+test('call recovery retries only explicitly reconciled failures and preserves receipts and charges', async (t) => {
+  for (const scenario of [
+    'failed',
+    'unknown',
+    'cancelled',
+    'running',
+    'declined',
+    'unsupported',
+  ]) {
+    await t.test(scenario, async (t) => {
+      let executions = 0;
+      let retries = 0;
+      let charges = 0;
+      const definition: OperationDefinition = {
+        id: 'instance.reconciled',
+        contract,
+        configSchema: { type: 'object' },
+        async create() {
+          return {
+            ...(scenario === 'unsupported'
+              ? {}
+              : {
+                  canRetry: async () => {
+                    retries++;
+                    return scenario !== 'declined';
+                  },
+                }),
+            async execute() {
+              if (++executions === 1) throw new Error('failed before effect');
+              return { recovered: true };
+            },
+            async dispose() {},
+          };
+        },
+      };
+      const { instances, registry, facts, context } = await fixture(
+        t,
+        definition,
+      );
+      const binding = { plugin: definition.id, config: {} };
+      const executor = () =>
+        createCallExecutor({
+          id: 'exp-instance',
+          registry,
+          facts,
+          revisionRefs: {},
+          context,
+          binding: () => binding,
+          operation: (id, active) => instances.acquire(id, active),
+          charge: async () => {
+            charges++;
+          },
+          diagnose: () => {},
+          onFailure: () => {},
+        });
+      const invoke = () =>
+        executor().invoke('worker', {}, context('_root', 'root'), 'recover');
+      await assert.rejects(invoke(), /failed before effect/);
+      const prior = (await facts.list('calls'))[0]!;
+      const status = ['declined', 'unsupported'].includes(scenario)
+        ? 'failed'
+        : scenario;
+      await facts.write('calls', String(prior.callId), { ...prior, status });
+      if (scenario === 'failed') {
+        assert.deepEqual(await invoke(), { recovered: true });
+        assert.deepEqual(await invoke(), { recovered: true });
+        assert.equal(executions, 2);
+        assert.equal(charges, 2);
+        assert.equal(retries, 1);
+        assert.deepEqual(await facts.list('call-attempts'), [prior]);
+        const current = await facts.read('calls', String(prior.callId));
+        assert.equal(current.status, 'succeeded');
+        assert.equal(typeof current.recoveredFrom, 'string');
+      } else {
+        await assert.rejects(invoke(), /unconfirmed\/failed effects/);
+        assert.equal(executions, 1);
+        assert.equal(charges, 1);
+        assert.equal(retries, scenario === 'declined' ? 1 : 0);
+        assert.deepEqual(await facts.list('call-attempts'), []);
+        assert.equal(
+          (await facts.read('calls', String(prior.callId))).status,
+          status,
+        );
+      }
+    });
+  }
+});
+
 test('failed creation revokes staged subscriptions and closes the factory context', async (t) => {
   let event!: EventPipeline;
   let deliveries = 0;

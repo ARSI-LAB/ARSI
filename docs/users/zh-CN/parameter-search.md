@@ -24,7 +24,7 @@ python3.11 -m venv .scratch/optuna-venv
 RSI_OPTUNA_PYTHON="$PWD/.scratch/optuna-venv/bin/python" node --import tsx --test tests/integration/optuna-worker.test.ts
 ```
 
-使用已安装的包时，依赖文件位于 `node_modules/ember-rsi/dist/src/plugins/proposer-optuna/python/requirements.txt`。将 `python.executable` 指向该环境的解释器；含 `/` 的可执行路径应使用绝对路径，单独的命令名通过 PATH 查找。RSI 不会自动安装 Python 依赖。查询目录和 Recipe Schema 校验不会启动 Python；实验初始化会在首次评测前检查解释器以及固定版本的 Optuna、NumPy。
+使用已安装的包时，依赖文件位于 `node_modules/ember-rsi/dist/src/plugins/proposer-optuna/python/requirements.txt`。将 `python.executable` 指向该环境的解释器；含 `/` 的可执行路径应使用绝对路径，单独的命令名通过 PATH 查找。可设置 `python.timeoutMs` 来限制单次 worker 调用的用时。RSI 不会自动安装 Python 依赖。查询目录和 Recipe Schema 校验不会启动 Python；实验初始化会在首次评测前检查解释器以及固定版本的 Optuna、NumPy。
 
 上述 Python 测试命令显式调用真实 Optuna 运行合成输入检查，包括历史重放；Node.js 测试将真实 worker 输出交给 TypeScript 参数校验。默认 `pnpm check` 使用不依赖 Python 的本地确定性测试。运行 `pnpm check:package` 时设置 `RSI_OPTUNA_PYTHON`，还能在源码目录之外验证安装包中的 Python worker。
 
@@ -95,6 +95,6 @@ Selector 配置是目标指标、方向、负载点、统计量和 SLO 约束的
 
 Proposer 通过 [contract.proposer-parameter-search](../../../src/contracts/plugin-types/proposer-parameter-search.ts) 实现 `initialize`、`suggest` 和 `observe`。不可变搜索状态存入 `.rsi/artifacts/`，Policy 检查点保存最新的 `stateRef`。Python 重放历史 ask/tell 以重建 Study，再生成下一组建议。同时只允许一个待评测 trial，相同反馈重复提交不会增加观察。搜索配置、worker 身份、环境版本、目标或比较条件变化时，不能静默复用不兼容的历史。
 
-重复参数组合会记录并跳过，不再执行评测。每次建议最多尝试采样 32 次，整个搜索还受 `maxSamplingAttempts` 限制（默认和最大值均为 1,000）。`maxTrials` 限制新增评测次数（默认 50，最大 1,000），Manager 的操作、评测和墙钟预算可能更早结束实验。Python 采样及重复尝试同样消耗墙钟时间。
+重复参数组合会记录并跳过，不再执行评测。Proposer 的可选字段 `maxSamplingAttempts` 限制总采样次数，包含重复采样。Optuna Policy 的 `maxTrials` 限制新增评测次数（默认 50，最大 1,000），grid Policy 的 `maxCandidates` 限制网格评测次数（默认 1,000，最大 100,000）。搜索可在穷尽有限空间或达到适用上限时结束。Python 采样及重复尝试计入已配置的实验墙钟预算。
 
 结果包含最优可行候选的 `candidateRef`、`measurementRef`、`parameters`，全部测量引用 `measurementRefs` 和 `searchStateRef`。停止原因包括 `max-trials`、`search-exhausted`、`sampling-limit`；采样达到上限不代表已经穷尽空间。没有可行结果时返回 `no-feasible-configuration`，最优候选字段为空。选择结果本身不能证明统计意义上的性能改善，应在声称改善前复测所选配置。

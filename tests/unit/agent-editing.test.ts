@@ -12,6 +12,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext } from '../../src/contracts/index.js';
 import { applyEdits } from '../../src/plugins/shared/agent-editing/index.js';
+import {
+  checkTarget,
+  parseTarget,
+} from '../../src/plugins/shared/file-application/target.js';
 const context: RuntimeContext = new RuntimeContext().extend({
   experimentId: 'test',
   callId: 'test',
@@ -35,14 +39,78 @@ test('resource edit validation rejects the entire plan before writing any file',
         { path: 'first.md', content: 'changed' },
         { path: '../outside.md', content: 'invalid' },
       ],
-      [
-        { path: 'first.md', content: 'changed' },
-        { path: 'large.md', content: 'x'.repeat(131073) },
-      ],
     ]) {
       await assert.rejects(applyEdits(root, { edits }, context));
       assert.equal(await readFile(join(root, 'first.md'), 'utf8'), 'original');
     }
+    await assert.rejects(
+      applyEdits(
+        root,
+        { edits: [{ path: 'first.md', content: 'changed' }] },
+        context,
+        {
+          maxChangedBytes: 1,
+        },
+      ),
+      /byte limit/,
+    );
+    assert.equal(await readFile(join(root, 'first.md'), 'utf8'), 'original');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('editor and Target accept many large changes when limits are omitted', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-edit-optional-limits-'));
+  try {
+    const content = 'x'.repeat(1024 * 1024 + 1);
+    const edits = [
+      { path: 'files/large.md', content },
+      ...Array.from({ length: 32 }, (_, i) => ({
+        path: `files/${i}.md`,
+        content: 'new',
+      })),
+    ];
+    await applyEdits(root, { edits }, context);
+    assert.equal(
+      (await readFile(join(root, 'files/large.md'))).length,
+      content.length,
+    );
+    const after = Object.fromEntries(
+      edits.map(({ path, content }) => [
+        path,
+        { content: Buffer.from(content).toString('base64'), mode: 0o644 },
+      ]),
+    );
+    const target = parseTarget({
+      schemaVersion: 'rsi.target/v1',
+      id: 'test',
+      entries: [
+        {
+          path: 'files',
+          description: 'Editable files',
+          kind: 'directory',
+          changes: ['create'],
+        },
+      ],
+    });
+    assert.equal(checkTarget({}, after, target).length, 33);
+    assert.throws(
+      () => checkTarget({}, after, { ...target, maxChangedFiles: 32 }),
+      /maxChangedFiles/,
+    );
+    assert.throws(
+      () => checkTarget({}, after, target, { maxChangedBytes: 1024 }),
+      /maxChangedBytes/,
+    );
+    assert.throws(
+      () =>
+        checkTarget({}, after, {
+          ...target,
+          entries: [{ ...target.entries[0]!, maxBytes: 1024 }],
+        }),
+      /content size/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

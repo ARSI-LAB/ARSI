@@ -27,7 +27,7 @@ import {
   assignPointer,
   pointerValue,
 } from '../../src/runtime/revisions/resources.js';
-import { object, string } from '../../src/shared/json.js';
+import { canonical, object, string } from '../../src/shared/json.js';
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-revisions-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -411,19 +411,6 @@ test('local generator failures, invalid edits and budgets preserve activation; g
   const cases: Array<[Record<string, string | null>, RegExp]> = [
     [{ 'bindings/a/resources/prompt': 'unauthorized' }, /outside authorized/],
     [{ 'bindings/a/resources/guidance/initial.md': null }, /delete denied/],
-    [
-      { 'bindings/a/resources/guidance/large.md': 'x'.repeat(65537) },
-      /byte limit/,
-    ],
-    [
-      Object.fromEntries(
-        Array.from({ length: 17 }, (_, index) => [
-          `bindings/a/resources/guidance/${index}.md`,
-          'rule',
-        ]),
-      ),
-      /changed-file limit/,
-    ],
   ];
   for (const [index, [edits, expected]] of cases.entries()) {
     await f.observe();
@@ -482,6 +469,71 @@ test('local generator failures, invalid edits and budgets preserve activation; g
     }),
     /cancelled experiment/,
   );
+});
+test('Reflection accepts authorized edits beyond the former implicit file and byte limits', async (t) => {
+  const f = await fixture(t);
+  await f.observe();
+  const result = await reflect({
+    ...f.options,
+    invoke: async (_binding, input) =>
+      f.proposed(
+        input,
+        Object.fromEntries(
+          Array.from({ length: 17 }, (_, index) => [
+            `bindings/a/resources/guidance/${index}.md`,
+            'x'.repeat(index === 0 ? 131073 : 1),
+          ]),
+        ),
+      ),
+  });
+  assert.equal(result.status, 'activated');
+});
+test('a prepared Reflection with legacy edit limits replays its original input', async (t) => {
+  const f = await fixture(t);
+  await f.observe();
+  let prepared: JsonObject = {};
+  const original = await reflect({
+    ...f.options,
+    invoke: async (_binding, _input, _key, scope) => {
+      prepared = await f.facts.read('reflection', scope.id);
+      return { status: 'no-change', proposal: null, reason: 'unchanged' };
+    },
+  });
+  const tree = parseFileTree(
+    await f.artifacts.readJson(string(prepared.resourceRef)),
+  );
+  const manifestFile = tree.files.find(
+    (file) => file.path === 'manifest.json',
+  )!;
+  const manifest = object(
+    JSON.parse(Buffer.from(manifestFile.base64, 'base64').toString('utf8')),
+  );
+  for (const entry of Object.values(manifest)) object(entry).maxBytes = 65536;
+  manifestFile.base64 = Buffer.from(canonical(manifest)).toString('base64');
+  const resourceRef = await f.artifacts.putJson(tree);
+  const input = object(prepared.input);
+  const legacyInput = {
+    ...input,
+    resourceRef,
+    editConstraints: {
+      ...object(input.editConstraints),
+      maxChangedFiles: 16,
+      maxChangedBytes: 131072,
+    },
+  };
+  await f.facts.write('reflection', original.reflectionId, {
+    ...prepared,
+    resourceRef,
+    input: legacyInput,
+  });
+  const recovered = await reflect({
+    ...f.options,
+    invoke: async (_binding, input) => {
+      assert.deepEqual(input, legacyInput);
+      return { status: 'no-change', proposal: null, reason: 'replayed' };
+    },
+  });
+  assert.equal(recovered.reason, 'replayed');
 });
 test('prepared recovery reuses frozen evidence/resources and a committed activation does not regenerate or roll back', async (t) => {
   const f = await fixture(t);

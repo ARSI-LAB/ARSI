@@ -1,5 +1,7 @@
 # DSH WikiSkill on Terminal-Bench 4.0
 
+The baseline Bundle starts with an empty prompt and no skills.
+
 This example uses ten distinct, explicit Terminal-Bench 4.0 task IDs: six for training, two for validation and two for final independent testing. Edit the three task ID lists in recipe.yaml to change the split. WikiSkill checks for duplicates across the lists before evaluation. Repeated rounds evaluate the same selected tasks; ten is the number of distinct tasks, not the number of task attempts.
 
 Task IDs follow the task.name values at the [Evaluator profile's pinned source commit](https://github.com/harbor-framework/terminal-bench/tree/452bf305c6daa62fc59061d22133a7cbc7c1572e/tasks). The split is a small workflow example, not a representative random sample.

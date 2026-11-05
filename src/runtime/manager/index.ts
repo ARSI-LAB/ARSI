@@ -199,7 +199,6 @@ export class Manager {
           throw new Error('Unsupported experiment definition lock');
         await restoreDefinition(
           locked,
-          this.options.registry,
           this.artifacts,
           join(this.directory, 'experiments', id, 'resources'),
         );

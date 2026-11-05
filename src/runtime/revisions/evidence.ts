@@ -19,8 +19,10 @@ import {
 } from '../services/facts/evidence.js';
 import { projectEvidenceFiles } from '../services/facts/evidence-files.js';
 import { safeId } from '../storage/index.js';
+import type { EvidenceCall } from './evidence-window.js';
+import { selectEvidenceWindow, asObject, finished } from './evidence-window.js';
 
-interface EvidenceOptions {
+export interface EvidenceOptions {
   context: RuntimeContext;
   names: string[];
   identity: string;
@@ -41,249 +43,37 @@ export interface ReflectionEvidence {
   callCount: number;
   callIds: string[];
 }
-interface Call {
-  record: JsonObject;
-  input: JsonObject;
-  output: JsonObject;
-  frame: string;
-  parent: string;
-}
-const asObject = (value: JsonValue | undefined): JsonObject =>
-  value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value
-    : {};
-const terminal = (record: JsonObject): boolean =>
-  ['succeeded', 'failed', 'cancelled', 'unknown'].includes(
-    String(record.status),
-  );
-const finished = (record: JsonObject): number =>
-  Date.parse(String(record.finishedAt));
-const task = (call: Call): JsonValue => {
+function task(call: EvidenceCall): JsonValue {
   const value = call.input.taskId ?? call.input.task ?? call.input.dataset;
   return typeof value === 'string' || typeof value === 'number' ? value : null;
-};
-function safeText(
-  value: JsonValue,
-  format: 'json' | 'text' | 'jsonl' = 'json',
-): string {
-  let projectedNodes = 0;
-  const project = (raw: JsonValue, depth = 0): JsonValue => {
-    if (depth > 64 || ++projectedNodes > 200000)
-      return '[omitted-depth-or-size]';
-    if (typeof raw === 'string' && /^[\s]*[\[{]/.test(raw)) {
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        json(parsed);
-        if (parsed !== null && typeof parsed === 'object')
-          return canonical(project(parsed, depth + 1));
-      } catch {
-        /* Ordinary non-JSON evidence remains text. */
-      }
-    }
-    if (Array.isArray(raw))
-      return raw.map((entry) => project(entry, depth + 1));
-    if (raw !== null && typeof raw === 'object') {
-      if (
-        raw.view === 'training-summary' ||
-        raw.schemaVersion === 'rsi.evaluation-feedback/v1'
-      )
-        return '[scoring-side feedback omitted from execution projection]';
-      return Object.fromEntries(
-        Object.entries(raw)
-          .filter(
-            ([key]) =>
-              !/^(?:evaluation|evaluationFeedback|trainingSummary|datasetHints?|returnedHints?|gradingDiagnostics|feedback)$/i.test(
-                key,
-              ),
-          )
-          .map(([key, entry]) => [key, project(entry, depth + 1)]),
-      );
-    }
-    return raw;
-  };
-  const content =
-    format === 'jsonl' && typeof value === 'string'
-      ? value
-          .split('\n')
-          .map((line) => {
-            try {
-              const parsed: unknown = JSON.parse(line);
-              json(parsed);
-              return canonical(project(parsed));
-            } catch {
-              return line;
-            }
-          })
-          .join('\n')
-      : typeof value === 'string' && format === 'text'
-        ? value
-        : canonical(project(value));
-  return fullEvidenceText(content, format).text;
 }
+
 /** A persisted, scope-local trigger snapshot. References, not arbitrary strings, authorize expansion. */
 export async function collectReflectionEvidence(
   options: EvidenceOptions,
 ): Promise<ReflectionEvidence> {
   const { context } = options;
-  context.signal?.throwIfAborted();
-  const policyScopeId = options.policyScopeId ?? '';
-  const moduleKey = options.moduleKey ?? '';
-  if (options.priorRef) {
-    const saved = await context.facts.read('evidence-views', options.priorRef);
-    if (
-      saved.experimentId !== context.experimentId ||
-      saved.view !== 'reflection-observations/v1' ||
-      saved.boundaryId !== options.identity ||
-      saved.policyScopeId !== policyScopeId ||
-      saved.moduleKey !== moduleKey ||
-      saved.configDigest !== (options.configDigest ?? null) ||
-      saved.evidenceView !== (options.view ?? 'execution')
-    )
-      throw new Error('Reflection evidence snapshot ownership mismatch');
-    return {
-      ref: options.priorRef,
-      callCount: Number(saved.callCount),
-      callIds: strings(saved.callIds),
-    };
-  }
-  const cutoff = Date.parse(options.capturedAt);
-  if (!Number.isFinite(cutoff))
-    throw new Error('Invalid evidence boundary time');
-  const snapshots = await context.facts.list('evidence-views');
-  const prepared = snapshots.filter(
-    (record) =>
-      record.experimentId === context.experimentId &&
-      record.view === 'reflection-observations/v1' &&
-      record.policyScopeId === policyScopeId &&
-      record.moduleKey === moduleKey &&
-      record.boundaryId === options.identity,
-  );
-  if (prepared.length) {
-    const refs = new Set(
-      prepared.map((record) => 'evidence-' + digest(record)),
-    );
-    if (
-      refs.size !== 1 ||
-      prepared[0]!.capturedAt !== options.capturedAt ||
-      prepared[0]!.configDigest !== (options.configDigest ?? null) ||
-      prepared[0]!.evidenceView !== (options.view ?? 'execution')
-    )
-      throw new Error(
-        'Reflection invocation has inconsistent persisted evidence snapshots',
-      );
-    return {
-      ref: [...refs][0]!,
-      callCount: Number(prepared[0]!.callCount),
-      callIds: strings(prepared[0]!.callIds),
-    };
-  }
-  const previous = snapshots.filter(
-    (record) =>
-      record.experimentId === context.experimentId &&
-      record.view === 'reflection-observations/v1' &&
-      record.policyScopeId === policyScopeId &&
-      record.moduleKey === moduleKey &&
-      record.boundaryId !== options.identity &&
-      Date.parse(String(record.capturedAt)) <= cutoff,
-  );
-  const triggers = (await context.facts.list('reflection')).filter(
-    (record) =>
-      record.experimentId === context.experimentId &&
-      record.policyScopeId === policyScopeId &&
-      record.configFile === moduleKey &&
-      (options.configDigest === undefined ||
-        record.configDigest === options.configDigest) &&
-      record.reflectionId !== options.identity &&
-      asObject(record.result).reflectionId !== options.identity &&
-      (options.stepPath === undefined ||
-        record.stepPath !== options.stepPath) &&
-      Number.isFinite(Date.parse(String(record.startedAt))) &&
-      Date.parse(String(record.startedAt)) <= cutoff,
-  );
-  const previousTrigger = triggers.reduce(
-    (latest, record) => Math.max(latest, Date.parse(String(record.startedAt))),
-    -Infinity,
-  );
-  const windowStart = previous.reduce(
-    (latest, record) => Math.max(latest, Date.parse(String(record.capturedAt))),
-    previousTrigger,
-  );
-  const admitted = new Map<string, JsonObject>();
-  for (const snapshot of previous)
-    for (const id of strings(snapshot.callIds))
-      admitted.set(id, {
-        boundaryId: snapshot.boundaryId ?? null,
-        capturedAt: snapshot.capturedAt ?? null,
-      });
   const diagnostics: JsonObject[] = [];
   const note = (code: string, callId?: JsonValue): void => {
     if (diagnostics.length < 128)
       diagnostics.push({ code, callId: callId ?? null });
   };
-  const calls: Call[] = [];
-  const allRecords = (await context.facts.list('calls')).filter(
-    (record) => record.experimentId === context.experimentId,
-  );
-  const byId = new Map(
-    allRecords.map((record) => [String(record.callId), record]),
-  );
-  const inScope = (record: JsonObject): boolean => {
-    if (!policyScopeId || policyScopeId === 'root') return true;
-    const visited = new Set<string>();
-    let current: JsonObject | undefined = record;
-    while (
-      current &&
-      typeof current.parentCallId === 'string' &&
-      !visited.has(current.parentCallId)
-    ) {
-      if (current.parentCallId === policyScopeId) return true;
-      visited.add(current.parentCallId);
-      current = byId.get(current.parentCallId);
-    }
-    return false;
-  };
-  for (const record of allRecords) {
-    context.signal?.throwIfAborted();
-    if (!inScope(record)) continue;
-    if (
-      options.names.includes(String(record.bindingId)) &&
-      terminal(record) &&
-      !Number.isFinite(finished(record))
-    )
-      note('terminal-call-completion-time-unavailable', record.callId);
-    if (
-      record.experimentId !== context.experimentId ||
-      !terminal(record) ||
-      !Number.isFinite(finished(record)) ||
-      finished(record) > cutoff
-    )
-      continue;
-    const path = typeof record.path === 'string' ? record.path : '';
-    calls.push({
-      record,
-      input: asObject(record.input),
-      output: asObject(record.output),
-      frame: path.split('/').slice(0, -1).join('/'),
-      parent:
-        typeof record.parentCallId === 'string' ? record.parentCallId : '',
-    });
-  }
-  calls.sort(
-    (a, b) =>
-      finished(a.record) - finished(b.record) ||
-      String(a.record.callId).localeCompare(String(b.record.callId)),
-  );
-  const selected = calls.filter(
-    (call) =>
-      options.names.includes(String(call.record.bindingId)) &&
-      finished(call.record) > windowStart,
-  );
-  const primaryIds = selected.map((call) => string(call.record.callId));
+  const window = await selectEvidenceWindow(options, note);
+  if (window.kind === 'saved') return window.evidence;
+  const {
+    calls,
+    selected,
+    admitted,
+    windowStart,
+    cutoff,
+    primaryIds,
+    policyScopeId,
+    moduleKey,
+  } = window;
   const files: JsonObject = {};
   const sourceTextPaths = new Map<string, string>();
   const entries: JsonObject[] = [];
   const lateResults: JsonObject[] = [];
-  const comparisons: JsonObject[] = [];
   const included = new Set<string>();
   const seenMeasurements = new Set<string>();
   const measurements: JsonObject[] = [];
@@ -423,7 +213,7 @@ export async function collectReflectionEvidence(
     }
   };
   const addCall = async (
-    call: Call,
+    call: EvidenceCall,
     role: string,
     origin: JsonObject = {},
   ): Promise<void> => {
@@ -611,184 +401,191 @@ export async function collectReflectionEvidence(
       }
     }
   }
-  const revisionFiles = new Set<string>();
-  for (const binding of options.names) {
-    const bindingCalls = selected.filter(
-      (call) => call.record.bindingId === binding,
-    );
-    const latestObserved = bindingCalls.at(-1);
-    const currentRef =
-      options.currentRevisionRefs?.[binding] ??
-      latestObserved?.record.revisionRef;
-    if (typeof currentRef !== 'string') continue;
-    const revision = await context.facts.read('revisions', currentRef);
-    if (
-      revision.experimentId !== context.experimentId ||
-      revision.binding !== binding
-    ) {
-      note(
-        'revision-comparison-ownership-unavailable',
-        latestObserved?.record.callId,
+  /** Compare observed revision calls and resource contents without claiming causality. */
+  const collectRevisionComparisons = async (): Promise<JsonObject[]> => {
+    const comparisons: JsonObject[] = [];
+    const revisionFiles = new Set<string>();
+    for (const binding of options.names) {
+      const bindingCalls = selected.filter(
+        (call) => call.record.bindingId === binding,
       );
-      continue;
-    }
-    const currentCall = bindingCalls
-      .filter(
-        (call) =>
-          call.record.revisionRef === currentRef ||
-          (call.record.revisionRef == null && revision.kind === 'initial'),
-      )
-      .at(-1);
-    const parent =
-      typeof revision.parentRef === 'string'
-        ? await context.facts.read('revisions', revision.parentRef)
-        : null;
-    if (!parent) continue;
-    if (
-      parent.experimentId !== context.experimentId ||
-      parent.binding !== binding
-    ) {
-      note(
-        'parent-revision-comparison-ownership-unavailable',
-        currentCall?.record.callId,
-      );
-      continue;
-    }
-    const priorCalls = (currentCall ? calls : bindingCalls).filter(
-      (call) =>
-        call.record.bindingId === binding &&
-        (call.record.revisionRef === parent.ref ||
-          (call.record.revisionRef == null && parent.kind === 'initial')) &&
-        (!currentCall || finished(call.record) <= finished(currentCall.record)),
-    );
-    const previousCall = priorCalls.at(-1);
-    if (currentCall && previousCall)
-      await addCall(previousCall, 'retrospective-comparison');
-    const comparison: JsonObject = {
-      binding,
-      revisionRef: revision.ref ?? currentRef,
-      parentRevisionRef: parent.ref ?? null,
-      callId: currentCall?.record.callId ?? null,
-      previousCallId: previousCall?.record.callId ?? null,
-      beforeExecution: previousCall ? 'available' : 'not-in-window',
-      afterExecution: currentCall ? 'available' : 'not-in-window',
-      resourceOnly: !currentCall,
-      taskComparison:
-        !currentCall ||
-        !previousCall ||
-        task(currentCall) === null ||
-        task(previousCall) === null
-          ? 'unknown'
-          : canonical(task(currentCall)) === canonical(task(previousCall))
-            ? 'same'
-            : 'different',
-      limitation: currentCall
-        ? 'Observational comparison; task and input differences limit causal attribution.'
-        : 'No current-version execution call is included in this window. Resource differences do not establish after-change execution or benefit.',
-    };
-    comparisons.push(comparison);
-    for (const record of [parent, revision]) {
+      const latestObserved = bindingCalls.at(-1);
+      const currentRef =
+        options.currentRevisionRefs?.[binding] ??
+        latestObserved?.record.revisionRef;
+      if (typeof currentRef !== 'string') continue;
+      const revision = await context.facts.read('revisions', currentRef);
       if (
-        typeof record.resourceRef !== 'string' ||
-        typeof record.ref !== 'string'
+        revision.experimentId !== context.experimentId ||
+        revision.binding !== binding
       ) {
-        note('historical-resource-unavailable', currentCall?.record.callId);
+        note(
+          'revision-comparison-ownership-unavailable',
+          latestObserved?.record.callId,
+        );
         continue;
       }
-      if (revisionFiles.has(record.ref)) continue;
-      revisionFiles.add(record.ref);
-      const tree = asObject(
-        await context.artifacts.readJson(record.resourceRef),
-      );
-      const resourceFiles = Array.isArray(tree.files) ? tree.files : [];
-      for (const raw of resourceFiles) {
-        const file = object(raw);
-        if (
-          typeof file.path !== 'string' ||
-          !file.path.startsWith(`bindings/${binding}/resources/`) ||
-          typeof file.base64 !== 'string'
+      const currentCall = bindingCalls
+        .filter(
+          (call) =>
+            call.record.revisionRef === currentRef ||
+            (call.record.revisionRef == null && revision.kind === 'initial'),
         )
+        .at(-1);
+      const parent =
+        typeof revision.parentRef === 'string'
+          ? await context.facts.read('revisions', revision.parentRef)
+          : null;
+      if (!parent) continue;
+      if (
+        parent.experimentId !== context.experimentId ||
+        parent.binding !== binding
+      ) {
+        note(
+          'parent-revision-comparison-ownership-unavailable',
+          currentCall?.record.callId,
+        );
+        continue;
+      }
+      const priorCalls = (currentCall ? calls : bindingCalls).filter(
+        (call) =>
+          call.record.bindingId === binding &&
+          (call.record.revisionRef === parent.ref ||
+            (call.record.revisionRef == null && parent.kind === 'initial')) &&
+          (!currentCall ||
+            finished(call.record) <= finished(currentCall.record)),
+      );
+      const previousCall = priorCalls.at(-1);
+      if (currentCall && previousCall)
+        await addCall(previousCall, 'retrospective-comparison');
+      const comparison: JsonObject = {
+        binding,
+        revisionRef: revision.ref ?? currentRef,
+        parentRevisionRef: parent.ref ?? null,
+        callId: currentCall?.record.callId ?? null,
+        previousCallId: previousCall?.record.callId ?? null,
+        beforeExecution: previousCall ? 'available' : 'not-in-window',
+        afterExecution: currentCall ? 'available' : 'not-in-window',
+        resourceOnly: !currentCall,
+        taskComparison:
+          !currentCall ||
+          !previousCall ||
+          task(currentCall) === null ||
+          task(previousCall) === null
+            ? 'unknown'
+            : canonical(task(currentCall)) === canonical(task(previousCall))
+              ? 'same'
+              : 'different',
+        limitation: currentCall
+          ? 'Observational comparison; task and input differences limit causal attribution.'
+          : 'No current-version execution call is included in this window. Resource differences do not establish after-change execution or benefit.',
+      };
+      comparisons.push(comparison);
+      for (const record of [parent, revision]) {
+        if (
+          typeof record.resourceRef !== 'string' ||
+          typeof record.ref !== 'string'
+        ) {
+          note('historical-resource-unavailable', currentCall?.record.callId);
           continue;
-        try {
-          const content = new TextDecoder('utf8', { fatal: true }).decode(
-            Buffer.from(file.base64, 'base64'),
-          );
-          store(
-            `context/reflection/versions/${record.ref}/${file.path}`,
-            safeText(content, 'text'),
-          );
-        } catch {
-          note(
-            'binary-resource-content-uninspected',
-            currentCall?.record.callId,
-          );
+        }
+        if (revisionFiles.has(record.ref)) continue;
+        revisionFiles.add(record.ref);
+        const tree = asObject(
+          await context.artifacts.readJson(record.resourceRef),
+        );
+        const resourceFiles = Array.isArray(tree.files) ? tree.files : [];
+        for (const raw of resourceFiles) {
+          const file = object(raw);
+          if (
+            typeof file.path !== 'string' ||
+            !file.path.startsWith(`bindings/${binding}/resources/`) ||
+            typeof file.base64 !== 'string'
+          )
+            continue;
+          try {
+            const content = new TextDecoder('utf8', { fatal: true }).decode(
+              Buffer.from(file.base64, 'base64'),
+            );
+            store(
+              `context/reflection/versions/${record.ref}/${file.path}`,
+              safeText(content, 'text'),
+            );
+          } catch {
+            note(
+              'binary-resource-content-uninspected',
+              currentCall?.record.callId,
+            );
+          }
         }
       }
-    }
-    if (
-      typeof parent.resourceRef === 'string' &&
-      typeof revision.resourceRef === 'string'
-    ) {
-      const before = asObject(
-        await context.artifacts.readJson(parent.resourceRef),
-      );
-      const after = asObject(
-        await context.artifacts.readJson(revision.resourceRef),
-      );
-      const scoped = (tree: JsonObject): Map<string, string> =>
-        new Map(
-          (Array.isArray(tree.files) ? tree.files : [])
-            .map(asObject)
-            .filter(
-              (file) =>
-                typeof file.path === 'string' &&
-                String(file.path).startsWith(
-                  `bindings/${binding}/resources/`,
-                ) &&
-                typeof file.base64 === 'string',
-            )
-            .map((file) => {
-              let content: string;
-              try {
-                content = new TextDecoder('utf8', { fatal: true }).decode(
-                  Buffer.from(String(file.base64), 'base64'),
-                );
-              } catch {
-                content = `[uninspected binary resource ${digest(file.base64!)}]`;
-              }
-              return [String(file.path), content];
-            }),
+      if (
+        typeof parent.resourceRef === 'string' &&
+        typeof revision.resourceRef === 'string'
+      ) {
+        const before = asObject(
+          await context.artifacts.readJson(parent.resourceRef),
         );
-      const oldFiles = scoped(before),
-        newFiles = scoped(after);
-      const patches: string[] = [];
-      for (const path of new Set([...oldFiles.keys(), ...newFiles.keys()])) {
-        const oldText = oldFiles.get(path),
-          newText = newFiles.get(path);
-        if (oldText === newText) continue;
-        patches.push(
-          `--- ${parent.ref}/${path}\n+++ ${revision.ref}/${path}\n` +
-            (oldText === undefined
-              ? ''
-              : oldText
-                  .split('\n')
-                  .map((line) => '-' + line)
-                  .join('\n')) +
-            '\n' +
-            (newText === undefined
-              ? ''
-              : newText
-                  .split('\n')
-                  .map((line) => '+' + line)
-                  .join('\n')),
+        const after = asObject(
+          await context.artifacts.readJson(revision.resourceRef),
+        );
+        const scoped = (tree: JsonObject): Map<string, string> =>
+          new Map(
+            (Array.isArray(tree.files) ? tree.files : [])
+              .map(asObject)
+              .filter(
+                (file) =>
+                  typeof file.path === 'string' &&
+                  String(file.path).startsWith(
+                    `bindings/${binding}/resources/`,
+                  ) &&
+                  typeof file.base64 === 'string',
+              )
+              .map((file) => {
+                let content: string;
+                try {
+                  content = new TextDecoder('utf8', { fatal: true }).decode(
+                    Buffer.from(String(file.base64), 'base64'),
+                  );
+                } catch {
+                  content = `[uninspected binary resource ${digest(file.base64!)}]`;
+                }
+                return [String(file.path), content];
+              }),
+          );
+        const oldFiles = scoped(before),
+          newFiles = scoped(after);
+        const patches: string[] = [];
+        for (const path of new Set([...oldFiles.keys(), ...newFiles.keys()])) {
+          const oldText = oldFiles.get(path),
+            newText = newFiles.get(path);
+          if (oldText === newText) continue;
+          patches.push(
+            `--- ${parent.ref}/${path}\n+++ ${revision.ref}/${path}\n` +
+              (oldText === undefined
+                ? ''
+                : oldText
+                    .split('\n')
+                    .map((line) => '-' + line)
+                    .join('\n')) +
+              '\n' +
+              (newText === undefined
+                ? ''
+                : newText
+                    .split('\n')
+                    .map((line) => '+' + line)
+                    .join('\n')),
+          );
+        }
+        store(
+          `context/reflection/versions/${revision.ref}-difference.patch`,
+          safeText(patches.join('\n'), 'text'),
         );
       }
-      store(
-        `context/reflection/versions/${revision.ref}-difference.patch`,
-        safeText(patches.join('\n'), 'text'),
-      );
     }
-  }
+    return comparisons;
+  };
+  const comparisons = await collectRevisionComparisons();
   const sources: JsonObject[] = [];
   const sourceDescriptors = new Map<string, JsonObject>();
   if (measurements.length) {
@@ -924,4 +721,63 @@ export async function collectReflectionEvidence(
     callCount: selected.length + lateResults.length,
     callIds: primaryIds,
   };
+}
+
+function safeText(
+  value: JsonValue,
+  format: 'json' | 'text' | 'jsonl' = 'json',
+): string {
+  let projectedNodes = 0;
+  const project = (raw: JsonValue, depth = 0): JsonValue => {
+    if (depth > 64 || ++projectedNodes > 200000)
+      return '[omitted-depth-or-size]';
+    if (typeof raw === 'string' && /^[\s]*[\[{]/.test(raw)) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        json(parsed);
+        if (parsed !== null && typeof parsed === 'object')
+          return canonical(project(parsed, depth + 1));
+      } catch {
+        /* Ordinary non-JSON evidence remains text. */
+      }
+    }
+    if (Array.isArray(raw))
+      return raw.map((entry) => project(entry, depth + 1));
+    if (raw !== null && typeof raw === 'object') {
+      if (
+        raw.view === 'training-summary' ||
+        raw.schemaVersion === 'rsi.evaluation-feedback/v1'
+      )
+        return '[scoring-side feedback omitted from execution projection]';
+      return Object.fromEntries(
+        Object.entries(raw)
+          .filter(
+            ([key]) =>
+              !/^(?:evaluation|evaluationFeedback|trainingSummary|datasetHints?|returnedHints?|gradingDiagnostics|feedback)$/i.test(
+                key,
+              ),
+          )
+          .map(([key, entry]) => [key, project(entry, depth + 1)]),
+      );
+    }
+    return raw;
+  };
+  const content =
+    format === 'jsonl' && typeof value === 'string'
+      ? value
+          .split('\n')
+          .map((line) => {
+            try {
+              const parsed: unknown = JSON.parse(line);
+              json(parsed);
+              return canonical(project(parsed));
+            } catch {
+              return line;
+            }
+          })
+          .join('\n')
+      : typeof value === 'string' && format === 'text'
+        ? value
+        : canonical(project(value));
+  return fullEvidenceText(content, format).text;
 }

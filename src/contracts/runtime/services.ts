@@ -13,6 +13,8 @@ export interface FactStore {
   read(kind: string, id: string): Promise<JsonObject>;
   write(kind: string, id: string, value: JsonObject): Promise<void>;
   list(kind: string): Promise<JsonObject[]>;
+  /** Iterates facts without retaining all record bodies in memory. */
+  scan?(kind: string): AsyncIterable<JsonObject>;
 }
 export interface Workspace {
   ref: string;

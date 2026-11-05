@@ -8,14 +8,12 @@ import type {
   FactStore,
   WorkspaceService,
   Binding,
-  Candidate,
   JsonObject,
   JsonValue,
 } from '../../contracts/index.js';
 import { RuntimeContext } from '../../contracts/runtime/context.js';
-import { object, string, strings, digest } from '../../shared/json.js';
-import { validate } from '../../shared/schema.js';
-import { createCallExecutor } from './calls.js';
+import { object, string, digest } from '../../shared/json.js';
+import { createCallExecutor, type CallExecutor } from './calls.js';
 import { Instances } from './instances.js';
 import { ManagedEvents } from '../services/events.js';
 import {
@@ -26,25 +24,27 @@ import {
 } from '../storage/index.js';
 import { Registry } from '../registry/index.js';
 import { Recipe } from '../loaders/recipe.js';
-import { compilePolicy, type Policy } from '../compiler/index.js';
+import { Policy } from '../policy/index.js';
 import {
   lockDefinition,
   restoreDefinition,
   parseLockedReflection,
   readResourceOrigins,
 } from './definition-lock.js';
+import { ExperimentFacts } from './facts.js';
+import { readExperimentRecord } from './records.js';
+import { BudgetLedger } from './budget.js';
 import {
-  measurementItemsSchema,
-  measurementEvidenceSchema,
-  metricDefinitionSchema,
-  validateMeasurement,
-} from '../../contracts/models/measurement.js';
+  CleanupLifecycle,
+  assertCleanupResolved,
+  reconcilePersistedCleanup,
+} from './cleanup.js';
+import { RevisionActivation } from './activation.js';
 import { reflect } from '../revisions/index.js';
-import type { ReflectionConfig } from '../revisions/validation.js';
 import { acquireResourceGate } from '../revisions/exclusion.js';
 import { RevisionApplication } from '../revisions/application.js';
-import { projectEvidence } from '../services/facts/evidence.js';
-import { projectEvidenceFiles } from '../services/facts/evidence-files.js';
+import { PolicyCheckpoints } from '../policy/checkpoint.js';
+import { executeControlledPolicy } from '../policy/executor.js';
 
 export interface RuntimeOptions {
   context?: RuntimeContext;
@@ -64,29 +64,37 @@ export class Manager {
   readonly workspaces: WorkspaceService;
   private readonly running = new Map<string, AbortController>();
   private readonly jobs = new Set<Promise<JsonObject>>();
-  private readonly cleanupJobs = new Map<Promise<void>, number | undefined>();
-  private readonly cleanupOwners = new Set<Instances>();
+  private readonly cleanups = new Map<string, CleanupLifecycle>();
   async dispose(): Promise<void> {
-    for (const c of this.running.values())
-      c.abort(new Error('Runtime disposed'));
+    for (const controller of this.running.values())
+      controller.abort(new Error('Runtime disposed'));
     await Promise.allSettled([...this.jobs]);
-    // Observe existing disposal promises without invoking instance disposal again.
-    await Promise.all(
-      [...this.cleanupJobs].map(async ([job, reserve]) => {
-        if (reserve === undefined) return job.catch(() => {});
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-          await Promise.race([
-            job.catch(() => {}),
-            new Promise<void>((resolve) => {
-              timer = setTimeout(resolve, reserve);
-            }),
-          ]);
-        } finally {
-          if (timer) clearTimeout(timer);
-        }
+    const results = await Promise.allSettled(
+      [...this.cleanups.values()].map(async (cleanup) => {
+        await cleanup.observe();
+        if (cleanup.released) this.cleanups.delete(cleanup.id);
       }),
     );
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (failures.length)
+      throw new AggregateError(
+        failures.map((result) => result.reason),
+        'Runtime cleanup failed',
+      );
+  }
+
+  /** Confirm failed external cleanup was reconciled; never retries plugin disposal. */
+  async reconcileCleanup(id: string): Promise<void> {
+    safeId(id);
+    const cleanup = this.cleanups.get(id);
+    if (cleanup) {
+      await cleanup.reconcile();
+      this.cleanups.delete(id);
+      return;
+    }
+    await reconcilePersistedCleanup(id, this.directory, this.facts);
   }
   run(
     recipePath: string,
@@ -188,8 +196,9 @@ export class Manager {
     // Validate persisted identity under the lock before changing experiment facts.
     let resumedRecord: JsonObject | undefined;
     try {
+      await assertCleanupResolved(this.facts, id);
       if (options.resume) {
-        resumedRecord = await this.get(id);
+        resumedRecord = readExperimentRecord(await this.get(id));
         if (resumedRecord.recipePath !== resolve(recipePath))
           throw new Error(
             'Experiment recipePath differs from the saved Recipe',
@@ -204,7 +213,7 @@ export class Manager {
           join(this.directory, 'experiments', id, 'resources'),
         );
         resourceOrigins = readResourceOrigins(locked);
-        const lockedPolicy = compilePolicy(locked.policy, {
+        const lockedPolicy = new Policy(locked.policy, {
           sourcePath: string(locked.policySourcePath),
           contracts: this.options.registry,
         });
@@ -262,21 +271,15 @@ export class Manager {
       ...(options.signal ? [options.signal] : []),
     ]);
     const registrations = new Map<string, () => void>();
-    const usage: Record<string, number> = {};
-    const scopeUsage: Record<string, JsonObject> = {};
-    let ledger = Promise.resolve();
+    const budget = new BudgetLedger(id, this.facts, recipe.budget, (error) => {
+      failureCause = error;
+      stopping.abort(error);
+    });
     let initial: JsonObject = {};
-    let policy: Policy;
-    let bindings: Record<string, Binding> = {};
+    // Definition locking can fail before the call executor is assembled.
+    let activeCalls: CallExecutor | undefined;
     let services: RuntimeContext;
-    const reflectionModules = new Map<
-      string,
-      { config: ReflectionConfig; generatorBinding: string }
-    >();
-    const revisionRefs: JsonObject = {};
     const cleanupMs = recipe.budget.cleanupReserveMs;
-    const unboundedCleanup = new AbortController().signal;
-    let cleanupDeadline: number | undefined;
     let acceptingBusiness = true;
     let terminalSaveAttempted = false;
     let terminal: 'succeeded' | 'failed' | 'cancelled' | undefined;
@@ -348,579 +351,40 @@ export class Manager {
       events,
       (bindingId) => context(bindingId, 'instance-' + randomUUID()),
     );
-    this.cleanupOwners.add(instances);
+    const cleanup = new CleanupLifecycle(
+      id,
+      cleanupMs,
+      this.facts,
+      events,
+      instances,
+      async () => {
+        for (const release of registrations.values()) release();
+        registrations.clear();
+        await releaseLock();
+      },
+    );
+    this.cleanups.set(id, cleanup);
     const charge = async (
       metric: string,
       amount: number,
       ctx: RuntimeContext,
     ): Promise<void> => {
       assertBusiness();
-      if (!Number.isFinite(amount) || amount < 0)
-        throw new Error('Invalid budget charge');
-      const job = ledger.then(async () => {
-        const next = (usage[metric] ?? 0) + amount;
-        const limit = recipe.budget[metric];
-        if (limit !== undefined && next > limit) {
-          const error = new Error(`Budget exceeded: ${metric}`);
-          error.name = 'ExperimentBudgetExceeded';
-          failureCause = error;
-          stopping.abort(error);
-          throw error;
-        }
-        const scoped = ctx.scope;
-        if (scoped) {
-          const state = scopeUsage[scoped.id] ?? {};
-          const count = Number(state[metric] ?? 0) + amount;
-          const modelCalls = scoped.limits.modelCalls;
-          if (
-            metric === 'modelCalls' &&
-            modelCalls !== undefined &&
-            count > modelCalls
-          )
-            throw new Error('Reflection modelCalls budget exceeded');
-          scopeUsage[scoped.id] = { ...state, [metric]: count };
-        }
-        usage[metric] = next;
-        try {
-          await this.facts.write('budgets', id, {
-            ...usage,
-            scopes: scopeUsage,
-          });
-        } catch (error) {
-          failureCause = error;
-          stopping.abort(error);
-          throw error;
-        }
-      });
-      ledger = job.catch(() => {});
-      await job;
-    };
-    const readCandidate = async (
-      ref: string,
-      ctx: RuntimeContext,
-    ): Promise<Candidate> => {
-      const candidate = await this.facts.read('candidates', ref);
-      if (candidate.experimentId !== ctx.experimentId)
-        throw new Error('Candidate belongs to another experiment');
-      return {
-        ref,
-        artifactRef: string(candidate.artifactRef),
-        parentRef:
-          candidate.parentRef === null ? null : string(candidate.parentRef),
-        experimentId: id,
-      };
-    };
-    const readMeasurement = async (
-      ref: string,
-      ctx: RuntimeContext,
-    ): Promise<JsonObject> => {
-      const m = await this.facts.read('measurements', ref);
-      if (m.experimentId !== ctx.experimentId)
-        throw new Error('Measurement belongs to another experiment');
-      validateMeasurement(m);
-      return m;
-    };
-    const invoke = createCallExecutor({
-      id,
-      registry: this.options.registry,
-      facts: this.facts,
-      revisionRefs,
-      context,
-      binding: (name) =>
-        name === '_application' ? recipe.application.toJSON() : bindings[name],
-      operation: (bindingId, binding) => instances.acquire(bindingId, binding),
-      charge,
-      diagnose,
-      onFailure: (error, caller) => {
-        if (!caller.scope && !signal.aborted) {
-          failureCause = error;
-          stopping.abort(error);
-        }
-      },
-    });
-    const manager = this;
-    services = (options.context ?? this.context).extend({
-      experimentId: id,
-      event: events.event,
-      get signal() {
-        return signal;
-      },
-      get cleanup() {
-        if (cleanupMs === undefined) return unboundedCleanup;
-        return AbortSignal.timeout(
-          Math.max(
-            1,
-            cleanupDeadline === undefined
-              ? cleanupMs
-              : cleanupDeadline - Date.now(),
-          ),
-        );
-      },
-      rootDirectory: manager.rootDirectory,
-      dataDirectory: manager.directory,
-      artifacts: manager.artifacts,
-      facts: manager.facts,
-      workspaces: manager.workspaces,
-      async charge(this: RuntimeContext, metric, amount) {
-        return charge(metric, amount, this);
-      },
-      async readCandidate(this: RuntimeContext, ref) {
-        return readCandidate(ref, this);
-      },
-      async readMeasurement(this: RuntimeContext, ref) {
-        return readMeasurement(ref, this);
-      },
-      async recordCandidate(this: RuntimeContext, artifactRef, parentRef) {
-        const ctx = this;
-        assertBusiness();
-        if (parentRef) await readCandidate(parentRef, ctx);
-        const ref =
-          'candidate-' + digest({ id, artifactRef, parentRef }).slice(0, 32);
-        await manager.facts.write('candidates', ref, {
-          ref,
-          artifactRef,
-          parentRef,
-          experimentId: id,
-        });
-        try {
-          services.event.emit('rsi/candidate-recorded', {
-            experimentId: id,
-            callId: ctx.callId,
-            bindingId: ctx.bindingId,
-            candidateRef: ref,
-            parentRef,
-          });
-        } catch (error) {
-          diagnose('rsi/candidate-recorded', error);
-        }
-        return ref;
-      },
-      async recordMeasurement(this: RuntimeContext, measurement) {
-        const ctx = this;
-        assertBusiness();
-        const owned: JsonObject = {
-          ...measurement,
-          experimentId: ctx.experimentId,
-          callId: ctx.callId,
-        };
-        delete owned.ref;
-        const ref = 'measurement-' + digest(owned);
-        measurement.ref = ref;
-        if (
-          measurement.experimentId !== id ||
-          measurement.callId !== ctx.callId
-        )
-          throw new Error('Invalid measurement ownership');
-        measurement.evaluator = {
-          ...object(measurement.evaluator),
-          pluginId:
-            bindings[ctx.bindingId]?.plugin ??
-            object(measurement.evaluator).pluginId,
-          implementationDigest: digest({
-            adapter: object(measurement.evaluator).implementationDigest,
-            registration: manager.options.registry.identity(
-              string(object(measurement.evaluator).pluginId),
-            ),
-          }),
-        };
-        validateMeasurement(measurement);
-        const checked = new Set<string>();
-        const checkTypedArtifact = async (value: JsonValue): Promise<void> => {
-          const descriptor = object(value);
-          await manager.artifacts.readJson(string(descriptor.artifactRef));
-        };
-        const metrics = async (value: JsonValue): Promise<void> => {
-          for (const raw of Object.values(object(value))) {
-            const observation = object(raw),
-              ref = string(observation.definitionRef);
-            if (!checked.has(ref)) {
-              validate(
-                metricDefinitionSchema,
-                await manager.artifacts.readJson(ref),
-                'metric definition',
-              );
-              checked.add(ref);
-            }
-          }
-        };
-        for (const field of ['conditions', 'provenance', 'profile'])
-          await checkTypedArtifact(measurement[field]!);
-        if (Array.isArray(measurement.extensions))
-          for (const value of measurement.extensions)
-            await checkTypedArtifact(value);
-        const items = await manager.artifacts.readJson(
-          string(measurement.itemsRef),
-        );
-        validate(measurementItemsSchema, items, 'Measurement items');
-        const entries = object(items).items;
-        if (!Array.isArray(entries))
-          throw new Error('Measurement items missing');
-        for (const raw of entries) {
-          const item = object(raw);
-          await checkTypedArtifact(item.details!);
-          if (item.evaluation !== null)
-            await checkTypedArtifact(item.evaluation!);
-          const subject = object(item.subject);
-          if (subject.parameters !== null)
-            await checkTypedArtifact(subject.parameters!);
-          await metrics(item.metrics!);
-          validate(
-            measurementEvidenceSchema,
-            await manager.artifacts.readJson(string(item.evidenceIndexRef)),
-            'Item evidence',
-          );
-        }
-        await metrics(measurement.metrics!);
-        validate(
-          measurementEvidenceSchema,
-          await manager.artifacts.readJson(
-            string(measurement.evidenceIndexRef),
-          ),
-          'Measurement evidence',
-        );
-        let prior: JsonObject | undefined;
-        try {
-          prior = await manager.facts.read('measurements', ref);
-        } catch (error) {
-          if (
-            !(
-              error instanceof Error &&
-              'code' in error &&
-              error.code === 'ENOENT'
-            )
-          )
-            throw error;
-        }
-        if (prior && digest(prior) !== digest(measurement))
-          throw new Error('Immutable Measurement cannot be overwritten');
-        await manager.facts.write('measurements', ref, measurement);
-        try {
-          services.event.emit('rsi/measurement-recorded', {
-            experimentId: id,
-            callId: ctx.callId,
-            bindingId: ctx.bindingId,
-            measurementRef: ref,
-          });
-        } catch (error) {
-          diagnose('rsi/measurement-recorded', error);
-        }
-        return ref;
-      },
-      async applicationMetadata(this: RuntimeContext) {
-        const ctx = this;
-        if (ctx.experimentId !== id)
-          throw new Error('Application metadata belongs to another experiment');
-        return {
-          target: initial.target ?? null,
-          capabilities: initial.capabilities ?? [],
-          initialCandidateRef: initial.initialCandidateRef ?? null,
-        };
-      },
-      async application(this: RuntimeContext, input) {
-        return object(await invoke('_application', input, this));
-      },
-      async invoke(this: RuntimeContext, binding, input) {
-        return invoke(binding, input, this);
-      },
-      async invokeAgent(this: RuntimeContext, input) {
-        const ctx = this;
-        const ref = string(input.agentRef ?? 'agent.default');
-        if (!bindings[ref]) throw new Error(`Unknown Agent ${ref}`);
-        return object(await invoke(ref, input, ctx));
-      },
-      async readEvidence(this: RuntimeContext, refs, options) {
-        const ctx = this;
-        const requestedBytes = options?.maxBytes;
-        if (
-          requestedBytes !== undefined &&
-          (!Number.isSafeInteger(requestedBytes) || requestedBytes <= 0)
-        )
-          throw new Error(
-            'readEvidence.maxBytes must be a positive safe integer',
-          );
-        const fileMode = options?.format === 'files';
-        const evidenceLimit = Math.min(
-          requestedBytes ?? Number.POSITIVE_INFINITY,
-          ctx.scope?.limits.evidenceBytes ?? Number.POSITIVE_INFINITY,
-        );
-        const view = options?.view ?? 'execution';
-        const measurements: JsonObject[] = [];
-        const summaries: JsonValue[] = [];
-        for (const ref of refs) {
-          if (ref.startsWith('artifact:'))
-            throw new Error(
-              'Evidence requires an authorized reference, not an artifact',
-            );
-          const references = ref.startsWith('evidence-')
-            ? await manager.facts.read('evidence-views', ref)
-            : null;
-          if (references && references.experimentId !== id)
-            throw new Error('Evidence belongs to another experiment');
-          if (references?.summary) summaries.push(references.summary);
-          for (const measurementRef of references
-            ? strings(references.measurementRefs)
-            : [ref]) {
-            const m = await readMeasurement(measurementRef, ctx);
-            measurements.push(m);
-          }
-        }
-        if (fileMode) {
-          const result = await projectEvidenceFiles({
-            measurements,
-            artifacts: manager.artifacts,
-            view,
-            maxBytes: Number.isFinite(evidenceLimit)
-              ? evidenceLimit
-              : undefined,
-          });
-          if (summaries.length) {
-            result.summaries = summaries;
-            if (
-              Number.isFinite(evidenceLimit) &&
-              Buffer.byteLength(JSON.stringify(result)) > evidenceLimit
-            )
-              throw new Error('Full evidence context exceeds byte limit');
-          }
-          return result;
-        }
-        const maxBytes = Math.min(
-          evidenceLimit,
-          requestedBytes === undefined ? 60000 : 80000,
-        );
-        const result = await projectEvidence({
-          measurements,
-          artifacts: manager.artifacts,
-          view,
-          maxBytes: summaries.length
-            ? Math.max(256, Math.floor(maxBytes * 0.7))
-            : maxBytes,
-        });
-        const output = object(result);
-        if (summaries.length) {
-          const accepted: JsonValue[] = [];
-          for (const summary of summaries) {
-            if (
-              Buffer.byteLength(
-                JSON.stringify({ ...output, context: [...accepted, summary] }),
-              ) > maxBytes
-            ) {
-              output.truncated = true;
-              break;
-            }
-            accepted.push(summary);
-          }
-          output.context = accepted;
-        }
-        if (Buffer.byteLength(JSON.stringify(output)) > maxBytes)
-          throw new Error('Evidence context exceeds byte limit');
-        return output;
-      },
-      async withInstance(this: RuntimeContext, candidateRef, capability, use) {
-        const ctx = this;
-        const instanceId =
-          'instance-' +
-          digest({ callId: ctx.callId, candidateRef, capability }).slice(0, 32);
-        let error: unknown;
-        try {
-          const acquire = object(
-            await invoke(
-              '_application',
-              { action: 'acquire', candidateRef, capability, instanceId },
-              ctx,
-              'acquire',
-            ),
-          );
-          return await use(object(acquire.execution));
-        } catch (caught) {
-          error = caught;
-          throw caught;
-        } finally {
-          const cleanupContext = ctx.extend({ signal: ctx.cleanup });
-          try {
-            await invoke(
-              '_application',
-              { action: 'release', instanceId },
-              cleanupContext,
-              'release',
-            );
-          } catch (cleanupError) {
-            await manager.facts.write('cleanup', instanceId, {
-              experimentId: id,
-              instanceId,
-              status: 'unconfirmed',
-              error: errorText(cleanupError),
-            });
-            if (error === undefined) throw cleanupError;
-          }
-        }
-      },
-    });
-    const withinCleanup = async <T>(job: Promise<T>): Promise<T> => {
-      if (cleanupMs === undefined) return job;
-      const deadline = (cleanupDeadline ??= Date.now() + cleanupMs);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        return await Promise.race([
-          job,
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(
-              () => reject(new Error('Cleanup deadline exceeded')),
-              Math.max(0, deadline - Date.now()),
-            );
-          }),
-        ]);
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
+      await budget.charge(metric, amount, ctx);
     };
     const drain = async (closeWhenIdle = false): Promise<void> => {
       do {
         await Promise.all([
           events.idle(),
-          invoke.idle(),
+          activeCalls?.idle(),
           Promise.allSettled([...businessTasks]),
         ]);
-      } while (events.pending || invoke.pending || businessTasks.size);
+      } while (events.pending || activeCalls?.pending || businessTasks.size);
       if (closeWhenIdle) closeBusiness();
     };
     const closeBusiness = (): void => {
       acceptingBusiness = false;
-      invoke.close();
-    };
-    const retire = (
-      instance: Awaited<ReturnType<Instances['prepare']>>,
-      cleanupId: string,
-    ): void => {
-      const job = instances.dispose(instance);
-      this.cleanupJobs.set(job, cleanupMs);
-      const timer =
-        cleanupMs === undefined
-          ? undefined
-          : setTimeout(() => {
-              events.abort(
-                instance.scope,
-                new Error('Instance cleanup deadline exceeded'),
-              );
-              void this.facts
-                .write('cleanup', cleanupId, {
-                  experimentId: id,
-                  status: 'unconfirmed',
-                  error: 'Instance cleanup deadline exceeded',
-                })
-                .catch(() => {});
-            }, cleanupMs);
-      void job
-        .catch((error: unknown) =>
-          this.facts.write('cleanup', cleanupId, {
-            experimentId: id,
-            status: 'unconfirmed',
-            error: errorText(error),
-          }),
-        )
-        .finally(() => {
-          clearTimeout(timer);
-          this.cleanupJobs.delete(job);
-        })
-        .catch(() => {});
-    };
-    const saveReflection = async (
-      changes: Record<string, Binding>,
-      revisions: JsonObject,
-      activationId: string,
-    ): Promise<void> => {
-      const prepared = new Map<
-        string,
-        Awaited<ReturnType<Instances['prepare']>>
-      >();
-      const previous = new Map<
-        string,
-        Awaited<ReturnType<Instances['prepare']>>
-      >();
-      try {
-        for (const [target, b] of Object.entries(changes)) {
-          const definition = this.options.registry.get(b.plugin);
-          validate(definition.configSchema, b.config, 'revision config');
-          const current = await instances.currentInstance(target);
-          if (current) {
-            previous.set(target, current);
-            prepared.set(target, await instances.prepare(target, b));
-          }
-        }
-        await this.facts.write('activations', id, {
-          activationId,
-          bindings: object(
-            JSON.parse(JSON.stringify({ ...bindings, ...changes })),
-          ),
-          revisions: { ...revisionRefs, ...revisions },
-        });
-      } catch (error) {
-        for (const [target, instance] of prepared)
-          retire(instance, `${activationId}-${target}-prepared`);
-        throw error;
-      }
-      Object.assign(revisionRefs, revisions);
-      for (const [target, b] of Object.entries(changes)) {
-        bindings[target] = b;
-        const replacement = prepared.get(target);
-        if (replacement) instances.activate(target, replacement);
-      }
-      const refs: Record<string, string> = {};
-      for (const [key, value] of Object.entries(revisions))
-        if (typeof value === 'string') refs[key] = value;
-      try {
-        services.event.emit('rsi/revision-activated', {
-          experimentId: id,
-          activationId,
-          bindingIds: Object.keys(changes),
-          revisionRefs: refs,
-        });
-      } catch (error) {
-        diagnose('rsi/revision-activated', error);
-      }
-      for (const [target, instance] of previous)
-        retire(instance, `${activationId}-${target}`);
-    };
-    const runReflection = async (
-      prefix: string,
-      caller: RuntimeContext,
-      stepPath: string,
-      state: JsonObject,
-      parallel: boolean,
-    ): Promise<JsonValue> => {
-      if (parallel)
-        throw new Error(`${stepPath}: Reflection requires serial execution`);
-      const module = reflectionModules.get(prefix);
-      if (!module)
-        throw new Error(
-          `${stepPath}: Reflection module is not declared by this Policy`,
-        );
-      const ctx = caller;
-      return reflect({
-        config: module.config,
-        invocation: {
-          policyScopeId: prefix ? caller.callId : 'root',
-          stepPath,
-        },
-        generatorBinding: module.generatorBinding,
-        sourceResources: resourceOrigins,
-        state,
-        bindings,
-        context: ctx,
-        directory: this.directory,
-        revisionRefs,
-        getDefinition: (pluginId) => this.options.registry.get(pluginId),
-        invoke: async (binding, value, key, scope) =>
-          invoke(
-            binding,
-            value,
-            ctx.extend({
-              scope,
-              signal: AbortSignal.any([ctx.signal, scope.signal]),
-            }),
-            key,
-          ),
-        save: saveReflection,
-      });
+      activeCalls?.close();
     };
     try {
       if (!options.resume) {
@@ -940,22 +404,236 @@ export class Manager {
             : {}),
         });
       }
-      policy = recipe.policy;
-      bindings = Object.fromEntries(
+      const policy = recipe.policy;
+      const bindings: Record<string, Binding> = Object.fromEntries(
         Object.entries(recipe.bindings).map(([name, binding]) => [
           name,
           binding.toJSON(),
         ]),
       );
-      if (recipe.reflection) {
-        const config = structuredClone(recipe.reflection);
+      const reflection = recipe.reflection
+        ? structuredClone(recipe.reflection)
+        : undefined;
+      if (reflection) {
         const generatorBinding = '_reflection';
         bindings[generatorBinding] = {
-          plugin: config.implementation.ref,
-          config: config.implementation.config,
+          plugin: reflection.implementation.ref,
+          config: reflection.implementation.config,
         };
-        reflectionModules.set('', { config, generatorBinding });
       }
+      const activation = new RevisionActivation({
+        id,
+        bindings,
+        facts: this.facts,
+        registry: this.options.registry,
+        instances,
+        cleanup,
+        event: events.event,
+        diagnose,
+      });
+      const experimentFacts = new ExperimentFacts(
+        id,
+        this.facts,
+        this.artifacts,
+        this.options.registry,
+        (bindingId) => activation.bindings[bindingId]?.plugin,
+      );
+      const checkpoints = new PolicyCheckpoints(this.facts, id);
+      const calls = createCallExecutor({
+        id,
+        registry: this.options.registry,
+        facts: this.facts,
+        revisionRefs: activation.revisionRefs,
+        context,
+        binding: (name) =>
+          name === '_application'
+            ? recipe.application.toJSON()
+            : activation.bindings[name],
+        operation: (bindingId, binding) =>
+          instances.acquire(bindingId, binding),
+        charge,
+        diagnose,
+        onFailure: (error, caller) => {
+          if (!caller.scope && !signal.aborted) {
+            failureCause = error;
+            stopping.abort(error);
+          }
+        },
+      });
+      activeCalls = calls;
+      const manager = this;
+      services = (options.context ?? this.context).extend({
+        experimentId: id,
+        event: events.event,
+        get signal() {
+          return signal;
+        },
+        get cleanup() {
+          return cleanup.signal;
+        },
+        rootDirectory: manager.rootDirectory,
+        dataDirectory: manager.directory,
+        artifacts: manager.artifacts,
+        facts: manager.facts,
+        workspaces: manager.workspaces,
+        async charge(this: RuntimeContext, metric, amount) {
+          return charge(metric, amount, this);
+        },
+        async readCandidate(this: RuntimeContext, ref) {
+          return experimentFacts.readCandidate(ref, this);
+        },
+        async readMeasurement(this: RuntimeContext, ref) {
+          return experimentFacts.readMeasurement(ref, this);
+        },
+        async recordCandidate(this: RuntimeContext, artifactRef, parentRef) {
+          const ctx = this;
+          assertBusiness();
+          const ref = await experimentFacts.recordCandidate(
+            artifactRef,
+            parentRef,
+            ctx,
+          );
+          try {
+            services.event.emit('rsi/candidate-recorded', {
+              experimentId: id,
+              callId: ctx.callId,
+              bindingId: ctx.bindingId,
+              candidateRef: ref,
+              parentRef,
+            });
+          } catch (error) {
+            diagnose('rsi/candidate-recorded', error);
+          }
+          return ref;
+        },
+        async recordMeasurement(this: RuntimeContext, measurement) {
+          const ctx = this;
+          assertBusiness();
+          const ref = await experimentFacts.recordMeasurement(measurement, ctx);
+          try {
+            services.event.emit('rsi/measurement-recorded', {
+              experimentId: id,
+              callId: ctx.callId,
+              bindingId: ctx.bindingId,
+              measurementRef: ref,
+            });
+          } catch (error) {
+            diagnose('rsi/measurement-recorded', error);
+          }
+          return ref;
+        },
+        async applicationMetadata(this: RuntimeContext) {
+          const ctx = this;
+          if (ctx.experimentId !== id)
+            throw new Error(
+              'Application metadata belongs to another experiment',
+            );
+          return {
+            target: initial.target ?? null,
+            capabilities: initial.capabilities ?? [],
+            initialCandidateRef: initial.initialCandidateRef ?? null,
+          };
+        },
+        async application(this: RuntimeContext, input) {
+          return object(await calls.invoke('_application', input, this));
+        },
+        async invoke(this: RuntimeContext, binding, input) {
+          return calls.invoke(binding, input, this);
+        },
+        async invokeAgent(this: RuntimeContext, input) {
+          const ctx = this;
+          const ref = string(input.agentRef ?? 'agent.default');
+          if (!activation.bindings[ref])
+            throw new Error(`Unknown Agent ${ref}`);
+          return object(await calls.invoke(ref, input, ctx));
+        },
+        async readEvidence(this: RuntimeContext, refs, options) {
+          return experimentFacts.readEvidence(refs, options, this);
+        },
+        async withInstance(
+          this: RuntimeContext,
+          candidateRef,
+          capability,
+          use,
+        ) {
+          const ctx = this;
+          const instanceId =
+            'instance-' +
+            digest({ callId: ctx.callId, candidateRef, capability }).slice(
+              0,
+              32,
+            );
+          let error: unknown;
+          try {
+            const acquire = object(
+              await calls.invoke(
+                '_application',
+                { action: 'acquire', candidateRef, capability, instanceId },
+                ctx,
+                'acquire',
+              ),
+            );
+            return await use(object(acquire.execution));
+          } catch (caught) {
+            error = caught;
+            throw caught;
+          } finally {
+            const cleanupContext = ctx.extend({ signal: ctx.cleanup });
+            try {
+              await calls.invoke(
+                '_application',
+                { action: 'release', instanceId },
+                cleanupContext,
+                'release',
+              );
+            } catch (cleanupError) {
+              await cleanup.externalFailure(cleanupError, instanceId);
+              if (error === undefined) throw cleanupError;
+            }
+          }
+        },
+      });
+      const runReflection = async (
+        caller: RuntimeContext,
+        stepPath: string,
+        state: JsonObject,
+        parallel: boolean,
+      ): Promise<JsonValue> => {
+        if (parallel)
+          throw new Error(`${stepPath}: Reflection requires serial execution`);
+        if (!reflection)
+          throw new Error(
+            `${stepPath}: Reflection module is not declared by this Policy`,
+          );
+        return reflect({
+          config: reflection,
+          invocation: {
+            policyScopeId: 'root',
+            stepPath,
+          },
+          generatorBinding: '_reflection',
+          sourceResources: resourceOrigins,
+          state,
+          bindings: activation.bindings,
+          context: caller,
+          directory: this.directory,
+          revisionRefs: activation.revisionRefs,
+          getDefinition: (pluginId) => this.options.registry.get(pluginId),
+          invoke: async (binding, value, key, scope) =>
+            calls.invoke(
+              binding,
+              value,
+              caller.extend({
+                scope,
+                signal: AbortSignal.any([caller.signal, scope.signal]),
+              }),
+              key,
+            ),
+          initialize: (parents) => activation.initialize(parents),
+          save: (changes, revisions, activationId) =>
+            activation.save(changes, revisions, activationId),
+        });
+      };
       for (const b of [
         recipe.application.toJSON(),
         ...Object.values(bindings),
@@ -963,12 +641,9 @@ export class Manager {
         if (!registrations.has(b.plugin))
           registrations.set(b.plugin, this.options.registry.retain(b.plugin));
       }
-      const reflectionConfiguration: JsonObject = Object.fromEntries(
-        [...reflectionModules].map(([prefix, module]) => [
-          prefix,
-          { path: module.config.path, digest: module.config.digest },
-        ]),
-      );
+      const reflectionConfiguration: JsonObject = reflection
+        ? { '': { path: reflection.path, digest: reflection.digest } }
+        : {};
       let lockedReflection: JsonObject | undefined;
       try {
         lockedReflection = await this.facts.read('reflection-configs', id);
@@ -982,7 +657,7 @@ export class Manager {
         )
           throw error;
       }
-      if (options.resume && (lockedReflection || reflectionModules.size)) {
+      if (options.resume && (lockedReflection || reflection)) {
         if (
           !lockedReflection ||
           lockedReflection.interface !== 'explicit-reflection/v1' ||
@@ -992,7 +667,7 @@ export class Manager {
           throw new Error(
             'Reflection configuration source or contents differ from the locked experiment',
           );
-      } else if (reflectionModules.size) {
+      } else if (reflection) {
         await this.facts.write('reflection-configs', id, {
           interface: 'explicit-reflection/v1',
           configuration: reflectionConfiguration,
@@ -1000,15 +675,17 @@ export class Manager {
       }
       let restore: JsonObject | undefined;
       if (options.resume) {
-        const legacyReflection = (await this.facts.list('reflection')).some(
-          (fact) =>
+        const reflectionFacts = this.facts.scan
+          ? this.facts.scan('reflection')
+          : await this.facts.list('reflection');
+        for await (const fact of reflectionFacts)
+          if (
             fact.experimentId === id &&
-            fact.interface !== 'explicit-reflection/v1',
-        );
-        if (legacyReflection)
-          throw new Error(
-            'Legacy Reflection boundary records cannot resume through the explicit Reflection interface; use the original implementation and configuration',
-          );
+            fact.interface !== 'explicit-reflection/v1'
+          )
+            throw new Error(
+              'Legacy Reflection boundary records cannot resume through the explicit Reflection interface; use the original implementation and configuration',
+            );
         const previous = resumedRecord!;
         experimentStartedAt =
           typeof previous.startedAt === 'string'
@@ -1024,55 +701,14 @@ export class Manager {
           signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
         }
         initial = object(previous.application);
-        try {
-          restore = await this.facts.read('checkpoints', id);
-        } catch (error) {
-          if (
-            !(
-              error instanceof Error &&
-              'code' in error &&
-              error.code === 'ENOENT'
-            )
-          )
-            throw error;
-        }
+        restore = await checkpoints.restore();
         await this.facts.write('controls', id, {
           cancel: false,
           clearedAt: new Date().toISOString(),
         });
-        const saved = await this.facts.read('budgets', id);
-        for (const [k, v] of Object.entries(saved))
-          if (typeof v === 'number') usage[k] = v;
-        for (const [k, v] of Object.entries(object(saved.scopes ?? {})))
-          scopeUsage[k] = object(v);
+        budget.restore(await this.facts.read('budgets', id));
       }
-      if (options.resume) {
-        let activation: JsonObject | undefined;
-        try {
-          activation = await this.facts.read('activations', id);
-        } catch (error) {
-          if (
-            !(
-              error instanceof Error &&
-              'code' in error &&
-              error.code === 'ENOENT'
-            )
-          )
-            throw error;
-        }
-        if (activation) {
-          for (const [key, value] of Object.entries(
-            object(activation.bindings),
-          )) {
-            const b = object(value);
-            bindings[key] = {
-              plugin: string(b.plugin),
-              config: object(b.config),
-            };
-          }
-          Object.assign(revisionRefs, object(activation.revisions));
-        }
-      }
+      if (options.resume) await activation.restore();
       const experimentInfo = {
         experimentId: id,
         recipeId: recipe.id,
@@ -1086,7 +722,7 @@ export class Manager {
       if (!options.resume || typeof initial.initialCandidateRef !== 'string')
         initial = object(
           await businessWait(
-            invoke(
+            calls.invoke(
               '_application',
               { action: 'initialize' },
               context('_root', 'root'),
@@ -1110,7 +746,7 @@ export class Manager {
       }
       const root = context('_root', 'root');
       const result = await businessWait(
-        policy.execute({
+        executeControlledPolicy(policy, {
           input: recipe.policyInput,
           config: recipe.policyConfig,
           application: { initialCandidate: initial.initialCandidateRef },
@@ -1124,15 +760,14 @@ export class Manager {
             },
             diagnose,
           },
-          invoke: async (binding, value, path, parallel) =>
-            invoke(binding, value, root, path, parallel),
-          checkpoint: async (value) =>
-            this.facts.write('checkpoints', id, value),
+          invoke: async (binding, value, path) =>
+            calls.invoke(binding, value, root, path),
+          incrementalCheckpoint: checkpoints,
           reflect: (path, state, parallel) =>
-            runReflection('', root, path, state, parallel),
+            runReflection(root, path, state, parallel),
         }),
       );
-      await withinCleanup(drain(true));
+      await cleanup.within(drain(true));
       signal.throwIfAborted();
       if (failureCause !== undefined) throw failureCause;
       closeBusiness();
@@ -1140,10 +775,11 @@ export class Manager {
         ...(await this.get(id)),
         status: 'succeeded',
         output: result,
-        usage: { ...usage },
+        usage: budget.usage,
         durationMs: Date.now() - Date.parse(experimentStartedAt),
         finishedAt: new Date().toISOString(),
       };
+      await cleanup.markPending();
       terminalSaveAttempted = true;
       await this.facts.write('experiments', id, complete);
       terminal = 'succeeded';
@@ -1152,16 +788,12 @@ export class Manager {
       const wasCancelled = signal.aborted;
       stopping.abort(error);
       try {
-        await withinCleanup(drain(true));
+        await cleanup.within(drain(true));
       } catch (cleanupError) {
         closeBusiness();
         events.abort(undefined, cleanupError);
-        await invoke.unconfirmed();
-        await this.facts.write('cleanup', id, {
-          experimentId: id,
-          status: 'unconfirmed',
-          error: errorText(cleanupError),
-        });
+        await activeCalls?.unconfirmed();
+        await cleanup.record(cleanupError);
       }
       closeBusiness();
       if (terminalSaveAttempted) throw error;
@@ -1182,12 +814,13 @@ export class Manager {
           : wasCancelled
             ? 'cancelled'
             : 'failed';
+      await cleanup.markPending();
       terminalSaveAttempted = true;
       await this.facts.write('experiments', id, {
         ...previous,
         status,
         error: errorText(error),
-        usage: { ...usage },
+        usage: budget.usage,
         finishedAt: new Date().toISOString(),
       });
       terminal = status;
@@ -1197,7 +830,7 @@ export class Manager {
       let finalNotification: Promise<unknown> = Promise.resolve();
       if (terminal) {
         try {
-          finalNotification = services.event
+          finalNotification = events.event
             .parallel('rsi/experiment-finished', {
               experimentId: id,
               recipeId: recipe.id,
@@ -1213,30 +846,17 @@ export class Manager {
       events.stop();
       clearInterval(cancellationPoll);
       this.running.delete(id);
-      const cleanup = (async (): Promise<void> => {
-        await finalNotification;
-        await drain();
-        await instances.disposeAll();
-        await events.dispose();
-        await Promise.allSettled([...diagnostics]);
-        for (const release of registrations.values()) release();
-        await releaseLock();
-        this.cleanupOwners.delete(instances);
-      })();
-      this.cleanupJobs.set(cleanup, cleanupMs);
-      void cleanup.then(
-        () => this.cleanupJobs.delete(cleanup),
+      const cleanupJob = cleanup.start(drain, finalNotification, () =>
+        Promise.allSettled([...diagnostics]),
+      );
+      void cleanupJob.then(
+        () => this.cleanups.delete(id),
         () => {},
       );
       try {
-        await withinCleanup(cleanup);
+        await cleanup.within(cleanupJob);
       } catch (error) {
         events.abort(undefined, error);
-        await this.facts.write('cleanup', id, {
-          experimentId: id,
-          status: 'unconfirmed',
-          error: errorText(error),
-        });
       }
     }
   }

@@ -325,6 +325,8 @@ test('bundled Recipes preserve time budgets without injecting call or token limi
     );
     assert.equal(configured.bindings.agent!.config.timeoutMs, 1800000);
     assert.equal(configured.bindings.agent!.config.executionTimeoutMs, 3600000);
+    assert.equal(configured.bindings.agent!.config.retries, 3);
+    assert.equal(configured.bindings.agent!.config.retryBaseDelayMs, 2000);
     assert.equal(
       object(configured.bindings.evaluator!.config.run ?? {}).timeoutSeconds,
       name === 'dsh-harness2' ? 4500 : 3600,

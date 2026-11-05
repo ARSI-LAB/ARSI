@@ -18,7 +18,7 @@ import {
 import { Registry } from '../../src/runtime/registry/index.js';
 import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
 import { validateReflection } from '../../src/runtime/revisions/validation.js';
-import { compilePolicy } from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
 import { object } from '../../src/shared/json.js';
 async function fixture(t: TestContext) {
@@ -285,16 +285,16 @@ const policy = {
   steps: [{ id: 'improve', type: 'reflection' }],
 };
 test('Policy compiler registers Reflection separately from raw generator contracts and enforces serial empty calls', () => {
-  const compiled = compilePolicy(policy);
+  const compiled = new Policy(policy);
   assert.equal(compiled.steps[0]?.type, 'reflection');
   assert.deepEqual(compiled.requirements, {});
   assert.throws(
-    () => compilePolicy({ ...policy, defaults: {} }),
+    () => new Policy({ ...policy, defaults: {} }),
     /defaults.reflection/,
   );
   assert.throws(
     () =>
-      compilePolicy({
+      new Policy({
         ...policy,
         require: { reflection: { contract: reflectionContract.id } },
       }),
@@ -302,19 +302,19 @@ test('Policy compiler registers Reflection separately from raw generator contrac
   );
   assert.throws(
     () =>
-      compilePolicy({
+      new Policy({
         ...policy,
         defaults: { reflection: { ref: './legacy.yaml' } },
       }),
     /migrate.*configFile/,
   );
   assert.throws(
-    () => compilePolicy({ ...policy, defaults: { reflection: {} } }),
+    () => new Policy({ ...policy, defaults: { reflection: {} } }),
     /configFile/,
   );
   assert.throws(
     () =>
-      compilePolicy({
+      new Policy({
         ...policy,
         steps: [
           { id: 'improve', type: 'reflection', with: { goal: 'Override' } },
@@ -322,11 +322,12 @@ test('Policy compiler registers Reflection separately from raw generator contrac
       }),
     /unknown field with/,
   );
-  assert.doesNotThrow(() =>
-    compilePolicy({
-      ...policy,
-      steps: [{ id: 'improve', type: 'reflection' }],
-    }),
+  assert.doesNotThrow(
+    () =>
+      new Policy({
+        ...policy,
+        steps: [{ id: 'improve', type: 'reflection' }],
+      }),
   );
   const concurrent = {
     ...policy,
@@ -343,8 +344,8 @@ test('Policy compiler registers Reflection separately from raw generator contrac
       },
     ],
   };
-  assert.throws(() => compilePolicy(concurrent), /parallel.*Reflection/);
-  const declarationOnly = compilePolicy({
+  assert.throws(() => new Policy(concurrent), /parallel.*Reflection/);
+  const declarationOnly = new Policy({
     ...policy,
     output: {},
     steps: [],

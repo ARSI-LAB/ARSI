@@ -3,11 +3,10 @@ import { bindingDeclarationSchema } from '../../contracts/recipe.js';
 import type { JsonObject, JsonValue } from '../../contracts/json.js';
 import type { PluginContract } from '../../contracts/contract.js';
 import type { OperationDefinition } from '../../contracts/operation.js';
-import { object, string } from '../../shared/json.js';
+import { object, string, freezeSnapshot } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import type { Registry } from '../registry/index.js';
 import { resolvePaths } from './config.js';
-import { freezeSnapshot } from './immutable.js';
 
 export interface BindingSource {
   /** Raw declaration data is validated before any internal merge. */

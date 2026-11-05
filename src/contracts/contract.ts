@@ -1,5 +1,5 @@
 import type { JsonSchema } from './json.js';
-import { object, string, unknownKeys } from '../shared/json.js';
+import { object, string, unknownKeys, freezeSnapshot } from '../shared/json.js';
 import { validateSchemaDefinition } from '../shared/schema.js';
 
 /** A public abstract plugin type, independent of implementation and configuration. */
@@ -23,14 +23,7 @@ export function defineContract(value: unknown): PluginContract {
     validateSchemaDefinition(result, label);
     return structuredClone(result);
   };
-  const freeze = <T>(value: T): T => {
-    if (value !== null && typeof value === 'object') {
-      for (const child of Object.values(value)) freeze(child);
-      Object.freeze(value);
-    }
-    return value;
-  };
-  return freeze({
+  return freezeSnapshot({
     id,
     input_schema: schema(source.input_schema, `${id}.input_schema`),
     output_schema: schema(source.output_schema, `${id}.output_schema`),

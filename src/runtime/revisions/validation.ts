@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type {
   Binding,
   JsonObject,
+  JsonValue,
   JsonSchema,
   OperationDefinition,
   PluginContract,
@@ -16,12 +17,12 @@ import {
   unknownKeys,
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { readYaml, resolveConfig } from '../loaders/index.js';
+import { configPathFields } from '../../shared/config-paths.js';
+import { readYaml } from '../loaders/yaml.js';
+import { resolveConfig } from '../loaders/config.js';
 import { safeId } from '../storage/index.js';
 import {
-  count,
   pointerValue,
-  resourceFields,
   selectedResourceFields,
   validateEditableDestinations,
 } from './resources.js';
@@ -34,6 +35,16 @@ export interface ReflectionConfig {
   goal: string;
   implementation: { contract: string; ref: string; config: JsonObject };
   budget: { modelCalls: number; elapsedWallMs?: number };
+}
+function count(
+  value: JsonValue | undefined,
+  fallback: number,
+  label: string,
+): number {
+  const n = value ?? fallback;
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0)
+    throw new Error(`${label} must be a nonnegative integer`);
+  return n;
 }
 
 function uniqueNames(value: unknown, label: string): string[] {
@@ -51,7 +62,7 @@ async function validatePaths(
   config: JsonObject,
   label: string,
 ): Promise<void> {
-  for (const field of resourceFields(schema, config)) {
+  for (const field of configPathFields(schema, config)) {
     const path = string(pointerValue(config, field.pointer));
     const info = await lstat(path).catch((error: unknown) => {
       throw new Error(

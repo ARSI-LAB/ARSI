@@ -3,11 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
-import {
-  compilePolicy,
-  readPolicy,
-  Policy,
-} from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 import {
   InvokeStep,
   StateStep,
@@ -67,7 +63,7 @@ test('Policy builds immutable typed Steps and serializes reconstructable normali
       { id: 'reflect', type: 'reflection' },
     ],
   };
-  const policy = compilePolicy(value, {
+  const policy = new Policy(value, {
     contracts: resolver,
     sourcePath: 'policy.yaml',
   });
@@ -85,7 +81,7 @@ test('Policy builds immutable typed Steps and serializes reconstructable normali
   assert.equal(policy.sourcePath, resolve('policy.yaml'));
   const serialized = policy.toJSON();
   assert.equal(
-    compilePolicy(serialized, { contracts: resolver }).digest,
+    new Policy(serialized, { contracts: resolver }).digest,
     policy.digest,
   );
   (serialized.state as { count: number }).count = 100;
@@ -112,18 +108,18 @@ test('lexical output validation rejects forward references and incomplete local 
     ],
   };
   assert.throws(
-    () => compilePolicy(definition, { contracts: resolver }),
+    () => new Policy(definition, { contracts: resolver }),
     /unavailable output steps.same/,
   );
   assert.throws(
     () =>
-      compilePolicy(
+      new Policy(
         { ...base, require: required, steps: [reference, first] },
         { contracts: resolver },
       ),
     /unavailable output steps.same/,
   );
-  compilePolicy(
+  new Policy(
     {
       ...base,
       require: required,
@@ -141,7 +137,7 @@ test('lexical output validation rejects forward references and incomplete local 
   );
   assert.throws(
     () =>
-      compilePolicy(
+      new Policy(
         {
           ...base,
           require: required,
@@ -156,7 +152,7 @@ test('lexical output validation rejects forward references and incomplete local 
   );
   assert.throws(
     () =>
-      compilePolicy({
+      new Policy({
         ...base,
         steps: [
           {
@@ -212,13 +208,13 @@ test('only typed new DSL fields and explicit declared state are accepted', () =>
     { ...base, output: '${{ loop.index }}' },
     { ...base, output: '${{ init.old.output }}' },
   ])
-    assert.throws(() => compilePolicy(definition));
+    assert.throws(() => new Policy(definition));
 });
 test('constant resource limits reject invalid values while zero loops and dynamic concurrency remain valid', () => {
   for (const maxIterations of [-1, 1.5, 'no', null, 100001])
     assert.throws(
       () =>
-        compilePolicy({
+        new Policy({
           ...base,
           steps: [{ id: 'repeat', type: 'loop', maxIterations, steps: [] }],
         }),
@@ -227,7 +223,7 @@ test('constant resource limits reject invalid values while zero loops and dynami
   for (const concurrency of [0, 1.5, 'no', null, 65])
     assert.throws(
       () =>
-        compilePolicy({
+        new Policy({
           ...base,
           steps: [
             {
@@ -255,10 +251,10 @@ test('parallel restrictions recurse and foreach control boundaries retain outer 
     concurrency: 2,
     steps: [{ id: 'nested', type: 'if', if: true, then: { steps: [write] } }],
   };
-  assert.throws(() => compilePolicy({ ...base, steps: [each] }), /parallel/);
+  assert.throws(() => new Policy({ ...base, steps: [each] }), /parallel/);
   assert.throws(
     () =>
-      compilePolicy({
+      new Policy({
         ...base,
         steps: [
           {
@@ -277,7 +273,7 @@ test('parallel restrictions recurse and foreach control boundaries retain outer 
       }),
     /foreach/,
   );
-  compilePolicy({
+  new Policy({
     ...base,
     steps: [
       {
@@ -324,7 +320,7 @@ test('policy documents resolve nested local references relative to their files a
       output: 1,
     }),
   );
-  const compiled = await readPolicy(path, registry);
+  const compiled = await Policy.load(path, registry);
   assert.equal(compiled.sourcePath, path);
   assert.equal(compiled.directory, directory);
   assert.deepEqual(compiled.inputSchema, {
@@ -337,7 +333,7 @@ test('policy documents resolve nested local references relative to their files a
     '$ref: input.yaml\n',
   );
   await assert.rejects(
-    readPolicy(path, registry),
+    Policy.load(path, registry),
     /Cyclic or deep document reference/,
   );
 });
@@ -345,7 +341,7 @@ test('unknown contract errors identify the Policy dependency field and preserve 
   const cause = new Error('Unknown contract contract.work');
   assert.throws(
     () =>
-      compilePolicy(
+      new Policy(
         { ...base, require: required },
         {
           contracts: {
@@ -364,5 +360,28 @@ test('unknown contract errors identify the Policy dependency field and preserve 
       assert.equal(error.cause, cause);
       return true;
     },
+  );
+});
+
+test('Policy constructor validates, freezes, and serializes compiled declarations', () => {
+  const definition = { ...base, require: required, steps: [invoke] };
+  const policy = new Policy(definition, { contracts: resolver });
+  assert.ok(policy.steps[0] instanceof InvokeStep);
+  const serialized = policy.toJSON();
+  const restored = new Policy(serialized, { contracts: resolver });
+  assert.deepEqual(restored.toJSON(), serialized);
+  assert.equal(restored.digest, policy.digest);
+  serialized.id = 'changed';
+  assert.equal(policy.id, base.id);
+  assert.throws(() => {
+    policy.inputDefaults.changed = true;
+  }, TypeError);
+  assert.throws(
+    () =>
+      new Policy(
+        { ...definition, schemaVersion: 'unsupported' },
+        { contracts: resolver },
+      ),
+    /only rsi.policy\/v1 is supported/,
   );
 });

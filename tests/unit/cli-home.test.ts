@@ -8,6 +8,42 @@ import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
 
+test('CLI dashboard requires an existing .rsi directory in its working directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-cli-dashboard-'));
+  const data = join(root, '.rsi');
+  try {
+    const launch = () =>
+      execute(
+        process.execPath,
+        [
+          '--import',
+          import.meta.resolve('tsx'),
+          resolve('src/entries/cli/main.ts'),
+          'dashboard',
+        ],
+        {
+          cwd: root,
+          env: { ...process.env, HOME: root, USERPROFILE: root },
+          timeout: 5000,
+        },
+      );
+    const checkError = (error: unknown): boolean => {
+      assert.ok(error instanceof Error && 'code' in error && 'stderr' in error);
+      assert.equal(error.code, 1);
+      assert.match(String(error.stderr), /requires a \.rsi directory/);
+      return true;
+    };
+    await assert.rejects(launch(), checkError);
+    await assert.rejects(stat(data), { code: 'ENOENT' });
+
+    await writeFile(data, 'preserve me');
+    await assert.rejects(launch(), checkError);
+    assert.equal(await readFile(data, 'utf8'), 'preserve me');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI creates its extension home on first launch and preserves existing files', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-cli-home-'));
   const home = join(root, 'home');

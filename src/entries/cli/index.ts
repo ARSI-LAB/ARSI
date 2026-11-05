@@ -1,4 +1,5 @@
 import { errorText } from '../../shared/errors.js';
+import { statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -18,6 +19,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return 0;
     }
     const { command, args, pluginDirectories } = parsed;
+    if (
+      command === 'dashboard' &&
+      !statSync('.rsi', { throwIfNoEntry: false })?.isDirectory()
+    ) {
+      throw new Error(
+        'Dashboard requires a .rsi directory in the current working directory. Run it from your experiment workspace.',
+      );
+    }
     const { createRuntime, validateRecipe } = await import(
       '../../runtime/context.js'
     );
@@ -70,12 +79,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       case 'catalog':
         result = runtime.registry.catalog();
         break;
-      case 'serve': {
+      case 'dashboard': {
         const port = parsed.port ?? 4317;
         const { createServer } = await import('../web/server.js');
         const server = await createServer(runtime);
         const address = await server.listen({ host: '127.0.0.1', port });
-        process.stdout.write(`ember-rsi ${address}\n`);
+        process.stdout.write(`Dashboard open at ${address}\n`);
         try {
           await new Promise<void>((done) => {
             if (controller.signal.aborted) done();

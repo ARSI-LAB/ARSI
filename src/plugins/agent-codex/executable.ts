@@ -9,7 +9,11 @@ export function codexCommand(executable: string): {
 } {
   if (['.js', '.cjs', '.mjs'].includes(extname(executable)))
     return { executable: process.execPath, args: [resolve(executable)] };
-  if (process.platform !== 'win32') return { executable, args: [] };
+  if (process.platform !== 'win32')
+    return {
+      executable: executable.includes('/') ? resolve(executable) : executable,
+      args: [],
+    };
   const candidates = /[/\\]/.test(executable)
     ? [resolve(executable)]
     : (process.env.PATH ?? '').split(';').flatMap((directory) => {

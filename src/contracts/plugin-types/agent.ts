@@ -8,6 +8,7 @@ export type AgentInput = {
   files?: Record<string, string>;
   outputSchema: JsonObject;
   agentRef?: string;
+  /** Request-attempt limit for backends that own the transport. Native Codex sessions cannot enforce it. */
   maxModelCalls?: number;
 };
 

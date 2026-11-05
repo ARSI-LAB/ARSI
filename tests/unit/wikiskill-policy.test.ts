@@ -198,6 +198,7 @@ test('WikiSkill skips no-change evaluation, retains Wiki across rejection, stops
   let proposals = 0;
   const input = { candidateRef: 'h0' };
   const config = {
+    maxRounds: 8,
     stopAtScore: 1,
     dataset: {
       trainTaskIds: ['train'],

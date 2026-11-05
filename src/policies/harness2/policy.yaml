@@ -64,6 +64,7 @@ defaults:
         prompt: ./prompts/invariant.md
         guidance: ./guidance/invariant-proposer
         skills: [./skills/harness-edit]
+        maxModelCalls: 24
     domainProposer:
       plugin: proposer.agent
       config:
@@ -72,6 +73,7 @@ defaults:
         prompt: ./prompts/domain.md
         guidance: ./guidance/domain-proposer
         skills: [./skills/harness-edit]
+        maxModelCalls: 24
     composer:
       plugin: proposer.agent
       config:
@@ -79,6 +81,7 @@ defaults:
         agentRef: agent
         prompt: ./prompts/compose.md
         skills: [./skills/harness-edit]
+        maxModelCalls: 24
     # Final selection compares anonymous deliverables via the delivery capability,
     # independently of the evaluator scores retained for reporting.
     selector:

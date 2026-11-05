@@ -4,10 +4,12 @@ properties:
     x-rsi-tunable: true
     type: integer
     minimum: 1
+    maximum: 10
     default: 1
   concurrency:
     type: integer
     minimum: 1
+    maximum: 64
     default: 1
   dataset:
     type: object

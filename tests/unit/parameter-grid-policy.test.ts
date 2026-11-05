@@ -90,7 +90,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     const output = object(
       await policy.execute({
         input: { candidateRef: 'baseline' },
-        config: {},
+        config: { maxCandidates: 4 },
         ...options,
       }),
     );
@@ -102,7 +102,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     assert.deepEqual(
       await policy.execute({
         input: { candidateRef: 'baseline' },
-        config: {},
+        config: { maxCandidates: 4 },
         ...options,
         restore: checkpoint,
         invoke: async () => {

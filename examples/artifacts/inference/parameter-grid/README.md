@@ -26,10 +26,10 @@ searchSpace:
     values: [2048, 4096, 8192, 16384]
 ```
 
-The search can cover all 16 points when `maxCandidates` is omitted or at least
-16 and the configured evaluation budgets allow it. Include the baseline in the
-grid or measure it separately. Resume with the same ordered configuration and
-cursor.
+The grid Policy defaults `maxCandidates` to 1,000. To cover all 16 points,
+allow at least 16 candidates and ensure the evaluation budgets cover them.
+Include the baseline in the grid or measure it separately. Resume with the same
+ordered configuration and cursor.
 
 For adaptive sampling, see the [TPE recipe](../parameter-tpe/README.md).
 

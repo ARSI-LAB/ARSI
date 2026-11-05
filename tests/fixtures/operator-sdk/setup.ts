@@ -121,7 +121,7 @@ export async function prepareOperatorFixture(): Promise<{
   const example = join(root, 'example');
   await cp(
     new URL(
-      '../../../examples/artifacts/kernel/qianchuan-top3/',
+      '../../../examples/artifacts/kernel/transpose-copy/',
       import.meta.url,
     ),
     example,

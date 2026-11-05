@@ -1,4 +1,4 @@
-# Qianchuan top3 operator optimization
+# Transpose-copy operator optimization
 
 This example uses `policy.operator-search` to evaluate a sealed Triton-Ascend
 baseline, generate and repair candidates, select improvements, and independently
@@ -8,6 +8,8 @@ edits, and `evaluator.operatorbench` invokes the full Evaluator SDK.
 
 The task takes an FP16 tensor of shape `[381, 51200]` and returns a contiguous,
 independently stored FP16 tensor of shape `[381, 80, 80, 8]`, preserving the input.
+It reshapes the input, swaps the two spatial axes, and materializes a contiguous
+copy of the transposed view.
 The fixed case uses seed 42 and zero numerical tolerance. The entry point is
 `kernel_function`. The frozen reference and contract are in [task](./task/task.json).
 
@@ -21,6 +23,12 @@ Before running [the Recipe](./recipe.search.yaml), replace its SDK Python path,
 embedding Python path, model directory, identity file, external knowledge bundle,
 and external retrieval script placeholders. Keep the hardware description in
 [hardware-context.md](./hardware-context.md) consistent with the selected device.
+
+The Policy owns the six stage prompts and supplies `promptsDirectory` through its
+default Proposer binding. A Recipe can override that directory; independent uses
+of `proposer.operator` must configure their own directory containing `diagnose.md`,
+`diagnose-metrics.md`, `generate.md`, `generate-metrics.md`, `repair.md`, and
+`summarize.md`.
 
 The knowledge bundle and retrieval implementation are deployed independently.
 `embedding.resourcesDirectory` points to the bundle root, containing
@@ -54,9 +62,9 @@ object with `id` and immutable `revision`, an `encoding` object with
 ```bash
 pnpm install --frozen-lockfile
 pnpm build
-pnpm ember-rsi validate examples/artifacts/kernel/qianchuan-top3/recipe.search.yaml
-pnpm ember-rsi run examples/artifacts/kernel/qianchuan-top3/recipe.search.yaml --id top3-search-001
-pnpm ember-rsi show top3-search-001
+pnpm ember-rsi validate examples/artifacts/kernel/transpose-copy/recipe.search.yaml
+pnpm ember-rsi run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
+pnpm ember-rsi show transpose-copy-search-001
 ```
 
 To resume, repeat `run` with the same Recipe and ID and add `--resume`. Keep the

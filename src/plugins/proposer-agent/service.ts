@@ -4,11 +4,9 @@ import type {
   ProposerInput,
   ProposerOutput,
 } from '../../contracts/index.js';
-import { applicationContract } from '../../contracts/plugin-types/index.js';
 import { json, object, string } from '../../shared/json.js';
-import { validate } from '../../shared/schema.js';
 import {
-  applyEdits,
+  commitEdits,
   editEvidenceRefs,
   requestEdit,
   resourceFiles,
@@ -65,22 +63,13 @@ export const createProposerAgent: OperationDefinition<
           response,
           await resourceFiles(parent.artifactRef, context),
         );
-        await applyEdits(edit.directory, result, context, constraints);
-        const committed = await context.application({
-          action: 'commit',
-          parentCandidateRef: parent.ref,
-          editRef: edit.ref,
-          ...(input.editConstraints
-            ? { editConstraints: input.editConstraints }
-            : {}),
-        });
-        validate(
-          applicationContract.output_schema,
-          committed,
-          'Application commit output',
+        const committed = await commitEdits(
+          edit,
+          result,
+          parent.ref,
+          context,
+          input.editConstraints,
         );
-        if (committed.action !== 'commit')
-          throw new Error('Application did not return a commit result');
         const candidateRef = string(committed.candidateRef);
         const rationale = string(result.reason);
         if (committed.status === 'created')

@@ -46,6 +46,7 @@ test('static diagnosis accepts only supported source-backed issues and preserves
 
 test('operator config requires explicit retrieval resources and permits only CPU retrieval', () => {
   const config = parseConfig<OperatorProposerConfig>(configSchema, {
+    promptsDirectory: '/prompts',
     task: { directory: '/task' },
     embedding: {
       python: '/venv/bin/python',
@@ -68,6 +69,9 @@ test('operator config requires explicit retrieval resources and permits only CPU
   const missing = structuredClone(config);
   Reflect.deleteProperty(missing.embedding, 'identityFile');
   assert.throws(() => validate(configSchema, missing));
+  const missingPrompts = structuredClone(config);
+  Reflect.deleteProperty(missingPrompts, 'promptsDirectory');
+  assert.throws(() => validate(configSchema, missingPrompts));
 });
 
 async function fixture() {

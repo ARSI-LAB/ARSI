@@ -82,11 +82,10 @@ defaults:
   reflection:
     configFile: ./reflection.yaml
   # Keep the Policy's required bindings here.
-loop:
-  steps:
-    # Keep the proposal, evaluation, selection and Memory steps before this call.
-    - id: improve_guidance
-      use: reflection
+steps:
+  # Keep the proposal, evaluation, selection and Memory steps before this call.
+  - id: improve_guidance
+    type: reflection
 ```
 
 This is an excerpt, not a standalone Policy. Preserve the rest of the Policy's schemas, dependencies, and flow. For the built-in Harness² source, enabling its commented step changes the Policy for users of that build; to keep a separate behavior, register your own Policy ID and select it from the Recipe. See [Policy registration](guide.md#4-write-a-policy).
@@ -98,7 +97,7 @@ This is an excerpt, not a standalone Policy. Preserve the rest of the Policy's s
 | Declaration exists and the step is reached        | Reflection executes and the Policy waits for its result; it may skip, make no change, reject, or activate revisions. |
 | Invocation without a declaration                  | Rejected before execution.                                                                                           |
 
-Reflection requires serial execution. The compiler/Runtime rejects calls in parallel branches, including relevant nested Policy dependencies.
+Reflection requires serial execution. The compiler/Runtime rejects calls in parallel branches, including nested parallel containers.
 
 ### Override the file from a Recipe
 
@@ -108,7 +107,7 @@ reflection:
   configFile: ./reflection-custom.yaml
 ```
 
-This selects a **complete replacement file** for the root Policy, which must already declare `defaults.reflection`. It does not merge individual fields, does not override child Policies, and does not insert a call into the flow. The override path resolves against the Recipe; paths inside the selected file resolve against that file.
+This selects a **complete replacement file** for the root Policy, which must already declare `defaults.reflection`. It does not merge individual fields or insert a call into the flow. The override path resolves against the Recipe; paths inside the selected file resolve against that file.
 
 If the replacement omits `budget`, the framework defaults apply rather than the original file's values. Invalid replacements fail validation; there is no fallback to the default file.
 
@@ -138,7 +137,7 @@ Bind a registered implementation and provide real resource paths:
 # Policy defaults excerpt
 bindings:
   domainProposer:
-    ref: proposer.custom
+    plugin: proposer.custom
     config:
       prompt: ./prompts/domain.md
       guidance: ./guidance

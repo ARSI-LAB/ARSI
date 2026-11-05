@@ -32,7 +32,7 @@ For example, the [Harness² Policy](../../../src/policies/harness2/policy.yaml) 
 
 1. The Recipe selects `policy.harness2` and supplies task IDs and an initial candidate.
 2. `require.domainProposer` requires `contract.proposer`; `defaults.bindings.domainProposer` selects the implementation and its static configuration.
-3. A `use: domainProposer` step passes dynamic input through `with`: the parent candidate, goal, evidence references, and optional Memory reference.
+3. A `type: invoke` step with `use: domainProposer` passes dynamic input through `with`: the parent candidate, goal, evidence references, and optional Memory reference.
 4. The Proposer reads the parent candidate and authorized evidence, assembles its prompt/resources, and invokes the Agent binding selected by `agentRef`.
 5. It applies validated edits in a temporary workspace and calls the Application's `commit` action. The Application enforces the Target and returns a candidate/diff reference or a no-change result.
 6. Subsequent evaluator and selector calls measure the candidate and choose the result. The Manager persists the corresponding facts and receipts.
@@ -90,12 +90,12 @@ Start from a complete example and keep its `recipe.yaml`, `target.yaml`, and `ba
 schemaVersion: rsi.recipe/v1
 id: harness2-one-task
 application:
-  ref: application.agentbundle
+  plugin: application.agentbundle
   config:
     target: { schema: ./target.yaml }
     baseline: { directory: ./baseline }
 policy:
-  ref: policy.harness2
+  id: policy.harness2
   input:
     candidateRef: ${{ application.initialCandidate }}
   config:
@@ -107,11 +107,11 @@ policy:
         - workbuddy/board-material-update-timeline-excel
 bindings:
   agent:
-    ref: agent.pi
+    plugin: agent.pi
     config:
       thinkingLevel: low
   evaluator:
-    ref: evaluator.agentbench
+    plugin: evaluator.agentbench
     config:
       services:
         default:
@@ -141,7 +141,7 @@ Place it beside the [Harness² baseline and Target](../../../examples/harness/ds
 
 Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy.config`. Goals and the delivery rubric are defined by the Policy; `goals` and `deliveryRubric` are not accepted configuration fields. `k` controls exploration slots; `concurrency` limits concurrent Policy branches. The Evaluator scheduler has a separate concurrency setting. With fixed `k`, the current flow makes `4 × k × task count` evaluator calls (base, invariant, domain, composition); one evaluator call can contain multiple tasks in other Policies.
 
-[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) instead accepts `maxRounds`, optional `stopAtScore`, and disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks in `finish`. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
+[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) instead accepts `maxRounds`, optional `stopAtScore`, and disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
 
 ### CLI
 
@@ -185,7 +185,7 @@ Open `http://127.0.0.1:4317`. The built Web UI is a **read-only observation work
 | Replace the complete proposal workflow                                             | Implement `contract.proposer` and replace a Proposer binding. |
 | Change orchestration, state, or stopping rules                                     | Register a custom Policy.                                     |
 
-Bindings merge at the binding/configuration level; they are not an arbitrary recursive merge. Inspect the [loader](../../../src/runtime/loaders/index.ts) when replacing nested configuration. A `ref` selects a registered implementation; it does not import a file or register code.
+Binding declarations select registered plugins with `plugin`; `policy.id` selects a registered Policy. Config-only overrides inherit the default plugin. For the same plugin, plain objects merge recursively while arrays, scalars and null replace prior values; changing the plugin discards its old configuration. Schema path fields retain their own declaration origins through merges. Loading validates the final configuration and contract. See the [loader](../../../src/runtime/loaders/index.ts).
 
 Organize a plugin around `schema.ts` (configuration), `service.ts` (business behavior and cleanup), and `index.ts` (definition assembly). Reuse the public contract's input/output schemas. Repository plugins import local contracts; external packages use `ember-rsi` or `ember-rsi/contracts`, not private `src/*` imports.
 
@@ -208,7 +208,7 @@ export function register(registry) {
 }
 ```
 
-Set `bindings.agent.ref: agent.my-custom` in your Recipe, matching the definition's ID, then pass the extension on each command that needs it:
+Set `bindings.agent.plugin: agent.my-custom` in your Recipe, matching the definition's ID, then pass the extension on each command that needs it:
 
 ```sh
 ember-rsi validate ./my-recipe/recipe.yaml --plugin-dir ./my-extension
@@ -239,35 +239,40 @@ try {
 }
 ```
 
+`Recipe.load(recipePath, runtime.registry)` returns the assembled definition without initializing the Application. Its `policy` is a `Policy` object; `policyConfig` and `policyInput` hold the configuration and input mapping. `application` and each entry in `bindings` are validated `Binding` objects with `pluginId` and `config`; `toJSON()` exports declarations using `plugin` and `policy.id`. Import `Recipe`, `Policy` and `Binding` from `ember-rsi` when using these model APIs.
+
 Direct registration in a host process does not modify a separately started CLI process. Use that host for management calls, or load the same extension through `--plugin-dir`. Never persist live `RuntimeContext` objects as JSON.
 
 ## 4. Write a Policy
 
 Policies use `rsi.policy/v1`; Recipes use `rsi.recipe/v1`. A Policy declares input, output, and configuration schemas, required contract IDs, optional default bindings, and its execution flow. See [Harness²](../../../src/policies/harness2/policy.yaml), [WikiSkill](../../../src/policies/wikiskill/policy.yaml), and the [Policy compiler](../../../src/runtime/compiler/).
 
-| Construct | Behavior                                                                            |
-| --------- | ----------------------------------------------------------------------------------- |
-| `use`     | Call a required binding or the explicitly configured `reflection` module.           |
-| `state`   | Persist state updates. Parallel branches cannot mutate shared state.                |
-| `if`      | Execute conditional branches.                                                       |
-| `foreach` | Iterate with stable unique keys, bounded concurrency, and optional `yield` results. |
-| `loop`    | Run a nested loop. The top-level loop supports `maxIterations` and `while`.         |
-| `control` | `break`, `continue`, or `fail` with a reason.                                       |
+Every step declares `id` and `type` in one ordered top-level `steps` array. A Policy with shared state declares `state_schema` and initial `state`; initial expressions can use validated `input`, `application` and `config`.
 
-`init`, `loop`, and `finish` organize lifecycle stages. Expressions such as `${{ input.candidateRef }}` and `${{ loop.propose.output.candidateRef }}` connect data through the supported expression language and pure functions. They do not execute arbitrary JavaScript. Recipe paths and IDs must still be valid for the selected implementation.
+| Type         | Behavior                                                                             |
+| ------------ | ------------------------------------------------------------------------------------ |
+| `invoke`     | Call a required plugin binding with `use` and optional `with`.                       |
+| `state`      | Atomically validate and commit shared state updates; forbidden in parallel branches. |
+| `if`         | Choose `then` or `else` blocks shaped as `{ steps, output? }`.                       |
+| `loop`       | Run bounded `steps` with `maxIterations`, optional `while`, and optional `output`.   |
+| `foreach`    | Iterate with stable unique keys, bounded concurrency, and optional item `output`.    |
+| `control`    | `break`, `continue`, or `fail` with a reason.                                        |
+| `reflection` | Invoke the declared Reflection module serially.                                      |
 
-A typical search flow initializes an incumbent and validation measurement, proposes a candidate, evaluates only changed candidates, selects by metrics, updates state on acceptance, and reports a final held-out measurement in `finish`. Reflection requires an explicit serial `use: reflection` step; do not place it in a parallel branch.
+Expressions such as `${{ input.candidateRef }}` and `${{ steps.propose.output.candidateRef }}` connect data through a bounded pure expression language. Visible completed steps resolve through lexical `steps` scopes; `loop.index` is the nearest loop index. If/foreach output is evaluated in its local block, while loop output is evaluated outside the loop. Retain per-round values in declared state if later steps need them, including the zero-round case. State-update expressions read the pre-update state.
+
+A typical search measures a baseline, proposes and evaluates candidates in a loop, selects by metrics, saves accepted state, then performs held-out evaluation through later ordinary steps. Parallel foreach branches return outputs for serial aggregation. Reflection uses `type: reflection` and cannot execute in a parallel branch. Bindings select plugins only; there are no child Policies, fixed `init`/`finish` scopes or Runtime report labels. Runtime owns resource cleanup, including errors and cancellation.
 
 Register a custom Policy from a compiled extension (the paths below are relative to that extension module):
 
 ```js
 import { fileURLToPath } from 'node:url';
-import { readPolicy } from 'ember-rsi';
+import { Policy } from 'ember-rsi';
 
 export async function register(registry) {
   const file = fileURLToPath(new URL('./policy.yaml', import.meta.url));
-  const policy = await readPolicy(file, registry);
-  registry.registerPolicy(String(policy.definition.id), file);
+  const policy = await Policy.load(file, registry);
+  registry.registerPolicy(policy.id, file);
 }
 ```
 

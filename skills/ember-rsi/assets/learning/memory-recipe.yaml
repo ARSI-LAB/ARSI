@@ -1,17 +1,17 @@
 schemaVersion: rsi.recipe/v1
 id: recipe.skill-memory
 application:
-  ref: application.agentbundle
+  plugin: application.agentbundle
   config:
     target: { schema: ./target.yaml }
     baseline: { directory: ./baseline }
 policy:
-  ref: policy.skill-memory
+  id: policy.skill-memory
   config: { maxRounds: 2 }
   input: {}
 bindings:
   agent:
-    ref: agent.pi
+    plugin: agent.pi
     config:
       model: ${MODEL_NAME}
       base_url: ${MODEL_ENDPOINT}
@@ -19,22 +19,22 @@ bindings:
       maxTokens: 4096
       timeoutMs: 60000
   proposer:
-    ref: proposer.agent
+    plugin: proposer.agent
     config:
       agentRef: agent
       prompt: ./proposer.md
       guidance: ./guidance
       maxModelCalls: 6
   memory:
-    ref: memory.agent
+    plugin: memory.agent
     config:
       agentRef: agent
       prompt: ./memory.md
       maxModelCalls: 6
-  evaluator: { ref: evaluator.skill-text, config: {} }
+  evaluator: { plugin: evaluator.skill-text, config: {} }
   selector:
     {
-      ref: selector.metric,
+      plugin: selector.metric,
       config: { metric: checkPhrase, direction: maximize },
     }
 budget:

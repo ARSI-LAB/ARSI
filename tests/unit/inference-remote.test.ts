@@ -76,13 +76,16 @@ function call(
     cleanup: AbortSignal.timeout(10000),
   });
 }
-async function fixture(): Promise<{
+async function fixture(onHealth?: () => void): Promise<{
   root: string;
   config: RemoteInferenceConfig;
   close: () => Promise<void>;
 }> {
   const root = await mkdtemp(join(tmpdir(), 'rsi-remote-'));
-  const server = createServer((_request, response) => response.end('ok'));
+  const server = createServer((_request, response) => {
+    onHealth?.();
+    response.end('ok');
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('missing port');
@@ -265,6 +268,7 @@ test('remote readiness cancellation explicitly cleans owned remote service', asy
   const bad = {
     ...config,
     endpoint: { ...endpoint, origin: 'http://127.0.0.1:1' },
+    healthcheck: { intervalMs: 10 },
   };
   const services = servicesFor(f.root);
   const app = await inferenceDefinition.create(bad, services);
@@ -299,6 +303,67 @@ test('remote readiness cancellation explicitly cleans owned remote service', asy
     await f.close();
   }
 });
+
+for (const healthTimeout of [undefined, 40_000]) {
+  test(
+    healthTimeout === undefined
+      ? 'remote readiness inherits the configured lifecycle timeout'
+      : 'an explicit healthcheck timeout overrides the lifecycle timeout for readiness',
+    async (t) => {
+      const deadline = new AbortController();
+      const timedOut = new Error('Configured lifecycle deadline expired');
+      const f = await fixture(() => deadline.abort(timedOut));
+      const services = servicesFor(f.root);
+      const remoteTimeout = 30_000;
+      const remote = { ...f.config.remote, timeoutMs: remoteTimeout };
+      delete remote.calibration;
+      const app = await inferenceDefinition.create(
+        {
+          ...f.config,
+          remote,
+          healthcheck: {
+            intervalMs: 10,
+            ...(healthTimeout === undefined
+              ? {}
+              : { timeoutMs: healthTimeout }),
+          },
+        },
+        services,
+      );
+      const nativeTimeout = AbortSignal.timeout;
+      const timeouts = t.mock.method(AbortSignal, 'timeout', (ms: number) =>
+        ms === remoteTimeout && !deadline.signal.aborted
+          ? deadline.signal
+          : nativeTimeout(ms),
+      );
+      try {
+        const initial = await app.execute(
+          { action: 'initialize' },
+          call(services),
+        );
+        if (initial.action !== 'initialize')
+          throw new Error('unexpected initialize');
+        const acquiring = app.execute(
+          {
+            action: 'acquire',
+            candidateRef: initial.initialCandidateRef,
+            instanceId: 'explicit-timeout',
+            capability: 'inference-endpoint',
+          },
+          call(services),
+        );
+        if (healthTimeout === undefined)
+          await assert.rejects(acquiring, (error) => error === timedOut);
+        else assert.equal((await acquiring).action, 'acquire');
+        assert.equal(deadline.signal.aborted, true);
+      } finally {
+        timeouts.mock.restore();
+        await app.dispose();
+        await f.close();
+      }
+    },
+  );
+}
 
 test('remote ownership conflict is retained as unknown and never replaces the other service', async () => {
   const f = await fixture();

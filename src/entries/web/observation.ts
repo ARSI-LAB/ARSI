@@ -6,6 +6,7 @@ export function registerObservationRoutes(
   app: FastifyInstance,
   queries: ObservationQueries,
 ): void {
+  app.get('/api/observation/source', () => queries.source());
   const id = {
     type: 'string',
     pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$',
@@ -130,5 +131,39 @@ export function registerObservationRoutes(
       },
     },
     (request) => queries.callDetail(request.params.id, request.params.callId),
+  );
+  app.get<{ Params: { id: string; callId: string } }>(
+    '/api/observation/experiments/:id/calls/:callId/instructions',
+    {
+      schema: {
+        params: {
+          ...params,
+          properties: { id, callId: id },
+          required: ['id', 'callId'],
+        },
+      },
+    },
+    (request) =>
+      queries.callInstructions(request.params.id, request.params.callId),
+  );
+  app.get<{ Params: { id: string; callId: string }; Querystring: Window }>(
+    '/api/observation/experiments/:id/calls/:callId/trace',
+    {
+      schema: {
+        params: {
+          ...params,
+          properties: { id, callId: id },
+          required: ['id', 'callId'],
+        },
+        querystring: pagination,
+      },
+    },
+    (request) =>
+      queries.callTrace(
+        request.params.id,
+        request.params.callId,
+        request.query.offset,
+        request.query.limit,
+      ),
   );
 }

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   candidateLabel,
   scoreLabel,
-  exactScoreLabel,
 } from '../../web/features/experiments/record-identifiers.js';
 test('candidate labels derive from immutable IDs, including human-readable mock IDs', () => {
   assert.equal(
@@ -19,16 +18,20 @@ test('candidate labels derive from immutable IDs, including human-readable mock 
     candidateLabel('candidate-527c66e1b17596c643e4ab1ad9c2becf'),
   );
 });
-test('score labels retain zero and do not round small nonzero values to zero', () => {
+test('score labels round small values without scientific notation', () => {
   assert.equal(scoreLabel(0), '0');
-  assert.equal(scoreLabel(0.33335), '0.33335');
-  assert.equal(scoreLabel(1e-12), '1.000e-12');
+  assert.equal(scoreLabel(0.33335), '0.33');
+  assert.equal(scoreLabel(1e-12), '0');
   assert.equal(scoreLabel(-0.25), '-0.25');
+  assert.equal(scoreLabel(0.005), '0.01');
+  assert.equal(scoreLabel(-0.0049), '0');
+  assert.doesNotMatch(scoreLabel(1e21), /e[+-]?\d/i);
 });
 
-test('selected score precision is exact while rounded chart labels are explicit', () => {
-  assert.equal(exactScoreLabel(2 / 3), '0.6666666666666666');
-  assert.equal(exactScoreLabel(0), '0');
-  assert.equal(exactScoreLabel(1e-12), '0.000000000001');
-  assert.equal(scoreLabel(2 / 3), '≈0.6666667');
+test('all score displays use two decimals without floating-point noise', () => {
+  assert.equal(scoreLabel(2 / 3), '0.67');
+  assert.equal(scoreLabel(0.9141400000000001), '0.91');
+  assert.equal(scoreLabel(-0), '0');
+  assert.equal(scoreLabel(42), '42');
+  assert.equal(scoreLabel(-1e-12), '0');
 });

@@ -18,14 +18,9 @@ import {
 import { Registry } from '../../src/runtime/registry/index.js';
 import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
 import { validateReflection } from '../../src/runtime/revisions/validation.js';
-import { loadRecipe } from '../../src/runtime/loaders/index.js';
-import {
-  assertSerialReflectionDependencies,
-  compilePolicy,
-} from '../../src/runtime/compiler/index.js';
+import { compilePolicy } from '../../src/runtime/compiler/index.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
 import { object } from '../../src/shared/json.js';
-
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-reflection-config-'));
   const registry = new Registry();
@@ -80,16 +75,16 @@ async function fixture(t: TestContext) {
   await writeFile(join(root, 'prompt.md'), 'Base prompt');
   const bindings: Record<string, Binding> = {
     proposer: {
-      ref: target.id,
+      plugin: target.id,
       config: {
         guidance: join(root, 'guidance'),
         prompt: join(root, 'prompt.md'),
         label: 'plain string',
       },
     },
-    other: { ref: target.id, config: { prompt: join(root, 'prompt.md') } },
-    agent: { ref: 'agent.test', config: {} },
-    'agent.default': { ref: 'agent.test', config: {} },
+    other: { plugin: target.id, config: { prompt: join(root, 'prompt.md') } },
+    agent: { plugin: 'agent.test', config: {} },
+    'agent.default': { plugin: 'agent.test', config: {} },
   };
   const definition: JsonObject = {
     evidence: ['proposer'],
@@ -118,7 +113,6 @@ async function fixture(t: TestContext) {
   }
   return { root, path, registry, bindings, definition, load };
 }
-
 test('Reflection parses one complete config, preserving per-target permissions and implementation defaults', async (t) => {
   const { root, path, definition, load } = await fixture(t);
   const parsed = await load();
@@ -143,7 +137,6 @@ test('Reflection parses one complete config, preserving per-target permissions a
     parsed.digest,
   );
 });
-
 test('Reflection budget has one default, optional timeout and explicit zero or larger values', async (t) => {
   const { definition, load } = await fixture(t);
   const defaults: JsonObject[] = [{}, { timeoutSeconds: 600 }];
@@ -173,7 +166,6 @@ test('Reflection budget has one default, optional timeout and explicit zero or l
   for (const budget of invalid)
     await assert.rejects(load({ ...definition, budget }), /budget/);
 });
-
 test('Reflection goal files resolve from the selected config and lock UTF-8 contents', async (t) => {
   const { root, definition, load } = await fixture(t);
   const first = await load();
@@ -191,7 +183,6 @@ test('Reflection goal files resolve from the selected config and lock UTF-8 cont
   await writeFile(join(root, 'goal.md'), Buffer.from([0xff]));
   await assert.rejects(load(), /goal: cannot read UTF-8/);
 });
-
 test('Reflection requires explicit registered implementation, contract and builtin Agent binding', async (t) => {
   const { definition, load } = await fixture(t);
   const implementations: JsonObject[] = [
@@ -250,7 +241,6 @@ test('Reflection requires explicit registered implementation, contract and built
   assert.equal(zero.budget.modelCalls, 0);
   assert.equal(zero.implementation.config.maxModelCalls, 1);
 });
-
 test('Reflection rejects legacy rules, unknown fields and invalid target or evidence authorization', async (t) => {
   const { definition, load } = await fixture(t);
   const invalid: JsonObject[] = [
@@ -275,7 +265,6 @@ test('Reflection rejects legacy rules, unknown fields and invalid target or evid
   for (const value of invalid)
     await assert.rejects(load(value), /reflection\.yaml:/);
 });
-
 test('Reflection checks configured read-only resources before execution', async (t) => {
   const { root, load } = await fixture(t);
   await rm(join(root, 'prompt.md'));
@@ -284,7 +273,6 @@ test('Reflection checks configured read-only resources before execution', async 
     /reflection.yaml.*targets.proposer\/prompt: cannot read resource/,
   );
 });
-
 const policy = {
   schemaVersion: 'rsi.policy/v1',
   id: 'policy.config-test',
@@ -293,14 +281,13 @@ const policy = {
   defaults: {
     reflection: { configFile: './missing-is-not-read-during-compilation.yaml' },
   },
-  init: { steps: [{ id: 'improve', use: 'reflection' }] },
-  output: '${{ init.improve.output }}',
+  output: '${{ steps.improve.output }}',
+  steps: [{ id: 'improve', type: 'reflection' }],
 };
-
 test('Policy compiler registers Reflection separately from raw generator contracts and enforces serial empty calls', () => {
   const compiled = compilePolicy(policy);
-  assert.equal(compiled.usesReflection, true);
-  assert.deepEqual(compiled.require, {});
+  assert.equal(compiled.steps[0]?.type, 'reflection');
+  assert.deepEqual(compiled.requirements, {});
   assert.throws(
     () => compilePolicy({ ...policy, defaults: {} }),
     /defaults.reflection/,
@@ -329,151 +316,41 @@ test('Policy compiler registers Reflection separately from raw generator contrac
     () =>
       compilePolicy({
         ...policy,
-        init: {
-          steps: [
-            { id: 'improve', use: 'reflection', with: { goal: 'Override' } },
-          ],
-        },
+        steps: [
+          { id: 'improve', type: 'reflection', with: { goal: 'Override' } },
+        ],
       }),
-    /per-call/,
+    /unknown field with/,
   );
   assert.doesNotThrow(() =>
     compilePolicy({
       ...policy,
-      init: { steps: [{ id: 'improve', use: 'reflection', with: {} }] },
+      steps: [{ id: 'improve', type: 'reflection' }],
     }),
   );
   const concurrent = {
     ...policy,
-    init: {
-      steps: [
-        {
-          id: 'batch',
-          foreach: [1],
-          as: 'entry',
-          key: '${{ entry }}',
-          concurrency: 2,
-          steps: [{ id: 'improve', use: 'reflection' }],
-        },
-      ],
-    },
     output: {},
+    steps: [
+      {
+        id: 'batch',
+        type: 'foreach',
+        foreach: [1],
+        as: 'entry',
+        key: '${{ entry }}',
+        concurrency: 2,
+        steps: [{ id: 'improve', type: 'reflection' }],
+      },
+    ],
   };
   assert.throws(() => compilePolicy(concurrent), /parallel.*Reflection/);
   const declarationOnly = compilePolicy({
     ...policy,
-    init: { steps: [] },
     output: {},
+    steps: [],
   });
-  assert.equal(declarationOnly.usesReflection, false);
+  assert.equal(declarationOnly.steps.length, 0);
 });
-
-test('Policy graph checks indirect Reflection calls through parallel condition and loop branches', () => {
-  const registry = new Registry();
-  registry.registerContract({
-    id: 'contract.child',
-    input_schema: { type: 'object' },
-    output_schema: { type: 'object' },
-  });
-  const parent = compilePolicy(
-    {
-      ...policy,
-      defaults: {},
-      require: { child: { contract: 'contract.child' } },
-      init: {
-        steps: [
-          {
-            id: 'batch',
-            foreach: [1],
-            as: 'entry',
-            key: '${{ entry }}',
-            concurrency: 2,
-            steps: [
-              {
-                id: 'condition',
-                if: true,
-                then: [
-                  {
-                    id: 'nested',
-                    loop: {
-                      maxIterations: 1,
-                      steps: [{ id: 'invoke', use: 'child' }],
-                    },
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      output: {},
-    },
-    { contracts: registry },
-  );
-  assert.throws(
-    () => assertSerialReflectionDependencies(parent, new Set(['child'])),
-    /parallel.*Reflection/,
-  );
-  assert.doesNotThrow(() =>
-    assertSerialReflectionDependencies(parent, new Set()),
-  );
-  const serial = compilePolicy(
-    {
-      ...policy,
-      defaults: {},
-      require: { child: { contract: 'contract.child' } },
-      init: { steps: [{ id: 'invoke', use: 'child' }] },
-      output: {},
-    },
-    { contracts: registry },
-  );
-  assert.equal(
-    assertSerialReflectionDependencies(serial, new Set(['child'])),
-    true,
-  );
-  const unused = compilePolicy(
-    {
-      ...policy,
-      defaults: {},
-      require: { child: { contract: 'contract.child' } },
-      init: { steps: [] },
-      output: {},
-    },
-    { contracts: registry },
-  );
-  assert.equal(
-    assertSerialReflectionDependencies(unused, new Set(['child'])),
-    false,
-  );
-  return registry.dispose();
-});
-
-test('Recipe Reflection overrides resolve relative to the Recipe and reject legacy switches and refs', async (t) => {
-  const { root } = await fixture(t);
-  const path = join(root, 'recipe.yaml');
-  const recipe: JsonObject = {
-    schemaVersion: 'rsi.recipe/v1',
-    id: 'recipe.config-test',
-    application: { ref: 'app' },
-    policy: { ref: 'policy.test' },
-    reflection: { configFile: './custom.yaml' },
-  };
-  await writeFile(path, stringify(recipe));
-  assert.deepEqual((await loadRecipe(path)).reflection, {
-    configFile: join(root, 'custom.yaml'),
-  });
-  for (const reflection of [
-    false,
-    true,
-    {},
-    { ref: './legacy.yaml' },
-    { configFile: './custom.yaml', budget: {} },
-  ]) {
-    await writeFile(path, stringify({ ...recipe, reflection }));
-    await assert.rejects(loadRecipe(path), /reflection/);
-  }
-});
-
 test('Recipe validation loads only the selected whole Reflection file before execution', async (t) => {
   const { root, registry, bindings, definition, load } = await fixture(t);
   await load();
@@ -504,13 +381,17 @@ test('Recipe validation loads only the selected whole Reflection file before exe
       reflection: { configFile: './missing-default.yaml' },
       bindings: {
         proposer: {
-          ref: bindings.proposer!.ref,
+          plugin: bindings.proposer!.plugin,
           config: bindings.proposer!.config,
         },
-        other: { ref: bindings.other!.ref, config: bindings.other!.config },
+        other: {
+          plugin: bindings.other!.plugin,
+          config: bindings.other!.config,
+        },
       },
     },
     output: {},
+    steps: [],
   };
   await writeFile(policyPath, stringify(definitionPolicy));
   runtime.registry.registerPolicy('policy.preflight', policyPath);
@@ -518,8 +399,8 @@ test('Recipe validation loads only the selected whole Reflection file before exe
   const recipe: JsonObject = {
     schemaVersion: 'rsi.recipe/v1',
     id: 'recipe.preflight',
-    application: { ref: 'application.test' },
-    policy: { ref: 'policy.preflight' },
+    application: { plugin: 'application.test' },
+    policy: { id: 'policy.preflight' },
     reflection: { configFile: './reflection.yaml' },
   };
   await writeFile(recipePath, stringify(recipe));
@@ -537,6 +418,6 @@ test('Recipe validation loads only the selected whole Reflection file before exe
   await writeFile(policyPath, stringify(withoutDeclaration));
   await assert.rejects(
     validateRecipe(runtime, recipePath),
-    /requires defaults.reflection/,
+    /does not declare defaults.reflection/,
   );
 });

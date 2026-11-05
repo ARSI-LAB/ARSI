@@ -13,6 +13,29 @@ config_schema:
   properties:
     maxRounds: { type: integer, minimum: 0, maximum: 10, default: 2 }
   additionalProperties: false
+state_schema:
+  type: object
+  properties:
+    reflectionResults:
+      type: array
+      items:
+        type: object
+    candidate:
+      type: string
+      minLength: 1
+    measurement:
+      type:
+        - string
+        - 'null'
+  required:
+    - reflectionResults
+    - candidate
+    - measurement
+  additionalProperties: false
+state:
+  reflectionResults: []
+  candidate: ${{ input.candidateRef }}
+  measurement: null
 output_schema:
   type: object
   properties:
@@ -23,60 +46,72 @@ output_schema:
       items: { type: object }
   required: [candidateRef, measurementRef, reflectionResults]
   additionalProperties: false
-defaults:
-  reflection: { configFile: ./reflection-only.yaml }
 require:
   agent: { contract: contract.agent }
   proposer: { contract: contract.proposer }
   evaluator: { contract: contract.agentbench }
   selector: { contract: contract.selector-metrics }
-init:
-  steps:
-    - id: baseline
-      use: evaluator
-      with:
-        candidateRef: ${{ input.candidateRef }}
-        taskIds: [prompt-check]
-    - id: retain
-      state:
-        reflectionResults: []
-        candidate: ${{ input.candidateRef }}
-        measurement: ${{ init.baseline.output.measurementRef }}
-loop:
-  maxIterations: ${{ config.maxRounds }}
-  steps:
-    - id: propose
-      use: proposer
-      with:
-        parent: ${{ state.candidate }}
-        goal: Include the exact phrase Check the answer in prompt.md.
-        evidenceRefs:
-          - ${{ state.measurement }}
-    - id: changed
-      if: ${{ loop.propose.output.status == 'created' }}
-      then:
-        - id: evaluate
-          use: evaluator
-          with:
-            candidateRef: ${{ loop.propose.output.candidateRef }}
-            taskIds: [prompt-check]
-        - id: select
-          use: selector
-          with:
-            incumbentMeasurementRef: ${{ state.measurement }}
-            candidateMeasurementRef: ${{ loop.evaluate.output.measurementRef }}
-        - id: adopt
-          state:
-            candidate: ${{ loop.select.output.selectedCandidateRef }}
-            measurement: ${{ loop.select.output.measurementRef }}
-    - id: learn_for_next_round
-      if: ${{ loop.index + 1 < config.maxRounds }}
-      then:
-        - id: improve_guidance
-          use: reflection
-        - id: retain_reflection
-          state:
-            reflectionResults: ${{ append(state.reflectionResults, loop.improve_guidance.output) }}
+defaults:
+  reflection: { configFile: ./reflection-only.yaml }
+steps:
+  - id: baseline
+    type: invoke
+    use: evaluator
+    with:
+      candidateRef: ${{ input.candidateRef }}
+      taskIds:
+        - prompt-check
+  - id: retain
+    type: state
+    state:
+      measurement: ${{ steps.baseline.output.measurementRef }}
+  - id: search
+    type: loop
+    maxIterations: ${{ config.maxRounds }}
+    steps:
+      - id: propose
+        type: invoke
+        use: proposer
+        with:
+          parent: ${{ state.candidate }}
+          goal: Include the exact phrase Check the answer in prompt.md.
+          evidenceRefs:
+            - ${{ state.measurement }}
+      - id: changed
+        type: if
+        if: ${{ steps.propose.output.status == 'created' }}
+        then:
+          steps:
+            - id: evaluate
+              type: invoke
+              use: evaluator
+              with:
+                candidateRef: ${{ steps.propose.output.candidateRef }}
+                taskIds:
+                  - prompt-check
+            - id: select
+              type: invoke
+              use: selector
+              with:
+                incumbentMeasurementRef: ${{ state.measurement }}
+                candidateMeasurementRef: ${{ steps.evaluate.output.measurementRef }}
+            - id: adopt
+              type: state
+              state:
+                candidate: ${{ steps.select.output.selectedCandidateRef }}
+                measurement: ${{ steps.select.output.measurementRef }}
+      - id: learn_for_next_round
+        type: if
+        if: ${{ loop.index + 1 < config.maxRounds }}
+        then:
+          steps:
+            - id: improve_guidance
+              type: reflection
+            - id: retain_reflection
+              type: state
+              state:
+                reflectionResults: ${{ append(state.reflectionResults,
+                  steps.improve_guidance.output) }}
 output:
   candidateRef: ${{ state.candidate }}
   measurementRef: ${{ state.measurement }}

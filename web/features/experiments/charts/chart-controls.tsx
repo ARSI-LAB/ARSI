@@ -1,6 +1,7 @@
+import { connectionError } from '../../../api/connection-state';
 import React from 'react';
 export const format = (value: number): string =>
-  value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 export function QueryNotice({
   loading,
   error,
@@ -17,7 +18,7 @@ export function QueryNotice({
           Loading all recorded observations…
         </p>
       ) : null}
-      {error ? (
+      {error && error !== connectionError ? (
         <div role="alert" className="error-notice">
           {error} Previously loaded charts may be stale.
           <button className="quiet-button" onClick={refresh}>

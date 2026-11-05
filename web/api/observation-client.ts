@@ -1,3 +1,9 @@
+import { connectionError, setDisconnected } from './connection-state.js';
+import type {
+  CallTrace,
+  CallInstructions,
+  ObservationSource,
+} from '../../src/contracts/observation.js';
 import type {
   ExperimentDetails,
   ArtifactPreview,
@@ -128,6 +134,8 @@ function parseCandidate(raw: unknown): CandidateSummary {
     ref: text(data.ref),
     parentRef: nullable(data.parentRef),
     artifactRef: text(data.artifactRef),
+    originPath:
+      data.originPath === undefined ? null : nullable(data.originPath),
   };
 }
 function parseMetric(raw: unknown): MetricObservation {
@@ -187,12 +195,40 @@ export async function readObservation<T>(
   parse: (raw: unknown) => T,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch('/api/observation/experiments' + path, {
-    method: 'GET',
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
-      : AbortSignal.timeout(15000),
-  });
+  return readProjection('api/observation/experiments' + path, parse, signal);
+}
+export async function readObservationSource(
+  signal?: AbortSignal,
+): Promise<ObservationSource> {
+  return readProjection(
+    'api/observation/source',
+    (raw) => ({ directory: nullable(record(raw).directory) }),
+    signal,
+  );
+}
+async function readProjection<T>(
+  url: string,
+  parse: (raw: unknown) => T,
+  signal?: AbortSignal,
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
+        : AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    setDisconnected(true);
+    throw new Error(connectionError);
+  }
+  if ([502, 503, 504].includes(response.status)) {
+    setDisconnected(true);
+    throw new Error(connectionError);
+  }
+  setDisconnected(false);
   const value: unknown = await response.json();
   if (!response.ok)
     throw new Error(
@@ -234,7 +270,45 @@ export function parseArtifact(raw: unknown): ArtifactPreview {
         ? null
         : parsePage((raw) => {
             const file = record(raw);
-            return { path: text(file.path), bytes: number(file.bytes) };
+            return {
+              path: text(file.path),
+              bytes: number(file.bytes),
+              ...(file.digest === undefined
+                ? {}
+                : { digest: text(file.digest) }),
+            };
           })(data.files),
   };
+}
+
+export function parseCallTrace(raw: unknown): CallTrace {
+  const data = record(raw);
+  if (
+    !Array.isArray(data.items) ||
+    typeof data.incomplete !== 'boolean' ||
+    typeof data.total !== 'number' ||
+    (data.nextOffset !== null && typeof data.nextOffset !== 'number')
+  )
+    throw new Error('Invalid trace response');
+  return {
+    total: data.total,
+    nextOffset: data.nextOffset,
+    incomplete: data.incomplete,
+    unavailable: nullable(data.unavailable),
+    items: data.items.map((raw) => {
+      const item = record(raw);
+      if (typeof item.sequence !== 'number')
+        throw new Error('Invalid trace sequence');
+      return {
+        sequence: item.sequence,
+        at: nullable(item.at),
+        type: text(item.type),
+        content: preview(item.content),
+      };
+    }),
+  };
+}
+
+export function parseCallInstructions(raw: unknown): CallInstructions {
+  return { prompt: preview(record(raw).prompt) };
 }

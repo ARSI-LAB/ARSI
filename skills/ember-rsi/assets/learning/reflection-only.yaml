@@ -2,7 +2,7 @@ evidence: [proposer, evaluator, selector]
 targets:
   proposer:
     resources: [guidance]
-goal: Improve general checking guidance from observed execution; retain current guidance if evidence is insufficient.
+goal: ./reflection-goal.md
 implementation:
   contract: contract.reflection
   ref: reflection.agent

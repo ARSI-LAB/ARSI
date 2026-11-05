@@ -82,11 +82,10 @@ defaults:
   reflection:
     configFile: ./reflection.yaml
   # Keep the Policy's required bindings here.
-loop:
-  steps:
-    # Keep the proposal, evaluation, selection and Memory steps before this call.
-    - id: improve_guidance
-      use: reflection
+steps:
+  # Keep the proposal, evaluation, selection and Memory steps before this call.
+  - id: improve_guidance
+    type: reflection
 ```
 
 这是节选，不是完整 Policy，需保留其余 Schema、依赖和流程。启用内置 Harness² 源码中的注释步骤，会改变该构建中使用此 Policy 的行为；如需独立行为，应注册自己的 Policy ID 并在 Recipe 中选择它。见 [Policy 注册](guide.md#4-编写-policy)。
@@ -98,7 +97,7 @@ loop:
 | 有声明，且执行到调用步骤   | Policy 等待 Reflection 结果，可能跳过、无修改、拒绝或启用新版本。 |
 | 有调用但无声明             | 在执行前拒绝。                                                    |
 
-Reflection 必须串行执行。编译器或 Runtime 拒绝并行分支中的调用，也检查相关嵌套 Policy 依赖。
+Reflection 必须串行执行。编译器或 Runtime 拒绝并行分支中的调用，也检查嵌套的并行步骤块。
 
 ### 通过 Recipe 替换文件
 
@@ -108,7 +107,7 @@ reflection:
   configFile: ./reflection-custom.yaml
 ```
 
-这会为根 Policy 选择**完整替换文件**，根 Policy 必须已经声明 `defaults.reflection`。不会逐字段合并，不替换子 Policy，也不会在流程中插入调用。覆盖路径相对于 Recipe 解析，所选文件内部的路径相对于该文件解析。
+这会为根 Policy 选择**完整替换文件**，根 Policy 必须已经声明 `defaults.reflection`。不会逐字段合并，也不会在流程中插入调用。覆盖路径相对于 Recipe 解析，所选文件内部的路径相对于该文件解析。
 
 替换文件省略 `budget` 时使用框架默认值，不继承原文件预算。无效的替换文件会导致校验失败，不回退到默认文件。
 
@@ -138,7 +137,7 @@ export const configSchema: JsonSchema = {
 # Policy defaults excerpt
 bindings:
   domainProposer:
-    ref: proposer.custom
+    plugin: proposer.custom
     config:
       prompt: ./prompts/domain.md
       guidance: ./guidance

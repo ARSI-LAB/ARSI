@@ -12,7 +12,6 @@ import {
 import { createRuntime } from '../../src/runtime/context.js';
 import { object, string } from '../../src/shared/json.js';
 import { measurementFixture } from '../helpers/manager-fixture.js';
-
 test('explicit Reflection uses its default budget and a subsequent real Proposer sends activated guidance to its Agent', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-reflection-use-'));
   const runtime = await createRuntime({ rootDirectory: directory });
@@ -132,38 +131,38 @@ test('explicit Reflection uses its default budget and a subsequent real Proposer
     defaults: {
       reflection: { configFile: './reflection.yaml' },
       bindings: {
-        observer: { ref: 'usage.observer', config: {} },
+        observer: { plugin: 'usage.observer', config: {} },
         proposer: {
-          ref: 'proposer.agent',
+          plugin: 'proposer.agent',
           config: {
             prompt: './propose.md',
             guidance: './guidance',
             agentRef: 'agent',
           },
         },
-        agent: { ref: 'usage.agent', config: {} },
+        agent: { plugin: 'usage.agent', config: {} },
       },
     },
-    init: {
-      steps: [
-        ...[1, 2, 3].map((i) => ({
-          id: `observe_${i}`,
-          use: 'observer',
-          with: { candidateRef: '${{ application.initialCandidate }}' },
-        })),
-        { id: 'improve', use: 'reflection' },
-        {
-          id: 'propose',
-          use: 'proposer',
-          with: {
-            parent: '${{ application.initialCandidate }}',
-            goal: 'Use guidance',
-            evidenceRefs: [],
-          },
+    output: { reflection: '${{ steps.improve.output }}' },
+    steps: [
+      ...[1, 2, 3].map((i) => ({
+        id: `observe_${i}`,
+        type: 'invoke',
+        use: 'observer',
+        with: { candidateRef: '${{ application.initialCandidate }}' },
+      })),
+      { id: 'improve', type: 'reflection' },
+      {
+        id: 'propose',
+        type: 'invoke',
+        use: 'proposer',
+        with: {
+          parent: '${{ application.initialCandidate }}',
+          goal: 'Use guidance',
+          evidenceRefs: [],
         },
-      ],
-    },
-    output: { reflection: '${{ init.improve.output }}' },
+      },
+    ],
   };
   await writeFile(join(directory, 'policy.yaml'), JSON.stringify(policy));
   registry.registerPolicy('usage.policy', join(directory, 'policy.yaml'));
@@ -187,8 +186,8 @@ test('explicit Reflection uses its default budget and a subsequent real Proposer
     JSON.stringify({
       schemaVersion: 'rsi.recipe/v1',
       id: 'usage.recipe',
-      application: { ref: 'usage.application', config: {} },
-      policy: { ref: 'usage.policy', config: {}, input: {} },
+      application: { plugin: 'usage.application', config: {} },
+      policy: { id: 'usage.policy', config: {}, input: {} },
       bindings: {},
       budget: { modelCalls: 60, operations: 20, elapsedWallMs: 30000 },
     }),
@@ -215,7 +214,6 @@ test('explicit Reflection uses its default budget and a subsequent real Proposer
   );
   assert.equal(budgets.modelCalls, 50);
 });
-
 test('real Proposer calls without Measurements expose linked versions, actual Agent requests, traces and candidate patches', async (t) => {
   const directory = await mkdtemp(
     join(tmpdir(), 'rsi-reflection-proposer-evidence-'),
@@ -342,6 +340,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
     }),
   );
   const call = (id: string, parent: string) => ({
+    type: 'invoke',
     id,
     use: 'proposer',
     with: { parent, goal: 'Create the next candidate', evidenceRefs: [] },
@@ -361,25 +360,23 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
         reflection: { configFile: './reflection.yaml' },
         bindings: {
           proposer: {
-            ref: 'proposer.agent',
+            plugin: 'proposer.agent',
             config: {
               prompt: './proposer.md',
               guidance: './guidance',
               agentRef: 'agent',
             },
           },
-          agent: { ref: 'comparison.agent', config: {} },
+          agent: { plugin: 'comparison.agent', config: {} },
         },
       },
-      init: {
-        steps: [
-          call('first', '${{ application.initialCandidate }}'),
-          { id: 'reflectFirst', use: 'reflection' },
-          call('second', '${{ init.first.output.candidateRef }}'),
-          { id: 'reflectSecond', use: 'reflection' },
-        ],
-      },
-      output: { reflection: '${{ init.reflectSecond.output }}' },
+      output: { reflection: '${{ steps.reflectSecond.output }}' },
+      steps: [
+        call('first', '${{ application.initialCandidate }}'),
+        { id: 'reflectFirst', type: 'reflection' },
+        call('second', '${{ steps.first.output.candidateRef }}'),
+        { id: 'reflectSecond', type: 'reflection' },
+      ],
     }),
   );
   registry.registerPolicy('comparison.policy', join(directory, 'policy.yaml'));
@@ -388,8 +385,8 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
     JSON.stringify({
       schemaVersion: 'rsi.recipe/v1',
       id: 'comparison',
-      application: { ref: 'comparison.application', config: {} },
-      policy: { ref: 'comparison.policy', config: {}, input: {} },
+      application: { plugin: 'comparison.application', config: {} },
+      policy: { id: 'comparison.policy', config: {}, input: {} },
       budget: { operations: 100, modelCalls: 10, elapsedWallMs: 30000 },
     }),
   );

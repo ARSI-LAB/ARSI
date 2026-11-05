@@ -1,9 +1,55 @@
+import { subscribeRetry } from '../../api/connection-state';
+import { parseDetails, parseMeasurements } from '../../api/observation-client';
+import { useAllObservations, useObservation } from './use-observation';
+import { loadCandidateDiff } from './candidate-diff';
+import { finalResults } from './final-results';
+import { Feedback } from '../../components/observation-feedback';
+import { scoreGroups, scorePoints } from './charts/metric-data';
+import { scoreLabel } from './record-identifiers';
+import { harnessStage } from './round-label-model';
+import { useRoundLabels } from './round-labels';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { CandidateSummary } from '../../api/observation-client';
-import { candidateLabel } from './record-identifiers';
 import { route } from '../../app/routing';
 import { useRoute } from '../../app/use-route';
 import { candidateGraph, nodeWidth, nodeHeight } from './candidate-graph';
+
+function FileChanges({
+  id,
+  parent,
+  current,
+}: {
+  id: string;
+  parent: string;
+  current: string;
+}): React.JSX.Element {
+  const [summary, setSummary] = useState('…');
+  const [revision, setRevision] = useState(0);
+  useEffect(() => subscribeRetry(() => setRevision((value) => value + 1)), []);
+  useEffect(() => {
+    const controller = new AbortController();
+    setSummary('…');
+    loadCandidateDiff(id, parent, current, controller.signal).then(
+      (diff) => {
+        if (controller.signal.aborted) return;
+        const known = diff.changes.filter(
+          (item) => item.kind !== 'unavailable',
+        ).length;
+        const unknown = diff.changes.length - known;
+        setSummary(
+          unknown
+            ? `${known} changed · ${unknown} unknown`
+            : `${known} file${known === 1 ? '' : 's'} changed`,
+        );
+      },
+      () => {
+        if (!controller.signal.aborted) setSummary('Changes unavailable');
+      },
+    );
+    return () => controller.abort();
+  }, [id, parent, current, revision]);
+  return <span className="graph-file-summary">{summary}</span>;
+}
 
 export function CandidateRelations({
   id,
@@ -14,10 +60,88 @@ export function CandidateRelations({
   candidates: CandidateSummary[];
   selected?: string;
 }): React.JSX.Element {
+  const labels = useRoundLabels();
   const { search, offset } = useRoute();
+  const measurements = useAllObservations(
+    `/${encodeURIComponent(id)}/measurements`,
+    parseMeasurements,
+  );
+  const details = useObservation(
+    `/${encodeURIComponent(id)}/details`,
+    parseDetails,
+  );
+  const all = measurements.data?.items ?? [];
+  const validation = all.filter((item) =>
+    /Validation|Baseline evaluation/.test(labels.evaluation(item.ref)),
+  );
+  const records = validation.length ? validation : all;
+  const availableGroups = scoreGroups(records);
+  const primaryName = availableGroups.some((item) => item.name === 'meanReward')
+    ? 'meanReward'
+    : availableGroups.some((item) => item.name === 'score')
+      ? 'score'
+      : availableGroups[0]?.name;
+  const groups = availableGroups.filter(
+    (item) => item.name === primaryName || item.name === 'successRate',
+  );
+  const group =
+    (labels.isHarness && selected
+      ? groups.find((item) =>
+          scorePoints(records, item, 'value', all).some(
+            (point) => point.candidateRef === selected,
+          ),
+        )
+      : undefined) ??
+    groups.find((item) => item.name === 'meanReward') ??
+    groups[0];
+  const statistic = group?.statistics.includes('value')
+    ? 'value'
+    : (group?.statistics[0] ?? 'value');
+  const scores = new Map(
+    group
+      ? scorePoints(records, group, statistic, all).map((point) => [
+          point.candidateRef,
+          point,
+        ])
+      : [],
+  );
+
+  const delivered = finalResults(
+    details.data?.resultReferences ?? [],
+    all,
+  ).candidates;
+  const candidateByRef = new Map(
+    candidates.map((candidate) => [candidate.ref, candidate]),
+  );
+
   const graph = useMemo(
-    () => candidateGraph(candidates, selected),
-    [candidates, selected],
+    () =>
+      candidateGraph(
+        [...candidates].sort((a, b) => {
+          if (a.parentRef === null && b.parentRef !== null) return -1;
+          if (b.parentRef === null && a.parentRef !== null) return 1;
+          const aStage = harnessStage(a.originPath);
+          const bStage = harnessStage(b.originPath);
+          if (
+            aStage &&
+            bStage &&
+            aStage.round === bStage.round &&
+            aStage.variant !== bStage.variant
+          ) {
+            const order = ['Base', 'Invariant', 'Domain', 'Composed'];
+            return (
+              order.indexOf(aStage.variant) - order.indexOf(bStage.variant)
+            );
+          }
+          return labels
+            .candidate(a.ref)
+            .localeCompare(labels.candidate(b.ref), undefined, {
+              numeric: true,
+            });
+        }),
+        selected,
+      ),
+    [candidates, selected, labels],
   );
   const [zoom, setZoom] = useState(1);
   const viewport = useRef<HTMLDivElement>(null);
@@ -41,14 +165,7 @@ export function CandidateRelations({
       className="candidate-graph-panel"
       aria-label="Candidate relationship graph"
     >
-      <div className="section-heading">
-        <div>
-          <h3>Recorded relationships</h3>
-          <p>
-            {graph.shown} of {graph.total} candidates shown. Arrows follow
-            recorded parent references.
-          </p>
-        </div>
+      <div className="section-heading graph-toolbar">
         <div className="actions" aria-label="Graph zoom controls">
           <button
             className="quiet-button"
@@ -68,10 +185,11 @@ export function CandidateRelations({
             +
           </button>
           <button className="quiet-button" onClick={fitGraph}>
-            Fit graph
+            Fit
           </button>
         </div>
       </div>
+      <Feedback {...measurements} />
       {graph.cyclic ? (
         <p className="error-notice" role="status">
           A cycle is present in the recorded parent links. The diagram preserves
@@ -142,8 +260,20 @@ export function CandidateRelations({
                 );
               })}
             </svg>
-            {graph.nodes.map((node) =>
-              node.missing ? (
+            {graph.nodes.map((node) => {
+              const candidate = candidateByRef.get(node.ref);
+              const parent = node.parentRef
+                ? candidateByRef.get(node.parentRef)
+                : undefined;
+              const value = scores.get(node.ref)?.value;
+              const parentValue = node.parentRef
+                ? scores.get(node.parentRef)?.value
+                : null;
+              const delta =
+                group?.comparable && value != null && parentValue != null
+                  ? value - parentValue
+                  : null;
+              return node.missing ? (
                 <div
                   key={node.ref}
                   className="graph-node graph-node-missing"
@@ -154,7 +284,6 @@ export function CandidateRelations({
                       ? 'Parent outside displayed graph'
                       : 'Parent record unavailable'}
                   </span>
-                  <code title={node.ref}>{node.ref}</code>
                 </div>
               ) : (
                 <a
@@ -167,22 +296,49 @@ export function CandidateRelations({
                     offset,
                   })}
                   aria-current={node.ref === selected ? 'true' : undefined}
-                  aria-label={`Inspect candidate ${candidateLabel(node.ref)} (${node.ref})`}
-                  title={node.ref}
+                  title={
+                    scores.get(node.ref)?.value == null
+                      ? undefined
+                      : scoreLabel(scores.get(node.ref)!.value!)
+                  }
                 >
-                  <span>
-                    <strong>{candidateLabel(node.ref)}</strong> ·{' '}
-                    {node.ref === selected
-                      ? 'Selected candidate'
-                      : node.parentRef
-                        ? 'Candidate'
-                        : 'No parent recorded'}
+                  <span className="graph-node-heading">
+                    <strong className="graph-round">
+                      {labels.candidate(node.ref)}
+                    </strong>
+                    {delivered.includes(node.ref) ? (
+                      <span className="graph-final">
+                        {labels.isHarness ? 'Delivered' : 'Final'}
+                      </span>
+                    ) : null}
                   </span>
-                  <code>{node.ref}</code>
-                  <small>Inspect candidate →</small>
+                  <span className="graph-score-row">
+                    <span className="graph-score">
+                      {scores.get(node.ref)?.value == null
+                        ? '—'
+                        : scoreLabel(scores.get(node.ref)!.value!)}
+                    </span>
+                    {delta !== null ? (
+                      <span
+                        className="graph-delta"
+                        title={`Change vs parent: ${scoreLabel(delta)}`}
+                      >
+                        {delta > 0 ? '+' : delta < 0 ? '−' : ''}
+                        {scoreLabel(Math.abs(delta))}
+                      </span>
+                    ) : null}
+                  </span>
+                  {candidate && parent ? (
+                    <FileChanges
+                      key={candidate.artifactRef}
+                      id={id}
+                      parent={parent.artifactRef}
+                      current={candidate.artifactRef}
+                    />
+                  ) : null}
                 </a>
-              ),
-            )}
+              );
+            })}
           </div>
         </div>
       </div>

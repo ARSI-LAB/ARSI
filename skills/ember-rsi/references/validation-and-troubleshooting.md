@@ -18,9 +18,9 @@ For a new installation, use [quickstart](quickstart.md) in an isolated workspace
 | Measurement rejected                              | Use complete typed records, valid referenced artifacts and current experiment/call ownership                              |
 | Selector refuses comparison                       | Match definitions and nonempty comparisonKey; successful/complete coverage required                                       |
 | Missing candidateRef input                        | Add Policy mapping from application.initialCandidate                                                                      |
-| Expression rejected                               | Expressions occupy the entire scalar; initialize state and use proper phase frames                                        |
+| Expression rejected                               | Expressions occupy the entire scalar; initialize state and use lexical `steps.<id>.output` references                     |
 | Unsafe configuration pointer                      | Reflection resources are field names such as guidance, not /guidance or file paths                                        |
-| Reflection skipped                                | Need at least three eligible completed calls, authorized evidence and explicit use: reflection                            |
+| Reflection skipped                                | Need at least three eligible completed calls, authorized evidence and explicit type: reflection                           |
 | Memory not used                                   | Carry memoryRef through state into a later proposer call                                                                  |
 | Budget exhausted                                  | Include baseline, nested Agent/Reflection calls and original elapsed time                                                 |
 | Resume blocks uncertain effects                   | Inspect receipt and external resource state; do not edit facts or blindly retry                                           |

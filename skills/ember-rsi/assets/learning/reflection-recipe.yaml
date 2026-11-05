@@ -1,17 +1,17 @@
 schemaVersion: rsi.recipe/v1
 id: recipe.skill-reflection
 application:
-  ref: application.agentbundle
+  plugin: application.agentbundle
   config:
     target: { schema: ./target.yaml }
     baseline: { directory: ./baseline }
 policy:
-  ref: policy.skill-reflection
+  id: policy.skill-reflection
   config: { maxRounds: 2 }
   input: {}
 bindings:
   agent:
-    ref: agent.pi
+    plugin: agent.pi
     config:
       model: ${MODEL_NAME}
       base_url: ${MODEL_ENDPOINT}
@@ -19,16 +19,16 @@ bindings:
       maxTokens: 4096
       timeoutMs: 60000
   proposer:
-    ref: proposer.agent
+    plugin: proposer.agent
     config:
       agentRef: agent
       prompt: ./proposer.md
       guidance: ./guidance
       maxModelCalls: 6
-  evaluator: { ref: evaluator.skill-text, config: {} }
+  evaluator: { plugin: evaluator.skill-text, config: {} }
   selector:
     {
-      ref: selector.metric,
+      plugin: selector.metric,
       config: { metric: checkPhrase, direction: maximize },
     }
 reflection: { configFile: ./reflection-only.yaml }

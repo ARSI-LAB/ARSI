@@ -1,8 +1,18 @@
 import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile, rm, copyFile, chmod } from 'node:fs/promises';
+import {
+  readFile,
+  writeFile,
+  rm,
+  copyFile,
+  chmod,
+  cp,
+  mkdtemp,
+} from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
 import { createRuntime } from '../../src/runtime/context.js';
 import {
@@ -13,10 +23,20 @@ import {
   type AgentInput,
   type AgentOutput,
   type OperationDefinition,
+  type OperatorProposerInput,
 } from '../../src/contracts/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
-import { readHistory } from '../../src/plugins/proposer-operator/service.js';
+import {
+  createOperatorProposer,
+  readHistory,
+} from '../../src/plugins/proposer-operator/service.js';
+import {
+  configSchema,
+  type OperatorProposerConfig,
+} from '../../src/plugins/proposer-operator/schema.js';
+import { loadRecipe } from '../../src/runtime/loaders/index.js';
+import { parseConfig } from '../../src/shared/schema.js';
 import {
   prepareOperatorProposerFixture,
   operatorFixtureSource,
@@ -38,6 +58,7 @@ async function setup(
     hardwareText?: string;
     invalidMetrics?: boolean;
     invalidSummary?: boolean;
+    promptsDirectory?: string;
     editRejection?: { stage: 'generate' | 'repair'; error: Error };
   } = {},
 ) {
@@ -167,6 +188,14 @@ async function setup(
     plugin: 'proposer.operator',
     config: {
       agentRef: 'agent',
+      promptsDirectory:
+        options.promptsDirectory ??
+        fileURLToPath(
+          new URL(
+            '../../src/policies/operator-search/prompts/',
+            import.meta.url,
+          ),
+        ),
       task: { directory: join(fixture.root, 'example/task') },
       embedding: {
         python: fixture.embeddingPython,
@@ -233,6 +262,70 @@ async function baseline(context: RuntimeContext) {
   );
   return { entry, baselineRef: string(evaluated.measurementRef) };
 }
+
+test('operator generation receives configured prompts and rejects analysis after prompt changes', async (t) => {
+  const promptsDirectory = await mkdtemp(join(tmpdir(), 'operator-prompts-'));
+  t.after(() => rm(promptsDirectory, { recursive: true, force: true }));
+  await cp(
+    new URL('../../src/policies/operator-search/prompts/', import.meta.url),
+    promptsDirectory,
+    { recursive: true },
+  );
+  const generate = join(promptsDirectory, 'generate.md');
+  await writeFile(generate, 'Configured generation sentinel\n');
+  const fixture = await setup(
+    async (context, requests) => {
+      const { entry, baselineRef } = await baseline(context);
+      const input: OperatorProposerInput = {
+        action: 'propose',
+        phase: 'static',
+        entryCandidateRef: entry,
+        baselineMeasurementRef: baselineRef,
+        attempt: 1,
+        goal: 'Use configured prompts',
+        analysisRef: null,
+        historyRef: null,
+      };
+      const first = object(await context.invoke('proposer', input));
+      assert.equal(first.status, 'created');
+      assert.ok(
+        requests[1]!.prompt.startsWith('Configured generation sentinel\n'),
+      );
+      await writeFile(generate, 'Changed generation sentinel\n');
+      const configured = await loadRecipe(
+        fixture.recipePath,
+        fixture.runtime.registry,
+      );
+      const operation = await createOperatorProposer(
+        parseConfig<OperatorProposerConfig>(
+          configSchema,
+          configured.bindings.proposer!.config,
+        ),
+        context,
+      );
+      try {
+        await assert.rejects(
+          operation.execute(
+            { ...input, analysisRef: string(first.analysisRef) },
+            context,
+          ),
+          /identity.*mismatch/i,
+        );
+      } finally {
+        await operation.dispose();
+      }
+      assert.equal(requests.length, 2);
+      return first;
+    },
+    false,
+    { initialValid: true, promptsDirectory },
+  );
+  t.after(() => fixture.dispose());
+  const result = await fixture.runtime.manager.run(fixture.recipePath, {
+    id: 'configured-prompts',
+  });
+  assert.equal(result.status, 'succeeded');
+});
 
 test('operator Proposer performs independent diagnosis/generation, repairs failed source and delivers the measured summary to a fresh entry proposal', async (t) => {
   const fixture = await setup(async (context, requests) => {

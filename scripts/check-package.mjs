@@ -333,9 +333,9 @@ export function register(registry) {
     );
     assert.ok([1, 2, 3].includes(sampled.parameters.x));
   }
-  const operatorExample = join(outside, 'qianchuan-top3');
+  const operatorExample = join(outside, 'transpose-copy');
   await cp(
-    join(root, 'examples/artifacts/kernel/qianchuan-top3'),
+    join(root, 'examples/artifacts/kernel/transpose-copy'),
     operatorExample,
     { recursive: true },
   );
@@ -403,8 +403,7 @@ try {
  assert.throws(()=>validate(operatorProposerContract.input_schema,{...firstProposal,action:'diagnose'}));
  assert.throws(()=>validate(operatorProposerContract.input_schema,{...firstProposal,baselineMeasurementRef:undefined}));
  const operatorDirectory=await realpath(fileURLToPath(new URL('plugins/proposer-operator/',installed)));
- for(const directory of ['knowledge','python'])await assert.rejects(stat(resolve(operatorDirectory,directory)),{code:'ENOENT'});
- for(const prompt of ['diagnose.md','generate.md','diagnose-metrics.md','generate-metrics.md','repair.md','summarize.md'])assert.ok((await readFile(await packageResource(resolve(operatorDirectory,'prompts',prompt)),'utf8')).length);
+ for(const directory of ['knowledge','python','prompts'])await assert.rejects(stat(resolve(operatorDirectory,directory)),{code:'ENOENT'});
  assert.deepEqual(runtime.registry.get('proposer.operator').contract,operatorProposerContract);
  const {prepareDocumentPreviews}=await import(new URL('plugins/reflection-agent/document-previews.js',installed));
  const {validateReflection}=await import(new URL('runtime/revisions/validation.js',installed));
@@ -447,7 +446,11 @@ try {
     assert.ok((await readFile(await packageResource((await stat(resource)).isDirectory()?resolve(resource,'SKILL.md'):resource),'utf8')).length);
    }
   }
-  if(id==='policy.operator-search')for(const resource of ['schemas/config.yaml','schemas/result.yaml'])assert.ok((await readFile(await packageResource(resolve(dirname(path),resource)),'utf8')).length);
+  if(id==='policy.operator-search'){
+   for(const resource of ['schemas/config.yaml','schemas/result.yaml'])assert.ok((await readFile(await packageResource(resolve(dirname(path),resource)),'utf8')).length);
+   const promptsDirectory=await packageResource(resolve(dirname(path),bindings.proposer.config.promptsDirectory));
+   for(const prompt of ['diagnose.md','generate.md','diagnose-metrics.md','generate-metrics.md','repair.md','summarize.md'])assert.ok((await readFile(await packageResource(resolve(promptsDirectory,prompt)),'utf8')).trim().length);
+  }
  }
  const lifecycle=[],deliveries=[],admissions=[];
  let creations=0,disposals=0;

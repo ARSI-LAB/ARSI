@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -20,6 +21,8 @@ import { kernelApplicationDefinition } from '../../src/plugins/application-kerne
 import { metricSelectorDefinition } from '../../src/plugins/selector-metrics/index.js';
 import { operatorbenchDefinition } from '../../src/plugins/evaluator-operatorbench/index.js';
 import { prepareOperatorFixture } from '../fixtures/operator-sdk/setup.js';
+
+useOperatorSdkTestEnvironment();
 
 async function invokeInputs(
   name: string,
@@ -69,16 +72,16 @@ async function snapshotFixture() {
     schemaVersion: 'rsi.recipe/v1',
     id: 'operator-input-fixture',
     application: {
-      ref: 'application.kernel',
+      plugin: 'application.kernel',
       config: {
         baseline: { directory: './baseline' },
         target: { schema: './target.yaml' },
       },
     },
-    policy: { ref: 'policy.operator-baseline', config: { caseIds: ['fixed'] } },
+    policy: { id: 'policy.operator-baseline', config: { caseIds: ['fixed'] } },
     bindings: {
       evaluator: {
-        ref: 'evaluator.operatorbench',
+        plugin: 'evaluator.operatorbench',
         config: {
           task: { directory: './task' },
           mode: 'sdk',
@@ -97,7 +100,7 @@ async function snapshotFixture() {
           },
         },
       },
-      selector: { ref: 'selector.metric', config: {} },
+      selector: { plugin: 'selector.metric', config: {} },
     },
     budget: {
       operations: 30,
@@ -231,7 +234,7 @@ test('SDK baseline snapshots use only evaluator and selector and restore frozen 
   const application = object(object(copied.application).config);
   const bindings = object(copied.bindings);
   assert.deepEqual(Object.keys(bindings).sort(), ['evaluator', 'selector']);
-  assert.equal(object(copied.policy).ref, 'policy.operator-baseline');
+  assert.equal(object(copied.policy).id, 'policy.operator-baseline');
   assert.equal(
     object(application.baseline).directory,
     join(inputDirectory, 'baseline'),
@@ -455,7 +458,7 @@ async function baselineManager(root: string, cancellation: AbortController) {
     ...operatorbenchDefinition,
     async create(config, services) {
       services.event.on('rsi/call-succeeded', (event) => {
-        if (event.path === 'finish/evaluate_final')
+        if (event.path === 'steps/evaluate_final')
           cancellation.abort(
             new Error('Stop after confirmed final measurement'),
           );
@@ -535,7 +538,7 @@ async function hardwareSnapshotFixture(hardware: string | null) {
   const fixture = await snapshotFixture();
   const recipe = object(JSON.parse(JSON.stringify(fixture.recipe)));
   recipe.policy = {
-    ref: 'policy.operator-search',
+    id: 'policy.operator-search',
     config: { maxAttempts: 3, repairLimit: 3 },
   };
   recipe.budget = {
@@ -550,9 +553,9 @@ async function hardwareSnapshotFixture(hardware: string | null) {
   const identity = join(fixture.root, 'embedding-identity.json');
   await writeFile(identity, '{"model":"fixture"}');
   const bindings = object(recipe.bindings);
-  bindings.agent = { ref: 'agent.pi', config: { retries: 0 } };
+  bindings.agent = { plugin: 'agent.pi', config: { retries: 0 } };
   bindings.proposer = {
-    ref: 'proposer.operator',
+    plugin: 'proposer.operator',
     config: {
       task: { directory: './task' },
       embedding: {
@@ -564,7 +567,7 @@ async function hardwareSnapshotFixture(hardware: string | null) {
     },
   };
   bindings.selector = {
-    ref: 'selector.metric',
+    plugin: 'selector.metric',
     config: {
       metric: 'latencyMeanMs',
       direction: 'minimize',

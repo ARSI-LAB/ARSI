@@ -28,7 +28,6 @@ import {
   pointerValue,
 } from '../../src/runtime/revisions/resources.js';
 import { object, string } from '../../src/shared/json.js';
-
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-revisions-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -44,7 +43,7 @@ async function fixture(t: TestContext) {
     const guidance = join(root, key);
     await mkdir(guidance);
     await writeFile(join(guidance, 'initial.md'), `${key} original`);
-    bindings[key] = { ref: 'target', config: { guidance } };
+    bindings[key] = { plugin: 'target', config: { guidance } };
   }
   const context = new RuntimeContext().extend({
     experimentId: 'experiment',
@@ -172,7 +171,6 @@ async function fixture(t: TestContext) {
     generations: () => generations,
   };
 }
-
 test('resource pointers address configured collection entries and reject unsafe paths', () => {
   const config: JsonObject = { skills: ['original'] };
   assert.equal(pointerValue(config, '/skills/0'), 'original');
@@ -181,7 +179,6 @@ test('resource pointers address configured collection entries and reject unsafe 
   assert.throws(() => assignPointer(config, '/skills/1', 'outside'), /missing/);
   assert.throws(() => pointerValue(config, '/__proto__/value'), /Unsafe/);
 });
-
 test(
   'show does not create probe files while a running Reflection captures its initial resources',
   { timeout: 20000 },
@@ -295,7 +292,6 @@ test(
     }
   },
 );
-
 test('one observation without a Measurement invokes Reflection; no-change and empty windows retain initial snapshots', async (t) => {
   const f = await fixture(t);
   await f.observe();
@@ -343,7 +339,6 @@ test('one observation without a Measurement invokes Reflection; no-change and em
   });
   assert.equal(after.status, 'no-change');
 });
-
 test('only changed targets gain revisions and activation preserves original sources and accumulated edits', async (t) => {
   const f = await fixture(t);
   await f.observe();
@@ -401,7 +396,6 @@ test('only changed targets gain revisions and activation preserves original sour
     'second rule',
   );
 });
-
 test('local generator failures, invalid edits and budgets preserve activation; global exhaustion propagates', async (t) => {
   const f = await fixture(t);
   const cases: Array<[Record<string, string | null>, RegExp]> = [
@@ -479,7 +473,6 @@ test('local generator failures, invalid edits and budgets preserve activation; g
     /cancelled experiment/,
   );
 });
-
 test('prepared recovery reuses frozen evidence/resources and a committed activation does not regenerate or roll back', async (t) => {
   const f = await fixture(t);
   await f.observe();
@@ -524,7 +517,6 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
     /incompatible/,
   );
 });
-
 test('a later Policy invocation retains the binding resource owner and its generated snapshot remains applicable', async (t) => {
   const f = await fixture(t);
   await f.observe();
@@ -572,7 +564,6 @@ test('a later Policy invocation retains the binding resource owner and its gener
     'b original',
   );
 });
-
 test('resource preparation failure leaves existing revisions unchanged and publishes no phantom initial pointers', async (t) => {
   const f = await fixture(t);
   await f.observe();
@@ -616,7 +607,6 @@ test('resource preparation failure leaves existing revisions unchanged and publi
   assert.deepEqual(f.options.revisionRefs, originalRevisions);
   assert.equal(f.generations(), 1);
 });
-
 test('a valid empty no-change reason replays from the terminal record without regeneration', async (t) => {
   const f = await fixture(t);
   await f.observe();

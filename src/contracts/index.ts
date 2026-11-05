@@ -5,7 +5,13 @@ export type { JsonValue, JsonObject, JsonSchema } from './json.js';
 export { defineContract } from './contract.js';
 export type { PluginContract } from './contract.js';
 export type { Operation, OperationDefinition } from './operation.js';
-export type { Binding, Recipe } from './recipe.js';
+export type {
+  Binding,
+  BindingDeclaration,
+  Recipe,
+  RecipeDeclaration,
+} from './recipe.js';
+export { bindingDeclarationSchema, recipeDeclarationSchema } from './recipe.js';
 export type { Candidate } from './models/candidate.js';
 export * from './models/measurement.js';
 export * from './models/kernel.js';

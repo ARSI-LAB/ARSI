@@ -85,14 +85,16 @@ export async function managerFixture(
     for (const plugin of options.plugins ?? [])
       registry.registerOperation(plugin);
     const bindings = {
-      driver: { ref: driver.id, config: options.config ?? {} },
+      driver: { plugin: driver.id, config: options.config ?? {} },
       ...options.bindings,
     };
     const requirements: JsonObject = {
       driver: { contract: driver.contract.id },
     };
     for (const [key, binding] of Object.entries(options.bindings ?? {})) {
-      requirements[key] = { contract: registry.get(binding.ref).contract.id };
+      requirements[key] = {
+        contract: registry.get(binding.plugin).contract.id,
+      };
     }
     await writeFile(
       join(root, 'policy.yaml'),
@@ -102,8 +104,8 @@ export async function managerFixture(
         input_schema: { type: 'object' },
         output_schema: { type: 'object' },
         require: requirements,
-        init: { steps: [{ id: 'drive', use: 'driver', with: {} }] },
-        output: '${{ init.drive.output }}',
+        steps: [{ id: 'drive', type: 'invoke', use: 'driver', with: {} }],
+        output: '${{ steps.drive.output }}',
       }),
     );
     registry.registerPolicy('test.policy', join(root, 'policy.yaml'));
@@ -112,8 +114,8 @@ export async function managerFixture(
       stringify({
         schemaVersion: 'rsi.recipe/v1',
         id: 'test',
-        application: { ref: 'test.application', config: {} },
-        policy: { ref: 'test.policy', config: {}, input: {} },
+        application: { plugin: 'test.application', config: {} },
+        policy: { id: 'test.policy', config: {}, input: {} },
         bindings,
         budget: { operations: 20, elapsedWallMs: 10000, ...options.budget },
       }),

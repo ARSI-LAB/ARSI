@@ -15,14 +15,14 @@ The framework publishes built-in events at the execution points below. Plugins s
 | `rsi/before-experiment`         | Before Application initialization or resumed execution.                                                            | `serial`    |
 | `rsi/experiment-started`        | After the `running` record is saved, before the root Policy executes.                                              | `emit`      |
 | `rsi/experiment-finished`       | After new business calls are closed and the terminal experiment record is saved.                                   | `parallel`  |
-| `rsi/before-call`               | After input/budget checks and persistence of the running receipt, before the plugin/child Policy call.             | `waterfall` |
+| `rsi/before-call`               | After input/budget checks and persistence of the running receipt, before the plugin call.                          | `waterfall` |
 | `rsi/call-succeeded`            | After output validation and persistence of the successful receipt, before returning the result.                    | `parallel`  |
 | `rsi/call-failed`               | After the failure receipt is saved, before reporting the original call error.                                      | `parallel`  |
 | `rsi/call-cancelled`            | After the cancellation receipt is saved, before reporting cancellation.                                            | `parallel`  |
 | `rsi/call-unknown`              | After a receipt is saved for a call whose outcome is unconfirmed.                                                  | `parallel`  |
-| `rsi/policy-started`            | After input, configuration and recovery identity checks, before Policy `init`.                                     | `serial`    |
+| `rsi/policy-started`            | After input, configuration and recovery identity checks, before the first Policy step.                             | `serial`    |
 | `rsi/policy-step-completed`     | After a newly executed Policy step's checkpoint is saved.                                                          | `emit`      |
-| `rsi/policy-boundary-completed` | At a loop/Policy boundary, after its boundary callback and checkpoint persistence.                                 | `serial`    |
+| `rsi/policy-boundary-completed` | At a loop/Policy boundary, after checkpoint persistence.                                                           | `serial`    |
 | `rsi/policy-completed`          | After final Policy output validation.                                                                              | `emit`      |
 | `rsi/candidate-recorded`        | After the candidate is saved.                                                                                      | `emit`      |
 | `rsi/measurement-recorded`      | After the measurement is validated and saved.                                                                      | `emit`      |
@@ -42,8 +42,9 @@ Event payloads carry identity and necessary references. Common fields are listed
 | `experimentId`, `recipeId`                   | Experiment and Recipe identity; all three experiment events include `recipeId` from `recipe.id`. |
 | `resumed`                                    | Whether execution resumes saved state.                                                           |
 | `callId`, `parentCallId`, `path`             | Observed call, parent call, and execution position.                                              |
-| `bindingId`, `bindingRef`, `revisionRef`     | Binding name, selected plugin/child Policy, and revision used by the call.                       |
+| `bindingId`, `bindingRef`, `revisionRef`     | Binding name, selected plugin, and revision used by the call.                                    |
 | `policyId`, `policyScopeId`, `checkpointRef` | Policy definition, logical execution identity, and checkpoint reference.                         |
+| `stepPath`                                   | Policy step or iteration-boundary position; steps have no fixed lifecycle-stage label.           |
 | `candidateRef`, `measurementRef`             | Saved candidate/measurement references; `measurementRef` is optional on call-success events.     |
 
 ## 2. Subscribe to built-in events
@@ -60,7 +61,7 @@ factoryCtx.event.on('rsi/call-succeeded', async (event, ctx) => {
 });
 ```
 
-Replace `evaluator` with the actual binding name, not the implementation `ref`. `event.callId` identifies the observed call; `ctx.callId` identifies this listener execution.
+Replace `evaluator` with the actual binding name, not the implementation selected by `plugin`. `event.callId` identifies the observed call; `ctx.callId` identifies this listener execution.
 
 Both `factoryCtx` and `ctx` are `RuntimeContext` instances, but represent different execution stages. Distinct variable names avoid shadowing the outer context.
 

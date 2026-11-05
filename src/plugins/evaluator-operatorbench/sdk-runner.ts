@@ -10,7 +10,7 @@ export async function runOperatorSdk(
   try {
     return await sdkRunner({
       configPath: prepared.configPath,
-      env: prepared.env,
+      env: { ...process.env, ...prepared.env },
       signal,
     });
   } catch (error) {

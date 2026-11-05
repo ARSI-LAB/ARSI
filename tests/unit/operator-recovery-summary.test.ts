@@ -76,14 +76,14 @@ async function fixture() {
     });
   }
   await call('z-baseline-evaluation', {
-    path: 'init/evaluate_baseline',
+    path: 'steps/evaluate_baseline',
     bindingId: 'evaluator',
     pluginId: 'evaluator.operatorbench',
     input: { action: 'evaluate', candidateRef: 'baseline' },
     output: { measurementRef: 'm-baseline' },
   });
   await call('z-baseline-selection', {
-    path: 'init/check_baseline',
+    path: 'steps/check_baseline',
     bindingId: 'selector',
     pluginId: 'selector.metric',
     input: {
@@ -98,7 +98,7 @@ async function fixture() {
   });
   async function propose(round: number, candidate: string): Promise<void> {
     await call(`proposal-${round}`, {
-      path: `finish/run_metrics/then/metrics_loop/${round - 1}/admit_round/then/metrics_propose`,
+      path: `steps/run_metrics/then/metrics_loop/iteration-${round - 1}/admit_round/then/metrics_propose`,
       bindingId: 'proposer',
       pluginId: 'proposer.operator',
       input: {
@@ -117,7 +117,7 @@ async function fixture() {
       },
     });
     await call(`evaluation-${round}`, {
-      path: `finish/run_metrics/then/metrics_loop/${round - 1}/admit_round/then/assess_metrics_proposal/then/metrics_evaluate`,
+      path: `steps/run_metrics/then/metrics_loop/iteration-${round - 1}/admit_round/then/assess_metrics_proposal/then/metrics_evaluate`,
       bindingId: 'evaluator',
       pluginId: 'evaluator.operatorbench',
       input: { action: 'evaluate', candidateRef: candidate },
@@ -158,7 +158,7 @@ test('interrupted search reports the last confirmed promotion and completed metr
   t.after(() => f.dispose());
   await f.propose(1, 'slow');
   await f.call('summary-1', {
-    path: 'finish/run_metrics/then/metrics_loop/0/admit_round/then/metrics_summarize',
+    path: 'steps/run_metrics/then/metrics_loop/iteration-0/admit_round/then/metrics_summarize',
     bindingId: 'proposer',
     pluginId: 'proposer.operator',
     input: {
@@ -178,7 +178,7 @@ test('interrupted search reports the last confirmed promotion and completed metr
   });
   await f.propose(2, 'winner');
   await f.call('a-promotion', {
-    path: 'finish/run_metrics/then/metrics_loop/1/admit_round/then/assess_metrics_proposal/then/metrics_select',
+    path: 'steps/run_metrics/then/metrics_loop/iteration-1/admit_round/then/assess_metrics_proposal/then/metrics_select',
     bindingId: 'selector',
     pluginId: 'selector.metric',
     input: {
@@ -193,7 +193,7 @@ test('interrupted search reports the last confirmed promotion and completed metr
     },
   });
   await f.call('unconfirmed-profile', {
-    path: 'finish/run_metrics/then/metrics_loop/1/admit_round/then/promote_metrics/then/profile_winner',
+    path: 'steps/run_metrics/then/metrics_loop/iteration-1/admit_round/then/promote_metrics/then/profile_winner',
     bindingId: 'evaluator',
     pluginId: 'evaluator.operatorbench',
     status: 'unknown',
@@ -227,7 +227,7 @@ test('unknown selection and final retest selection cannot replace the confirmed 
   t.after(() => f.dispose());
   await f.propose(1, 'winner');
   await f.call('unknown-promotion', {
-    path: 'finish/run_metrics/then/metrics_loop/0/admit_round/then/assess_metrics_proposal/then/metrics_select',
+    path: 'steps/run_metrics/then/metrics_loop/iteration-0/admit_round/then/assess_metrics_proposal/then/metrics_select',
     bindingId: 'selector',
     pluginId: 'selector.metric',
     status: 'unknown',
@@ -242,7 +242,7 @@ test('unknown selection and final retest selection cannot replace the confirmed 
     },
   });
   await f.call('final-selection', {
-    path: 'finish/check_final',
+    path: 'steps/check_final',
     bindingId: 'selector',
     pluginId: 'selector.metric',
     input: {

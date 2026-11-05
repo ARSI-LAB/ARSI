@@ -42,12 +42,15 @@ test('vLLM tuning example uses AgentX against the Application endpoint with matc
       },
       directory,
     );
+    const networkPath = join(directory, 'network.yaml');
+    await writeFile(networkPath, '{}\n');
     const configPath = join(directory, 'evaluator.json');
     await writeFile(configPath, JSON.stringify(native));
     const loaded = await loadConfig(
       configPath,
       {},
       {
+        EVALUATOR_NETWORK_CONFIG: networkPath,
         VLLM_API_KEY: 'fixture-key',
         AGENTX_TOKENIZER: 'fixture/tokenizer',
         EVALUATOR_CACHE_DIR: join(directory, 'cache'),

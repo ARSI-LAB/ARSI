@@ -88,8 +88,8 @@ test('Manager budget reads reflect charges without changing usage or facts', asy
         input_schema: { type: 'object' },
         output_schema: { type: 'object' },
         require: { probe: { contract: contract.id } },
-        init: { steps: [{ id: 'probe', use: 'probe', with: {} }] },
-        output: '${{ init.probe.output }}',
+        steps: [{ id: 'probe', type: 'invoke', use: 'probe', with: {} }],
+        output: '${{ steps.probe.output }}',
       }),
     );
     registry.registerPolicy('test.budget-policy', join(root, 'policy.yaml'));
@@ -98,9 +98,9 @@ test('Manager budget reads reflect charges without changing usage or facts', asy
       stringify({
         schemaVersion: 'rsi.recipe/v1',
         id: 'budget',
-        application: { ref: 'test.application', config: {} },
-        policy: { ref: 'test.budget-policy', config: {}, input: {} },
-        bindings: { probe: { ref: 'test.budget', config: {} } },
+        application: { plugin: 'test.application', config: {} },
+        policy: { id: 'test.budget-policy', config: {}, input: {} },
+        bindings: { probe: { plugin: 'test.budget', config: {} } },
         budget: {
           operations: 4,
           modelCalls: 3,
@@ -142,13 +142,11 @@ test('Manager budget reads reflect charges without changing usage or facts', asy
         input_schema: { type: 'object' },
         output_schema: { type: 'object' },
         require: { probe: { contract: contract.id } },
-        init: {
-          steps: [
-            { id: 'first', use: 'probe', with: {} },
-            { id: 'second', use: 'probe', with: {} },
-          ],
-        },
-        output: '${{ init.second.output }}',
+        steps: [
+          { id: 'first', type: 'invoke', use: 'probe', with: {} },
+          { id: 'second', type: 'invoke', use: 'probe', with: {} },
+        ],
+        output: '${{ steps.second.output }}',
       }),
     );
     const writeFact = manager.facts.write.bind(manager.facts);
@@ -158,7 +156,7 @@ test('Manager budget reads reflect charges without changing usage or facts', asy
       if (
         kind === 'checkpoints' &&
         interrupt &&
-        object(value.journal)['init/first']
+        object(value.journal)['steps/first']
       ) {
         interrupt = false;
         throw new Error('durable budget checkpoint interruption');
@@ -215,27 +213,46 @@ test('Policy preserves a budget branch across interruption and refreshes the nex
       input_schema: { type: 'object' },
       output_schema: { type: 'object' },
       require: { work: { contract: 'contract.test-budget-work' } },
-      init: {
-        steps: [
-          {
-            id: 'admit',
-            if: '${{ budget.remainingWallMs > 500 }}',
-            then: [
-              { id: 'first', use: 'work', with: {} },
+      state_schema: {
+        type: 'object',
+        properties: { finalRemaining: { type: 'number' } },
+        required: ['finalRemaining'],
+        additionalProperties: false,
+      },
+      state: { finalRemaining: 0 },
+      steps: [
+        {
+          id: 'admit',
+          type: 'if',
+          if: '${{ budget.remainingWallMs > 500 }}',
+          then: {
+            steps: [
+              { id: 'first', type: 'invoke', use: 'work', with: {} },
               {
                 id: 'second',
+                type: 'invoke',
                 use: 'work',
                 with: { remaining: '${{ budget.remainingWallMs }}' },
               },
             ],
-            else: [{ id: 'fallback', use: 'work', with: { fallback: true } }],
           },
-          {
-            id: 'finish',
-            state: { finalRemaining: '${{ budget.remainingWallMs }}' },
+          else: {
+            steps: [
+              {
+                id: 'fallback',
+                type: 'invoke',
+                use: 'work',
+                with: { fallback: true },
+              },
+            ],
           },
-        ],
-      },
+        },
+        {
+          id: 'finish',
+          type: 'state',
+          state: { finalRemaining: '${{ budget.remainingWallMs }}' },
+        },
+      ],
       output: '${{ state }}',
     },
     { contracts: registry },
@@ -257,12 +274,11 @@ test('Policy preserves a budget branch across interruption and refreshes the nex
     },
     checkpoint: async (value: JsonObject) => {
       checkpoint = structuredClone(value);
-      if (interrupt && object(value.journal)['init/admit/then/first']) {
+      if (interrupt && object(value.journal)['steps/admit/then/first']) {
         interrupt = false;
         throw new Error('interrupt after first completed child');
       }
     },
-    boundary: async () => {},
   };
   try {
     await assert.rejects(
@@ -289,12 +305,28 @@ test('Policy journals loop budget conditions rather than re-evaluating completed
     id: 'test.budget-loop',
     input_schema: { type: 'object' },
     output_schema: { type: 'integer' },
-    init: { steps: [{ id: 'init', state: { count: 0 } }] },
-    loop: {
-      maxIterations: 2,
-      while: '${{ budget.remainingWallMs > 500 }}',
-      steps: [{ id: 'advance', state: { count: '${{ state.count + 1 }}' } }],
+    state_schema: {
+      type: 'object',
+      properties: { count: { type: 'integer' } },
+      required: ['count'],
+      additionalProperties: false,
     },
+    state: { count: 0 },
+    steps: [
+      {
+        id: 'search',
+        type: 'loop',
+        maxIterations: 2,
+        while: '${{ budget.remainingWallMs > 500 }}',
+        steps: [
+          {
+            id: 'advance',
+            type: 'state',
+            state: { count: '${{ state.count + 1 }}' },
+          },
+        ],
+      },
+    ],
     output: '${{ state.count }}',
   });
   let remaining = 1000;
@@ -309,12 +341,14 @@ test('Policy journals loop budget conditions rather than re-evaluating completed
     invoke: async () => null,
     checkpoint: async (value: JsonObject) => {
       checkpoint = structuredClone(value);
-      if (interrupt && object(value.journal)['loop/0/advance']) {
+      if (
+        interrupt &&
+        object(value.journal)['steps/search/iteration-0/advance']
+      ) {
         interrupt = false;
         throw new Error('interrupt after loop body');
       }
     },
-    boundary: async () => {},
   };
   await assert.rejects(
     executePolicy(policy, {}, {}, options),
@@ -333,14 +367,28 @@ test('a step named while receives its own fresh observation after the loop condi
     id: 'test.budget-boundary-keys',
     input_schema: { type: 'object' },
     output_schema: { type: 'number' },
-    init: { steps: [{ id: 'initialize', state: { remaining: 0 } }] },
-    loop: {
-      maxIterations: 1,
-      while: '${{ budget.remainingWallMs > 0 }}',
-      steps: [
-        { id: 'while', state: { remaining: '${{ budget.remainingWallMs }}' } },
-      ],
+    state_schema: {
+      type: 'object',
+      properties: { remaining: { type: 'number' } },
+      required: ['remaining'],
+      additionalProperties: false,
     },
+    state: { remaining: 0 },
+    steps: [
+      {
+        id: 'search',
+        type: 'loop',
+        maxIterations: 1,
+        while: '${{ budget.remainingWallMs > 0 }}',
+        steps: [
+          {
+            id: 'while',
+            type: 'state',
+            state: { remaining: '${{ budget.remainingWallMs }}' },
+          },
+        ],
+      },
+    ],
     output: '${{ state.remaining }}',
   });
   let reads = 0;
@@ -356,28 +404,43 @@ test('a step named while receives its own fresh observation after the loop condi
       }),
       invoke: async () => null,
       checkpoint: async () => {},
-      boundary: async () => {},
     },
   );
   assert.equal(value, 100);
 });
 
-test('compiler merges cross-stage state aliases without producing recursive schemas', () => {
-  assert.doesNotThrow(() =>
-    compilePolicy({
-      schemaVersion: 'rsi.policy/v1',
-      id: 'test.state-alias-schema',
-      input_schema: { type: 'object' },
-      output_schema: { type: ['string', 'null'] },
-      init: {
-        steps: [
-          { id: 'initialize', state: { a: null, b: null } },
-          { id: 'first', state: { a: 'changed' } },
-          { id: 'second', state: { b: '${{ state.a }}' } },
-          { id: 'third', state: { a: '${{ state.b }}' } },
-        ],
+test('Policy validates explicit nullable state aliases without inferred schemas', async () => {
+  const policy = compilePolicy({
+    schemaVersion: 'rsi.policy/v1',
+    id: 'test.state-alias-schema',
+    input_schema: { type: 'object' },
+    output_schema: { type: ['string', 'null'] },
+    state_schema: {
+      type: 'object',
+      properties: {
+        a: { type: ['string', 'null'] },
+        b: { type: ['string', 'null'] },
       },
-      output: '${{ state.a }}',
+      required: ['a', 'b'],
+      additionalProperties: false,
+    },
+    state: { a: null, b: null },
+    steps: [
+      { id: 'first', type: 'state', state: { a: 'changed' } },
+      { id: 'second', type: 'state', state: { b: '${{ state.a }}' } },
+      { id: 'third', type: 'state', state: { a: '${{ state.b }}' } },
+    ],
+    output: '${{ state.a }}',
+  });
+  assert.equal(
+    await policy.execute({
+      application: {},
+      context: new RuntimeContext().extend({
+        signal: new AbortController().signal,
+      }),
+      invoke: async () => null,
+      checkpoint: async () => {},
     }),
+    'changed',
   );
 });

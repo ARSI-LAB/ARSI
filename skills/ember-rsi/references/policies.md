@@ -1,60 +1,59 @@
 # Write a Policy
 
-A Policy defines an algorithm over declared operations. Use [Recipes](recipes.md) to bind implementations and set task parameters. Read actual contract schemas before constructing a call's `with` input.
+A Policy defines an algorithm over declared plugin operations. Use [Recipes](recipes.md) to select implementations and task parameters. Read each public contract before constructing a call's `with` input.
 
 ## Authoring sequence
 
-1. Define the Policy's input, output, configuration and termination conditions.
-2. Declare `require` entries by registered contract ID; choose defaults only where a reusable implementation/configuration is appropriate.
-3. Initialize persistent state before any path reads it.
-4. Express calls, branching and iteration with the supported DSL.
-5. Load/compile with the intended Registry, register the Policy ID and path, then validate a concrete Recipe against that host.
+1. Define input, output, configuration, state and termination conditions.
+2. Declare `require` entries by registered contract ID and reusable plugin defaults under `defaults.bindings`.
+3. Declare `state_schema` and initialize every shared state field in top-level `state`.
+4. Express the algorithm as one ordered `steps` array with explicit step types.
+5. Register required plugins and the Policy ID/path, then load and validate using that Registry.
 
-Policies use `rsi.policy/v1`. `input_schema` must describe an object, and `output_schema` and `output` are required. `config_schema` describes algorithm configuration; `input` optionally maps missing input properties from `application` and `config`. The Recipe's explicit input properties win. `require` is a mapping, not an array of schema filenames.
+Policies use `rsi.policy/v1`. `input_schema` must describe an object; `steps`, `output_schema` and `output` are required. `config_schema` describes algorithm configuration. `input` optionally supplies missing input fields from `application` and `config`; explicit Recipe input fields win. Initial `state` may use `application`, `config` and validated `input`, before any steps run. `require` is a mapping of binding names to contract IDs.
 
 ## Complete runnable Policy
 
-Use [policy.yaml](../assets/minimal/policy.yaml) with its complete [Recipe](../assets/minimal/recipe.yaml) and extension registration. It measures the baseline in init, keeps candidate/measurement in state, proposes in a bounded loop, evaluates only created candidates and retains the selector's paired output. A second fixed proposal returns no-change; zero rounds return the measured baseline. All assets needed to execute it are in [quickstart](quickstart.md).
+Use [policy.yaml](../assets/minimal/policy.yaml) with its complete [Recipe](../assets/minimal/recipe.yaml) and extension registration. It measures the baseline, keeps the candidate/measurement pair in declared state, proposes in a bounded loop, evaluates only created candidates and retains the selector's paired output. A second fixed proposal returns no-change; zero rounds return the measured baseline. Follow [quickstart](quickstart.md) for all execution assets.
 
-Do not assume `input.candidateRef` is auto-populated: the included `input` mapping explicitly sets it from `${{ application.initialCandidate }}`. Explicit Recipe input overrides that mapping. [learning.yaml](../assets/learning/learning.yaml) adds Memory state and explicit Reflection to the same flow; copy and register its optional resources as described in [advanced capabilities](advanced.md).
+The Policy explicitly maps `input.candidateRef` from `${{ application.initialCandidate }}`. Explicit Recipe input overrides that mapping. [learning.yaml](../assets/learning/learning.yaml) adds Memory and Reflection; copy and register its optional resources as described in [advanced capabilities](advanced.md).
 
 ## Steps, scopes and output
 
-Every step has a unique safe `id` within its step list and exactly one kind:
+Every step has a safe `id`, unique within its block, and an explicit `type`:
 
-| Kind      | Shape and effect                                                                                                         |
-| --------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `use`     | `use: binding`, `with: <input>`; calls a declared dependency, exposes `<phase>.<id>.output`                              |
-| `state`   | `state: { field: value }`; evaluates a patch and updates persistent state                                                |
-| `if`      | Boolean `if`, required `then`, optional `else`; branches can be step arrays or `{ steps, yield }`                        |
-| `foreach` | Array `foreach`, item alias `as`, stable unique `key`, optional `concurrency`, `steps`, `yield`; collects in input order |
-| `loop`    | Nested `loop: { maxIterations, while?, steps, output? }` and optional step-level `input`                                 |
-| `control` | `break`, `continue`, or `fail`; only `fail` takes a required nonempty reason                                             |
+| Type         | Shape and effect                                                                                                                         |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoke`     | `use: binding`, optional `with: <input>`; calls a required plugin binding.                                                               |
+| `state`      | `state: { field: value }`; atomically validates and commits the updated full state.                                                      |
+| `if`         | Boolean `if`, `then: { steps, output? }`, optional `else` with the same shape.                                                           |
+| `loop`       | `maxIterations`, optional `while`, nested `steps`, optional `output`.                                                                    |
+| `foreach`    | Array `foreach`, item alias `as`, stable unique `key`, optional `concurrency`, `steps`, optional item `output`; collects in input order. |
+| `control`    | `control: break`, `continue`, or `fail`; `fail` requires a string `reason`.                                                              |
+| `reflection` | Invokes the configured Reflection module serially; accepts no per-call binding/configuration override.                                   |
 
-`init.steps` runs once, the root `loop` performs bounded iterations, and `finish.steps` runs after normal flow, including a root-loop break. `finish` is not a `finally` block for errors or cancellation; plugin/Runtime lifecycles own cleanup.
+Use `steps.<id>.output` for a completed visible step. Expression roots are `application`, `config`, `input`, `state`, `steps`, the nearest `loop.index`, and current foreach aliases. There are no `init` or `finish` scopes. Blocks resolve names lexically; a local declaration shadows the outer name even before completion, so it cannot fall back to an outer result. Branch/item outputs stay local unless explicitly returned with `output` and read through the enclosing step.
 
-Expression roots are `application`, `config`, `input`, `state`, `init`, `loop`, `finish`, plus the current `foreach` alias. There is no public `ember-rsi` or `dependencies` expression root in this revision. Use `loop.index` for the current lexical iteration. Initialize any state needed after a loop before entering it, since the loop may run zero times. State-patch right-hand sides see the pre-patch state.
+If/foreach output templates run in their local block after normal completion. Loop output runs in the outer scope after the loop, including zero iterations; retain per-round values in declared state when they are needed afterward. State updates evaluate all right-hand sides against the pre-update state. Parallel foreach branches cannot write shared state: return item results and aggregate in a later serial step. Validate stable keys unique across the complete input array before any item effects. Control results skip pending block output and propagate to the relevant loop boundary; `break`/`continue` cannot cross a foreach boundary to control an outer loop.
 
-Inside a phase, completed step outputs are available through that phase's frame. Branch-local outputs do not become sibling outputs automatically; return a branch `yield` and consume the enclosing step's `.output`. Concurrent `foreach` branches cannot write shared state: yield branch results and aggregate afterward. Use deterministic keys unique in the input array, not timestamps/random values. `break`/`continue` cannot cross a `foreach` or Policy boundary to control an outer loop.
+All top-level steps run in order. Reporting and held-out evaluation use ordinary later steps. There is no report phase or finally block; plugin and Runtime lifecycles own cleanup after success, failure and cancellation. New execution checkpoints lock definition/input identity. Earlier DSL checkpoints are unsupported for resumption.
 
 ## Expressions and limits
 
-Only an entire string of the form `${{ expression }}` is evaluated. `round-${{ loop.index }}` is rejected with `Expression must occupy complete scalar`; there is no string interpolation. Templates recursively evaluate values in YAML arrays/objects, preserving types; keys are not expressions.
+Only a complete scalar `${{ expression }}` is evaluated; `round-${{ loop.index }}` is invalid. Templates recursively evaluate array/object values, preserving types; keys are not expressions.
 
-Supported arithmetic/comparison/logical operators and ternaries are deliberately bounded. Arithmetic requires finite numbers, `+` is numeric addition, and logical conditions require booleans. Missing properties/indexes throw; use `get(value, key, fallback)` for optional data. Its fallback is evaluated eagerly, and an existing `null` is not missing.
+Arithmetic requires finite numbers, `+` is numeric addition, and conditions require booleans. Missing properties/indexes throw; `get(value, key, fallback)` supplies an eagerly evaluated fallback for missing values, while an existing null remains null.
 
-The closed function set is `get`, `length`, `size`, `flatten`, `append`, `concat`, `pluck`, `range`, `some`, `if`, and `compact`. `length`/`size` take arrays; `compact` removes nulls. `if(condition, yes, no)` and the ternary evaluate only the selected branch. Build objects/arrays in YAML instead of JavaScript literals inside expressions.
+The closed function set is `get`, `length`, `size`, `flatten`, `append`, `concat`, `pluck`, `range`, `some`, `if`, and `compact`. `length`/`size` take arrays; `compact` removes nulls. `if(condition, yes, no)` and the ternary evaluate only the selected branch. Build objects and arrays in YAML.
 
-Do not use optional chaining, `??`, arbitrary methods, JavaScript `eval`, or `coalesce`. There are no `try`, `catch`, `finally`, `retry`, `onError`, `shell`, `http`, `parallel`, or inline `reflection` step kinds. Use `foreach` for concurrency and provider-owned error handling for external operations. A loop is not authorization to repeat an effect whose outcome is unknown.
+Do not use optional chaining, `??`, arbitrary methods, JavaScript `eval`, or `coalesce`. There are no `try`, `catch`, `finally`, `retry`, `onError`, `shell`, `http`, or `parallel` step types. Use foreach for bounded concurrency and provider-owned handling for external errors. A loop does not authorize repeating an effect with an unknown outcome.
 
-Runtime limits include 100000 loop iterations, 10000 foreach/range items, foreach concurrency 1–64, and expression size/token bounds. Actual Recipe budgets may stop work sooner. YAML aliases and duplicate keys are unsupported.
+Runtime limits include 100000 loop iterations, 10000 foreach/range items, foreach concurrency 1–64, and expression size/token bounds. Recipe budgets may stop work sooner. YAML aliases and duplicate keys are unsupported. These are upper bounds, not suggested workloads; account for checkpoint I/O and inspect outcomes after a host command timeout.
 
-These are safety limits, not recommended workloads. Policy steps persist checkpoints, so budget for checkpoint I/O as well as external calls. A host command timeout leaves the experiment outcome unknown until inspected.
+## Defaults, loading and schemas
 
-## Defaults, sub-Policies and schemas
+Put reusable plugin declarations under `defaults.bindings` and Reflection under `defaults.reflection.configFile`. Every default needs a `require` entry. Bindings select plugins only; there are no child Policies or nested binding maps. Reuse flow through ordinary nested steps.
 
-Put reusable binding configuration in `defaults.bindings` and the Reflection module in `defaults.reflection.configFile`. Each default binding must have a corresponding `require` entry. Override them from a Recipe as described in [Recipes](recipes.md#bindings-and-defaults).
+Use `Policy.load(path, registry)` from `ember-rsi` for file-backed Policies. It expands supported local-file `$ref` schemas relative to the declaring files, resolves contracts and validates steps. `$ref` must be the only field at that position; remote and fragment-only references are unsupported. `compilePolicy(value, { directory, contracts: registry })` compiles already loaded data. The loaded Policy exposes `id`, `inputSchema`, `configSchema`, `stateSchema`, `outputSchema`, `requirements`, `defaults`, `steps`, and `toJSON()`.
 
-A binding may select a registered child Policy instead of an operation when the child's input/output schemas match the required contract. Register the contract before compiling the parent. The child has its own state, input, config and defaults; provide child overrides through the binding's nested `bindings` map. A child file is not discovered automatically.
-
-Use `readPolicy(path, registry)` for file-backed policies: it expands supported local-file `$ref` schema documents relative to their declaring files, then compiles. A `$ref` must be the sole field at that location; remote and fragment-only references are not supported by this loader. `compilePolicy(value, { directory, contracts: registry })` takes already loaded data and does not perform file expansion.
+Use `Recipe.load(path, registry)` for assembled experiment definitions. Its Application and plugin bindings are validated `Binding` objects with `pluginId` and `config`; `Binding.toJSON()` serializes `{ plugin, config }`. Loading does not initialize the Application or run models.

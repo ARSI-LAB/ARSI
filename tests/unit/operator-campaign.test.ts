@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, rm } from 'node:fs/promises';
@@ -8,6 +9,8 @@ import {
   runCampaign,
   reportCampaign,
 } from '../../src/entries/cli/operator-experiments/campaign.js';
+
+useOperatorSdkTestEnvironment();
 
 test('campaign executes 22 distinct SDK evaluations, waits between batches and resumes without new effects', async (t) => {
   const fixture = await prepareOperatorFixture();

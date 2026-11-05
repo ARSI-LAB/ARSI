@@ -155,7 +155,6 @@ async function run(
     checkpoint: async (value: JsonObject) => {
       checkpoint = structuredClone(value);
     },
-    boundary: async () => {},
   };
   const config = {
     goal: 'metrics test',

@@ -62,7 +62,7 @@ async function fixture() {
   );
   recipe.id = 'search-test';
   recipe.policy = {
-    ref: 'policy.operator-search',
+    id: 'policy.operator-search',
     config: {
       goal: 'Optimize static source',
       caseIds: ['fixed'],
@@ -72,11 +72,11 @@ async function fixture() {
   };
   const bindings = object(recipe.bindings);
   bindings.agent = {
-    ref: 'agent.pi',
+    plugin: 'agent.pi',
     config: { api_key: '${MODEL_API_KEY}', retries: 0 },
   };
   bindings.proposer = {
-    ref: 'proposer.operator',
+    plugin: 'proposer.operator',
     config: {
       agentRef: 'agent',
       task: { directory: './task' },
@@ -209,8 +209,8 @@ test('search inputs freeze real Agent bindings and embedding identity without co
     parse(await readFile(string(prepared.recipePath), 'utf8')),
   );
   const proposer = object(object(object(recipe.bindings).proposer).config);
-  assert.equal(object(recipe.policy).ref, 'policy.operator-search');
-  assert.equal(object(object(recipe.bindings).agent).ref, 'agent.pi');
+  assert.equal(object(recipe.policy).id, 'policy.operator-search');
+  assert.equal(object(object(recipe.bindings).agent).plugin, 'agent.pi');
   const embedding = object(proposer.embedding);
   assert.equal(embedding.modelDirectory, f.model);
   assert.notEqual(embedding.identityFile, f.identity);
@@ -254,7 +254,7 @@ test('search snapshots reject scripted Agents, task mismatch, profiling, excessi
     [
       'scripted',
       (r: typeof f.recipe) => {
-        object(object(r.bindings).agent).ref = 'agent.scripted';
+        object(object(r.bindings).agent).plugin = 'agent.scripted';
       },
     ],
     [

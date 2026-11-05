@@ -32,7 +32,7 @@ flowchart TB
 
 1. Recipe 选择 `policy.harness2`，传入任务 ID 和初始候选。
 2. `require.domainProposer` 声明需要 `contract.proposer`；`defaults.bindings.domainProposer` 选择实现和静态配置。
-3. `use: domainProposer` 步骤通过 `with` 传入动态输入：父候选、目标、证据引用及可选的 Memory 引用。
+3. 声明 `type: invoke` 与 `use: domainProposer` 的步骤通过 `with` 传入动态输入：父候选、目标、证据引用及可选的 Memory 引用。
 4. Proposer 读取父候选和授权证据，组装提示词与资源，再通过 `agentRef` 调用所选 Agent 绑定。
 5. Proposer 在临时工作区应用经过校验的编辑，并调用 Application 的 `commit` 动作。Application 执行 Target 检查，返回候选与差异引用，或返回无修改结果。
 6. 后续 Evaluator 和 Selector 测量候选并选择结果，Manager 保存对应事实和收据。
@@ -90,12 +90,12 @@ RSI 不会自动加载 `.env` 文件。请在启动 CLI 或 Web 服务的进程�
 schemaVersion: rsi.recipe/v1
 id: harness2-one-task
 application:
-  ref: application.agentbundle
+  plugin: application.agentbundle
   config:
     target: { schema: ./target.yaml }
     baseline: { directory: ./baseline }
 policy:
-  ref: policy.harness2
+  id: policy.harness2
   input:
     candidateRef: ${{ application.initialCandidate }}
   config:
@@ -107,11 +107,11 @@ policy:
         - workbuddy/board-material-update-timeline-excel
 bindings:
   agent:
-    ref: agent.pi
+    plugin: agent.pi
     config:
       thinkingLevel: low
   evaluator:
-    ref: evaluator.agentbench
+    plugin: evaluator.agentbench
     config:
       services:
         default:
@@ -141,7 +141,7 @@ budget:
 
 Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和 `memory`。目标与交付物评分标准由 Policy 定义，不能通过 `goals` 或 `deliveryRubric` 配置。`k` 控制探索槽位数，`concurrency` 限制 Policy 分支并发数；Evaluator 调度器另有并发设置。固定 `k` 时，当前流程调用 Evaluator 的次数为 `4 × k × 任务数`（基线、通用改进、领域改进、合成）；其他 Policy 的一次 Evaluator 调用可以包含多个任务。
 
-[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受 `maxRounds`、可选的 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。它从训练证据学习，通过验证集测量决定候选是否被接受，并在 `finish` 阶段评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
+[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受 `maxRounds`、可选的 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。它从训练证据学习，通过验证集测量决定候选是否被接受，并在学习循环之后评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
 
 ### CLI
 
@@ -185,7 +185,7 @@ ember-rsi serve --port 4317
 | 替换完整的提案流程                                 | 实现 `contract.proposer` 并替换对应 Proposer 绑定。 |
 | 修改编排、状态或停止规则                           | 注册自定义 Policy。                                 |
 
-绑定在绑定与配置层合并，不进行任意递归合并。替换嵌套配置时请核对 [加载器](../../../src/runtime/loaders/index.ts)。`ref` 选择已注册实现，不会导入文件或注册代码。
+绑定声明通过 `plugin` 选择已注册插件，`policy.id` 选择已注册 Policy。仅含配置的覆盖项继承默认插件；插件不变时，普通对象递归合并，数组、标量和 null 替换旧值。切换插件会丢弃原插件配置。Schema 标记的路径字段分别保留其声明来源。加载时校验最终配置与契约。参考 [加载器](../../../src/runtime/loaders/index.ts)。
 
 插件按 `schema.ts`（配置）、`service.ts`（业务逻辑与清理）、`index.ts`（组装定义）组织，复用公共契约的输入输出 Schema。仓库内插件导入本地契约；外部工程从 `ember-rsi` 或 `ember-rsi/contracts` 导入，不使用私有 `src/*` 子路径。
 
@@ -208,7 +208,7 @@ export function register(registry) {
 }
 ```
 
-在 Recipe 中设置 `bindings.agent.ref: agent.my-custom`，与插件定义 ID 一致；需要扩展的命令都传入该目录：
+在 Recipe 中设置 `bindings.agent.plugin: agent.my-custom`，与插件定义 ID 一致；需要扩展的命令都传入该目录：
 
 ```sh
 ember-rsi validate ./my-recipe/recipe.yaml --plugin-dir ./my-extension
@@ -239,35 +239,40 @@ try {
 }
 ```
 
+`Recipe.load(recipePath, runtime.registry)` 返回装配后的定义，不会初始化 Application。其 `policy` 是 `Policy` 对象，`policyConfig` 与 `policyInput` 分别保存配置和输入映射。`application` 与 `bindings` 中各项是已校验的 `Binding` 对象，提供 `pluginId` 与 `config`；`toJSON()` 导出使用 `plugin` 与 `policy.id` 的声明。使用这些模型 API 时，从 `ember-rsi` 导入 `Recipe`、`Policy` 与 `Binding`。
+
 宿主进程直接注册插件，不会修改另行启动的 CLI 进程。请通过该宿主管理实验，或通过 `--plugin-dir` 加载相同扩展。不要将存活的 `RuntimeContext` 对象作为 JSON 持久化。
 
 ## 4. 编写 Policy
 
 Policy 使用 `rsi.policy/v1`，Recipe 使用 `rsi.recipe/v1`。Policy 声明输入、输出和配置 Schema、依赖的契约 ID、可选的默认绑定，以及执行流程。参考 [Harness²](../../../src/policies/harness2/policy.yaml)、[WikiSkill](../../../src/policies/wikiskill/policy.yaml) 和 [Policy 编译器实现](../../../src/runtime/compiler/)。
 
-| 原语      | 行为                                                        |
-| --------- | ----------------------------------------------------------- |
-| `use`     | 调用依赖绑定，或显式配置的 `reflection` 模块。              |
-| `state`   | 持久化状态更新，并行分支不能修改共享状态。                  |
-| `if`      | 执行条件分支。                                              |
-| `foreach` | 使用稳定且唯一的键、有界并发和可选的 `yield` 结果进行遍历。 |
-| `loop`    | 执行嵌套循环；顶层循环支持 `maxIterations` 和 `while`。     |
-| `control` | 执行 `break`、`continue`，或附带原因的 `fail`。             |
+所有步骤在统一的顶层 `steps` 数组中依次执行，逐项声明 `id` 与 `type`。使用共享状态时，需显式声明 `state_schema` 和初始 `state`；初始化表达式可引用已校验的 `input`、`application` 与 `config`。
 
-`init`、`loop` 和 `finish` 组织生命周期阶段。`${{ input.candidateRef }}`、`${{ loop.propose.output.candidateRef }}` 等表达式通过支持的表达式语言和纯函数连接数据，不执行任意 JavaScript。Recipe 的路径与 ID 仍需满足所选实现的要求。
+| 类型         | 行为                                                                 |
+| ------------ | -------------------------------------------------------------------- |
+| `invoke`     | 通过 `use` 与可选的 `with` 调用依赖插件绑定。                        |
+| `state`      | 原子校验并提交共享状态更新；并行分支禁止写入。                       |
+| `if`         | 选择 `{ steps, output? }` 形式的 `then` 或 `else` 块。               |
+| `loop`       | 通过 `maxIterations`、可选 `while` 执行有界循环，支持可选 `output`。 |
+| `foreach`    | 使用稳定且唯一的键、有界并发和可选逐项 `output` 遍历。               |
+| `control`    | 执行 `break`、`continue`，或附带原因的 `fail`。                      |
+| `reflection` | 串行调用已声明的 Reflection 模块。                                   |
 
-典型搜索流程先初始化当前最优候选及其验证测量，再提案、仅评测发生修改的候选、按指标选择、在接受时更新状态，最后在 `finish` 中报告独立测试测量。Reflection 需要显式的串行 `use: reflection` 步骤，不应放入并行分支。
+`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
+
+典型搜索先评测基线，再循环提案、评测和选择，保存被接受的状态，最后通过普通后续步骤评测独立测试集。并行 foreach 分支返回输出，交给后续串行步骤汇总。Reflection 使用 `type: reflection`，不能在并行分支执行。绑定只选择插件，不支持子 Policy、固定的 `init`/`finish` 作用域或 Runtime 报告阶段标签。成功、失败和取消时的资源清理由 Runtime 负责。
 
 从构建后的扩展注册自定义 Policy（下列路径相对于扩展模块）：
 
 ```js
 import { fileURLToPath } from 'node:url';
-import { readPolicy } from 'ember-rsi';
+import { Policy } from 'ember-rsi';
 
 export async function register(registry) {
   const file = fileURLToPath(new URL('./policy.yaml', import.meta.url));
-  const policy = await readPolicy(file, registry);
-  registry.registerPolicy(String(policy.definition.id), file);
+  const policy = await Policy.load(file, registry);
+  registry.registerPolicy(policy.id, file);
 }
 ```
 

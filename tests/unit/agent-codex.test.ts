@@ -9,6 +9,7 @@ import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
 import { loadRecipe } from '../../src/runtime/loaders/index.js';
 import { stringify } from 'yaml';
+import { object } from '../../src/shared/json.js';
 
 const schema = {
   type: 'object',
@@ -285,10 +286,12 @@ test('existing Policy accepts Codex Recipe binding without business-plugin chang
     );
     const recipe = await loadRecipe(
       resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
+      runtime.registry,
     );
-    recipe.bindings.agent = { ref: 'agent.codex', config: {} };
+    const declaration = recipe.toJSON();
+    object(declaration.bindings).agent = { plugin: 'agent.codex', config: {} };
     const path = join(directory, 'recipe.yaml');
-    await writeFile(path, stringify(recipe));
+    await writeFile(path, stringify(declaration));
     await validateRecipe(runtime, path);
   } finally {
     await runtime.dispose();

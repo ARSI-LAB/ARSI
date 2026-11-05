@@ -102,6 +102,7 @@ export async function prepareSdkConfiguration(
         run: {
           taskIds: [selected.id],
           timeoutSeconds: config.sdk.timeoutSeconds + 30,
+          onError: 'abort',
         },
         output: { directory: join(directory, 'sdk-output') },
       },

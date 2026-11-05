@@ -37,7 +37,7 @@ function managerFixture(
         if (
           options.plugins?.some(
             (plugin) =>
-              plugin.id === binding.ref &&
+              plugin.id === binding.plugin &&
               (plugin.id === 'test.observer' ||
                 plugin.id === 'test.inner-observer'),
           )
@@ -136,8 +136,8 @@ test('Manager creates only invoked bindings, activates before admission, and iso
         {
           plugins: [definition],
           bindings: {
-            observer: { ref: definition.id, config: { owner } },
-            unused: { ref: definition.id, config: { owner } },
+            observer: { plugin: definition.id, config: { owner } },
+            unused: { plugin: definition.id, config: { owner } },
           },
         },
       ),
@@ -160,7 +160,7 @@ test('Manager creates only invoked bindings, activates before admission, and iso
   }
 });
 
-test('experiment metadata retains recipeId and resume rejects a different Recipe without rewriting facts', async () => {
+test('experiment metadata retains locked recipeId and resume rejects a different Recipe path without rewriting facts', async () => {
   for (const outcome of ['succeeded', 'failed', 'startup-failed']) {
     const lifecycle: {
       phase: string;
@@ -204,17 +204,22 @@ test('experiment metadata retains recipeId and resume rejects a different Recipe
       const original = await fixture.manager.get(id);
       assert.equal(original.recipeId, 'test');
       const receipts = await fixture.manager.facts.list('calls');
-      await writeFile(
-        path,
-        recipe.replace(/^id: test$/m, 'id: different-recipe'),
+      const changedRecipe = recipe.replace(
+        /^id: test$/m,
+        'id: different-recipe',
       );
+      const differentPath = join(
+        fixture.manager.rootDirectory,
+        'different-recipe.yaml',
+      );
+      await writeFile(differentPath, changedRecipe);
       await assert.rejects(
-        fixture.manager.run(path, { id, resume: true }),
-        /recipeId differs/,
+        fixture.manager.run(differentPath, { id, resume: true }),
+        /recipePath differs/,
       );
       assert.deepEqual(await fixture.manager.get(id), original);
       assert.deepEqual(await fixture.manager.facts.list('calls'), receipts);
-      await writeFile(path, recipe);
+      await writeFile(path, changedRecipe);
       fail = false;
       const resumed = fixture.manager.run(path, { id, resume: true });
       if (outcome === 'succeeded')
@@ -254,8 +259,8 @@ test('Manager consumes the final native waterfall decision after an outer listen
     {
       plugins: [outer, inner],
       bindings: {
-        outer: { ref: outer.id, config: {} },
-        inner: { ref: inner.id, config: {} },
+        outer: { plugin: outer.id, config: {} },
+        inner: { plugin: inner.id, config: {} },
       },
     },
   );
@@ -306,8 +311,8 @@ test('failed lazy creation leaves existing instances owned through terminal noti
     {
       plugins: [definition],
       bindings: {
-        first: { ref: definition.id, config: {} },
-        second: { ref: definition.id, config: { fail: true } },
+        first: { plugin: definition.id, config: {} },
+        second: { plugin: definition.id, config: { fail: true } },
       },
     },
   );
@@ -354,7 +359,7 @@ test('Manager rejects invalid or denied final admission without executing the ta
       },
       {
         plugins: [definition],
-        bindings: { observer: { ref: definition.id, config: {} } },
+        bindings: { observer: { plugin: definition.id, config: {} } },
       },
     );
     try {
@@ -391,7 +396,7 @@ test('a success listener failure leaves the committed successful receipt intact'
   });
   const fixture = await managerFixture(async () => ({ persisted: true }), {
     plugins: [definition],
-    bindings: { observer: { ref: definition.id, config: {} } },
+    bindings: { observer: { plugin: definition.id, config: {} } },
   });
   try {
     await assert.rejects(fixture.run(), (error) =>
@@ -455,7 +460,7 @@ test('terminal listeners can read records but cannot use current or retained con
   );
   const fixture = await managerFixture(async () => ({}), {
     plugins: [definition],
-    bindings: { observer: { ref: definition.id, config: {} } },
+    bindings: { observer: { plugin: definition.id, config: {} } },
   });
   try {
     const result = await fixture.run();
@@ -506,7 +511,7 @@ test('ordinary notifications retain asynchronous listeners through cleanup witho
     },
     {
       plugins: [definition],
-      bindings: { observer: { ref: definition.id, config: {} } },
+      bindings: { observer: { plugin: definition.id, config: {} } },
     },
   );
   try {
@@ -573,7 +578,7 @@ test('cleanup deadlines retain non-cooperative listener ownership and dispose on
     );
     const fixture = await managerFixture(async () => ({}), {
       plugins: [definition],
-      bindings: { observer: { ref: definition.id, config: {} } },
+      bindings: { observer: { plugin: definition.id, config: {} } },
       budget: { cleanupReserveMs: 25 },
     });
     try {
@@ -625,7 +630,7 @@ test('terminal persistence failure closes business admission and never publishes
   );
   const fixture = await managerFixture(async () => ({}), {
     plugins: [definition],
-    bindings: { observer: { ref: definition.id, config: {} } },
+    bindings: { observer: { plugin: definition.id, config: {} } },
   });
   const write = fixture.manager.facts.write.bind(fixture.manager.facts);
   fixture.manager.facts.write = async (kind, id, value) => {
@@ -690,7 +695,7 @@ test('resume reuses committed calls without recreating their instances or replay
     },
     {
       plugins: [definition],
-      bindings: { observer: { ref: definition.id, config: {} } },
+      bindings: { observer: { plugin: definition.id, config: {} } },
     },
   );
   try {
@@ -791,9 +796,9 @@ test('listener business calls have independent contexts, observe nested events a
     {
       plugins: [definition, source, nested],
       bindings: {
-        observer: { ref: definition.id, config: {} },
-        source: { ref: source.id, config: {} },
-        nested: { ref: nested.id, config: {} },
+        observer: { plugin: definition.id, config: {} },
+        source: { plugin: source.id, config: {} },
+        nested: { plugin: nested.id, config: {} },
       },
       budget: { modelCalls: 1 },
     },
@@ -852,8 +857,8 @@ test('a controlled business failure launched from an ordinary notification still
   const fixture = await managerFixture(async () => ({}), {
     plugins: [definition, broken],
     bindings: {
-      observer: { ref: definition.id, config: {} },
-      broken: { ref: broken.id, config: {} },
+      observer: { plugin: definition.id, config: {} },
+      broken: { plugin: broken.id, config: {} },
     },
   });
   try {
@@ -894,7 +899,7 @@ test('experiment cancellation immediately reaches active listener contexts', asy
     },
     {
       plugins: [definition],
-      bindings: { observer: { ref: definition.id, config: {} } },
+      bindings: { observer: { plugin: definition.id, config: {} } },
     },
   );
   try {
@@ -955,8 +960,8 @@ test('unknown external effects remain unknown after local cancellation and resul
     {
       plugins: [definition, uncertain],
       bindings: {
-        observer: { ref: definition.id, config: {} },
-        uncertain: { ref: uncertain.id, config: {} },
+        observer: { plugin: definition.id, config: {} },
+        uncertain: { plugin: uncertain.id, config: {} },
       },
     },
   );
@@ -1029,7 +1034,7 @@ test('cancellation bounds non-cooperative preparation and admission listeners wh
       },
       {
         plugins: [definition],
-        bindings: { observer: { ref: definition.id, config: {} } },
+        bindings: { observer: { plugin: definition.id, config: {} } },
         budget: { cleanupReserveMs: 25 },
       },
     );

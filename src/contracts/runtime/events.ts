@@ -72,11 +72,11 @@ export interface PolicyStartedEvent extends PolicyEventInfo {
 }
 export interface PolicyStepCompletedEvent extends PolicyEventInfo {
   readonly stepPath: string;
-  readonly stage: 'init' | 'loop' | 'finish';
 }
 export interface PolicyBoundaryCompletedEvent extends PolicyEventInfo {
   readonly boundary: 'iteration-completed' | 'policy-completed';
   readonly iteration?: number;
+  readonly stepPath?: string;
 }
 export interface CandidateRecordedEvent {
   readonly experimentId: string;

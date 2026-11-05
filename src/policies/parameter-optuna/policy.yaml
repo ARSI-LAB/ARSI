@@ -1,14 +1,58 @@
 schemaVersion: rsi.policy/v1
 id: policy.parameter-optuna
 description: Optimize parameters with Optuna proposals and metric-based candidate selection.
-config_schema:
-  $ref: ./schemas/config.yaml
 input_schema:
   $ref: ../../contracts/policies/candidate-input.yaml
-output_schema:
-  $ref: ./schemas/result.yaml
 input:
   candidateRef: ${{ application.initialCandidate }}
+config_schema:
+  $ref: ./schemas/config.yaml
+state_schema:
+  type: object
+  properties:
+    searchStateRef:
+      type:
+        - string
+        - 'null'
+    stopped:
+      type: boolean
+    stopReason:
+      type: string
+    bestCandidate:
+      type:
+        - string
+        - 'null'
+    bestMeasurement:
+      type:
+        - string
+        - 'null'
+    bestParameters:
+      type:
+        - object
+        - 'null'
+    history:
+      type: array
+      items:
+        type: string
+  required:
+    - searchStateRef
+    - stopped
+    - stopReason
+    - bestCandidate
+    - bestMeasurement
+    - bestParameters
+    - history
+  additionalProperties: false
+state:
+  searchStateRef: null
+  stopped: false
+  stopReason: max-trials
+  bestCandidate: null
+  bestMeasurement: null
+  bestParameters: null
+  history: []
+output_schema:
+  $ref: ./schemas/result.yaml
 require:
   proposer:
     contract: contract.proposer-parameter-search
@@ -19,81 +63,94 @@ require:
 defaults:
   bindings:
     proposer:
-      ref: proposer.optuna
+      plugin: proposer.optuna
     selector:
-      ref: selector.metric
+      plugin: selector.metric
       config:
         metric: requestThroughput
         direction: maximize
         constraints:
           - metric: sloSatisfied
             min: 1
-init:
-  steps:
-    - id: initialize_search
-      use: proposer
-      with:
-        action: initialize
-        parent: ${{ input.candidateRef }}
-    - id: initialize
-      state:
-        searchStateRef: ${{ init.initialize_search.output.stateRef }}
-        stopped: false
-        stopReason: max-trials
-        bestCandidate: null
-        bestMeasurement: null
-        bestParameters: null
-        history: []
-loop:
-  maxIterations: ${{ config.maxTrials }}
-  while: ${{ !state.stopped }}
-  steps:
-    - id: propose
-      use: proposer
-      with:
-        action: suggest
-        stateRef: ${{ state.searchStateRef }}
-    - id: handle_proposal
-      if: ${{ loop.propose.output.status == 'candidate' }}
-      then:
-        - id: evaluate
-          use: evaluator
-          with:
-            candidateRef: ${{ loop.propose.output.candidateRef }}
-        - id: select
-          use: selector
-          with:
-            incumbentMeasurementRef: ${{ if(state.bestMeasurement == null, loop.evaluate.output.measurementRef, state.bestMeasurement) }}
-            candidateMeasurementRef: ${{ loop.evaluate.output.measurementRef }}
-        # Every complete measurement is feedback, including rejected candidates.
-        - id: observe
-          use: proposer
-          with:
-            action: observe
-            stateRef: ${{ loop.propose.output.stateRef }}
-            trialId: ${{ loop.propose.output.trialId }}
-            measurementRef: ${{ loop.evaluate.output.measurementRef }}
-            decisionRef: ${{ loop.select.output.decisionRef }}
-        - id: record
-          state:
-            searchStateRef: ${{ loop.observe.output.stateRef }}
-            history: ${{ append(state.history, loop.evaluate.output.measurementRef) }}
-        - id: adopt
-          if: ${{ loop.select.output.candidateFeasible && (state.bestMeasurement == null || loop.select.output.accepted) }}
-          then:
-            - id: save_best
+steps:
+  - id: initialize_search
+    type: invoke
+    use: proposer
+    with:
+      action: initialize
+      parent: ${{ input.candidateRef }}
+  - id: initialize
+    type: state
+    state:
+      searchStateRef: ${{ steps.initialize_search.output.stateRef }}
+  - id: search
+    type: loop
+    maxIterations: ${{ config.maxTrials }}
+    while: ${{ !state.stopped }}
+    steps:
+      - id: propose
+        type: invoke
+        use: proposer
+        with:
+          action: suggest
+          stateRef: ${{ state.searchStateRef }}
+      - id: handle_proposal
+        type: if
+        if: ${{ steps.propose.output.status == 'candidate' }}
+        then:
+          steps:
+            - id: evaluate
+              type: invoke
+              use: evaluator
+              with:
+                candidateRef: ${{ steps.propose.output.candidateRef }}
+            - id: select
+              type: invoke
+              use: selector
+              with:
+                incumbentMeasurementRef: ${{ if(state.bestMeasurement == null,
+                  steps.evaluate.output.measurementRef, state.bestMeasurement)
+                  }}
+                candidateMeasurementRef: ${{ steps.evaluate.output.measurementRef }}
+            # Every complete measurement is feedback, including rejected candidates.
+            - id: observe
+              type: invoke
+              use: proposer
+              with:
+                action: observe
+                stateRef: ${{ steps.propose.output.stateRef }}
+                trialId: ${{ steps.propose.output.trialId }}
+                measurementRef: ${{ steps.evaluate.output.measurementRef }}
+                decisionRef: ${{ steps.select.output.decisionRef }}
+            - id: record
+              type: state
               state:
-                bestCandidate: ${{ loop.propose.output.candidateRef }}
-                bestMeasurement: ${{ loop.evaluate.output.measurementRef }}
-                bestParameters: ${{ loop.propose.output.parameters }}
-      else:
-        - id: stop
-          state:
-            searchStateRef: ${{ loop.propose.output.stateRef }}
-            stopped: true
-            stopReason: ${{ loop.propose.output.reason }}
+                searchStateRef: ${{ steps.observe.output.stateRef }}
+                history: ${{ append(state.history, steps.evaluate.output.measurementRef) }}
+            - id: adopt
+              type: if
+              if:
+                ${{ steps.select.output.candidateFeasible && (state.bestMeasurement == null
+                || steps.select.output.accepted) }}
+              then:
+                steps:
+                  - id: save_best
+                    type: state
+                    state:
+                      bestCandidate: ${{ steps.propose.output.candidateRef }}
+                      bestMeasurement: ${{ steps.evaluate.output.measurementRef }}
+                      bestParameters: ${{ steps.propose.output.parameters }}
+        else:
+          steps:
+            - id: stop
+              type: state
+              state:
+                searchStateRef: ${{ steps.propose.output.stateRef }}
+                stopped: true
+                stopReason: ${{ steps.propose.output.reason }}
 output:
-  status: ${{ if(state.bestCandidate == null, 'no-feasible-configuration', 'selected') }}
+  status: ${{ if(state.bestCandidate == null, 'no-feasible-configuration',
+    'selected') }}
   stopReason: ${{ state.stopReason }}
   candidateRef: ${{ state.bestCandidate }}
   measurementRef: ${{ state.bestMeasurement }}

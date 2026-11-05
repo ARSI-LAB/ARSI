@@ -19,7 +19,7 @@ Source: ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_
 Adaptation: Replaced Jinja interpolation with supplied RSI context and wrapped the upstream issues array in a strict JSON object; invalid responses do not become empty diagnoses.
 -->
 
-# Source-only Triton-Ascend diagnosis
+# Source-only Triton diagnosis
 
 Inspect the supplied stage-entry kernel source, fixed problem/contract and actual
 hardware observations. Diagnose source-visible opportunities only. Do not assume

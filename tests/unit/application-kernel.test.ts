@@ -41,7 +41,7 @@ const target: JsonObject = {
     {
       path: 'input.py',
       kind: 'file',
-      description: 'Triton Ascend operator source',
+      description: 'Triton operator source',
       changes: ['modify'],
       content: { encoding: 'utf-8' },
     },

@@ -27,7 +27,7 @@ Every step has a safe `id`, unique within its block, and an explicit `type`:
 | `invoke`     | `use: binding`, optional `with: <input>`; calls a required plugin binding.                                                               |
 | `state`      | `state: { field: value }`; atomically validates and commits the updated full state.                                                      |
 | `if`         | Boolean `if`, `then: { steps, output? }`, optional `else` with the same shape.                                                           |
-| `loop`       | Nested `steps` and optional `maxIterations`, `while`, and `output`.                                                                    |
+| `loop`       | `maxIterations`, optional `while`, nested `steps`, optional `output`.                                                                    |
 | `foreach`    | Array `foreach`, item alias `as`, stable unique `key`, optional `concurrency`, `steps`, optional item `output`; collects in input order. |
 | `control`    | `control: break`, `continue`, or `fail`; `fail` requires a string `reason`.                                                              |
 | `reflection` | Invokes the configured Reflection module serially; accepts no per-call binding/configuration override.                                   |
@@ -48,7 +48,7 @@ The closed function set is `get`, `length`, `size`, `flatten`, `append`, `concat
 
 Do not use optional chaining, `??`, arbitrary methods, JavaScript `eval`, or `coalesce`. There are no `try`, `catch`, `finally`, `retry`, `onError`, `shell`, `http`, or `parallel` step types. Use foreach for bounded concurrency and provider-owned handling for external errors. A loop does not authorize repeating an effect with an unknown outcome.
 
-Omit `maxIterations` or set it to `null` to leave the iteration count unrestricted. An explicit bound must be a nonnegative safe integer. `foreach` runs serially by default and accepts a positive safe integer for `concurrency`. `range` accepts ordered safe-integer endpoints. Expression size and token bounds still apply, and configured Recipe budgets may stop execution. YAML aliases and duplicate keys are unsupported. Account for checkpoint I/O and inspect outcomes after a host command timeout.
+`maxIterations` is required and must evaluate to an integer from 0 to 100,000. `foreach` runs serially by default and accepts a positive safe integer for `concurrency`. `range` accepts ordered safe-integer endpoints. Expression size and token bounds still apply, and configured Recipe budgets may stop execution. YAML aliases and duplicate keys are unsupported. Account for checkpoint I/O and inspect outcomes after a host command timeout.
 
 ## Defaults, loading and schemas
 

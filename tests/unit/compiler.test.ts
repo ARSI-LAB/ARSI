@@ -215,12 +215,19 @@ test('only typed new DSL fields and explicit declared state are accepted', () =>
     assert.throws(() => compilePolicy(definition));
 });
 test('constant resource limits reject invalid values while zero loops and dynamic concurrency remain valid', () => {
-  for (const maxIterations of [-1, 1.5, 'no', Number.MAX_SAFE_INTEGER + 1])
+  for (const maxIterations of [undefined, -1, 1.5, 'no', null, 100001])
     assert.throws(
       () =>
         compilePolicy({
           ...base,
-          steps: [{ id: 'repeat', type: 'loop', maxIterations, steps: [] }],
+          steps: [
+            {
+              id: 'repeat',
+              type: 'loop',
+              ...(maxIterations === undefined ? {} : { maxIterations }),
+              steps: [],
+            },
+          ],
         }),
       /maxIterations/,
     );

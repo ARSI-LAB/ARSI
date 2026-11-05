@@ -70,7 +70,7 @@ defaults:
 steps:
   - id: search
     type: loop
-    maxIterations: ${{ get(config, 'maxCandidates', null) }}
+    maxIterations: ${{ config.maxCandidates }}
     while: ${{ !state.exhausted }}
     steps:
       - id: propose

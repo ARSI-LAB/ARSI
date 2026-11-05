@@ -141,7 +141,7 @@ Place it beside the [Harness² baseline and Target](../../../examples/harness/ds
 
 Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy.config`. Goals and the delivery rubric are defined by the Policy; `goals` and `deliveryRubric` are not accepted configuration fields. `k` controls exploration slots; `concurrency` limits concurrent Policy branches. The Evaluator scheduler has a separate concurrency setting. With fixed `k`, the current flow makes `4 × k × task count` evaluator calls (base, invariant, domain, composition); one evaluator call can contain multiple tasks in other Policies.
 
-[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) accepts optional `maxRounds` and `stopAtScore`, plus disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. Omit `maxRounds` to run the learning loop without a round limit. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
+[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) accepts `maxRounds` (default 3), optional `stopAtScore`, and disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
 
 ### CLI
 
@@ -254,12 +254,12 @@ Every step declares `id` and `type` in one ordered top-level `steps` array. A Po
 | `invoke`     | Call a required plugin binding with `use` and optional `with`.                       |
 | `state`      | Atomically validate and commit shared state updates; forbidden in parallel branches. |
 | `if`         | Choose `then` or `else` blocks shaped as `{ steps, output? }`.                       |
-| `loop`       | Run `steps` with optional `maxIterations`, `while`, and `output`.                    |
+| `loop`       | Run bounded `steps` with `maxIterations`, optional `while`, and optional `output`.   |
 | `foreach`    | Iterate with stable unique keys, bounded concurrency, and optional item `output`.    |
 | `control`    | `break`, `continue`, or `fail` with a reason.                                        |
 | `reflection` | Invoke the declared Reflection module serially.                                      |
 
-Expressions such as `${{ input.candidateRef }}` and `${{ steps.propose.output.candidateRef }}` connect data through a bounded pure expression language. Visible completed steps resolve through lexical `steps` scopes; `loop.index` is the nearest loop index. An omitted or null `maxIterations` leaves the iteration count unrestricted. If/foreach output is evaluated in its local block, while loop output is evaluated outside the loop. Retain per-round values in declared state if later steps need them, including the zero-round case. State-update expressions read the pre-update state.
+Expressions such as `${{ input.candidateRef }}` and `${{ steps.propose.output.candidateRef }}` connect data through a bounded pure expression language. Visible completed steps resolve through lexical `steps` scopes; `loop.index` is the nearest loop index. The required `maxIterations` must evaluate to an integer from 0 to 100,000. If/foreach output is evaluated in its local block, while loop output is evaluated outside the loop. Retain per-round values in declared state if later steps need them, including the zero-round case. State-update expressions read the pre-update state.
 
 A typical search measures a baseline, proposes and evaluates candidates in a loop, selects by metrics, saves accepted state, then performs held-out evaluation through later ordinary steps. Parallel foreach branches return outputs for serial aggregation. Reflection uses `type: reflection` and cannot execute in a parallel branch. Bindings select plugins only; there are no child Policies, fixed `init`/`finish` scopes or Runtime report labels. Runtime owns resource cleanup, including errors and cancellation.
 

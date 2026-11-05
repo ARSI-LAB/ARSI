@@ -3,6 +3,8 @@ properties:
   maxRounds:
     type: integer
     minimum: 0
+    maximum: 100000
+    default: 3
   stopAtScore:
     type: [number, 'null']
     default: null

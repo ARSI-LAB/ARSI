@@ -141,7 +141,7 @@ budget:
 
 Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和 `memory`。目标与交付物评分标准由 Policy 定义，不能通过 `goals` 或 `deliveryRubric` 配置。`k` 控制探索槽位数，`concurrency` 限制 Policy 分支并发数；Evaluator 调度器另有并发设置。固定 `k` 时，当前流程调用 Evaluator 的次数为 `4 × k × 任务数`（基线、通用改进、领域改进、合成）；其他 Policy 的一次 Evaluator 调用可以包含多个任务。
 
-[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受可选的 `maxRounds` 和 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。省略 `maxRounds` 时，学习循环不设轮数上限。它从训练证据学习，通过验证集测量决定候选是否被接受，并在学习循环之后评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
+[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受 `maxRounds`（默认 3）、可选的 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。它从训练证据学习，通过验证集测量决定候选是否被接受，并在学习循环之后评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
 
 ### CLI
 
@@ -254,12 +254,12 @@ Policy 使用 `rsi.policy/v1`，Recipe 使用 `rsi.recipe/v1`。Policy 声明输
 | `invoke`     | 通过 `use` 与可选的 `with` 调用依赖插件绑定。                        |
 | `state`      | 原子校验并提交共享状态更新；并行分支禁止写入。                       |
 | `if`         | 选择 `{ steps, output? }` 形式的 `then` 或 `else` 块。               |
-| `loop`       | 循环执行 `steps`，可选 `maxIterations`、`while` 和 `output`。         |
+| `loop`       | 通过 `maxIterations`、可选 `while` 执行有界循环，支持可选 `output`。 |
 | `foreach`    | 使用稳定且唯一的键、有界并发和可选逐项 `output` 遍历。               |
 | `control`    | 执行 `break`、`continue`，或附带原因的 `fail`。                      |
 | `reflection` | 串行调用已声明的 Reflection 模块。                                   |
 
-`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。省略 `maxIterations` 或将其设为 `null` 时，不设迭代次数上限。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
+`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。`maxIterations` 为必填项，求值结果须为 0 到 100,000 之间的整数。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
 
 典型搜索先评测基线，再循环提案、评测和选择，保存被接受的状态，最后通过普通后续步骤评测独立测试集。并行 foreach 分支返回输出，交给后续串行步骤汇总。Reflection 使用 `type: reflection`，不能在并行分支执行。绑定只选择插件，不支持子 Policy、固定的 `init`/`finish` 作用域或 Runtime 报告阶段标签。成功、失败和取消时的资源清理由 Runtime 负责。
 

@@ -64,16 +64,16 @@ export class Manager {
   readonly workspaces: WorkspaceService;
   private readonly running = new Map<string, AbortController>();
   private readonly jobs = new Set<Promise<JsonObject>>();
-  private readonly cleanupJobs = new Map<Promise<void>, number>();
+  private readonly cleanupJobs = new Map<Promise<void>, number | undefined>();
   private readonly cleanupOwners = new Set<Instances>();
   async dispose(): Promise<void> {
     for (const c of this.running.values())
       c.abort(new Error('Runtime disposed'));
     await Promise.allSettled([...this.jobs]);
-    // An explicit dispose is a bounded follow-up cleanup attempt. It observes
-    // existing disposal promises rather than invoking instance disposal again.
+    // Observe existing disposal promises without invoking instance disposal again.
     await Promise.all(
       [...this.cleanupJobs].map(async ([job, reserve]) => {
+        if (reserve === undefined) return job.catch(() => {});
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
@@ -252,13 +252,13 @@ export class Manager {
     cancellationPoll.unref();
     const started = Date.now();
     let experimentStartedAt = new Date(started).toISOString();
-    const timeout = AbortSignal.timeout(
-      recipe.budget.elapsedWallMs ?? 86400000,
-    );
+    const elapsedWallMs = recipe.budget.elapsedWallMs;
     let signal = AbortSignal.any([
       controller.signal,
       stopping.signal,
-      timeout,
+      ...(elapsedWallMs === undefined || options.resume
+        ? []
+        : [AbortSignal.timeout(elapsedWallMs)]),
       ...(options.signal ? [options.signal] : []),
     ]);
     const registrations = new Map<string, () => void>();
@@ -274,7 +274,8 @@ export class Manager {
       { config: ReflectionConfig; generatorBinding: string }
     >();
     const revisionRefs: JsonObject = {};
-    const cleanupMs = recipe.budget.cleanupReserveMs ?? 60000;
+    const cleanupMs = recipe.budget.cleanupReserveMs;
+    const unboundedCleanup = new AbortController().signal;
     let cleanupDeadline: number | undefined;
     let acceptingBusiness = true;
     let terminalSaveAttempted = false;
@@ -370,7 +371,12 @@ export class Manager {
         if (scoped) {
           const state = scopeUsage[scoped.id] ?? {};
           const count = Number(state[metric] ?? 0) + amount;
-          if (metric === 'modelCalls' && count > scoped.limits.modelCalls)
+          const modelCalls = scoped.limits.modelCalls;
+          if (
+            metric === 'modelCalls' &&
+            modelCalls !== undefined &&
+            count > modelCalls
+          )
             throw new Error('Reflection modelCalls budget exceeded');
           scopeUsage[scoped.id] = { ...state, [metric]: count };
         }
@@ -431,6 +437,7 @@ export class Manager {
         return signal;
       },
       get cleanup() {
+        if (cleanupMs === undefined) return unboundedCleanup;
         return AbortSignal.timeout(
           Math.max(
             1,
@@ -623,9 +630,8 @@ export class Manager {
             'readEvidence.maxBytes must be a positive safe integer',
           );
         const fileMode = options?.format === 'files';
-        const maxBytes = Math.min(
-          requestedBytes ?? (fileMode ? 32 * 1024 * 1024 : 60000),
-          fileMode ? 32 * 1024 * 1024 : 80000,
+        const evidenceLimit = Math.min(
+          requestedBytes ?? Number.POSITIVE_INFINITY,
           ctx.scope?.limits.evidenceBytes ?? Number.POSITIVE_INFINITY,
         );
         const view = options?.view ?? 'execution';
@@ -654,13 +660,24 @@ export class Manager {
             measurements,
             artifacts: manager.artifacts,
             view,
-            maxBytes,
+            maxBytes: Number.isFinite(evidenceLimit)
+              ? evidenceLimit
+              : undefined,
           });
-          if (summaries.length) result.summaries = summaries;
-          if (Buffer.byteLength(JSON.stringify(result)) > maxBytes)
-            throw new Error('Full evidence context exceeds byte limit');
+          if (summaries.length) {
+            result.summaries = summaries;
+            if (
+              Number.isFinite(evidenceLimit) &&
+              Buffer.byteLength(JSON.stringify(result)) > evidenceLimit
+            )
+              throw new Error('Full evidence context exceeds byte limit');
+          }
           return result;
         }
+        const maxBytes = Math.min(
+          evidenceLimit,
+          requestedBytes === undefined ? 60000 : 80000,
+        );
         const result = await projectEvidence({
           measurements,
           artifacts: manager.artifacts,
@@ -730,7 +747,8 @@ export class Manager {
       },
     });
     const withinCleanup = async <T>(job: Promise<T>): Promise<T> => {
-      cleanupDeadline ??= Date.now() + cleanupMs;
+      if (cleanupMs === undefined) return job;
+      const deadline = (cleanupDeadline ??= Date.now() + cleanupMs);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         return await Promise.race([
@@ -738,7 +756,7 @@ export class Manager {
           new Promise<never>((_resolve, reject) => {
             timer = setTimeout(
               () => reject(new Error('Cleanup deadline exceeded')),
-              Math.max(0, cleanupDeadline! - Date.now()),
+              Math.max(0, deadline - Date.now()),
             );
           }),
         ]);
@@ -766,19 +784,22 @@ export class Manager {
     ): void => {
       const job = instances.dispose(instance);
       this.cleanupJobs.set(job, cleanupMs);
-      const timer = setTimeout(() => {
-        events.abort(
-          instance.scope,
-          new Error('Instance cleanup deadline exceeded'),
-        );
-        void this.facts
-          .write('cleanup', cleanupId, {
-            experimentId: id,
-            status: 'unconfirmed',
-            error: 'Instance cleanup deadline exceeded',
-          })
-          .catch(() => {});
-      }, cleanupMs);
+      const timer =
+        cleanupMs === undefined
+          ? undefined
+          : setTimeout(() => {
+              events.abort(
+                instance.scope,
+                new Error('Instance cleanup deadline exceeded'),
+              );
+              void this.facts
+                .write('cleanup', cleanupId, {
+                  experimentId: id,
+                  status: 'unconfirmed',
+                  error: 'Instance cleanup deadline exceeded',
+                })
+                .catch(() => {});
+            }, cleanupMs);
       void job
         .catch((error: unknown) =>
           this.facts.write('cleanup', cleanupId, {
@@ -984,15 +1005,15 @@ export class Manager {
           typeof previous.startedAt === 'string'
             ? previous.startedAt
             : experimentStartedAt;
-        const remaining =
-          (recipe.budget.elapsedWallMs ?? 86400000) -
-          (Date.now() - Date.parse(experimentStartedAt));
-        if (remaining <= 0)
-          throw new Error('Experiment wall-time budget exceeded');
-        signal = AbortSignal.any([
-          signal,
-          AbortSignal.timeout(Math.ceil(remaining)),
-        ]);
+        if (elapsedWallMs !== undefined) {
+          const elapsed = Date.now() - Date.parse(experimentStartedAt);
+          if (!Number.isFinite(elapsed))
+            throw new Error('Invalid persisted experiment start time');
+          const remaining = elapsedWallMs - Math.max(0, elapsed);
+          if (remaining <= 0)
+            throw new Error('Experiment wall-time budget exceeded');
+          signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
+        }
         initial = object(previous.application);
         try {
           restore = await this.facts.read('checkpoints', id);

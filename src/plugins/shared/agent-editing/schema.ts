@@ -24,7 +24,7 @@ export const agentConfigSchema: JsonSchema = {
       items: { type: 'string', 'x-rsi-path': 'directory' },
       default: [],
     },
-    maxModelCalls: { type: 'integer', minimum: 1, default: 24 },
+    maxModelCalls: { type: 'integer', minimum: 1 },
   },
   required: ['prompt'],
   additionalProperties: false,

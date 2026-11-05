@@ -41,7 +41,7 @@ See the [Proposer contract](../../../src/contracts/plugin-types/proposer.ts), [i
 
 ### Targets and evidence
 
-For file-based Applications, a [Target](../../../examples/harness/dsh-harness2/target.yaml) defines allowed file patterns, operations, encodings and size limits, protected paths, and commit-wide change limits. Candidate edits must pass those checks.
+For file-based Applications, a [Target](../../../examples/harness/dsh-harness2/target.yaml) defines allowed file patterns, operations, encodings, and protected paths. Set `content.maxBytes` on a file rule to limit file size. Set `constraints.maxChangedFiles` or `constraints.maxChangedBytes` to limit the size of a commit. Candidate edits must pass the configured checks.
 
 Evidence services provide projections for model-backed plugins:
 
@@ -51,7 +51,7 @@ Evidence services provide projections for model-backed plugins:
 | `training-summary` | Execution evidence plus training scores and bounded evaluation feedback. WikiSkill uses this for learning.                          |
 | `delivery`         | Anonymous deliverable content for artifact selection, without evaluator scores.                                                     |
 
-Use [Runtime evidence services](../../../src/runtime/services/facts/evidence.ts) rather than supplying raw evaluator records to optimizer models. Projections can omit or shorten content; missing evidence remains unknown. These services and Target checks do not sandbox arbitrary third-party plugin code. A Policy must also keep held-out tasks out of learning input.
+Use [Runtime evidence services](../../../src/runtime/services/facts/evidence.ts) rather than supplying raw evaluator records to optimizer models. JSON projections can omit or shorten content. Reads in `files` mode apply a byte limit only if the caller or its scope sets one. Missing evidence remains unknown. These services and Target checks do not sandbox arbitrary third-party plugin code. A Policy must also keep held-out tasks out of learning input.
 
 ### Memory and Reflection
 
@@ -78,7 +78,7 @@ RSI does not automatically load `.env` files. Export variables in the process th
 
 The optimizer Agent and the evaluated solver can use different models. In the Harness² Recipe, `bindings.evaluator.config.services.default.model` reads the required `EVALUATOR_MODEL_NAME` environment variable separately from `MODEL_NAME`, with no fixed default.
 
-The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `maxTokens: 32768`, `contextWindow: 262144`, `timeoutMs: 600000`, and `retries: 0`. You can explicitly set `thinkingLevel: off`. Choose limits and reasoning settings supported by your endpoint. These defaults configure RSI's Agent backend; they do not set the evaluated solver's reasoning behavior.
+The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` to request an output limit or `timeoutMs` to set a per-request deadline. When omitted, the framework supplies no limit for either setting. Choose settings supported by your endpoint.
 
 Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
 
@@ -127,6 +127,14 @@ bindings:
     plugin: agent.pi
     config:
       thinkingLevel: low
+      maxTokens: 32768
+      timeoutMs: 600000
+  memoryUpdater:
+    config:
+      maxModelCalls: 24
+  selector:
+    config:
+      maxModelCalls: 24
   evaluator:
     plugin: evaluator.agentbench
     config:
@@ -154,11 +162,35 @@ budget:
   cleanupReserveMs: 60000
 ```
 
-Place it beside the [Harness² baseline and Target](../../../examples/harness/dsh-harness2/README.md), and replace the model with one your endpoint supports. The evaluator model must support the configured output limit. Budgets are ceilings, not expected usage or a cost estimate.
+Place it beside the [Harness² baseline and Target](../../../examples/harness/dsh-harness2/README.md), and replace the model with one your endpoint supports. The evaluator model must support the configured output limit. Each experiment budget applies only when its field is set. Omit `elapsedWallMs` to run without an experiment deadline and `cleanupReserveMs` to let cleanup finish without its own deadline.
 
 Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy.config`. Goals and the delivery rubric are defined by the Policy; `goals` and `deliveryRubric` are not accepted configuration fields. `k` controls exploration slots; `concurrency` limits concurrent Policy branches. The Evaluator scheduler has a separate concurrency setting. With fixed `k`, the current flow makes `4 × k × task count` evaluator calls (base, invariant, domain, composition); one evaluator call can contain multiple tasks in other Policies.
 
-[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) instead accepts `maxRounds`, optional `stopAtScore`, and disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
+[WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) accepts `maxRounds` (default 3), optional `stopAtScore`, and disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
+
+### Configure former defaults
+
+Use these paths to retain a former framework default or set your own value. Recipe paths use the binding names in the examples. A custom Policy can also declare plugin configuration under `defaults.bindings.<binding>.config`. Settings inherited from a Policy still apply. Harness² sets 24 calls for each proposal and composition binding, WikiSkill sets 24 for its proposer, and the packaged Harness² Reflection file sets 50 calls and 600 seconds per invocation. Model-call limits rely on a backend with authoritative request accounting, such as `agent.pi`. Native `agent.codex` reports the request count as unavailable and supports the duration limits shown below.
+
+| Location | Field | Former framework value | What it limits |
+| --- | --- | --- | --- |
+| Recipe | `budget.elapsedWallMs`, `budget.cleanupReserveMs` | `86400000`, `60000` | Experiment wall time and the separate cleanup deadline, in milliseconds. |
+| Recipe | `budget.modelCalls` | Already explicit | Total model calls charged by accounting-capable backends. Pi includes its subagents and corrections. Native Codex reports this count as unavailable. |
+| Recipe | `bindings.agent.config.maxTokens` (`agent.pi`) | `32768` | Model output tokens per request. The value must fit `contextWindow`. |
+| Recipe | `bindings.agent.config.timeoutMs` | `600000` for Pi. Native Codex uses an explicit timeout only. | Per-request time for `agent.pi`, or complete-call time for `agent.codex`. |
+| Recipe | `bindings.<binding>.config.maxModelCalls` (`proposer.agent`, `memory.agent`, `selector.artifact`) | `24` after normal Recipe loading | Model calls per Agent invocation when the backend can account for requests, including `agent.pi`. For a Policy step that directly invokes `contract.agent`, set `steps[].with.maxModelCalls` instead. Pi subagents inherit an explicit per-session cap. |
+| Recipe | `bindings.evaluator.config.services.<service>.maxTokens` (`evaluator.agentbench`) | `65536` | Output tokens per model turn for the selected evaluator service. |
+| Recipe | `application.config.remote.timeoutMs`, `application.config.healthcheck.timeoutMs` | `600000` for remote commands and remote readiness, `120000` for local readiness | Remote readiness inherits an explicitly set remote timeout unless overridden by the health check field. |
+| Recipe | `bindings.proposer.config.python.timeoutMs`, `bindings.proposer.config.maxSamplingAttempts` (`proposer.optuna`) | `30000`, `1000` | Time in milliseconds per Python invocation and total sampling attempts, including duplicates. Policy `maxTrials` separately limits evaluations. |
+| Reflection file selected by `reflection.configFile` | `budget.modelCalls`, `budget.timeoutSeconds` | `50` calls. Time was already explicit. | Local limits per Reflection invocation. A positive call limit requires backend request accounting. An explicit `modelCalls: 0` prevents the built-in model-backed generator from starting. |
+| Target file selected by `application.config.target.schema` | `entries[].content.maxBytes`, `constraints.maxChangedFiles`, `constraints.maxChangedBytes` | `1048576`, `32`, `1048576` | File size, changed file count and total changed bytes. |
+| Policy invocation | `steps[].with.editConstraints.maxChangedFiles`, `steps[].with.editConstraints.maxChangedBytes`, `steps[].with.editConstraints.maxChangedSubtrees` | Editor fallback of 32 files and `1048576` bytes. The Target previously supplied its entry count as the subtree fallback. | Per-call edit limits where the invoked contract supports them. `maxChangedSubtrees` applies to Target validation. |
+
+Other removed ceilings were internal. Their scope determines which controls are available.
+
+- **Policy and search size.** `foreach` and `range` no longer impose a 10,000-item ceiling. `steps[].concurrency` on `foreach` accepts a positive safe integer and still defaults to `1`, while a built-in Policy can enforce its own configuration range. `loop.maxIterations` still has a maximum of 100,000. Grid's former 1,000,000-point space ceiling has no configuration field. Control its space through `bindings.proposer.config.searchSpace` and its evaluation count through `policy.config.maxCandidates`. To change the remote calibration sweep, set `application.config.remote.calibration.start`, `min`, and `step`. The former 1,000-step span check has no separate setting.
+- **Evidence and edits.** Plugin code can set `RuntimeContext.readEvidence` option `maxBytes` to reproduce the former 32 MiB ceiling for full-file evidence reads. The Memory comparison caps of 32 MiB, 16 probe groups and 100 entries per group, the shared editor caps of 2 MiB of editable snapshot text, 32 edit operations and 128 KiB per edit, and the Reflection revision caps of 16 files, 64 KiB per resource and 128 KiB per revision have no direct YAML settings. The configured Target and per-call edit constraints above govern supported file edits. Reflection still bounds its evidence preview and enforces authorized resource paths.
+- **Transport, sampling, and cleanup.** Pi's former 128 KiB structured-output limit and Optuna's 8 MiB worker I/O, 32 attempts per suggestion and 1,000-entry history ceiling have no direct settings. The Pi token/call limits and Optuna sampling limit above control execution at their own scopes. Native Codex delegates model execution and recovery to its installed CLI, while RSI provides the complete-call timeout and paginated virtual-file reader described above. Inference recovery uses the Runtime cleanup budget in place of its former fixed 10-second release timer. The Application's shutdown grace period is separately configurable at `application.config.shutdown.gracePeriodMs`.
 
 ### CLI
 
@@ -179,7 +211,7 @@ Use the same working directory, Recipe, and experiment ID to resume an interrupt
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --resume
 ```
 
-The default store is `.rsi/` under the current directory. Completed calls can reuse saved receipts and checkpoints; unknown external outcomes require reconciliation and are not a guarantee of exactly-once execution. Inspect status, measurements, and evidence separately: a zero score is not necessarily an execution failure. Model-output correction in `agent.pi` is bounded and charged to the model-call budget; transport retries remain disabled unless configured.
+The default store is `.rsi/` under the current directory. Completed calls can reuse saved receipts and checkpoints; unknown external outcomes require reconciliation and are not a guarantee of exactly-once execution. Inspect status, measurements, and evidence separately: a zero score is not necessarily an execution failure. Model-output correction in `agent.pi` counts toward any configured model-call budget. Transport retries are opt-in.
 
 ### Web observation
 
@@ -276,7 +308,7 @@ Every step declares `id` and `type` in one ordered top-level `steps` array. A Po
 | `control`    | `break`, `continue`, or `fail` with a reason.                                        |
 | `reflection` | Invoke the declared Reflection module serially.                                      |
 
-Expressions such as `${{ input.candidateRef }}` and `${{ steps.propose.output.candidateRef }}` connect data through a bounded pure expression language. Visible completed steps resolve through lexical `steps` scopes; `loop.index` is the nearest loop index. If/foreach output is evaluated in its local block, while loop output is evaluated outside the loop. Retain per-round values in declared state if later steps need them, including the zero-round case. State-update expressions read the pre-update state.
+Expressions such as `${{ input.candidateRef }}` and `${{ steps.propose.output.candidateRef }}` connect data through a bounded pure expression language. Visible completed steps resolve through lexical `steps` scopes; `loop.index` is the nearest loop index. The required `maxIterations` must evaluate to an integer from 0 to 100,000. If/foreach output is evaluated in its local block, while loop output is evaluated outside the loop. Retain per-round values in declared state if later steps need them, including the zero-round case. State-update expressions read the pre-update state.
 
 A typical search measures a baseline, proposes and evaluates candidates in a loop, selects by metrics, saves accepted state, then performs held-out evaluation through later ordinary steps. Parallel foreach branches return outputs for serial aggregation. Reflection uses `type: reflection` and cannot execute in a parallel branch. Bindings select plugins only; there are no child Policies, fixed `init`/`finish` scopes or Runtime report labels. Runtime owns resource cleanup, including errors and cancellation.
 

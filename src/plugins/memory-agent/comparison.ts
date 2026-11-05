@@ -116,15 +116,7 @@ export async function buildComparisonContext(
     throw new Error('Selection decision does not match comparison probes');
   const snapshots = new Map<string, SnapshotFile[]>();
   const manifests = new Map<string, JsonObject>();
-  let bytes = Object.values(files).reduce<number>((sum, content) => {
-    if (typeof content !== 'string')
-      throw new Error('Invalid virtual-file content');
-    return sum + Buffer.byteLength(content);
-  }, 0);
   const add = (path: string, content: string): void => {
-    bytes += Buffer.byteLength(content);
-    if (bytes > 32 * 1024 * 1024)
-      throw new Error('Comparison context exceeds virtual-file byte limit');
     if (Object.hasOwn(files, path))
       throw new Error('Duplicate comparison context file');
     files[path] = content;

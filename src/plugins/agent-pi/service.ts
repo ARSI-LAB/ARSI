@@ -124,7 +124,7 @@ export const createAgentPi: OperationDefinition<
     rawConfig,
     'agent.pi config',
   );
-  if (config.maxTokens > config.contextWindow)
+  if (config.maxTokens !== undefined && config.maxTokens > config.contextWindow)
     throw new Error('agent.pi maxTokens must not exceed contextWindow');
   const thinkingLevel = config.thinkingLevel;
   return {
@@ -177,7 +177,7 @@ export const createAgentPi: OperationDefinition<
               input: ['text'],
               cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
               contextWindow: config.contextWindow,
-              maxTokens: config.maxTokens,
+              maxTokens: config.maxTokens ?? config.contextWindow,
             },
           ],
         });
@@ -225,7 +225,9 @@ export const createAgentPi: OperationDefinition<
           settingsManager: SettingsManager.inMemory({
             compaction: {
               enabled: true,
-              reserveTokens: Number(config.maxTokens),
+              ...(config.maxTokens === undefined
+                ? {}
+                : { reserveTokens: config.maxTokens }),
             },
             retry: {
               enabled: config.retries > 0,
@@ -253,8 +255,12 @@ export const createAgentPi: OperationDefinition<
         const original = session.agent.streamFunction;
         session.agent.streamFunction = async (m, c, o) => {
           signal.throwIfAborted();
-          if (++turns > Number(request.maxModelCalls ?? 24))
+          if (
+            request.maxModelCalls !== undefined &&
+            turns >= request.maxModelCalls
+          )
             throw new Error('Agent model-call limit reached');
+          turns++;
           try {
             await context.charge('modelCalls', 1);
           } catch (error) {
@@ -269,17 +275,20 @@ export const createAgentPi: OperationDefinition<
             ...(o?.signal ? [o.signal] : []),
             controller.signal,
           ]);
-          const timer = setTimeout(
-            () =>
-              controller.abort(
-                new DOMException(
-                  'Agent model request timed out',
-                  'TimeoutError',
-                ),
-              ),
-            config.timeoutMs,
-          );
-          timer.unref();
+          const timer =
+            config.timeoutMs === undefined
+              ? undefined
+              : setTimeout(
+                  () =>
+                    controller.abort(
+                      new DOMException(
+                        'Agent model request timed out',
+                        'TimeoutError',
+                      ),
+                    ),
+                  config.timeoutMs,
+                );
+          timer?.unref();
           const release = (): void => {
             clearTimeout(timer);
             requestSignal.removeEventListener('abort', release);
@@ -293,6 +302,20 @@ export const createAgentPi: OperationDefinition<
               maxTokens: config.maxTokens,
               maxRetries: 0,
               timeoutMs: config.timeoutMs,
+              onPayload:
+                config.maxTokens === undefined
+                  ? async (payload, model) => {
+                      const configured =
+                        (await o?.onPayload?.(payload, model)) ?? payload;
+                      // Pi's simple stream adds a model-based default to the wire request.
+                      if (configured === null || typeof configured !== 'object')
+                        return configured;
+                      const body = { ...configured };
+                      Reflect.deleteProperty(body, 'max_tokens');
+                      Reflect.deleteProperty(body, 'max_completion_tokens');
+                      return body;
+                    }
+                  : o?.onPayload,
             });
             void stream.result().then((message) => {
               release();
@@ -354,8 +377,6 @@ export const createAgentPi: OperationDefinition<
             let output: JsonObject | undefined;
             let validationError = '';
             try {
-              if (Buffer.byteLength(response) > 131072)
-                throw new Error('Agent output exceeds byte limit');
               const trimmed = response.trim();
               const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/i.exec(
                 trimmed,
@@ -372,7 +393,10 @@ export const createAgentPi: OperationDefinition<
               record('validation_succeeded', { response });
               return output;
             }
-            if (turns >= Number(request.maxModelCalls ?? 24))
+            if (
+              request.maxModelCalls !== undefined &&
+              turns >= request.maxModelCalls
+            )
               throw new Error(
                 `Agent model-call limit reached; last output validation failed: ${validationError}`,
               );

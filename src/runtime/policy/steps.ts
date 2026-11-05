@@ -402,7 +402,12 @@ export class ForEachStep implements Step {
       structuredClone(value.concurrency === undefined ? 1 : value.concurrency),
     );
     if (!expressions(this.concurrency).length)
-      boundedInteger(this.concurrency, `${this.id}.concurrency`, 64, 1);
+      boundedInteger(
+        this.concurrency,
+        `${this.id}.concurrency`,
+        Number.MAX_SAFE_INTEGER,
+        1,
+      );
     this.steps = parseSteps(value.steps, this.id);
     this.output = immutable(structuredClone(value.output ?? null));
     Object.freeze(this);
@@ -427,14 +432,12 @@ export class ForEachStep implements Step {
   }
   async execute(context: StepContext): Promise<StepResult> {
     const items = context.evaluate(this.items);
-    if (!Array.isArray(items) || items.length > 10000)
-      throw new Error(
-        `${context.stepPath}: foreach requires at most 10000 items`,
-      );
+    if (!Array.isArray(items))
+      throw new Error(`${context.stepPath}: foreach requires an array`);
     const concurrency = boundedInteger(
       context.evaluate(this.concurrency),
       `${context.stepPath}.concurrency`,
-      64,
+      Number.MAX_SAFE_INTEGER,
       1,
     );
     const parallel = context.parallel || concurrency > 1;

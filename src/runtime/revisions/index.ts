@@ -210,9 +210,10 @@ export async function reflect(
       ? AbortSignal.any([options.context.signal, localTimeout])
       : options.context.signal,
     limits: {
-      modelCalls: options.config.budget.modelCalls,
+      ...(options.config.budget.modelCalls === undefined
+        ? {}
+        : { modelCalls: options.config.budget.modelCalls }),
       ...(elapsedLimit === undefined ? {} : { elapsedWallMs: elapsedLimit }),
-      evidenceBytes: 32 * 1024 * 1024,
     },
   };
   const assertScope = (): void => {
@@ -263,7 +264,7 @@ export async function reflect(
       names: options.config.evidence,
       identity,
       capturedAt: scopeStartedAt,
-      maxBytes: scope.limits.evidenceBytes,
+      maxBytes: 32 * 1024 * 1024,
       policyScopeId: options.invocation.policyScopeId,
       moduleKey: options.config.path,
       configDigest: options.config.digest,
@@ -299,6 +300,13 @@ export async function reflect(
     const parents: JsonObject = {},
       manifest: JsonObject = {},
       mappings = new Map<string, Mapping>();
+    // A prepared boundary must replay the same generator input and resource snapshot.
+    const legacyEditLimits =
+      prior?.status === 'prepared' &&
+      Object.hasOwn(
+        object(object(prior.input).editConstraints),
+        'maxChangedFiles',
+      );
     const projected = new Map<string, TreeFile>();
     const originals = new Map<string, JsonObject[]>();
     const register = (path: string, mapping: Mapping): void => {
@@ -378,7 +386,7 @@ export async function reflect(
           binding: key,
           pointer,
           changes: ['create', 'modify'],
-          maxBytes: 65536,
+          ...(legacyEditLimits ? { maxBytes: 65536 } : {}),
         });
       }
     }
@@ -440,8 +448,9 @@ export async function reflect(
         allowedPaths: [...mappings.keys()].map((path) =>
           path.endsWith('/') ? path + '**/*' : path,
         ),
-        maxChangedFiles: 16,
-        maxChangedBytes: 131072,
+        ...(legacyEditLimits
+          ? { maxChangedFiles: 16, maxChangedBytes: 131072 }
+          : {}),
       },
     };
     if (prior?.status === 'prepared') {
@@ -506,7 +515,7 @@ export async function reflect(
         b = newTree.get(path);
       if (canonical(a ?? null) === canonical(b ?? null)) continue;
       changedFiles++;
-      if (changedFiles > 16)
+      if (legacyEditLimits && changedFiles > 16)
         throw new Error('Reflection exceeds changed-file limit');
       const mapping =
         mappings.get(path) ??
@@ -523,11 +532,12 @@ export async function reflect(
         throw new Error('Reflection resource mode change denied');
       const bytes = b ? Buffer.from(b.base64, 'base64').length : 0;
       total += bytes;
-      if (bytes > mapping.maxBytes || total > 131072)
+      if (legacyEditLimits && (bytes > 65536 || total > 131072))
         throw new Error('Reflection resource exceeds byte limit');
       if (b) text(b);
     }
     for (const [path, mapping] of mappings) {
+      if (mapping.maxBytes === undefined) continue;
       const size = [...newTree]
         .filter(([file]) =>
           path.endsWith('/') ? file.startsWith(path) : file === path,

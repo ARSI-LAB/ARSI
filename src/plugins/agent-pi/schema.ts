@@ -12,7 +12,10 @@ export type AgentPiConfig = {
   timeoutMs?: number;
 };
 
-export type ResolvedAgentPiConfig = Required<AgentPiConfig>;
+export type ResolvedAgentPiConfig = Required<
+  Omit<AgentPiConfig, 'maxTokens' | 'timeoutMs'>
+> &
+  Pick<AgentPiConfig, 'maxTokens' | 'timeoutMs'>;
 
 export const configSchema: JsonSchema = {
   type: 'object',
@@ -24,7 +27,7 @@ export const configSchema: JsonSchema = {
       pattern: '^\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}$',
       default: '${MODEL_API_KEY}',
     },
-    maxTokens: { type: 'integer', minimum: 1, default: 32768 },
+    maxTokens: { type: 'integer', minimum: 1 },
     contextWindow: { type: 'integer', minimum: 1, default: 262144 },
     thinkingLevel: {
       enum: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
@@ -41,7 +44,6 @@ export const configSchema: JsonSchema = {
       type: 'integer',
       minimum: 1,
       maximum: 2147483647,
-      default: 600000,
     },
   },
   additionalProperties: false,

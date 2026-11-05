@@ -35,11 +35,7 @@ export function Experiments(): React.JSX.Element {
     <div className="page-stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">OBSERVATION WORKSPACE</span>
           <h1>Experiments</h1>
-          <p>
-            Follow execution, inspect calls, and review recorded measurements.
-          </p>
         </div>
       </header>
       <div className="section-heading">
@@ -54,7 +50,7 @@ export function Experiments(): React.JSX.Element {
             placeholder="Experiment, recipe, or status"
           />
         </div>
-        <span className="muted">{result.data?.total ?? '—'} experiments</span>
+        <span className="muted">{visible?.length ?? '—'} experiments</span>
       </div>
       <Feedback {...result} />
       {result.data ? (

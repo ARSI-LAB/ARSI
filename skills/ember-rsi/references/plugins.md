@@ -35,4 +35,4 @@ console.log(
 );
 ```
 
-For a registered Policy, import `readPolicy` from `ember-rsi`, then call `const policy = await readPolicy(runtime.registry.policy('policy.wikiskill'), runtime.registry)`. Its public compiled data includes `policy.definition.input_schema`, `output_schema`, `config_schema`, `policy.require`, and `policy.defaults`. Read only the data needed for configuration; no source checkout or private module import is necessary. Register extensions in that host first, and dispose it afterward. Schema lookup is read-only and does not run a model or benchmark.
+For a registered Policy, import `Policy` from `ember-rsi`, then call `const policy = await Policy.load(runtime.registry.policy('policy.wikiskill'), runtime.registry)`. Its public compiled data includes `policy.inputSchema`, `outputSchema`, `configSchema`, `stateSchema`, `policy.requirements`, and `policy.defaults`. Read only the data needed for configuration; no source checkout or private module import is necessary. Register extensions in that host first, and dispose it afterward. Schema lookup is read-only and does not run a model or benchmark.

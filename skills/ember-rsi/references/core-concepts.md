@@ -15,6 +15,6 @@ Memory is a business operation whose returned `memoryRef` must be passed into su
 
 The current flow is: author files → load/register extensions → validate Recipe → await `manager.run` or poll an accepted HTTP job → inspect result, facts and cleanup → dispose the owning host. There are no saved-Recipe CRUD, preview tokens, pause/continue or `runs.start` APIs.
 
-Default data lives under `.rsi/facts/` and `.rsi/artifacts/`, with workspaces/checkpoints and plugin-owned state under the same root. Resources can be read from their original paths during execution, so do not modify them during a run or before a resume. An embedding host can choose a separate `directory`; CLI uses cwd/.rsi.
+Default data lives under `.rsi/facts/` and `.rsi/artifacts/`, with workspaces/checkpoints and plugin-owned state under the same root. New experiments lock their Recipe/Policy definitions and resources; recovery uses those locked definitions and confirmed activations. Existing checkpoints from the earlier DSL cannot resume under the new format. An embedding host can choose a separate `directory`; CLI uses cwd/.rsi.
 
 Failures, cancellation and unknown effects are different from a valid evaluation with score zero. Query stored evidence rather than re-running to inspect results. The starter illustrates baseline → child → measurements → selection → release with no model or external evaluator.

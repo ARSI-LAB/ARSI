@@ -24,7 +24,7 @@ Before each attempt read historical evidence and write the bottleneck, hypothesi
 
 Across stages explicitly materialize the selected candidate as the next baseline with its provenance and Target scope. Do not assume unrelated experiments share incumbent state. Preserve the best correct implementation and its comparable measurement, even when the latest attempt fails. Keep final acceptance workloads separate from learning feedback when the chosen algorithm requires it.
 
-Memory only helps if the Policy calls it and delivers its content to subsequent proposals. Reflection needs its configFile module and an explicit use: reflection call; structural acceptance does not prove improvement. Verify writing, loading, delivery and actual later use before claiming online evolution. An outer agent may read persisted experience between stages without claiming the inner Policy performs Memory/Reflection.
+Memory only helps if the Policy calls it and delivers its content to subsequent proposals. Reflection needs its configFile module and an explicit type: reflection step; structural acceptance does not prove improvement. Verify writing, loading, delivery and actual later use before claiming online evolution. An outer agent may read persisted experience between stages without claiming the inner Policy performs Memory/Reflection.
 
 ## Stop and deliver
 

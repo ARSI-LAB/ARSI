@@ -1,3 +1,4 @@
+import { connectionError } from '../api/connection-state';
 import React from 'react';
 import type { JsonPreview, Page } from '../api/observation-client';
 export function Status({ value }: { value: string }): React.JSX.Element {
@@ -51,7 +52,7 @@ export function Feedback({
           Loading recorded facts…
         </p>
       ) : null}
-      {error ? (
+      {error && error !== connectionError ? (
         <div role="alert" className="error-notice">
           <span>{error} · Displayed data may be stale.</span>
           <button className="quiet-button" onClick={refresh}>

@@ -70,6 +70,11 @@ async function readCandidateDiff(
         signal.throwIfAborted();
         const index = cursor++,
           path = paths[index]!;
+        const oldDigest = before.get(path)?.digest;
+        if (oldDigest && oldDigest === after.get(path)?.digest) {
+          changes[index] = null;
+          continue;
+        }
         const read = (ref: string) =>
           readObservation(
             `${base}${encodeURIComponent(ref)}?${new URLSearchParams({ path })}`,

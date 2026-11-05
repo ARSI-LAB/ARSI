@@ -20,18 +20,10 @@ export function evaluationOrdinals(
       result.set(measurement.ref, result.size + 1);
   return result;
 }
-/** Exact values for selected evaluations and details; chart annotations may be rounded. */
-export function exactScoreLabel(value: number): string {
-  return value.toLocaleString(undefined, { maximumSignificantDigits: 21 });
-}
+// Display precision only; recorded values remain unchanged.
 export function scoreLabel(value: number): string {
-  if (value !== 0 && (Math.abs(value) < 0.0001 || Math.abs(value) >= 1e7)) {
-    const text = value.toExponential(3);
-    return (Number(text) === value ? '' : '≈') + text;
-  }
-  const rounded = Number(value.toPrecision(7));
-  return (
-    (rounded === value ? '' : '≈') +
-    value.toLocaleString(undefined, { maximumSignificantDigits: 7 })
-  );
+  return (Math.abs(value) < 0.005 ? 0 : value).toLocaleString(undefined, {
+    notation: 'standard',
+    maximumFractionDigits: 2,
+  });
 }

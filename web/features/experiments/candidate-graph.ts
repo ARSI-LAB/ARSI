@@ -17,8 +17,8 @@ export interface CandidateGraph {
   width: number;
   height: number;
 }
-export const nodeWidth = 220;
-export const nodeHeight = 94;
+export const nodeWidth = 180;
+export const nodeHeight = 88;
 
 /** Lay out recorded edges only. Missing parents are explicit placeholders, never inferred roots. */
 export function candidateGraph(
@@ -78,8 +78,8 @@ export function candidateGraph(
   for (const node of nodes.values()) {
     const depth = depths.get(node.ref) ?? 0;
     const row = levels.get(depth) ?? 0;
-    node.x = 24 + depth * 284;
-    node.y = 24 + row * 124;
+    node.x = 24 + depth * (nodeWidth + 64);
+    node.y = 24 + row * (nodeHeight + 24);
     levels.set(depth, row + 1);
   }
   const values = [...nodes.values()];

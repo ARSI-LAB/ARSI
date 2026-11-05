@@ -27,12 +27,23 @@ policy:
         - terminal-bench/react-lead-form
 
 bindings:
+  agent:
+    plugin: agent.pi
+    config:
+      # Optimizer output tokens and time per model request (ms).
+      maxTokens: 32768
+      timeoutMs: 600000
+  memoryUpdater:
+    config:
+      # Model-call cap sent to the Agent for each Memory operation.
+      maxModelCalls: 24
   evaluator:
     plugin: evaluator.agentbench
     config:
       services:
         default:
           model: ${MODEL_NAME}
+          maxTokens: 65536
           base_url: ${MODEL_ENDPOINT}
           api_key: ${MODEL_API_KEY}
       benchmark:

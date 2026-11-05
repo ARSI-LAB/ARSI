@@ -110,6 +110,14 @@ bindings:
     plugin: agent.pi
     config:
       thinkingLevel: low
+      maxTokens: 32768
+      timeoutMs: 600000
+  memoryUpdater:
+    config:
+      maxModelCalls: 24
+  selector:
+    config:
+      maxModelCalls: 24
   evaluator:
     plugin: evaluator.agentbench
     config:
@@ -142,6 +150,30 @@ budget:
 Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和 `memory`。目标与交付物评分标准由 Policy 定义，不能通过 `goals` 或 `deliveryRubric` 配置。`k` 控制探索槽位数，`concurrency` 限制 Policy 分支并发数；Evaluator 调度器另有并发设置。固定 `k` 时，当前流程调用 Evaluator 的次数为 `4 × k × 任务数`（基线、通用改进、领域改进、合成）；其他 Policy 的一次 Evaluator 调用可以包含多个任务。
 
 [WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) 接受 `maxRounds`（默认 3）、可选的 `stopAtScore`，以及 `dataset` 下互不重叠的 `trainTaskIds`、`validationTaskIds` 和 `testTaskIds`。它从训练证据学习，通过验证集测量决定候选是否被接受，并在学习循环之后评测独立测试任务。其 Recipe 使用 `linux/amd64` 任务镜像，ARM64 宿主也一样；仍需满足 Docker、模拟执行和基准环境要求。调整字段前请核对 [当前 Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) 和 [Policy Schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml)。
+
+### 显式配置原有默认上限
+
+可按下表显式写回原框架默认值，或设置自己的上限。Recipe 路径使用示例里的绑定名。自定义 Policy 也可在 `defaults.bindings.<binding>.config` 声明插件配置。Policy 已有的显式设置继续生效。Harness² 的提案和合成绑定各限制 24 次模型调用，WikiSkill 的 proposer 限制 24 次，Harness² 随包提供的 Reflection 配置限制单次调用最多 50 次模型调用、600 秒。
+
+| 位置 | 字段 | 原框架默认值 | 限制范围 |
+| --- | --- | --- | --- |
+| Recipe | `budget.elapsedWallMs`、`budget.cleanupReserveMs` | `86400000`、`60000` | 实验墙钟时间和独立的清理时限，单位为毫秒。 |
+| Recipe | `budget.modelCalls` | 原本就需显式设置 | 计入实验的总模型调用次数，包含子代理和纠错调用。 |
+| Recipe | `bindings.agent.config.maxTokens`（`agent.pi`） | `32768` | 每次模型请求的输出 token 上限。值须在 `contextWindow` 范围内。 |
+| Recipe | `bindings.agent.config.timeoutMs` | `600000` | `agent.pi` 的单次请求时限，或 `agent.codex` 的执行时限。 |
+| Recipe | `bindings.<binding>.config.maxModelCalls`（`proposer.agent`、`memory.agent`、`selector.artifact`） | 经正常 Recipe 加载后为 `24` | 单次 Agent 调用内的模型请求次数。Policy 步骤直接调用 `contract.agent` 时，设置 `steps[].with.maxModelCalls`。Pi 子代理会继承显式值作为各自会话的上限。 |
+| Recipe | `bindings.evaluator.config.services.<service>.maxTokens`（`evaluator.agentbench`） | `65536` | 所选评测模型服务每轮的输出 token 上限。 |
+| Recipe | `application.config.remote.timeoutMs`、`application.config.healthcheck.timeoutMs` | 远程命令和远程就绪均为 `600000`，本地就绪为 `120000` | 远程就绪等待继承显式设置的远程超时，单独设置健康检查超时可覆盖。 |
+| Recipe | `bindings.proposer.config.python.timeoutMs`、`bindings.proposer.config.maxSamplingAttempts`（`proposer.optuna`） | `30000`、`1000` | 单次 Python 调用时限（毫秒）和总采样次数（含重复尝试）。Policy 的 `maxTrials` 单独限制评测次数。 |
+| `reflection.configFile` 指向的 Reflection 文件 | `budget.modelCalls`、`budget.timeoutSeconds` | 模型调用为 `50`，时间原本就需显式设置 | 单次 Reflection 的局部预算。显式设置 `modelCalls: 0` 会阻止新增模型调用。 |
+| `application.config.target.schema` 指向的 Target 文件 | `entries[].content.maxBytes`、`constraints.maxChangedFiles`、`constraints.maxChangedBytes` | `1048576`、`32`、`1048576` | 文件大小、修改文件数和修改总字节数。 |
+| Policy 调用步骤 | `steps[].with.editConstraints.maxChangedFiles`、`steps[].with.editConstraints.maxChangedBytes`、`steps[].with.editConstraints.maxChangedSubtrees` | 编辑器默认 32 个文件和 `1048576` 字节。Target 原先按条目数设置子树上限。 | 在被调用契约支持时限制本次编辑。`maxChangedSubtrees` 适用于 Target 校验。 |
+
+其余移除的上限属于框架内部。可用的控制方式取决于执行范围。
+
+- **Policy 和搜索规模。** `foreach` 与 `range` 移除了 10,000 项上限。`foreach` 的 `steps[].concurrency` 接受正安全整数，默认仍为 `1`，内置 Policy 仍可限制自己的配置范围。`loop.maxIterations` 的最大值仍为 100,000。Grid 原有的 1,000,000 点空间上限没有对应配置项。可通过 `bindings.proposer.config.searchSpace` 控制空间，通过 `policy.config.maxCandidates` 控制评测次数。远程校准范围通过 `application.config.remote.calibration.start`、`min` 和 `step` 调整，原有的 1,000 步跨度检查没有独立开关。
+- **证据与编辑。** 插件代码可用 `RuntimeContext.readEvidence` 的 `maxBytes` 选项为完整文件证据读取恢复原有的 32 MiB 上限。Memory 对比原有的 32 MiB、16 个探测组及每组 100 项上限，共享编辑器原有的 2 MiB 可编辑快照、32 条编辑及单条 128 KiB 上限，以及 Reflection 修订原有的 16 个文件、单资源 64 KiB 和单次修订 128 KiB 上限，都没有直接对应的 YAML 配置项。支持的文件编辑仍受上表中的 Target 和单次编辑约束限制。Reflection 仍控制证据预览大小并校验授权资源路径。
+- **传输、采样与清理。** Codex 原有的 8 MiB 提示词及传输上限、Pi/Codex 原有的 128 KiB 结构化输出上限，以及 Optuna 原有的 8 MiB worker 输入输出、每次建议 32 次采样和 1,000 条历史记录上限，都没有直接配置项。上表的 Agent token 数、调用次数和 Optuna 采样次数按各自范围限制执行。Inference 恢复释放使用 Runtime 清理预算，替代原先固定的 10 秒计时。Application 的停止宽限期可通过 `application.config.shutdown.gracePeriodMs` 单独设置。
 
 ### CLI
 

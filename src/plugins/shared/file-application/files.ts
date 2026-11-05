@@ -302,7 +302,7 @@ export async function createFileApplication(
         [...active].map(([instanceId, context]) =>
           releaseInstance(
             instanceId,
-            context.extend({ signal: AbortSignal.timeout(10000) }),
+            context.extend({ signal: context.cleanup }),
           ),
         ),
       );

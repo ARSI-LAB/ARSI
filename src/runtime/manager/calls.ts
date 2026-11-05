@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import { memoryContract, reflectionContract } from '../../contracts/index.js';
 import type {
   Binding,
   RuntimeContext,
@@ -8,6 +9,7 @@ import type {
   JsonObject,
   JsonValue,
   Operation,
+  OperationDefinition,
 } from '../../contracts/index.js';
 import { object, digest, json } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
@@ -18,7 +20,7 @@ interface CallExecutorOptions {
   id: string;
   registry: Registry;
   facts: FactStore;
-  revisionRefs: JsonObject;
+  revisionRefs: Readonly<JsonObject>;
   context(binding: string, id: string, parent: RuntimeContext): RuntimeContext;
   binding(name: string): Binding | undefined;
   operation(
@@ -34,12 +36,11 @@ interface CallExecutorOptions {
   onFailure(error: unknown, context: RuntimeContext): void;
 }
 export interface CallExecutor {
-  (
+  invoke(
     binding: string,
     input: JsonValue,
     context: RuntimeContext,
     path?: string,
-    parallel?: boolean,
   ): Promise<JsonValue>;
   readonly pending: number;
   close(): void;
@@ -48,58 +49,88 @@ export interface CallExecutor {
 }
 
 export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
-  const { id, context, revisionRefs, charge } = options;
+  const { id, context, charge } = options;
   const active = new Map<string, Promise<JsonValue>>();
-  const pending = new Set<Promise<JsonValue>>();
   const uncertain = new Map<string, () => Promise<void>>();
+  const optionalCalls = new Set<string>();
   let accepting = true;
   const invoke = async (
     bindingId: string,
     input: JsonValue,
     caller: RuntimeContext,
     path?: string,
-    _parallel = false,
   ): Promise<JsonValue> => {
     // Admission and registration run without an await, including for old contexts.
     if (!accepting)
       throw new Error('Experiment no longer accepts business calls');
     if (caller.experimentId !== id)
       throw new Error('Call belongs to another experiment');
-    const callId =
+    const rawInput = input;
+    let definition: OperationDefinition;
+    try {
+      const selected = options.binding(bindingId);
+      if (!selected) throw new Error(`Unknown binding ${bindingId}`);
+      definition = options.registry.get(selected.plugin);
+      json(input);
+      input = structuredClone(input);
+      validate(definition.contract.input_schema, input, `${bindingId} input`);
+    } catch (error) {
+      options.onFailure(error, caller);
+      throw error;
+    }
+    const identity = (value: JsonValue): string =>
       'call-' +
       digest({
         experiment: id,
         bindingId,
         path: path ?? caller.callId,
-        input,
+        input: value,
       }).slice(0, 32);
+    const callId = identity(input);
+    const legacyId = identity(rawInput);
     const existing = active.get(callId);
     if (existing) return existing;
+    const checkedOutput = (value: unknown): JsonValue => {
+      json(value);
+      const output = structuredClone(value);
+      validate(
+        definition.contract.output_schema,
+        output,
+        `${bindingId} output`,
+      );
+      if (
+        bindingId === '_application' &&
+        object(input).action !== object(output).action
+      )
+        throw new Error('Application returned wrong action');
+      return output;
+    };
     const job = (async (): Promise<JsonValue> => {
       let ctx = context(bindingId, callId, caller);
       let prior: JsonObject | undefined;
-      try {
-        prior = await options.facts.read('calls', callId);
-      } catch (error) {
-        if (
-          !(
-            error instanceof Error &&
-            'code' in error &&
-            error.code === 'ENOENT'
+      // Prior direct calls hashed input before defaults. Inspect that receipt too,
+      // so upgrading a running experiment cannot repeat its external effects.
+      for (const ref of new Set([callId, legacyId])) {
+        try {
+          prior = await options.facts.read('calls', ref);
+          break;
+        } catch (error) {
+          if (
+            !(
+              error instanceof Error &&
+              'code' in error &&
+              error.code === 'ENOENT'
+            )
           )
-        )
-          throw error;
+            throw error;
+        }
       }
-      if (prior) {
-        if (prior.status === 'succeeded') return prior.output;
-        throw new Error(
-          `Call ${callId} has unconfirmed/failed effects; inspect its receipt before recovery`,
-        );
-      }
+      if (prior?.status === 'succeeded') return checkedOutput(prior.output);
       ctx.signal.throwIfAborted();
+      // Receipt recovery does not reserve a version; pin it together with its lease.
       const binding = options.binding(bindingId);
       if (!binding) throw new Error(`Unknown binding ${bindingId}`);
-      const revisionRef = revisionRefs[bindingId];
+      const revisionRef = options.revisionRefs[bindingId];
       const info: CallEventInfo = {
         experimentId: id,
         callId,
@@ -109,19 +140,52 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         bindingRef: binding.plugin,
         revisionRef: typeof revisionRef === 'string' ? revisionRef : null,
       };
-      const definition = options.registry.get(binding.plugin);
-      validate(definition.contract.input_schema, input, `${bindingId} input`);
+      const isMemory = definition.contract.id === memoryContract.id;
+      if (
+        isMemory ||
+        definition.contract.id === reflectionContract.id ||
+        optionalCalls.has(caller.callId)
+      )
+        optionalCalls.add(callId);
+      // A handled Memory failure is a completed update boundary, even when its
+      // Policy checkpoint was interrupted. Reuse its old reference on resume.
+      if (
+        isMemory &&
+        prior?.status === 'failed' &&
+        prior.output !== undefined
+      ) {
+        const output = checkedOutput(prior.output);
+        if (object(output).status === 'failed') return output;
+      }
       const lease = await options.operation(bindingId, binding);
       ctx = ctx.extend({ event: lease.event });
       try {
+        if (
+          prior &&
+          (prior.status !== 'failed' ||
+            prior.pluginId !== binding.plugin ||
+            !lease?.operation.canRetry ||
+            (await lease.operation.canRetry(input, prior, ctx)) !== true)
+        ) {
+          throw new Error(
+            `Call ${callId} has unconfirmed/failed effects; inspect its receipt before recovery`,
+          );
+        }
+        ctx.signal.throwIfAborted();
         await charge('operations', 1, ctx);
         await mkdir(ctx.directory, { recursive: true });
+        const recoveredFrom = prior
+          ? `${callId}-${digest(prior).slice(0, 24)}`
+          : null;
+        if (prior && recoveredFrom)
+          await options.facts.write('call-attempts', recoveredFrom, prior);
         const receipt: JsonObject = {
           ...info,
           pluginId: binding.plugin,
           status: 'running',
           input,
           startedAt: new Date().toISOString(),
+          ...(recoveredFrom ? { recoveredFrom } : {}),
         };
         await options.facts.write('calls', callId, receipt);
         let committed = false;
@@ -163,6 +227,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           }
         });
         let output: JsonValue;
+        let memoryFailed = false;
         try {
           const decision = await ctx.event.waterfall(
             'rsi/before-call',
@@ -180,19 +245,15 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
             throw new Error('Invalid rsi/before-call decision');
           if (decision.kind === 'reject')
             throw new Error(`Call admission rejected: ${decision.reason}`);
-          output = await lease.operation.execute(input, ctx);
-          json(output);
-          validate(
-            definition.contract.output_schema,
-            output,
-            `${bindingId} output`,
-          );
+          output = checkedOutput(await lease.operation.execute(input, ctx));
+          memoryFailed = isMemory && object(output).status === 'failed';
           if (
-            bindingId === '_application' &&
-            object(input).action !== object(output).action
+            !(await commit({
+              status: memoryFailed ? 'failed' : 'succeeded',
+              output,
+              ...(memoryFailed ? { error: object(output).reason! } : {}),
+            }))
           )
-            throw new Error('Application returned wrong action');
-          if (!(await commit({ status: 'succeeded', output })))
             throw new Error(`Call ${callId} outcome remains unconfirmed`);
         } catch (error) {
           const explicit =
@@ -239,22 +300,33 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         } finally {
           uncertain.delete(callId);
         }
-        // A result listener failure must not rewrite a committed successful receipt.
+        // Notification errors do not undo a settled optional update.
+        const eventName = memoryFailed
+          ? 'rsi/call-failed'
+          : 'rsi/call-succeeded';
         try {
-          await ctx.event.parallel('rsi/call-succeeded', {
-            ...info,
-            status: 'succeeded',
-            ...(output &&
-            typeof output === 'object' &&
-            !Array.isArray(output) &&
-            typeof output.measurementRef === 'string'
-              ? { measurementRef: output.measurementRef }
-              : {}),
-          });
+          if (memoryFailed)
+            await ctx.event.parallel('rsi/call-failed', {
+              ...info,
+              status: 'failed',
+            });
+          else
+            await ctx.event.parallel('rsi/call-succeeded', {
+              ...info,
+              status: 'succeeded',
+              ...(output &&
+              typeof output === 'object' &&
+              !Array.isArray(output) &&
+              typeof output.measurementRef === 'string'
+                ? { measurementRef: output.measurementRef }
+                : {}),
+            });
         } catch (error) {
-          throw new Error('Event handling failed: rsi/call-succeeded', {
-            cause: error,
-          });
+          if (optionalCalls.has(callId)) options.diagnose(eventName, error);
+          else
+            throw new Error(`Event handling failed: ${eventName}`, {
+              cause: error,
+            });
         }
         return output;
       } finally {
@@ -262,28 +334,30 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       }
     })();
     const supervised = job.catch((error) => {
-      options.onFailure(error, caller);
+      if (!optionalCalls.has(callId)) options.onFailure(error, caller);
       throw error;
     });
     active.set(callId, supervised);
-    pending.add(supervised);
-    void supervised.finally(() => pending.delete(supervised)).catch(() => {});
+    void supervised
+      .finally(() => {
+        active.delete(callId);
+      })
+      .catch(() => {});
     return supervised;
   };
-  const executor = Object.assign(invoke, {
+  return {
+    invoke,
     get pending() {
-      return pending.size;
+      return active.size;
     },
     close() {
       accepting = false;
     },
     async idle() {
-      while (pending.size) await Promise.allSettled([...pending]);
+      while (active.size) await Promise.allSettled([...active.values()]);
     },
     async unconfirmed() {
       await Promise.allSettled([...uncertain.values()].map((mark) => mark()));
     },
-  });
-  Object.defineProperty(executor, 'pending', { get: () => pending.size });
-  return executor;
+  };
 }

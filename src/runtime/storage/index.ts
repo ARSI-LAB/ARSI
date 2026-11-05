@@ -38,11 +38,14 @@ export function inside(root: string, path: string): string {
 export async function atomic(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
+  let published = false;
   try {
     await writeFile(temp, canonical(value), { mode: 0o600, flag: 'wx' });
     await rename(temp, path);
+    published = true;
   } finally {
-    await rm(temp, { force: true });
+    // Rename consumes the temporary path; a confirmed publication needs no cleanup.
+    if (!published) await rm(temp, { force: true });
   }
 }
 
@@ -140,7 +143,8 @@ export class FileFacts implements FactStore {
     return object(JSON.parse(await readFile(this.path(kind, id), 'utf8')));
   }
   async write(kind: string, id: string, value: JsonObject): Promise<void> {
-    await atomic(this.path(kind, id), value);
+    json(value);
+    await atomic(this.path(kind, id), structuredClone(value));
   }
   private async names(kind: string): Promise<string[]> {
     const directory = join(this.directory, safeId(kind));

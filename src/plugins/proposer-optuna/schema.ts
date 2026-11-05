@@ -37,9 +37,9 @@ export type OptunaConfig = {
   searchSpace: ParameterDistribution[];
 };
 export type ResolvedOptunaConfig = OptunaConfig & {
-  python: { executable: string; timeoutMs: number };
+  python: { executable: string; timeoutMs?: number };
   constraintHandling: 'native' | 'selection-only';
-  maxSamplingAttempts: number;
+  maxSamplingAttempts?: number;
 };
 const integer = { type: 'integer', minimum: 1, maximum: 1000000 };
 const name = { type: 'string', minLength: 1 };
@@ -87,7 +87,11 @@ export const configSchema: JsonSchema = shape(
       ],
     },
     constraintHandling: { enum: ['native', 'selection-only'] },
-    maxSamplingAttempts: { ...integer, maximum: 1000 },
+    maxSamplingAttempts: {
+      type: 'integer',
+      minimum: 1,
+      maximum: Number.MAX_SAFE_INTEGER,
+    },
     searchSpace: {
       type: 'array',
       minItems: 1,
@@ -221,9 +225,11 @@ export function parseOptunaConfig(value: unknown): ResolvedOptunaConfig {
     ...raw,
     path,
     sampler,
-    python: { executable: 'python3', timeoutMs: 30000, ...raw.python },
+    python: { executable: 'python3', ...raw.python },
     constraintHandling,
-    maxSamplingAttempts: raw.maxSamplingAttempts ?? 1000,
+    ...(raw.maxSamplingAttempts === undefined
+      ? {}
+      : { maxSamplingAttempts: raw.maxSamplingAttempts }),
   };
 }
 

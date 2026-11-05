@@ -1,4 +1,4 @@
-import { mkdir, writeFile, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import {
   basename,
   dirname,
@@ -10,25 +10,14 @@ import {
 import type {
   JsonObject,
   JsonValue,
-  FileTreeFile as TreeFile,
   JsonSchema,
 } from '../../contracts/index.js';
-import { parseFileTree } from '../../contracts/index.js';
 import { object } from '../../shared/json.js';
-import { inside, safeId } from '../storage/index.js';
+import { safeId } from '../storage/index.js';
 import {
   configPathFields,
   type ConfigPathField,
 } from '../../shared/config-paths.js';
-export { configPathFields as resourceFields } from '../../shared/config-paths.js';
-export type { FileTreeFile as TreeFile } from '../../contracts/index.js';
-export interface Mapping extends JsonObject {
-  kind: string;
-  binding: string;
-  pointer: string;
-  changes: JsonValue[];
-  maxBytes: number;
-}
 /** Match a selected field and the configured Schema paths beneath collections. */
 export function selectedResourceFields(
   schema: JsonSchema,
@@ -115,16 +104,6 @@ export async function validateEditableDestinations(
     ),
   );
 }
-export function count(
-  value: JsonValue | undefined,
-  fallback: number,
-  label: string,
-): number {
-  const n = value ?? fallback;
-  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0)
-    throw new Error(`${label} must be a nonnegative integer`);
-  return n;
-}
 export function segments(pointer: string): string[] {
   if (!pointer.startsWith('/')) throw new Error('Expected JSON Pointer');
   const parts = pointer
@@ -167,23 +146,6 @@ export function assignPointer(
       throw new Error(`Configuration pointer missing ${pointer}`);
     result[Number(last)] = entry;
   } else object(result)[last] = entry;
-}
-export function parseFiles(value: JsonValue): Map<string, TreeFile> {
-  return new Map(parseFileTree(value).files.map((file) => [file.path, file]));
-}
-export async function putFile(
-  root: string,
-  path: string,
-  content: string,
-): Promise<void> {
-  const destination = inside(root, path);
-  await mkdir(dirname(destination), { recursive: true });
-  await writeFile(destination, content, { mode: 0o644 });
-}
-export function text(file: TreeFile): string {
-  return new TextDecoder('utf-8', { fatal: true }).decode(
-    Buffer.from(file.base64, 'base64'),
-  );
 }
 export function resourcePath(binding: string, pointer: string): string {
   return `bindings/${safeId(binding)}/resources/${segments(pointer).join('/')}`;

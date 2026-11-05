@@ -31,7 +31,7 @@ test('the operator Policy loads and round-trip through the unified model', async
       assert.equal(declaration.finish, undefined);
       assert.ok(policy.steps.length > 0);
       assert.equal(
-        Policy.fromJSON(declaration, { contracts: registry }).digest,
+        new Policy(declaration, { contracts: registry }).digest,
         policy.digest,
       );
       if (name === 'operator-search') {

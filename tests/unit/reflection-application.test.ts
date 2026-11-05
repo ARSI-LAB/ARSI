@@ -575,6 +575,145 @@ test('unresolved and cleanup owners block apply while list/show remain available
   });
   await assert.rejects(f.app.apply('revision-initial'), /uncertain/);
 });
+for (const businessStatus of ['succeeded', 'failed', 'cancelled', undefined]) {
+  for (const cleanupStatus of ['failed', 'unconfirmed']) {
+    test(`${businessStatus ?? 'unpublished'} experiment with ${cleanupStatus} cleanup blocks source application until reconciliation`, async (t) => {
+      const f = await fixture();
+      const registry = new Registry();
+      const manager = new Manager({
+        registry,
+        directory: f.directory,
+        rootDirectory: f.project,
+      });
+      t.after(async () => {
+        await manager.dispose();
+        await registry.dispose();
+        await rm(f.root, { recursive: true, force: true });
+      });
+      await writeFile(join(f.guidance, 'original.md'), 'local source');
+      if (businessStatus)
+        await f.facts.write('experiments', 'cleanup-owner', {
+          id: 'cleanup-owner',
+          status: businessStatus,
+        });
+      // Legacy aggregate cleanup records have no key embedded in their values.
+      await f.facts.write('cleanup', 'cleanup-owner', {
+        experimentId: 'cleanup-owner',
+        status: cleanupStatus,
+      });
+      assert.equal((await f.app.list()).length, 1);
+      assert.equal(
+        (await f.app.show('revision-initial')).applicationAllowed,
+        false,
+      );
+      await assert.rejects(f.app.apply('revision-initial'), /cleanup-owner/);
+      assert.equal(
+        await readFile(join(f.guidance, 'original.md'), 'utf8'),
+        'local source',
+      );
+      assert.deepEqual(await readdir(f.guidance), ['original.md']);
+      await manager.reconcileCleanup('cleanup-owner');
+      assert.equal(
+        (await f.app.show('revision-initial')).applicationAllowed,
+        true,
+      );
+      await f.app.apply('revision-initial');
+      assert.equal(
+        await readFile(join(f.guidance, 'original.md'), 'utf8'),
+        'original',
+      );
+      if (businessStatus)
+        assert.equal(
+          (await f.facts.read('experiments', 'cleanup-owner')).status,
+          businessStatus,
+        );
+      else
+        await assert.rejects(
+          f.facts.read('experiments', 'cleanup-owner'),
+          /ENOENT/,
+        );
+    });
+  }
+}
+const malformedCleanupRecords: JsonObject[] = [
+  {},
+  { experimentId: 'different-owner', status: 'succeeded' },
+  { experimentId: 'cleanup-owner', status: 'unsupported' },
+];
+for (const cleanup of malformedCleanupRecords) {
+  test(`malformed aggregate cleanup ${JSON.stringify(cleanup)} blocks application without disabling inspection`, async (t) => {
+    const f = await fixture();
+    t.after(() => rm(f.root, { recursive: true, force: true }));
+    await writeFile(join(f.guidance, 'original.md'), 'local source');
+    await f.facts.write('experiments', 'cleanup-owner', {
+      id: 'cleanup-owner',
+      status: 'succeeded',
+    });
+    await f.facts.write('cleanup', 'cleanup-owner', cleanup);
+    assert.equal((await f.app.list()).length, 1);
+    assert.equal(
+      (await f.app.show('revision-initial')).applicationAllowed,
+      false,
+    );
+    await assert.rejects(f.app.apply('revision-initial'), /cleanup-owner/);
+    assert.equal(
+      await readFile(join(f.guidance, 'original.md'), 'utf8'),
+      'local source',
+    );
+  });
+}
+test('cleanup with no identifiable owner blocks application while inspection remains available', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.root, { recursive: true, force: true }));
+  await writeFile(join(f.guidance, 'original.md'), 'local source');
+  await f.facts.write('cleanup', 'unpublished-owner', {
+    status: 'unconfirmed',
+  });
+  assert.equal((await f.app.list()).length, 1);
+  assert.equal(
+    (await f.app.show('revision-initial')).applicationAllowed,
+    false,
+  );
+  await assert.rejects(f.app.apply('revision-initial'), /unknown.*cleanup/i);
+  assert.equal(
+    await readFile(join(f.guidance, 'original.md'), 'utf8'),
+    'local source',
+  );
+});
+for (const aggregateStatus of ['succeeded', 'reconciled', undefined]) {
+  test(`historical instance cleanup failures do not block ${aggregateStatus ?? 'absent'} experiment cleanup`, async (t) => {
+    const f = await fixture();
+    t.after(() => rm(f.root, { recursive: true, force: true }));
+    await f.facts.write('experiments', 'old-owner', {
+      id: 'old-owner',
+      status: 'succeeded',
+    });
+    if (aggregateStatus)
+      await f.facts.write('cleanup', 'old-owner', {
+        experimentId: 'old-owner',
+        status: aggregateStatus,
+      });
+    await f.facts.write('cleanup', 'old-instance', {
+      experimentId: 'old-owner',
+      status: 'failed',
+      error: 'historical instance diagnostic',
+    });
+    await f.facts.write('cleanup', 'unrelated-instance', {
+      experimentId: 'unrelated-owner',
+      status: 'unconfirmed',
+      error: 'historical diagnostic without a published experiment',
+    });
+    assert.equal(
+      (await f.app.show('revision-initial')).applicationAllowed,
+      true,
+    );
+    await f.app.apply('revision-initial');
+    assert.equal(
+      await readFile(join(f.guidance, 'original.md'), 'utf8'),
+      'original',
+    );
+  });
+}
 test('separate process startup cannot load a Recipe while source application holds the data-root gate', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));

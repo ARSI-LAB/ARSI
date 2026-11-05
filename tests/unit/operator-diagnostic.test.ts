@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, copyFile, readFile, rm, writeFile } from 'node:fs/promises';
@@ -7,6 +8,8 @@ import { createRuntime } from '../../src/runtime/context.js';
 import { object } from '../../src/shared/json.js';
 import { prepareOperatorFixture } from '../fixtures/operator-sdk/setup.js';
 
+useOperatorSdkTestEnvironment();
+
 async function prepare(
   unavailable = false,
   collection = 'PipeTimeline,Default',
@@ -14,7 +17,7 @@ async function prepare(
   const fixture = await prepareOperatorFixture();
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
   recipe.policy = {
-    ref: 'policy.operator-diagnostic',
+    id: 'policy.operator-diagnostic',
     config: { caseIds: ['fixed'] },
   };
   const bindings = object(recipe.bindings);

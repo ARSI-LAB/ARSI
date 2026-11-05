@@ -42,13 +42,16 @@ test('static search compiles with the operator three-action contract and the dec
       resolve('src/policies/operator-search/policy.yaml'),
       registry,
     );
-    assert.deepEqual(Object.keys(policy.require).sort(), [
+    assert.deepEqual(Object.keys(policy.requirements).sort(), [
       'agent',
       'evaluator',
       'proposer',
       'selector',
     ]);
-    assert.equal(policy.require.proposer!.id, 'contract.proposer-operator');
+    assert.equal(
+      policy.requirements.proposer!.id,
+      'contract.proposer-operator',
+    );
   } finally {
     await registry.dispose();
   }

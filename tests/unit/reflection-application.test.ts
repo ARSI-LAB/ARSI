@@ -35,7 +35,6 @@ import {
   pathContains,
 } from '../../src/runtime/revisions/resources.js';
 import { object, string } from '../../src/shared/json.js';
-
 const file = (path: string, value: string, mode = 0o644): FileTreeFile => ({
   path,
   mode,
@@ -96,7 +95,6 @@ async function fixture() {
     save,
   };
 }
-
 test('configured collection resources match paths and editable roots reject all overlaps', () => {
   const schema = {
     type: 'object',
@@ -137,7 +135,6 @@ test('configured collection resources match paths and editable roots reject all 
     /A\/guidance.*B\/prompt/,
   );
 });
-
 test('saved versions directly overwrite owned snapshots and the initial revision restores originals', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -174,7 +171,6 @@ test('saved versions directly overwrite owned snapshots and the initial revision
   await f.app.apply('revision-empty');
   await assert.rejects(readFile(join(f.guidance, 'original.md')), /ENOENT/);
 });
-
 test('snapshot name collisions follow the destination filesystem before any resource changes', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -220,7 +216,6 @@ test('snapshot name collisions follow the destination filesystem before any reso
     }
   }
 });
-
 test('filesystem name probes clean up on I/O failure without applying resource changes', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -256,7 +251,6 @@ test('filesystem name probes clean up on I/O failure without applying resource c
   assert.equal((await f.app.apply('revision-probe')).status, 'applied');
   assert.deepEqual((await readdir(f.guidance)).sort(), ['a.md', 'b.md']);
 });
-
 test('inspection retains protected and legacy snapshots without authorizing application', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -293,7 +287,6 @@ test('inspection retains protected and legacy snapshots without authorizing appl
   assert.match(String(legacy.restrictions), /Legacy revision/);
   assert.equal((legacy.snapshot as JsonObject[]).length, 1);
 });
-
 test('all destination and snapshot validation precedes the first write', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -347,7 +340,6 @@ test('all destination and snapshot validation precedes the first write', async (
     'preserve',
   );
 });
-
 test(
   'Windows device namespace aliases cannot bypass destination ownership checks',
   { skip: process.platform !== 'win32' },
@@ -378,7 +370,6 @@ test(
     );
   },
 );
-
 test(
   'existing Windows short-name aliases cannot bypass runtime-root protection or editable overlap checks',
   { skip: process.platform !== 'win32' },
@@ -426,7 +417,6 @@ test(
     );
   },
 );
-
 test('links in destination descendants and ancestors are rejected', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -449,7 +439,6 @@ test('links in destination descendants and ancestors are rejected', async (t) =>
   );
   await assert.rejects(f.app.apply('revision-initial'), /Linked destination/);
 });
-
 test('initial file revisions preserve bytes and supported modes', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -472,7 +461,6 @@ test('initial file revisions preserve bytes and supported modes', async (t) => {
     assert.equal((await lstat(target)).mode & 0o777, 0o600);
   assert.equal((await f.app.apply('revision-initial')).status, 'unchanged');
 });
-
 test('restoring an absent empty directory reports its creation before becoming a no-op', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -486,7 +474,6 @@ test('restoring an absent empty directory reports its creation before becoming a
   assert.equal((await lstat(f.guidance)).isDirectory(), true);
   assert.equal((await f.app.apply('revision-initial')).status, 'unchanged');
 });
-
 test('new required ancestors appear in inspection and partial I/O failure reports', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -526,7 +513,6 @@ test('new required ancestors appear in inspection and partial I/O failure report
   assert.equal(await readFile(target, 'utf8'), 'saved prompt');
   assert.equal((await f.app.apply('revision-initial')).status, 'unchanged');
 });
-
 test('directory application handles file/directory transitions and reports repeatable partial I/O failure', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -568,7 +554,6 @@ test('directory application handles file/directory transitions and reports repea
   assert.equal(await readFile(join(f.guidance, 'b.md'), 'utf8'), 'b');
   assert.equal((await f.app.apply('revision-partial')).status, 'unchanged');
 });
-
 test('unresolved and cleanup owners block apply while list/show remain available', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -590,7 +575,6 @@ test('unresolved and cleanup owners block apply while list/show remain available
   });
   await assert.rejects(f.app.apply('revision-initial'), /uncertain/);
 });
-
 test('separate process startup cannot load a Recipe while source application holds the data-root gate', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
@@ -623,7 +607,6 @@ test('separate process startup cannot load a Recipe while source application hol
   assert.equal(messages.length, 2);
   assert.match(JSON.stringify(messages[1]), /missing-recipe/);
 });
-
 test(
   'show holds the source gate until probe cleanup finishes before another process starts an experiment',
   { timeout: 20000 },
@@ -712,7 +695,6 @@ await manager.dispose(); await registry.dispose();`,
     }
   },
 );
-
 test('separate process active and cleaning-up experiments block apply from any origin', async (t) => {
   const f = await fixture();
   const source = (path: string): string =>
@@ -727,8 +709,8 @@ test('separate process active and cleaning-up experiments block apply from any o
       input_schema: { type: 'object' },
       output_schema: { type: 'object' },
       require: { worker: { contract: 'contract.controlled-worker' } },
-      init: { steps: [{ id: 'work', use: 'worker', with: {} }] },
       output: {},
+      steps: [{ id: 'work', type: 'invoke', use: 'worker', with: {} }],
     }),
   );
   await writeFile(
@@ -736,9 +718,9 @@ test('separate process active and cleaning-up experiments block apply from any o
     JSON.stringify({
       schemaVersion: 'rsi.recipe/v1',
       id: 'controlled',
-      application: { ref: 'controlled.application', config: {} },
-      policy: { ref: 'controlled', input: {}, config: {} },
-      bindings: { worker: { ref: 'controlled.worker', config: {} } },
+      application: { plugin: 'controlled.application', config: {} },
+      policy: { id: 'controlled', input: {}, config: {} },
+      bindings: { worker: { plugin: 'controlled.worker', config: {} } },
       budget: { operations: 10, elapsedWallMs: 30000, cleanupReserveMs: 10000 },
     }),
   );
@@ -806,7 +788,6 @@ await manager.run(${JSON.stringify(recipe)},{id:'active-owner'}); await manager.
     'original',
   );
 });
-
 test('concurrent applications in separate processes serialize through the same source gate', async (t) => {
   const f = await fixture();
   await f.save('revision-next', [file(f.prefix + '/original.md', 'next')]);
@@ -870,7 +851,6 @@ process.send('ready'); await application.apply('revision-next');process.send('ap
   assert.deepEqual(messages, ['ready', 'applied']);
   assert.equal(await readFile(join(f.guidance, 'original.md'), 'utf8'), 'next');
 });
-
 test('a fresh experiment loads and delivers resources explicitly applied from an earlier experiment', async (t) => {
   const f = await fixture();
   const registry = new Registry(),
@@ -942,8 +922,8 @@ test('a fresh experiment loads and delivers resources explicitly applied from an
       input_schema: { type: 'object' },
       output_schema: { type: 'object' },
       require: { reader: { contract: contract.id } },
-      init: { steps: [{ id: 'read', use: 'reader', with: {} }] },
-      output: '${{ init.read.output }}',
+      output: '${{ steps.read.output }}',
+      steps: [{ id: 'read', type: 'invoke', use: 'reader', with: {} }],
     }),
   );
   await writeFile(
@@ -951,10 +931,10 @@ test('a fresh experiment loads and delivers resources explicitly applied from an
     JSON.stringify({
       schemaVersion: 'rsi.recipe/v1',
       id: 'fresh',
-      application: { ref: 'fresh.application', config: {} },
-      policy: { ref: 'fresh', input: {}, config: {} },
+      application: { plugin: 'fresh.application', config: {} },
+      policy: { id: 'fresh', input: {}, config: {} },
       bindings: {
-        reader: { ref: 'fresh.reader', config: { guidance: './guidance' } },
+        reader: { plugin: 'fresh.reader', config: { guidance: './guidance' } },
       },
       budget: { operations: 10, elapsedWallMs: 10000 },
     }),

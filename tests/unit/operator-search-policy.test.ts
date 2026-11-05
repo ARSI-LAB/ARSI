@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import assert from 'node:assert/strict';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -17,6 +18,8 @@ import {
   operatorFixtureSource,
 } from '../fixtures/operator-proposer/setup.js';
 
+useOperatorSdkTestEnvironment();
+
 async function setup(
   t: TestContext,
   options: {
@@ -31,7 +34,7 @@ async function setup(
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
   recipe.policy = {
-    ref: 'policy.operator-search',
+    id: 'policy.operator-search',
     config: {
       goal: 'Test-only functional search',
       caseIds: ['fixed'],
@@ -40,9 +43,9 @@ async function setup(
     },
   };
   const bindings = object(recipe.bindings);
-  bindings.agent = { ref: 'agent.operator-policy-fixture', config: {} };
+  bindings.agent = { plugin: 'agent.operator-policy-fixture', config: {} };
   bindings.proposer = {
-    ref: 'proposer.operator',
+    plugin: 'proposer.operator',
     config: {
       agentRef: 'agent',
       task: { directory: join(fixture.root, 'example/task') },

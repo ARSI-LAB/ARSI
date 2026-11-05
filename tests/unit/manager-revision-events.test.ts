@@ -226,33 +226,49 @@ test('Manager activates committed revisions before notifying, retains the old ch
         unused: { contract: worker.contract.id },
       },
       defaults: { reflection: { configFile: './reflection.yaml' } },
-      init: {
-        steps: [
-          { id: 'observe', use: 'observer', with: {} },
-          {
-            id: 'warmup1',
-            use: 'worker',
-            with: { candidateRef: '${{ application.initialCandidate }}' },
-          },
-          {
-            id: 'warmup2',
-            use: 'worker',
-            with: { candidateRef: '${{ application.initialCandidate }}' },
-          },
-        ],
+      state_schema: {
+        type: 'object',
+        properties: { last: { type: ['object', 'null'] } },
+        required: ['last'],
+        additionalProperties: false,
       },
-      loop: {
-        maxIterations: 2,
-        steps: [
-          {
-            id: 'work',
-            use: 'worker',
-            with: { candidateRef: '${{ application.initialCandidate }}' },
-          },
-          { id: 'improve', use: 'reflection' },
-        ],
-      },
-      output: '${{ loop.work.output }}',
+      state: { last: null },
+      steps: [
+        { id: 'observe', type: 'invoke', use: 'observer', with: {} },
+        {
+          id: 'warmup1',
+          type: 'invoke',
+          use: 'worker',
+          with: { candidateRef: '${{ application.initialCandidate }}' },
+        },
+        {
+          id: 'warmup2',
+          type: 'invoke',
+          use: 'worker',
+          with: { candidateRef: '${{ application.initialCandidate }}' },
+        },
+        {
+          id: 'search',
+          type: 'loop',
+          maxIterations: 2,
+          steps: [
+            {
+              id: 'work',
+              type: 'invoke',
+              use: 'worker',
+              with: { candidateRef: '${{ application.initialCandidate }}' },
+            },
+            {
+              id: 'retain',
+              type: 'state',
+              state: { last: '${{ steps.work.output }}' },
+            },
+            { id: 'improve', type: 'reflection' },
+          ],
+          output: '${{ state.last }}',
+        },
+      ],
+      output: '${{ steps.search.output }}',
     }),
   );
   registry.registerPolicy('policy.revision-events', join(root, 'policy.yaml'));
@@ -262,12 +278,15 @@ test('Manager activates committed revisions before notifying, retains the old ch
     JSON.stringify({
       schemaVersion: 'rsi.recipe/v1',
       id: 'revision-events',
-      application: { ref: 'revision.application', config: {} },
-      policy: { ref: 'policy.revision-events', config: {}, input: {} },
+      application: { plugin: 'revision.application', config: {} },
+      policy: { id: 'policy.revision-events', config: {}, input: {} },
       bindings: {
-        observer: { ref: observer.id, config: {} },
-        worker: { ref: worker.id, config: { prompt: './prompt.txt' } },
-        unused: { ref: worker.id, config: { prompt: './unused-prompt.txt' } },
+        observer: { plugin: observer.id, config: {} },
+        worker: { plugin: worker.id, config: { prompt: './prompt.txt' } },
+        unused: {
+          plugin: worker.id,
+          config: { prompt: './unused-prompt.txt' },
+        },
       },
       budget: { operations: 20, elapsedWallMs: 10000, cleanupReserveMs: 1000 },
     }),
@@ -290,10 +309,10 @@ test('Manager activates committed revisions before notifying, retains the old ch
   assert.ok(trace.includes('chain:new:revised'));
   const receipts = await manager.facts.list('calls');
   const originalCall = receipts.find(
-    (receipt) => receipt.path === 'loop/0/work',
+    (receipt) => receipt.path === 'steps/search/iteration-0/work',
   )!;
   const revisedCall = receipts.find(
-    (receipt) => receipt.path === 'loop/1/work',
+    (receipt) => receipt.path === 'steps/search/iteration-1/work',
   )!;
   assert.equal(object(originalCall.output).prompt, 'original');
   assert.equal(object(revisedCall.output).prompt, 'revised');

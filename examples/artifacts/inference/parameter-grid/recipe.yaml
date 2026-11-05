@@ -4,7 +4,7 @@ schemaVersion: rsi.recipe/v1
 id: parameter-grid-remote
 application:
   # Owns candidate files and remote inference service startup/readiness/cleanup.
-  ref: application.inference
+  plugin: application.inference
   config:
     # Editable scope and initial engine parameters. Keep paths aligned if renamed.
     target: { schema: ../shared/target.yaml }
@@ -53,13 +53,13 @@ application:
       apiKeyEnv: VLLM_API_KEY
 policy:
   # Enumerate grid candidates, evaluate them, and retain the best feasible result.
-  ref: policy.parameter-grid
+  id: policy.parameter-grid
   config:
     # Cap evaluated grid points; current grid has 2 x 2 = 4 points.
     maxCandidates: 4
 bindings:
   proposer:
-    ref: proposer.grid
+    plugin: proposer.grid
     config:
       path: tuning.json
       # Explicit parameter candidates; JSON types are preserved.
@@ -70,7 +70,7 @@ bindings:
         - name: max_num_batched_tokens
           values: [1024, 2048]
   evaluator:
-    ref: evaluator.inferencebench
+    plugin: evaluator.inferencebench
     config:
       services:
         # Filled from Application: remote API URL, served model and credential ref.
@@ -108,7 +108,7 @@ bindings:
         # SDK can continue other points after errors; invalid points are not valid scores.
         onError: continue
   selector:
-    ref: selector.metric
+    plugin: selector.metric
     config:
       # Update if variant/scenario/concurrency changes. Selects one workload point.
       itemId: agentx-256k-replay-c4

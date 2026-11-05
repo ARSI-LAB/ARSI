@@ -15,7 +15,7 @@ import { Registry } from '../../src/runtime/registry/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { measurementFixture } from '../helpers/manager-fixture.js';
 
-test('Reflection preserves local child scopes, root overrides and interrupted step recovery', async (t) => {
+test('Reflection preserves root overrides and resumes from locked definitions without repeating completed steps', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-reflection-scopes-'));
   const registry = new Registry();
   const manager = new Manager({ registry, rootDirectory: root });
@@ -35,7 +35,7 @@ test('Reflection preserves local child scopes, root overrides and interrupted st
       services.event.on('rsi/policy-step-completed', (event) => {
         if (
           event.policyScopeId === 'root' &&
-          event.stepPath === 'init/improve' &&
+          event.stepPath === 'steps/improve' &&
           interruption
         ) {
           const controller = interruption;
@@ -116,15 +116,9 @@ test('Reflection preserves local child scopes, root overrides and interrupted st
       };
     },
   });
-  const childContract = registry.registerContract(
-    defineContract({
-      id: 'contract.scoped-child',
-      input_schema: { type: 'object' },
-      output_schema: { type: 'object' },
-    }),
-  );
   const workSteps = [0, 1, 2].map((index) => ({
     id: `work${index}`,
+    type: 'invoke',
     use: 'worker',
   }));
   const config = (goal: string): JsonObject => ({
@@ -139,78 +133,44 @@ test('Reflection preserves local child scopes, root overrides and interrupted st
     budget: { modelCalls: 0 },
   });
   await writeFile(join(root, 'prompt.md'), 'current guidance');
-  await writeFile(join(root, 'child-goal.md'), 'child goal');
   await writeFile(join(root, 'override-goal.md'), 'root override goal');
   await writeFile(join(root, 'changed-goal.md'), 'changed root goal');
-  await writeFile(
-    join(root, 'child-reflection.yaml'),
-    JSON.stringify(config('./child-goal.md')),
-  );
   await writeFile(
     join(root, 'override.yaml'),
     JSON.stringify(config('./override-goal.md')),
   );
-  await writeFile(
-    join(root, 'child.yaml'),
-    JSON.stringify({
-      schemaVersion: 'rsi.policy/v1',
-      id: 'scoped.child',
-      input_schema: { type: 'object' },
-      output_schema: { type: 'object' },
-      require: { worker: { contract: worker.contract.id } },
-      defaults: {
-        reflection: { configFile: './child-reflection.yaml' },
-        bindings: {
-          worker: { ref: worker.id, config: { prompt: './prompt.md' } },
-        },
-      },
-      init: { steps: [...workSteps, { id: 'improve', use: 'reflection' }] },
-      output: '${{ init.improve.output }}',
-    }),
-  );
-  const parent: JsonObject = {
+  const policy: JsonObject = {
     schemaVersion: 'rsi.policy/v1',
-    id: 'scoped.parent',
+    id: 'scoped.root',
     input_schema: { type: 'object' },
     output_schema: { type: 'object' },
-    require: {
-      child: { contract: childContract.id },
-      worker: { contract: worker.contract.id },
-    },
+    require: { worker: { contract: worker.contract.id } },
     defaults: {
       reflection: { configFile: './missing-default.yaml' },
       bindings: {
-        child: { ref: 'scoped.child', config: {} },
-        worker: { ref: worker.id, config: { prompt: './prompt.md' } },
+        worker: { plugin: worker.id, config: { prompt: './prompt.md' } },
       },
     },
-    init: {
-      steps: [
-        { id: 'child1', use: 'child' },
-        { id: 'child2', use: 'child' },
-        ...workSteps,
-        { id: 'improve', use: 'reflection' },
-        { id: 'improve_again', use: 'reflection' },
-      ],
-    },
-    output: '${{ init.improve_again.output }}',
+    steps: [
+      ...workSteps,
+      { id: 'improve', type: 'reflection' },
+      { id: 'improve_again', type: 'reflection' },
+    ],
+    output: '${{ steps.improve_again.output }}',
   };
-  const parentPath = join(root, 'parent.yaml');
-  await writeFile(parentPath, JSON.stringify(parent));
-  registry.registerPolicy('scoped.child', join(root, 'child.yaml'));
-  registry.registerPolicy('scoped.parent', parentPath);
+  const policyPath = join(root, 'policy.yaml');
+  await writeFile(policyPath, JSON.stringify(policy));
+  registry.registerPolicy('scoped.root', policyPath);
   const recipePath = join(root, 'recipe.yaml');
-  await writeFile(
-    recipePath,
-    JSON.stringify({
-      schemaVersion: 'rsi.recipe/v1',
-      id: 'scoped',
-      application: { ref: 'scoped.application', config: {} },
-      policy: { ref: 'scoped.parent', input: {}, config: {} },
-      reflection: { configFile: './override.yaml' },
-      budget: { operations: 100, elapsedWallMs: 30000, cleanupReserveMs: 1000 },
-    }),
-  );
+  const recipe: JsonObject = {
+    schemaVersion: 'rsi.recipe/v1',
+    id: 'scoped',
+    application: { plugin: 'scoped.application', config: {} },
+    policy: { id: 'scoped.root', input: {}, config: {} },
+    reflection: { configFile: './override.yaml' },
+    budget: { operations: 100, elapsedWallMs: 30000, cleanupReserveMs: 1000 },
+  };
+  await writeFile(recipePath, JSON.stringify(recipe));
   interruption = new AbortController();
   await assert.rejects(
     manager.run(recipePath, { id: 'scoped', signal: interruption.signal }),
@@ -218,28 +178,46 @@ test('Reflection preserves local child scopes, root overrides and interrupted st
   );
   assert.equal(initializations, 1);
   assert.deepEqual(generations, [
-    { binding: 'child._reflection', goal: 'child goal' },
-    { binding: 'child._reflection', goal: 'child goal' },
     { binding: '_reflection', goal: 'root override goal' },
   ]);
   const partial = (await manager.facts.list('reflection')).filter(
     (fact) => fact.experimentId === 'scoped',
   );
-  assert.equal(partial.length, 3);
-  assert.equal(new Set(partial.map((fact) => fact.policyScopeId)).size, 3);
+  assert.equal(partial.length, 1);
+  assert.equal(partial[0]!.policyScopeId, 'root');
   const resumed = await manager.run(recipePath, { id: 'scoped', resume: true });
   assert.equal(resumed.status, 'succeeded');
   assert.equal(object(resumed.output).status, 'skipped');
   assert.equal(initializations, 1);
-  assert.equal(generations.length, 3);
+  assert.equal(generations.length, 1);
   const completed = (await manager.facts.list('reflection')).filter(
     (fact) => fact.experimentId === 'scoped',
   );
-  assert.equal(completed.length, 4);
+  assert.equal(completed.length, 2);
+  const initialRevision = (await manager.facts.list('revisions')).find(
+    (record) => record.experimentId === 'scoped' && record.binding === 'worker',
+  );
+  assert(initialRevision);
+  const preview = await manager.reflection().show(string(initialRevision.ref));
+  assert.equal(
+    preview.applicationAllowed,
+    true,
+    JSON.stringify(preview.restrictions),
+  );
+  assert.equal(
+    object(
+      (
+        initialRevision.sourceResources as import('../../src/contracts/index.js').JsonValue[]
+      )[0],
+    ).path,
+    join(root, 'prompt.md'),
+  );
+
   assert.equal(
     new Set(completed.map((fact) => object(fact.result).reflectionId)).size,
-    4,
+    2,
   );
+
   interruption = new AbortController();
   await assert.rejects(
     manager.run(recipePath, { id: 'changed', signal: interruption.signal }),
@@ -250,89 +228,52 @@ test('Reflection preserves local child scopes, root overrides and interrupted st
     join(root, 'override.yaml'),
     JSON.stringify(config('./changed-goal.md')),
   );
-  await assert.rejects(
-    manager.run(recipePath, { id: 'changed', resume: true }),
-    /Reflection configuration source or contents differ/,
-  );
+  await writeFile(policyPath, 'invalid edited source');
+  const continued = await manager.run(recipePath, {
+    id: 'changed',
+    resume: true,
+  });
+  assert.equal(continued.status, 'succeeded');
   assert.equal(generations.length, beforeChangedResume);
   assert.equal(initializations, 2);
-  parent.init = {
-    steps: [
-      {
-        id: 'parallel_children',
-        foreach: [1, 2],
-        as: 'item',
-        key: '${{ item }}',
-        concurrency: 2,
-        steps: [{ id: 'nested', use: 'child' }],
-      },
-    ],
-  };
-  parent.output = {};
-  await writeFile(parentPath, JSON.stringify(parent));
+  await writeFile(policyPath, JSON.stringify(policy));
+  const fresh = await manager.run(recipePath, { id: 'fresh' });
+  assert.equal(fresh.status, 'succeeded');
+  assert.equal(generations.at(-1)?.goal, 'changed root goal');
+
+  policy.steps = [
+    {
+      id: 'parallel',
+      type: 'foreach',
+      foreach: [1, 2],
+      as: 'item',
+      key: '${{ item }}',
+      concurrency: 2,
+      steps: [{ id: 'improve', type: 'reflection' }],
+    },
+  ];
+  policy.output = {};
+  await writeFile(policyPath, JSON.stringify(policy));
+  const beforeRejected = initializations;
   await assert.rejects(
     manager.run(recipePath, { id: 'parallel' }),
     /parallel.*Reflection|Reflection.*parallel/,
   );
-  assert.equal(initializations, 2);
-  parent.require = { worker: { contract: worker.contract.id } };
-  parent.defaults = {
-    bindings: {
-      worker: { ref: worker.id, config: { prompt: './prompt.md' } },
-    },
+  assert.equal(initializations, beforeRejected);
+
+  // A registered Policy is never a plugin implementation for a requirement.
+  registry.registerPolicy('scoped.child', policyPath);
+  policy.require = { child: { contract: worker.contract.id } };
+  policy.defaults = {
+    bindings: { child: { plugin: 'scoped.child', config: {} } },
   };
-  parent.init = { steps: workSteps };
-  parent.output = {};
-  await writeFile(parentPath, JSON.stringify(parent));
-  await writeFile(
-    recipePath,
-    JSON.stringify({
-      schemaVersion: 'rsi.recipe/v1',
-      id: 'scoped',
-      application: { ref: 'scoped.application', config: {} },
-      policy: { ref: 'scoped.parent', input: {}, config: {} },
-      budget: { operations: 100, elapsedWallMs: 30000 },
-    }),
-  );
-  const unfinished = {
-    recipeId: 'scoped',
-    status: 'cancelled',
-    application: {},
-    startedAt: new Date().toISOString(),
-  };
-  await manager.facts.write('experiments', 'legacy', unfinished);
-  await manager.facts.write('reflection', 'legacy-0-guidance', {
-    experimentId: 'legacy',
-    iteration: 0,
-    ruleId: 'guidance',
-    status: 'activated',
-  });
+  policy.steps = [];
+  await writeFile(policyPath, JSON.stringify(policy));
+  const { reflection: _reflection, ...withoutReflection } = recipe;
+  await writeFile(recipePath, JSON.stringify(withoutReflection));
   await assert.rejects(
-    manager.run(recipePath, { id: 'legacy', resume: true }),
-    /Legacy Reflection boundary records/,
+    manager.run(recipePath, { id: 'child-policy' }),
+    /Unknown plugin scoped.child/,
   );
-  await manager.facts.write('experiments', 'legacy-boundary', unfinished);
-  await manager.facts.write('checkpoints', 'legacy-boundary', {
-    boundaries: { 0: {} },
-  });
-  await assert.rejects(
-    manager.run(recipePath, { id: 'legacy-boundary', resume: true }),
-    /Legacy Reflection boundary checkpoint/,
-  );
-  assert.equal(initializations, 2);
-  await manager.facts.write('experiments', 'without-reflection', unfinished);
-  await manager.facts.write('checkpoints', 'without-reflection', {
-    boundaries: { completed: null },
-  });
-  await manager.facts.write('budgets', 'without-reflection', {});
-  assert.equal(
-    (
-      await manager.run(recipePath, {
-        id: 'without-reflection',
-        resume: true,
-      })
-    ).status,
-    'succeeded',
-  );
-  assert.equal(initializations, 3);
+  assert.equal(initializations, beforeRejected);
 });

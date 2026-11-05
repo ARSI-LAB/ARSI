@@ -12,10 +12,8 @@ import type {
   Candidate,
   JsonObject,
   JsonValue,
-  PluginContract,
 } from '../../contracts/index.js';
 import { RuntimeContext } from '../../contracts/runtime/context.js';
-import { applicationContract } from '../../contracts/plugin-types/index.js';
 import { object, string, strings, digest } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { createCallExecutor } from './calls.js';
@@ -28,27 +26,22 @@ import {
   safeId,
 } from '../storage/index.js';
 import { Registry } from '../registry/index.js';
+import { Recipe } from '../loaders/recipe.js';
+import { compilePolicy, type Policy } from '../compiler/index.js';
 import {
-  loadRecipe,
-  resolveBindings,
-  resolveBindingPaths,
-} from '../loaders/index.js';
-import {
-  readPolicy,
-  assertSerialReflectionDependencies,
-  type CompiledPolicy,
-} from '../compiler/index.js';
-import { executePolicy } from '../policy/index.js';
-import { evaluateTemplate } from '../policy/index.js';
+  lockDefinition,
+  restoreDefinition,
+  parseLockedReflection,
+  readResourceOrigins,
+} from './definition-lock.js';
 import {
   measurementItemsSchema,
   measurementEvidenceSchema,
   metricDefinitionSchema,
   validateMeasurement,
 } from '../../contracts/models/measurement.js';
-import { reflect, validateReflection } from '../revisions/index.js';
+import { reflect } from '../revisions/index.js';
 import type { ReflectionConfig } from '../revisions/validation.js';
-import { reflectionConfigFile } from '../revisions/declaration.js';
 import { acquireResourceGate } from '../revisions/exclusion.js';
 import { RevisionApplication } from '../revisions/application.js';
 import { projectEvidence } from '../services/facts/evidence.js';
@@ -165,15 +158,21 @@ export class Manager {
     } = {},
   ): Promise<JsonObject> {
     const gate = await acquireResourceGate(this.directory);
-    let recipe: Awaited<ReturnType<typeof loadRecipe>>;
+    let recipe!: Recipe;
+    let resourceOrigins: Record<string, Record<string, string>> = {};
     let id: string;
     const controller = new AbortController();
     const stopping = new AbortController();
     let failureCause: unknown;
     let releaseLock: () => Promise<void>;
     try {
-      recipe = await loadRecipe(recipePath);
-      id = safeId(options.id ?? `${recipe.id}-${randomUUID().slice(0, 8)}`);
+      if (options.resume) {
+        if (!options.id) throw new Error('Resume requires an experiment id');
+        id = safeId(options.id);
+      } else {
+        recipe = await Recipe.load(recipePath, this.options.registry);
+        id = safeId(options.id ?? `${recipe.id}-${randomUUID().slice(0, 8)}`);
+      }
       const lock = join(this.directory, 'locks', id);
       await mkdir(dirname(lock), { recursive: true });
       gate.assertOwned();
@@ -192,10 +191,32 @@ export class Manager {
     try {
       if (options.resume) {
         resumedRecord = await this.get(id);
-        const savedRecipeId =
-          resumedRecord.recipeId ?? object(resumedRecord.recipe ?? {}).id;
-        if (savedRecipeId !== recipe.id)
-          throw new Error('Experiment recipeId differs from the saved Recipe');
+        if (resumedRecord.recipePath !== resolve(recipePath))
+          throw new Error(
+            'Experiment recipePath differs from the saved Recipe',
+          );
+        const locked = await this.facts.read('definitions', id);
+        if (locked.schemaVersion !== 'rsi.definition-lock/v1')
+          throw new Error('Unsupported experiment definition lock');
+        await restoreDefinition(
+          locked,
+          this.options.registry,
+          this.artifacts,
+          join(this.directory, 'experiments', id, 'resources'),
+        );
+        resourceOrigins = readResourceOrigins(locked);
+        const lockedPolicy = compilePolicy(locked.policy, {
+          sourcePath: string(locked.policySourcePath),
+          contracts: this.options.registry,
+        });
+        const rawReflection = locked.reflection;
+        recipe = await Recipe.fromJSON(locked.recipe, this.options.registry, {
+          sourcePath: string(locked.recipeSourcePath),
+          policy: lockedPolicy,
+          ...(rawReflection
+            ? { reflection: parseLockedReflection(rawReflection) }
+            : {}),
+        });
       } else {
         try {
           await this.get(id);
@@ -246,13 +267,9 @@ export class Manager {
     const scopeUsage: Record<string, JsonObject> = {};
     let ledger = Promise.resolve();
     let initial: JsonObject = {};
-    let policy: CompiledPolicy;
+    let policy: Policy;
     let bindings: Record<string, Binding> = {};
     let services: RuntimeContext;
-    const policyScopes = new Map<
-      string,
-      { policy: CompiledPolicy; bindings: Record<string, Binding> }
-    >();
     const reflectionModules = new Map<
       string,
       { config: ReflectionConfig; generatorBinding: string }
@@ -396,12 +413,8 @@ export class Manager {
       revisionRefs,
       context,
       binding: (name) =>
-        name === '_application' ? recipe.application : bindings[name],
+        name === '_application' ? recipe.application.toJSON() : bindings[name],
       operation: (bindingId, binding) => instances.acquire(bindingId, binding),
-      initialCandidate: () => initial.initialCandidateRef ?? null,
-      policy: (binding) => policyScopes.get(binding)?.policy,
-      reflect: (binding, ctx, path, state, parallel) =>
-        runReflection(binding, ctx, path, state, parallel),
       charge,
       diagnose,
       onFailure: (error, caller) => {
@@ -518,7 +531,7 @@ export class Manager {
         measurement.evaluator = {
           ...object(measurement.evaluator),
           pluginId:
-            bindings[ctx.bindingId]?.ref ??
+            bindings[ctx.bindingId]?.plugin ??
             object(measurement.evaluator).pluginId,
           implementationDigest: digest({
             adapter: object(measurement.evaluator).implementationDigest,
@@ -828,7 +841,7 @@ export class Manager {
       >();
       try {
         for (const [target, b] of Object.entries(changes)) {
-          const definition = this.options.registry.get(b.ref);
+          const definition = this.options.registry.get(b.plugin);
           validate(definition.configSchema, b.config, 'revision config');
           const current = await instances.currentInstance(target);
           if (current) {
@@ -884,12 +897,7 @@ export class Manager {
         throw new Error(
           `${stepPath}: Reflection module is not declared by this Policy`,
         );
-      const ctx = caller.extend({
-        phase:
-          caller.phase === 'report' || stepPath.startsWith('finish/')
-            ? 'report'
-            : 'experiment',
-      });
+      const ctx = caller;
       return reflect({
         config: module.config,
         invocation: {
@@ -897,6 +905,7 @@ export class Manager {
           stepPath,
         },
         generatorBinding: module.generatorBinding,
+        sourceResources: resourceOrigins,
         state,
         bindings,
         context: ctx,
@@ -917,196 +926,46 @@ export class Manager {
       });
     };
     try {
-      policy = await readPolicy(
-        this.options.registry.policy(recipe.policy.ref),
-        this.options.registry,
-      );
-      if (policy.definition.id !== recipe.policy.ref)
-        throw new Error('Registered Policy ID does not match its definition');
-      const policyConfigSchema =
-        typeof policy.definition.config_schema === 'boolean'
-          ? policy.definition.config_schema
-          : object(
-              policy.definition.config_schema ?? {
-                type: 'object',
-                additionalProperties: false,
-              },
-            );
-      validate(policyConfigSchema, recipe.policy.config, 'policy.config');
-      resolveBindingPaths(
-        recipe.policy,
-        policyConfigSchema,
-        dirname(resolve(recipePath)),
-      );
-      bindings = resolveBindings(
-        object(policy.defaults.bindings ?? {}),
-        recipe.bindings,
-        policy.directory,
-      );
-      policyScopes.set('', { policy, bindings: { ...bindings } });
-      if (recipe.reflection && !policy.defaults.reflection)
-        throw new Error(
-          'recipe.reflection: root Policy does not declare defaults.reflection',
+      if (!options.resume) {
+        const locked = await lockDefinition(
+          recipe,
+          this.options.registry,
+          this.artifacts,
+          join(this.directory, 'experiments', id, 'resources'),
         );
-      const expand = async (
-        key: string,
-        b: Binding,
-        ancestors: string[],
-        required: PluginContract,
-      ): Promise<boolean> => {
-        if (this.options.registry.catalog().policies.includes(b.ref)) {
-          if (ancestors.includes(b.ref) || ancestors.length >= 32)
-            throw new Error('Recursive or too-deep Policy graph');
-          const child = await readPolicy(
-            this.options.registry.policy(b.ref),
-            this.options.registry,
-          );
-          this.options.registry.assertPolicyContract(
-            required,
-            child.definition,
-            key,
-          );
-          validate(
-            object(
-              child.definition.config_schema ?? {
-                type: 'object',
-                additionalProperties: false,
-              },
-            ),
-            b.config,
-            `${key} config`,
-          );
-          resolveBindingPaths(
-            b,
-            typeof child.definition.config_schema === 'boolean'
-              ? child.definition.config_schema
-              : object(child.definition.config_schema ?? {}),
-            dirname(resolve(recipePath)),
-          );
-          const children = resolveBindings(
-            object(child.defaults.bindings ?? {}),
-            b.bindings ?? {},
-            child.directory,
-          );
-          policyScopes.set(key, { policy: child, bindings: children });
-          const reflectedDependencies = new Set<string>();
-          for (const name of Object.keys(child.require))
-            if (!children[name])
-              throw new Error(`Missing child binding ${key}.${name}`);
-          for (const [name, value] of Object.entries(children)) {
-            const requirement = child.require[name];
-            if (!requirement)
-              throw new Error(
-                `Binding ${key}.${name} is not declared by child Policy`,
-              );
-            bindings[key + '.' + name] = value;
-            if (
-              await expand(
-                key + '.' + name,
-                value,
-                [...ancestors, b.ref],
-                requirement,
-              )
-            )
-              reflectedDependencies.add(name);
-          }
-          const indirectReflection = assertSerialReflectionDependencies(
-            child,
-            reflectedDependencies,
-          );
-          return child.usesReflection || indirectReflection;
-        } else {
-          this.options.registry.assertContract(required, b.ref, key);
-          if (b.bindings)
-            throw new Error(`Plugin ${b.ref} cannot have child bindings`);
-          const definition = this.options.registry.get(b.ref);
-          validate(definition.configSchema, b.config, `${key} config`);
-          resolveBindingPaths(
-            b,
-            definition.configSchema,
-            dirname(resolve(recipePath)),
-          );
-          return false;
-        }
-      };
-      const reflectedDependencies = new Set<string>();
-      for (const [key, b] of Object.entries({
-        _application: recipe.application,
-        ...bindings,
-      })) {
-        const required =
-          key === '_application' ? applicationContract : policy.require[key];
-        if (!required)
-          throw new Error(`Binding ${key} is not declared by Policy`);
-        if (await expand(key, b, [], required)) reflectedDependencies.add(key);
+        await this.facts.write('definitions', id, locked);
+        resourceOrigins = readResourceOrigins(locked);
+        recipe = await Recipe.fromJSON(locked.recipe, this.options.registry, {
+          sourcePath: string(locked.recipeSourcePath),
+          policy: recipe.policy,
+          ...(locked.reflection
+            ? { reflection: parseLockedReflection(locked.reflection) }
+            : {}),
+        });
       }
-      assertSerialReflectionDependencies(policy, reflectedDependencies);
-      for (const [prefix, scope] of policyScopes) {
-        const declaration = scope.policy.defaults.reflection;
-        if (declaration === undefined) continue;
-        const selected =
-          prefix === '' && recipe.reflection
-            ? recipe.reflection.configFile
-            : resolve(
-                scope.policy.directory,
-                reflectionConfigFile(
-                  declaration,
-                  `${scope.policy.definition.id}.defaults.reflection`,
-                ),
-              );
-        let config: ReflectionConfig;
-        try {
-          config = await validateReflection(
-            selected,
-            scope.bindings,
-            (pluginId) => this.options.registry.get(pluginId),
-            (contractId) => this.options.registry.contract(contractId),
-          );
-        } catch (error) {
-          throw new Error(
-            `${scope.policy.definition.id}.defaults.reflection: selected ${selected}: ${errorText(error)}`,
-            { cause: error },
-          );
-        }
-        const qualify = (name: string): string =>
-          prefix ? `${prefix}.${name}` : name;
-        config = {
-          ...config,
-          evidence: config.evidence.map(qualify),
-          targets: Object.fromEntries(
-            Object.entries(config.targets).map(([name, target]) => [
-              qualify(name),
-              target,
-            ]),
-          ),
-          implementation: {
-            ...config.implementation,
-            config: { ...config.implementation.config },
-          },
-        };
-        if (config.implementation.ref === 'reflection.agent')
-          config.implementation.config.agentRef = qualify(
-            string(config.implementation.config.agentRef),
-          );
-        const generatorBinding = qualify('_reflection');
+      policy = recipe.policy;
+      bindings = Object.fromEntries(
+        Object.entries(recipe.bindings).map(([name, binding]) => [
+          name,
+          binding.toJSON(),
+        ]),
+      );
+      if (recipe.reflection) {
+        const config = structuredClone(recipe.reflection);
+        const generatorBinding = '_reflection';
         bindings[generatorBinding] = {
-          ref: config.implementation.ref,
+          plugin: config.implementation.ref,
           config: config.implementation.config,
         };
-        reflectionModules.set(prefix, { config, generatorBinding });
+        reflectionModules.set('', { config, generatorBinding });
       }
-      for (const b of Object.values({
-        _application: recipe.application,
-        ...bindings,
-      }))
-        if (
-          !this.options.registry.catalog().policies.includes(b.ref) &&
-          !registrations.has(b.ref)
-        )
-          registrations.set(b.ref, this.options.registry.retain(b.ref));
-      for (const name of Object.keys(policy.require))
-        if (!bindings[name])
-          throw new Error(`Missing required binding ${name}`);
+      for (const b of [
+        recipe.application.toJSON(),
+        ...Object.values(bindings),
+      ]) {
+        if (!registrations.has(b.plugin))
+          registrations.set(b.plugin, this.options.registry.retain(b.plugin));
+      }
       const reflectionConfiguration: JsonObject = Object.fromEntries(
         [...reflectionModules].map(([prefix, module]) => [
           prefix,
@@ -1180,14 +1039,6 @@ export class Manager {
           )
             throw error;
         }
-        if (
-          Object.values(object(restore?.boundaries ?? {})).some(
-            (boundary) => boundary !== null,
-          )
-        )
-          throw new Error(
-            'Legacy Reflection boundary checkpoint cannot resume through the explicit Reflection interface; use the original implementation and configuration',
-          );
         await this.facts.write('controls', id, {
           cancel: false,
           clearedAt: new Date().toISOString(),
@@ -1217,20 +1068,18 @@ export class Manager {
             object(activation.bindings),
           )) {
             const b = object(value);
-            bindings[key] = { ref: string(b.ref), config: object(b.config) };
+            bindings[key] = {
+              plugin: string(b.plugin),
+              config: object(b.config),
+            };
           }
           Object.assign(revisionRefs, object(activation.revisions));
-          if (activation.policyConfig)
-            Object.assign(
-              recipe.policy.config,
-              object(activation.policyConfig),
-            );
         }
       }
       const experimentInfo = {
         experimentId: id,
         recipeId: recipe.id,
-        policyId: string(policy.definition.id),
+        policyId: policy.id,
         resumed: options.resume === true,
       };
       await businessWait(
@@ -1255,7 +1104,7 @@ export class Manager {
         status: 'running',
         application: initial,
         startedAt: experimentStartedAt,
-        recipe: object(JSON.parse(JSON.stringify(recipe))),
+        recipe: recipe.toJSON(),
       });
       try {
         services.event.emit('rsi/experiment-started', experimentInfo);
@@ -1263,14 +1112,10 @@ export class Manager {
         diagnose('rsi/experiment-started', error);
       }
       const root = context('_root', 'root');
-      const input = object(
-        evaluateTemplate(recipe.policy.input, {
-          application: { initialCandidate: initial.initialCandidateRef },
-          config: recipe.policy.config,
-        }),
-      );
       const result = await businessWait(
-        executePolicy(policy, input, recipe.policy.config, {
+        policy.execute({
+          input: recipe.policyInput,
+          config: recipe.policyConfig,
           application: { initialCandidate: initial.initialCandidateRef },
           context: root,
           restore,
@@ -1288,7 +1133,6 @@ export class Manager {
             this.facts.write('checkpoints', id, value),
           reflect: (path, state, parallel) =>
             runReflection('', root, path, state, parallel),
-          boundary: async () => {},
         }),
       );
       await withinCleanup(drain(true));
@@ -1327,6 +1171,9 @@ export class Manager {
       let previous: JsonObject = {
         id,
         recipeId: recipe.id,
+        recipePath: resolve(recipePath),
+        startedAt: experimentStartedAt,
+        recipe: recipe.toJSON(),
         application: initial,
       };
       try {

@@ -12,8 +12,7 @@ import type { JsonObject } from '../../src/contracts/index.js';
 import { gridProposerContract } from '../../src/contracts/plugin-types/proposer-grid.js';
 import { inferencebenchContract } from '../../src/contracts/plugin-types/inferencebench.js';
 import { metricSelectorContract } from '../../src/contracts/plugin-types/selector-metrics.js';
-import { readPolicy } from '../../src/runtime/compiler/index.js';
-import { executePolicy } from '../../src/runtime/policy/index.js';
+import { Policy } from '../../src/runtime/compiler/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { applicationContract } from '../../src/contracts/plugin-types/application.js';
@@ -35,7 +34,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     registry.registerContract(gridProposerContract);
     registry.registerContract(inferencebenchContract);
     registry.registerContract(metricSelectorContract);
-    const policy = await readPolicy(
+    const policy = await Policy.load(
       'src/policies/parameter-grid/policy.yaml',
       registry,
     );
@@ -51,7 +50,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
       checkpoint: async (value: JsonObject) => {
         checkpoint = value;
       },
-      boundary: async () => {},
+
       invoke: async (name: string, raw: unknown): Promise<JsonObject> => {
         const input = object(raw);
         if (name === 'proposer') {
@@ -89,12 +88,11 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
       },
     };
     const output = object(
-      await executePolicy(
-        policy,
-        { candidateRef: 'baseline' },
-        { maxCandidates: 4 },
-        options,
-      ),
+      await policy.execute({
+        input: { candidateRef: 'baseline' },
+        config: { maxCandidates: 4 },
+        ...options,
+      }),
     );
     assert.deepEqual(proposed, [0, 1, 2, 3]);
     assert.deepEqual(evaluated, ['c0', 'c1', 'c2', 'c3']);
@@ -102,27 +100,23 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     assert.equal(output.stopReason, 'search-exhausted');
     assert.deepEqual(output.parameters, { arbitrary: 2 });
     assert.deepEqual(
-      await executePolicy(
-        policy,
-        { candidateRef: 'baseline' },
-        { maxCandidates: 4 },
-        {
-          ...options,
-          restore: checkpoint,
-          invoke: async () => {
-            throw new Error('Completed call repeated');
-          },
+      await policy.execute({
+        input: { candidateRef: 'baseline' },
+        config: { maxCandidates: 4 },
+        ...options,
+        restore: checkpoint,
+        invoke: async () => {
+          throw new Error('Completed call repeated');
         },
-      ),
+      }),
       output,
     );
     const limited = object(
-      await executePolicy(
-        policy,
-        { candidateRef: 'baseline' },
-        { maxCandidates: 1 },
-        options,
-      ),
+      await policy.execute({
+        input: { candidateRef: 'baseline' },
+        config: { maxCandidates: 1 },
+        ...options,
+      }),
     );
     assert.equal(limited.status, 'no-feasible-configuration');
     assert.equal(limited.candidateRef, null);
@@ -130,28 +124,25 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     proposed.length = 0;
     evaluated.length = 0;
     await assert.rejects(
-      executePolicy(
-        policy,
-        { candidateRef: 'baseline' },
-        { maxCandidates: 4 },
-        {
-          ...options,
-          invoke: async (name, raw) => {
-            if (name === 'selector')
-              throw new Error('Interrupted before selection');
-            return options.invoke(name, raw);
-          },
+      policy.execute({
+        input: { candidateRef: 'baseline' },
+        config: { maxCandidates: 4 },
+        ...options,
+        invoke: async (name, raw) => {
+          if (name === 'selector')
+            throw new Error('Interrupted before selection');
+          return options.invoke(name, raw);
         },
-      ),
+      }),
       /Interrupted before selection/,
     );
     const resumed = object(
-      await executePolicy(
-        policy,
-        { candidateRef: 'baseline' },
-        { maxCandidates: 4 },
-        { ...options, restore: checkpoint },
-      ),
+      await policy.execute({
+        input: { candidateRef: 'baseline' },
+        config: { maxCandidates: 4 },
+        ...options,
+        restore: checkpoint,
+      }),
     );
     assert.equal(resumed.candidateRef, 'c2');
     assert.deepEqual(proposed, [0, 1, 2, 3]);
@@ -336,7 +327,7 @@ for (const strategy of ['grid', 'optuna'] as const) {
       schemaVersion: 'rsi.recipe/v1',
       id: 'test-autotune',
       application: {
-        ref: 'test.application',
+        plugin: 'test.application',
         config: {
           baseline: { directory: './baseline' },
           target: {
@@ -356,12 +347,12 @@ for (const strategy of ['grid', 'optuna'] as const) {
         },
       },
       policy: {
-        ref: `policy.parameter-${strategy}`,
+        id: `policy.parameter-${strategy}`,
         config: strategy === 'grid' ? { maxCandidates: 4 } : { maxTrials: 4 },
       },
       bindings: {
         proposer: {
-          ref: `proposer.${strategy}`,
+          plugin: `proposer.${strategy}`,
           config:
             strategy === 'grid'
               ? {
@@ -376,7 +367,7 @@ for (const strategy of ['grid', 'optuna'] as const) {
                   ],
                 },
         },
-        evaluator: { ref: 'test.evaluator', config: {} },
+        evaluator: { plugin: 'test.evaluator', config: {} },
       },
       budget: { operations: 100, evaluationRuns: 10, elapsedWallMs: 30000 },
     };

@@ -183,7 +183,7 @@ export async function main(argv = process.argv.slice(2)) {
       ).recipePath;
     const recipe = await readRecipe(recipePath);
     validateOperatorSearchBudgets(recipe);
-    if (recipe.policy?.ref !== 'policy.operator-search')
+    if (recipe.policy?.id !== 'policy.operator-search')
       throw new Error('Search requires policy.operator-search');
     const binding = record(recipe.bindings, 'bindings'),
       evaluator = record(binding.evaluator?.config, 'evaluator.config');

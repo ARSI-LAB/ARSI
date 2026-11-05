@@ -24,7 +24,7 @@ export async function describeCatalog(
         output_schema: plugin.contract.output_schema,
         config_schema: plugin.configSchema,
         compatiblePolicies: policies.flatMap(({ id, policy }) =>
-          Object.entries(policy.require)
+          Object.entries(policy.requirements)
             .filter(([, contract]) => contract.id === plugin.contract.id)
             .map(([binding]) => ({ policy: id, binding })),
         ),
@@ -32,15 +32,15 @@ export async function describeCatalog(
     }),
     policies: policies.map(({ id, policy }) => ({
       id,
-      description: policy.definition.description ?? null,
-      input_schema: policy.definition.input_schema!,
-      output_schema: policy.definition.output_schema!,
-      config_schema: policy.definition.config_schema ?? {
+      description: policy.description ?? null,
+      input_schema: policy.inputSchema,
+      output_schema: policy.outputSchema,
+      config_schema: policy.configSchema ?? {
         type: 'object',
         additionalProperties: false,
       },
       require: Object.fromEntries(
-        Object.entries(policy.require).map(([binding, contract]) => [
+        Object.entries(policy.requirements).map(([binding, contract]) => [
           binding,
           {
             contract: contract.id,

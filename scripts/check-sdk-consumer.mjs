@@ -35,6 +35,8 @@ assert.equal(verified.manifest.kind,'dsh-agent-bundle');
 const root=await mkdtemp(join(tmpdir(),'rsi-sdk-consumer-'));
 process.env.EVALUATOR_RUN_INDEX_DIR=join(root,'run-index');
 try {
+ process.env.EVALUATOR_NETWORK_CONFIG=join(root,'network.yaml');
+ await writeFile(process.env.EVALUATOR_NETWORK_CONFIG,'{}\\n');
  const plugin=\`
 import {appendFileSync} from 'node:fs';
 import {createBundleSdk} from \${JSON.stringify(import.meta.resolve('agent-bundle-core'))};
@@ -64,9 +66,9 @@ export function apply(ctx){
  await writeFile(configPath,JSON.stringify({
   services:{default:{model:'fixture',base_url:'https://fixture.invalid',api_key:'$'+'{RSI_SDK_TEST_KEY}'}},
   benchmark:{name:'bundle-smoke',config:{digest:verified.digest},solver:{name:'bundle-smoke',config:{path:bundle}}},
-  environment:'local',output:{directory:join(root,'results')}
+  environment:'local',run:{onError:'abort',timeoutSeconds:30},output:{directory:join(root,'results')}
  }));
- const sdk=new Evaluator(),options={configPath,patchPath,env:{RSI_SDK_TEST_KEY:'fixture-only'}};
+ const sdk=new Evaluator(),options={configPath,patchPath,env:{...process.env,RSI_SDK_TEST_KEY:'fixture-only'}};
  const result=await sdk.run(options);
  assert.equal(result.kind,'local');assert.equal(result.exitCode,0);
  assert.equal(result.snapshot.run.status,'completed');

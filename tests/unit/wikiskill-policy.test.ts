@@ -7,22 +7,20 @@ import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { memoryDefinition } from '../../src/plugins/memory-agent/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
-import type { CompiledPolicy } from '../../src/runtime/compiler/index.js';
 import {
   FileArtifacts,
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
-import { readPolicy } from '../../src/runtime/compiler/index.js';
-import { executePolicy } from '../../src/runtime/policy/index.js';
+import { Policy } from '../../src/runtime/compiler/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 
-async function loadWikiPolicy(t: TestContext): Promise<CompiledPolicy> {
+async function loadWikiPolicy(t: TestContext): Promise<Policy> {
   const registry = new Registry();
   t.after(() => registry.dispose());
   await registerBuiltins(registry);
-  return readPolicy('src/policies/wikiskill/policy.yaml', registry);
+  return Policy.load('src/policies/wikiskill/policy.yaml', registry);
 }
 
 test('memory receives authorized summary and current skills, persists Wiki and releases its workspace', async () => {
@@ -216,7 +214,7 @@ test('WikiSkill skips no-change evaluation, retains Wiki across rejection, stops
     checkpoint: async (value: JsonObject) => {
       checkpoint = value;
     },
-    boundary: async () => {},
+
     invoke: async (name: string, raw: unknown): Promise<JsonObject> => {
       const value = object(raw);
       if (name === 'evaluator') {
@@ -266,7 +264,9 @@ test('WikiSkill skips no-change evaluation, retains Wiki across rejection, stops
       };
     },
   };
-  const output = object(await executePolicy(policy, input, config, options));
+  const output = object(
+    await policy.execute({ input: input, config: config, ...options }),
+  );
   assert.equal(proposals, 4);
   assert.deepEqual(parents, ['h0', 'h0', 'c1', 'c1']);
   assert.equal(evaluations.length, 9);
@@ -295,7 +295,9 @@ test('WikiSkill skips no-change evaluation, retains Wiki across rejection, stops
       evaluation.candidateRef,
     );
   }
-  const restored = await executePolicy(policy, input, config, {
+  const restored = await policy.execute({
+    input: input,
+    config: config,
     ...options,
     restore: checkpoint,
     invoke: async () => {
@@ -310,10 +312,9 @@ test('WikiSkill full-score baseline stops only with an explicit threshold', asyn
   for (const threshold of [1, null]) {
     let trains = 0;
     const result = object(
-      await executePolicy(
-        policy,
-        { candidateRef: 'h0' },
-        {
+      await policy.execute({
+        input: { candidateRef: 'h0' },
+        config: {
           maxRounds: 2,
           stopAtScore: threshold,
           dataset: {
@@ -322,48 +323,46 @@ test('WikiSkill full-score baseline stops only with an explicit threshold', asyn
             testTaskIds: [],
           },
         },
-        {
-          application: {},
-          context: new RuntimeContext().extend({
-            signal: new AbortController().signal,
-          }),
-          checkpoint: async () => {},
-          boundary: async () => {},
-          invoke: async (name, raw): Promise<JsonObject> => {
-            const value = object(raw);
-            if (name === 'evaluator') {
-              if ((value.taskIds as string[])[0] === 'train') trains++;
-              return { measurementRef: 'm1' };
-            }
-            if (name === 'selector')
-              return {
-                accepted: false,
-                candidateFeasible: true,
-                selectedCandidateRef: 'h0',
-                measurementRef: 'm1',
-                decisionRef: 'd',
-                reason: 'Tie.',
-                metric: 'meanReward',
-                incumbentValue: 1,
-                candidateValue: 1,
-                selectedValue: 1,
-              };
-            if (name === 'memoryUpdater')
-              return {
-                status: 'no-change',
-                memoryRef: value.memoryRef!,
-                changeRef: null,
-                reason: 'No update.',
-              };
+        application: {},
+        context: new RuntimeContext().extend({
+          signal: new AbortController().signal,
+        }),
+        checkpoint: async () => {},
+
+        invoke: async (name, raw): Promise<JsonObject> => {
+          const value = object(raw);
+          if (name === 'evaluator') {
+            if ((value.taskIds as string[])[0] === 'train') trains++;
+            return { measurementRef: 'm1' };
+          }
+          if (name === 'selector')
+            return {
+              accepted: false,
+              candidateFeasible: true,
+              selectedCandidateRef: 'h0',
+              measurementRef: 'm1',
+              decisionRef: 'd',
+              reason: 'Tie.',
+              metric: 'meanReward',
+              incumbentValue: 1,
+              candidateValue: 1,
+              selectedValue: 1,
+            };
+          if (name === 'memoryUpdater')
             return {
               status: 'no-change',
-              candidateRef: 'h0',
-              diffRef: null,
-              rationale: 'No edit.',
+              memoryRef: value.memoryRef!,
+              changeRef: null,
+              reason: 'No update.',
             };
-          },
+          return {
+            status: 'no-change',
+            candidateRef: 'h0',
+            diffRef: null,
+            rationale: 'No edit.',
+          };
         },
-      ),
+      }),
     );
     assert.equal(trains, threshold === null ? 2 : 0);
     assert.equal(result.candidateRef, 'h0');

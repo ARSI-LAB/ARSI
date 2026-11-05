@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, rm, copyFile, chmod } from 'node:fs/promises';
@@ -20,6 +21,8 @@ import {
   prepareOperatorProposerFixture,
   operatorFixtureSource,
 } from '../fixtures/operator-proposer/setup.js';
+
+useOperatorSdkTestEnvironment();
 
 async function setup(
   scenario: (
@@ -148,18 +151,20 @@ async function setup(
         proposer: { contract: 'contract.proposer-operator' },
         agent: { contract: 'contract.agent' },
       },
-      init: { steps: [{ id: 'run', use: 'driver', with: {} }] },
-      output: '${{ init.run.output }}',
+      state_schema: { type: 'object', additionalProperties: false },
+      state: {},
+      steps: [{ id: 'run', type: 'invoke', use: 'driver', with: {} }],
+      output: '${{ steps.run.output }}',
     }),
   );
   runtime.registry.registerPolicy('test.operator-driver', policyPath);
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
-  recipe.policy = { ref: 'test.operator-driver' };
+  recipe.policy = { id: 'test.operator-driver' };
   const bindings = object(recipe.bindings);
-  bindings.driver = { ref: 'operator.driver', config: {} };
-  bindings.agent = { ref: agent.id, config: {} };
+  bindings.driver = { plugin: 'operator.driver', config: {} };
+  bindings.agent = { plugin: agent.id, config: {} };
   bindings.proposer = {
-    ref: 'proposer.operator',
+    plugin: 'proposer.operator',
     config: {
       agentRef: 'agent',
       task: { directory: join(fixture.root, 'example/task') },

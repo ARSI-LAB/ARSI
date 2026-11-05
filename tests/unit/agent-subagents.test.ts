@@ -116,7 +116,7 @@ async function fixture(
         plugins: [piDefinition, reflectionDefinition],
         bindings: {
           agent: {
-            ref: 'agent.pi',
+            plugin: 'agent.pi',
             config: {
               model: 'fixture',
               base_url: `http://127.0.0.1:${address.port}/v1`,
@@ -125,7 +125,7 @@ async function fixture(
             },
           },
           reflector: {
-            ref: 'reflection.agent',
+            plugin: 'reflection.agent',
             config: {
               agentRef: 'agent',
               prompt: join(

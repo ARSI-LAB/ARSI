@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
@@ -8,6 +9,8 @@ import {
   runNpuSmoke,
 } from '../../src/entries/cli/operator-experiments/preflight.js';
 import { prepareOperatorFixture } from '../fixtures/operator-sdk/setup.js';
+
+useOperatorSdkTestEnvironment();
 
 test('preflight preserves missing interpreter as failure and never silently falls back', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-preflight-'));

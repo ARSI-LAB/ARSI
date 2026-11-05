@@ -82,6 +82,23 @@ The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaul
 
 Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
 
+To use the installed Codex CLI and its existing local login, provider, model and reasoning configuration, replace the Agent binding with:
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.codex
+    config: {}
+```
+
+Run `codex login status` as the same operating-system user that starts RSI; sign in with `codex login` if needed. The installed CLI must support app-server ephemeral threads and dynamic tools (verified with CLI 0.166.0). Codex reads its own local authentication, provider, instructions, permissions, tools, retries and compaction configuration. RSI starts `codex app-server` directly without a model proxy or configuration overrides. Each call runs in a temporary working directory, so it uses the configuration and global guidance effective there; it does not automatically load the RSI checkout’s project `AGENTS.md` or `.codex` settings.
+
+The [Codex configuration schema](../../../src/plugins/agent-codex/schema.ts) accepts `executable` (default `codex`), optional `model`, and optional `timeoutMs`. Omit `model` to use the local default; set it to select a model for this call without changing local configuration. There is no implicit RSI timeout: `timeoutMs`, when explicitly supplied, bounds the complete call. Experiment cancellation and elapsed-wall budgets still propagate to the child process.
+
+RSI supplies the business prompt as task input, a file-name list, an authorized virtual `read_file` tool, and the requested output schema. File contents are read on demand: the reader defaults to 200 lines and a 16 KiB serialized response, with at most 500 lines and 32 KiB per page. `startLine`/`lineCount` select lines; `byteOffset`/`nextByteOffset` paginate within that range, including a single long JSON line. Native Codex capabilities remain governed by the user's Codex configuration. RSI validates the final JSON and does not add a separate correction or retry loop. Interactive input/approval requests cannot be answered by this non-interactive API call and produce an explicit error; RSI does not silently approve them or change the local policy.
+
+Native app-server events expose token usage but no authoritative upstream request-attempt counter. Consequently, this backend does not enforce `maxModelCalls` or the `modelCalls` experiment budget and does not invent a count from turns or tool calls. Diagnostics declare model-call usage unavailable; a missing RSI `modelCalls` counter does not mean Codex made zero requests. Use cancellation, the experiment wall-time budget, or explicit `timeoutMs` when a duration bound is needed. Local configuration changes apply to later calls; RSI records reported model/provider/reasoning and token usage without locking the configuration. This binding configures the optimizer only; evaluator credentials remain separate.
+
 ### Recipe configuration
 
 Start from a complete example and keep its `recipe.yaml`, `target.yaml`, and `baseline/` together. Relative resource paths are resolved against the file that declares them. This is a reduced Harness² Recipe with one task:
@@ -189,7 +206,7 @@ Binding declarations select registered plugins with `plugin`; `policy.id` select
 
 Organize a plugin around `schema.ts` (configuration), `service.ts` (business behavior and cleanup), and `index.ts` (definition assembly). Reuse the public contract's input/output schemas. Repository plugins import local contracts; external packages use `ember-rsi` or `ember-rsi/contracts`, not private `src/*` imports.
 
-A custom Agent must return an object matching the requested `input.outputSchema`, enforce its authorized tools/files, propagate cancellation, charge actual model attempts with `context.charge('modelCalls', 1)`, and release resources. Implementing the Agent contract does not automatically enforce the requested output schema inside an arbitrary backend; the backend must validate it. For the built-in Proposer, the edit protocol is defined in [shared editing code](../../../src/plugins/shared/agent-editing/index.ts).
+A custom Agent must return an object matching the requested `input.outputSchema`, document its execution permissions, propagate cancellation and release resources. Backends that own the model transport charge actual attempts with `context.charge('modelCalls', 1)`. A backend without an authoritative attempt counter, such as native Codex, must declare that usage unavailable and cannot claim to enforce model-call budgets. Implementing the Agent contract does not automatically enforce the requested output schema inside an arbitrary backend; the backend must validate it. For the built-in Proposer, the edit protocol is defined in [shared editing code](../../../src/plugins/shared/agent-editing/index.ts).
 
 ### Register an external extension for the CLI
 

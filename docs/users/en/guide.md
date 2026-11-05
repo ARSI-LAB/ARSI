@@ -82,6 +82,23 @@ The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaul
 
 Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
 
+To use the installed Codex CLI and its existing local login, provider, model and reasoning configuration, replace the Agent binding with:
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.codex
+    config: {}
+```
+
+Run `codex login status` as the same operating-system user that starts RSI; sign in with `codex login` if needed. The installed CLI must support app-server ephemeral threads and dynamic tools (verified with CLI 0.166.0). Codex reads its own local authentication, provider, instructions, permissions, tools, retries and compaction configuration. RSI starts `codex app-server` directly without a model proxy or configuration overrides. Each call runs in a temporary working directory, so it uses the configuration and global guidance effective there; it does not automatically load the RSI checkout’s project `AGENTS.md` or `.codex` settings.
+
+The [Codex configuration schema](../../../src/plugins/agent-codex/schema.ts) accepts `executable` (default `codex`), optional `model`, and optional `timeoutMs`. Omit `model` to use the local default; set it to select a model for this call without changing local configuration. There is no implicit RSI timeout: `timeoutMs`, when explicitly supplied, bounds the complete call. Experiment cancellation and elapsed-wall budgets still propagate to the child process.
+
+RSI supplies the business prompt as task input, a file-name list, an authorized virtual `read_file` tool, and the requested output schema. File contents are read on demand: the reader defaults to 200 lines and a 16 KiB serialized response, with at most 500 lines and 32 KiB per page. `startLine`/`lineCount` select lines; `byteOffset`/`nextByteOffset` paginate within that range, including a single long JSON line. Native Codex capabilities remain governed by the user's Codex configuration. RSI validates the final JSON and does not add a separate correction or retry loop. Interactive input/approval requests cannot be answered by this non-interactive API call and produce an explicit error; RSI does not silently approve them or change the local policy.
+
+Native app-server events expose token usage but no authoritative upstream request-attempt counter. Consequently, this backend does not enforce `maxModelCalls` or the `modelCalls` experiment budget and does not invent a count from turns or tool calls. Diagnostics declare model-call usage unavailable; a missing RSI `modelCalls` counter does not mean Codex made zero requests. Use cancellation, the experiment wall-time budget, or explicit `timeoutMs` when a duration bound is needed. Local configuration changes apply to later calls; RSI records reported model/provider/reasoning and token usage without locking the configuration. This binding configures the optimizer only; evaluator credentials remain separate.
+
 ### Recipe configuration
 
 Start from a complete example and keep its `recipe.yaml`, `target.yaml`, and `baseline/` together. Relative resource paths are resolved against the file that declares them. This is a reduced Harness² Recipe with one task:
@@ -153,19 +170,19 @@ Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy
 
 ### Configure former defaults
 
-Use these paths to retain a former framework default or set your own value. Recipe paths use the binding names in the examples. A custom Policy can also declare plugin configuration under `defaults.bindings.<binding>.config`. Settings inherited from a Policy still apply. Harness² sets 24 calls for each proposal and composition binding, WikiSkill sets 24 for its proposer, and the packaged Harness² Reflection file sets 50 calls and 600 seconds per invocation.
+Use these paths to retain a former framework default or set your own value. Recipe paths use the binding names in the examples. A custom Policy can also declare plugin configuration under `defaults.bindings.<binding>.config`. Settings inherited from a Policy still apply. Harness² sets 24 calls for each proposal and composition binding, WikiSkill sets 24 for its proposer, and the packaged Harness² Reflection file sets 50 calls and 600 seconds per invocation. Model-call limits rely on a backend with authoritative request accounting, such as `agent.pi`. Native `agent.codex` reports the request count as unavailable and supports the duration limits shown below.
 
 | Location | Field | Former framework value | What it limits |
 | --- | --- | --- | --- |
 | Recipe | `budget.elapsedWallMs`, `budget.cleanupReserveMs` | `86400000`, `60000` | Experiment wall time and the separate cleanup deadline, in milliseconds. |
-| Recipe | `budget.modelCalls` | Already explicit | Total model calls charged to the experiment, including subagents and corrections. |
+| Recipe | `budget.modelCalls` | Already explicit | Total model calls charged by accounting-capable backends. Pi includes its subagents and corrections. Native Codex reports this count as unavailable. |
 | Recipe | `bindings.agent.config.maxTokens` (`agent.pi`) | `32768` | Model output tokens per request. The value must fit `contextWindow`. |
-| Recipe | `bindings.agent.config.timeoutMs` | `600000` | Per-request time for `agent.pi`, or execution time for `agent.codex`. |
-| Recipe | `bindings.<binding>.config.maxModelCalls` (`proposer.agent`, `memory.agent`, `selector.artifact`) | `24` after normal Recipe loading | Model calls per Agent invocation. For a Policy step that directly invokes `contract.agent`, set `steps[].with.maxModelCalls` instead. An explicit cap is inherited by Pi subagents as a per-session cap. |
+| Recipe | `bindings.agent.config.timeoutMs` | `600000` for Pi. Native Codex uses an explicit timeout only. | Per-request time for `agent.pi`, or complete-call time for `agent.codex`. |
+| Recipe | `bindings.<binding>.config.maxModelCalls` (`proposer.agent`, `memory.agent`, `selector.artifact`) | `24` after normal Recipe loading | Model calls per Agent invocation when the backend can account for requests, including `agent.pi`. For a Policy step that directly invokes `contract.agent`, set `steps[].with.maxModelCalls` instead. Pi subagents inherit an explicit per-session cap. |
 | Recipe | `bindings.evaluator.config.services.<service>.maxTokens` (`evaluator.agentbench`) | `65536` | Output tokens per model turn for the selected evaluator service. |
 | Recipe | `application.config.remote.timeoutMs`, `application.config.healthcheck.timeoutMs` | `600000` for remote commands and remote readiness, `120000` for local readiness | Remote readiness inherits an explicitly set remote timeout unless overridden by the health check field. |
 | Recipe | `bindings.proposer.config.python.timeoutMs`, `bindings.proposer.config.maxSamplingAttempts` (`proposer.optuna`) | `30000`, `1000` | Time in milliseconds per Python invocation and total sampling attempts, including duplicates. Policy `maxTrials` separately limits evaluations. |
-| Reflection file selected by `reflection.configFile` | `budget.modelCalls`, `budget.timeoutSeconds` | `50` calls. Time was already explicit. | Local limits per Reflection invocation. An explicit `modelCalls: 0` blocks new model calls. |
+| Reflection file selected by `reflection.configFile` | `budget.modelCalls`, `budget.timeoutSeconds` | `50` calls. Time was already explicit. | Local limits per Reflection invocation. A positive call limit requires backend request accounting. An explicit `modelCalls: 0` prevents the built-in model-backed generator from starting. |
 | Target file selected by `application.config.target.schema` | `entries[].content.maxBytes`, `constraints.maxChangedFiles`, `constraints.maxChangedBytes` | `1048576`, `32`, `1048576` | File size, changed file count and total changed bytes. |
 | Policy invocation | `steps[].with.editConstraints.maxChangedFiles`, `steps[].with.editConstraints.maxChangedBytes`, `steps[].with.editConstraints.maxChangedSubtrees` | Editor fallback of 32 files and `1048576` bytes. The Target previously supplied its entry count as the subtree fallback. | Per-call edit limits where the invoked contract supports them. `maxChangedSubtrees` applies to Target validation. |
 
@@ -173,7 +190,7 @@ Other removed ceilings were internal. Their scope determines which controls are 
 
 - **Policy and search size.** `foreach` and `range` no longer impose a 10,000-item ceiling. `steps[].concurrency` on `foreach` accepts a positive safe integer and still defaults to `1`, while a built-in Policy can enforce its own configuration range. `loop.maxIterations` still has a maximum of 100,000. Grid's former 1,000,000-point space ceiling has no configuration field. Control its space through `bindings.proposer.config.searchSpace` and its evaluation count through `policy.config.maxCandidates`. To change the remote calibration sweep, set `application.config.remote.calibration.start`, `min`, and `step`. The former 1,000-step span check has no separate setting.
 - **Evidence and edits.** Plugin code can set `RuntimeContext.readEvidence` option `maxBytes` to reproduce the former 32 MiB ceiling for full-file evidence reads. The Memory comparison caps of 32 MiB, 16 probe groups and 100 entries per group, the shared editor caps of 2 MiB of editable snapshot text, 32 edit operations and 128 KiB per edit, and the Reflection revision caps of 16 files, 64 KiB per resource and 128 KiB per revision have no direct YAML settings. The configured Target and per-call edit constraints above govern supported file edits. Reflection still bounds its evidence preview and enforces authorized resource paths.
-- **Transport, sampling, and cleanup.** The former 8 MiB Codex prompt/transport limits, 128 KiB Pi/Codex structured-output limit, and Optuna's 8 MiB worker I/O, 32 attempts per suggestion and 1,000-entry history ceiling have no direct settings. The Agent token/call limits and Optuna sampling limit above control execution at their own scopes. Inference recovery uses the Runtime cleanup budget in place of its former fixed 10-second release timer. The Application's shutdown grace period is separately configurable at `application.config.shutdown.gracePeriodMs`.
+- **Transport, sampling, and cleanup.** Pi's former 128 KiB structured-output limit and Optuna's 8 MiB worker I/O, 32 attempts per suggestion and 1,000-entry history ceiling have no direct settings. The Pi token/call limits and Optuna sampling limit above control execution at their own scopes. Native Codex delegates model execution and recovery to its installed CLI, while RSI provides the complete-call timeout and paginated virtual-file reader described above. Inference recovery uses the Runtime cleanup budget in place of its former fixed 10-second release timer. The Application's shutdown grace period is separately configurable at `application.config.shutdown.gracePeriodMs`.
 
 ### CLI
 
@@ -221,7 +238,7 @@ Binding declarations select registered plugins with `plugin`; `policy.id` select
 
 Organize a plugin around `schema.ts` (configuration), `service.ts` (business behavior and cleanup), and `index.ts` (definition assembly). Reuse the public contract's input/output schemas. Repository plugins import local contracts; external packages use `ember-rsi` or `ember-rsi/contracts`, not private `src/*` imports.
 
-A custom Agent must return an object matching the requested `input.outputSchema`, enforce its authorized tools/files, propagate cancellation, charge actual model attempts with `context.charge('modelCalls', 1)`, and release resources. Implementing the Agent contract does not automatically enforce the requested output schema inside an arbitrary backend; the backend must validate it. For the built-in Proposer, the edit protocol is defined in [shared editing code](../../../src/plugins/shared/agent-editing/index.ts).
+A custom Agent must return an object matching the requested `input.outputSchema`, document its execution permissions, propagate cancellation and release resources. Backends that own the model transport charge actual attempts with `context.charge('modelCalls', 1)`. A backend without an authoritative attempt counter, such as native Codex, must declare that usage unavailable and cannot claim to enforce model-call budgets. Implementing the Agent contract does not automatically enforce the requested output schema inside an arbitrary backend; the backend must validate it. For the built-in Proposer, the edit protocol is defined in [shared editing code](../../../src/plugins/shared/agent-editing/index.ts).
 
 ### Register an external extension for the CLI
 

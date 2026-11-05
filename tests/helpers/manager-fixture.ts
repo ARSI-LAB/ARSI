@@ -25,6 +25,7 @@ export async function managerFixture(
     plugins?: OperationDefinition[];
     bindings?: Record<string, Binding>;
     context?: RuntimeContext;
+    policy?: JsonObject;
     initialize?(context: RuntimeContext): Promise<void>;
   } = {},
 ): Promise<{
@@ -106,6 +107,7 @@ export async function managerFixture(
         require: requirements,
         steps: [{ id: 'drive', type: 'invoke', use: 'driver', with: {} }],
         output: '${{ steps.drive.output }}',
+        ...options.policy,
       }),
     );
     registry.registerPolicy('test.policy', join(root, 'policy.yaml'));

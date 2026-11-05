@@ -29,8 +29,7 @@ implementation:
     evidenceView: execution
     agentRef: agent
 budget:
-  modelCalls: 50
-  timeoutSeconds: 600
+  timeoutSeconds: 3600
 ```
 
 | 字段                      | 含义                                                                                 |
@@ -45,7 +44,9 @@ budget:
 
 对于 `reflection.agent`，省略 `prompt` 时使用随包提供的 Reflection 提示词，也可以提供自己的文件。实现配置中的相对资源路径以选中的 Reflection 文件为基准。不要在这里配置 `maxContextBytes` 或 `maxModelCalls`：上下文处理由框架负责，模型调用限制应放在 `budget.modelCalls`。
 
-`budget.modelCalls` 默认 **50**，省略 `budget`、填写空对象或只填写超时时都一样。显式非负整数可覆盖默认值；`0` 阻止内置模型生成器新增模型调用。填写 `timeoutSeconds` 时，必须为计时器范围内的正整数；省略时不增加 Reflection 局部超时，但实验与 Agent 的超时仍生效。
+将 `budget.modelCalls` 设为非负整数可限制单次 Reflection 的模型调用次数，设为 `0` 会阻止新增模型调用。将 `budget.timeoutSeconds` 设为计时器范围内的正整数可限制单次执行时间。省略哪个字段，Reflection 就不施加对应的局部上限。已配置的实验和 Agent 限制也会生效。
+
+上面的示例和随包提供的 Harness² Reflection 文件均设置 60 分钟局部超时，不设置模型调用次数上限。Reflection 调用 `agent.pi` 时，Agent 中显式配置的 `executionTimeoutMs` 也会生效。不需要独立的 Reflection 截止时间时，可省略 `budget.timeoutSeconds`。
 
 源码见 [配置校验器](../../../src/runtime/revisions/validation.ts) 和 [内置示例](../../../src/policies/harness2/reflection.yaml)。
 
@@ -109,7 +110,7 @@ reflection:
 
 这会为根 Policy 选择**完整替换文件**，根 Policy 必须已经声明 `defaults.reflection`。不会逐字段合并，也不会在流程中插入调用。覆盖路径相对于 Recipe 解析，所选文件内部的路径相对于该文件解析。
 
-替换文件省略 `budget` 时使用框架默认值，不继承原文件预算。无效的替换文件会导致校验失败，不回退到默认文件。
+替换文件省略 `budget` 时，Reflection 不设局部模型调用预算或时间预算。无效的替换文件会导致校验失败。
 
 ## 3. 让自定义插件使用新资源
 
@@ -145,7 +146,7 @@ bindings:
 
 Reflection 文件中的 `targets.domainProposer.resources: [guidance]` 授权修改已配置的指导目录，不会因 `prompt` 也是 Schema 路径资源而自动授权它。没有 `x-rsi-path` 的普通字符串不能被选择。资源不存在、路径未配置、文件或目录类型错误，都在调用生成器前报错。
 
-当前 `configFile` 接口授权的是资源内容，不是任意配置字段或 Policy 重写。它允许在授权路径内创建或修改资源，并检查提案的父版本与修改量限制；不要假定可以删除资源。见 [版本处理](../../../src/runtime/revisions/index.ts)。
+`configFile` 接口允许在授权路径内创建和修改资源内容。Runtime 会在启用版本前校验提案的父版本和资源路径。见 [版本处理](../../../src/runtime/revisions/index.ts)。
 
 插件必须实际读取收到的路径。内置 Proposer 在每次编辑请求时调用 `loadAgentPrompt(config)`：读取基础提示词，递归读取 `config.guidance` 中排序后的 Markdown 文件，将指导文字加入 Agent 请求。见 [共享编辑代码](../../../src/plugins/shared/agent-editing/index.ts)。仅声明 `x-rsi-path` 不会自动将文件内容加入提示词或改变算法，自定义插件负责资源格式与实际使用方式。
 

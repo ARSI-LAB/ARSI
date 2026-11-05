@@ -56,8 +56,14 @@ test('round labels use creation provenance and evaluation paths independently', 
       call('base-call', 'init/baseline'),
       call('later', 'loop/7/train'),
       call('child', 'opaque', 'later'),
+      call('nested', 'steps/outer/iteration-1/inner/iteration-2/validate'),
+      call('nested-child', 'opaque', 'nested'),
     ],
-    [measurement('m0', 'base-call'), measurement('m8', 'child')],
+    [
+      measurement('m0', 'base-call'),
+      measurement('m8', 'child'),
+      measurement('nested-measurement', 'nested-child'),
+    ],
   );
   assert.equal(labels.candidate('base'), 'Baseline');
   assert.match(labels.candidate('old'), /^Round 1 · \d$/);
@@ -65,8 +71,43 @@ test('round labels use creation provenance and evaluation paths independently', 
   assert.match(labels.candidate('unknown'), /^Candidate \d$/);
   assert.equal(labels.evaluation('m0'), 'Baseline evaluation');
   assert.equal(labels.evaluation('m8'), 'Round 8 · Training');
+  assert.equal(
+    labels.evaluation('nested-measurement'),
+    'Round 2 / Round 3 · Validation',
+  );
   assert.equal(roundLabel('call-x/loop/0/propose'), 'Round 1');
   assert.equal(roundLabel('opaque'), null);
+});
+
+test('round labels decode current and historical iterations without interpreting opaque paths', () => {
+  for (const [path, expected] of [
+    ['steps/rounds/iteration-0/propose', 'Round 1'],
+    ['steps/search/iteration-7/train', 'Round 8'],
+    ['steps/outer/iteration-1/inner/iteration-2/propose', 'Round 2 / Round 3'],
+    ['loop/1/inner/loop/2/propose', 'Round 2 / Round 3'],
+    ['loop/1/loop/2/propose', 'Round 2 / Round 3'],
+    ['call-x/loop/0/propose', 'Round 1'],
+    ['steps/search/iteration-0', 'Round 1'],
+    ['steps/iteration-7', null],
+    ['steps/iteration-7/iteration-0/propose', 'Round 1'],
+    ['steps/outer/iteration-1/iteration-7', 'Round 2'],
+    ['steps/check/then/iteration-7', null],
+    ['steps/check/then/loop/iteration-2/propose', 'Round 3'],
+    ['steps/items/key-a/iteration-7/iteration-2/propose', 'Round 3'],
+    ['opaque/iteration-7', null],
+    ['loop/0', 'Round 1'],
+    ['opaque', null],
+    ['steps/search/iteration--1/propose', null],
+    ['steps/search/iteration-1x/propose', null],
+    ['loop/-1/propose', null],
+    ['loop/1x/propose', null],
+    ['steps/search/iteration-9007199254740992/propose', null],
+    ['loop/9007199254740992/propose', null],
+    [undefined, null],
+    [null, null],
+  ] as const) {
+    assert.equal(roundLabel(path), expected, String(path));
+  }
 });
 
 test('Harness2 distinguishes task rounds, branch variants, repeated attempts and reused baselines', () => {

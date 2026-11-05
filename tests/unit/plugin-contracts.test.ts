@@ -119,7 +119,7 @@ test('wrong public types fail validation and actual startup before calls while a
 });
 
 test('Policy requirements resolve registered contract IDs and report unknown IDs with binding context', async (t) => {
-  const { compilePolicy } = await import('../../src/runtime/compiler/index.js');
+  const { Policy } = await import('../../src/runtime/policy/index.js');
   const registry = new Registry();
   t.after(() => registry.dispose());
   registry.registerContract(proposerContract);
@@ -132,7 +132,7 @@ test('Policy requirements resolve registered contract IDs and report unknown IDs
     steps: [],
     output: {},
   };
-  const policy = compilePolicy(definition, { contracts: registry });
+  const policy = new Policy(definition, { contracts: registry });
   assert.deepEqual(policy.requirements.editor, proposerContract);
   const custom = { ...proposerContract, id: 'contract.custom-proposer' };
   registry.registerContract(custom);
@@ -140,7 +140,9 @@ test('Policy requirements resolve registered contract IDs and report unknown IDs
     ...definition,
     require: { editor: { contract: custom.id } },
   };
-  const customPolicy = compilePolicy(customDefinition, { contracts: registry });
+  const customPolicy = new Policy(customDefinition, {
+    contracts: registry,
+  });
   assert.deepEqual(customPolicy.requirements.editor, custom);
   const otherRegistry = new Registry();
   t.after(() => otherRegistry.dispose());
@@ -150,12 +152,12 @@ test('Policy requirements resolve registered contract IDs and report unknown IDs
   });
   assert.notEqual(
     customPolicy.digest,
-    compilePolicy(customDefinition, { contracts: otherRegistry }).digest,
+    new Policy(customDefinition, { contracts: otherRegistry }).digest,
     'compiled identity includes the resolved contract contents',
   );
   assert.throws(
     () =>
-      compilePolicy(
+      new Policy(
         {
           ...definition,
           require: { editor: { contract: 'contract.unknown' } },
@@ -166,7 +168,7 @@ test('Policy requirements resolve registered contract IDs and report unknown IDs
   );
   assert.throws(
     () =>
-      compilePolicy(
+      new Policy(
         { ...definition, require: { editor: { contract: proposerContract } } },
         { contracts: registry },
       ),

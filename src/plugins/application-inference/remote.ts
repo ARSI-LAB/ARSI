@@ -207,7 +207,7 @@ export async function createRemoteBackend(
       : positive(remote.timeoutMs, 0, 'remote.timeoutMs');
   const readinessTimeout =
     health.timeoutMs === undefined
-      ? undefined
+      ? timeout
       : positive(health.timeoutMs, 0, 'healthcheck.timeoutMs');
   const interval = positive(health.intervalMs, 250, 'healthcheck.intervalMs');
   const cleanupTimeout = positive(

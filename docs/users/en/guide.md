@@ -110,6 +110,14 @@ bindings:
     plugin: agent.pi
     config:
       thinkingLevel: low
+      maxTokens: 32768
+      timeoutMs: 600000
+  memoryUpdater:
+    config:
+      maxModelCalls: 24
+  selector:
+    config:
+      maxModelCalls: 24
   evaluator:
     plugin: evaluator.agentbench
     config:
@@ -142,6 +150,30 @@ Place it beside the [Harness² baseline and Target](../../../examples/harness/ds
 Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy.config`. Goals and the delivery rubric are defined by the Policy; `goals` and `deliveryRubric` are not accepted configuration fields. `k` controls exploration slots; `concurrency` limits concurrent Policy branches. The Evaluator scheduler has a separate concurrency setting. With fixed `k`, the current flow makes `4 × k × task count` evaluator calls (base, invariant, domain, composition); one evaluator call can contain multiple tasks in other Policies.
 
 [WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) accepts `maxRounds` (default 3), optional `stopAtScore`, and disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
+
+### Configure former defaults
+
+Use these paths to retain a former framework default or set your own value. Recipe paths use the binding names in the examples. A custom Policy can also declare plugin configuration under `defaults.bindings.<binding>.config`. Settings inherited from a Policy still apply. Harness² sets 24 calls for each proposal and composition binding, WikiSkill sets 24 for its proposer, and the packaged Harness² Reflection file sets 50 calls and 600 seconds per invocation.
+
+| Location | Field | Former framework value | What it limits |
+| --- | --- | --- | --- |
+| Recipe | `budget.elapsedWallMs`, `budget.cleanupReserveMs` | `86400000`, `60000` | Experiment wall time and the separate cleanup deadline, in milliseconds. |
+| Recipe | `budget.modelCalls` | Already explicit | Total model calls charged to the experiment, including subagents and corrections. |
+| Recipe | `bindings.agent.config.maxTokens` (`agent.pi`) | `32768` | Model output tokens per request. The value must fit `contextWindow`. |
+| Recipe | `bindings.agent.config.timeoutMs` | `600000` | Per-request time for `agent.pi`, or execution time for `agent.codex`. |
+| Recipe | `bindings.<binding>.config.maxModelCalls` (`proposer.agent`, `memory.agent`, `selector.artifact`) | `24` after normal Recipe loading | Model calls per Agent invocation. For a Policy step that directly invokes `contract.agent`, set `steps[].with.maxModelCalls` instead. An explicit cap is inherited by Pi subagents as a per-session cap. |
+| Recipe | `bindings.evaluator.config.services.<service>.maxTokens` (`evaluator.agentbench`) | `65536` | Output tokens per model turn for the selected evaluator service. |
+| Recipe | `application.config.remote.timeoutMs`, `application.config.healthcheck.timeoutMs` | `600000` for remote commands and remote readiness, `120000` for local readiness | Remote readiness inherits an explicitly set remote timeout unless overridden by the health check field. |
+| Recipe | `bindings.proposer.config.python.timeoutMs`, `bindings.proposer.config.maxSamplingAttempts` (`proposer.optuna`) | `30000`, `1000` | Time in milliseconds per Python invocation and total sampling attempts, including duplicates. Policy `maxTrials` separately limits evaluations. |
+| Reflection file selected by `reflection.configFile` | `budget.modelCalls`, `budget.timeoutSeconds` | `50` calls. Time was already explicit. | Local limits per Reflection invocation. An explicit `modelCalls: 0` blocks new model calls. |
+| Target file selected by `application.config.target.schema` | `entries[].content.maxBytes`, `constraints.maxChangedFiles`, `constraints.maxChangedBytes` | `1048576`, `32`, `1048576` | File size, changed file count and total changed bytes. |
+| Policy invocation | `steps[].with.editConstraints.maxChangedFiles`, `steps[].with.editConstraints.maxChangedBytes`, `steps[].with.editConstraints.maxChangedSubtrees` | Editor fallback of 32 files and `1048576` bytes. The Target previously supplied its entry count as the subtree fallback. | Per-call edit limits where the invoked contract supports them. `maxChangedSubtrees` applies to Target validation. |
+
+Other removed ceilings were internal. Their scope determines which controls are available.
+
+- **Policy and search size.** `foreach` and `range` no longer impose a 10,000-item ceiling. `steps[].concurrency` on `foreach` accepts a positive safe integer and still defaults to `1`, while a built-in Policy can enforce its own configuration range. `loop.maxIterations` still has a maximum of 100,000. Grid's former 1,000,000-point space ceiling has no configuration field. Control its space through `bindings.proposer.config.searchSpace` and its evaluation count through `policy.config.maxCandidates`. To change the remote calibration sweep, set `application.config.remote.calibration.start`, `min`, and `step`. The former 1,000-step span check has no separate setting.
+- **Evidence and edits.** Plugin code can set `RuntimeContext.readEvidence` option `maxBytes` to reproduce the former 32 MiB ceiling for full-file evidence reads. The Memory comparison caps of 32 MiB, 16 probe groups and 100 entries per group, the shared editor caps of 2 MiB of editable snapshot text, 32 edit operations and 128 KiB per edit, and the Reflection revision caps of 16 files, 64 KiB per resource and 128 KiB per revision have no direct YAML settings. The configured Target and per-call edit constraints above govern supported file edits. Reflection still bounds its evidence preview and enforces authorized resource paths.
+- **Transport, sampling, and cleanup.** The former 8 MiB Codex prompt/transport limits, 128 KiB Pi/Codex structured-output limit, and Optuna's 8 MiB worker I/O, 32 attempts per suggestion and 1,000-entry history ceiling have no direct settings. The Agent token/call limits and Optuna sampling limit above control execution at their own scopes. Inference recovery uses the Runtime cleanup budget in place of its former fixed 10-second release timer. The Application's shutdown grace period is separately configurable at `application.config.shutdown.gracePeriodMs`.
 
 ### CLI
 

@@ -14,7 +14,6 @@ import {
   loadPluginDirectories,
 } from './loaders/plugins.js';
 import { Recipe } from './loaders/recipe.js';
-import { readPolicy } from './compiler/index.js';
 export interface Runtime {
   context: RuntimeContext;
   manager: Manager;
@@ -54,9 +53,6 @@ export async function createRuntime(
   const manager = new Manager({ ...options, registry });
   registry.context.provide('rsiManager', manager);
   registry.context.provide('rsiArtifacts', manager.artifacts);
-  registry.context.provide('rsiPolicyRuntime', {
-    readPolicy: (path: string) => readPolicy(path, registry),
-  });
   return {
     context: manager.context,
     manager,

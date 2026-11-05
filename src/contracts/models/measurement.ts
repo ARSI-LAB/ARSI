@@ -18,7 +18,7 @@ export interface Measurement extends JsonObject {
   experimentId: string;
   callId: string;
   candidateRef: string;
-  evaluator: JsonObject;
+  evaluator: { pluginId: string; implementationDigest: string };
   startedAt: string;
   finishedAt: string | null;
   status: MeasurementStatus;
@@ -209,6 +209,8 @@ export function typedArtifact(
 ): TypedArtifact {
   return { schemaId, schemaDigest: digest(schema), artifactRef };
 }
-export function validateMeasurement(value: unknown): void {
+export function validateMeasurement(
+  value: unknown,
+): asserts value is Measurement {
   validate(measurementSchema, value, 'Measurement');
 }

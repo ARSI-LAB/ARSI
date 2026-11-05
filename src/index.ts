@@ -7,14 +7,9 @@ export {
 export { Registry } from './runtime/registry/index.js';
 export { Manager } from './runtime/manager/index.js';
 export {
-  compilePolicy,
-  readPolicy,
-  type CompiledPolicy,
-  type ContractResolver,
-} from './runtime/compiler/index.js';
-export {
-  executePolicy,
+  Policy,
   evaluateTemplate,
+  type ContractResolver,
   type PolicyOptions,
 } from './runtime/policy/index.js';
 export { defineContract } from './contracts/contract.js';
@@ -24,7 +19,6 @@ export type * from './contracts/index.js';
 
 export { Recipe } from './runtime/loaders/recipe.js';
 export { Binding } from './runtime/loaders/binding.js';
-export { Policy } from './runtime/compiler/index.js';
 export {
   InvokeStep,
   StateStep,

@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { JsonObject, JsonValue } from '../contracts/index.js';
+/** Freeze an owned, acyclic JSON snapshot recursively; callers copy before handing over ownership. */
+export function freezeSnapshot<T>(value: T): T {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeSnapshot(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 export function object(value: unknown, label = 'value'): JsonObject {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
     throw new Error(`${label}: expected object`);

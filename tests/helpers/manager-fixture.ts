@@ -26,6 +26,7 @@ export async function managerFixture(
     bindings?: Record<string, Binding>;
     context?: RuntimeContext;
     initialize?(context: RuntimeContext): Promise<void>;
+    disposeDriver?(): Promise<void>;
   } = {},
 ): Promise<{
   manager: Manager;
@@ -77,7 +78,9 @@ export async function managerFixture(
       async create(_config, _context) {
         return {
           execute: (_input, context) => execute(context),
-          async dispose() {},
+          async dispose() {
+            await options.disposeDriver?.();
+          },
         };
       },
     };

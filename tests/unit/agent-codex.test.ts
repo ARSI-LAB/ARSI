@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
-import { loadRecipe } from '../../src/runtime/loaders/index.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { stringify } from 'yaml';
 import { object } from '../../src/shared/json.js';
 
@@ -284,7 +284,7 @@ test('existing Policy accepts Codex Recipe binding without business-plugin chang
       runtime.registry.get('agent.codex').contract.id,
       'contract.agent',
     );
-    const recipe = await loadRecipe(
+    const recipe = await Recipe.load(
       resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
       runtime.registry,
     );

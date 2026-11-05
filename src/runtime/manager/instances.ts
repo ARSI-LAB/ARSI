@@ -12,6 +12,7 @@ interface Instance {
   scope: EventScope;
   uses: Set<Promise<unknown>>;
   disposal?: Promise<void>;
+  disposalState?: 'pending' | 'succeeded' | 'failed';
 }
 interface Entry {
   ready: Promise<Instance>;
@@ -45,10 +46,10 @@ export class Instances {
     binding: Binding,
     uses: Set<Promise<unknown>>,
   ): Promise<Instance> {
-    const definition = this.registry.get(binding.plugin);
     const scope = this.events.prepare(bindingId);
     try {
-      const operation = await definition.create(
+      const operation = await this.registry.createManagedOperation(
+        binding.plugin,
         structuredClone(binding.config),
         this.context(bindingId).extend({ event: scope.event }),
       );
@@ -62,12 +63,17 @@ export class Instances {
     }
   }
 
-  activate(bindingId: string, instance: Instance): void {
+  activate(
+    bindingId: string,
+    instance: Instance,
+  ): Promise<Instance> | undefined {
+    const previous = this.current.get(bindingId);
     this.events.activate(instance.scope);
     this.current.set(bindingId, {
       ready: Promise.resolve(instance),
       uses: instance.uses,
     });
+    return previous?.ready;
   }
 
   async acquire(
@@ -113,21 +119,42 @@ export class Instances {
     };
   }
 
-  async currentInstance(bindingId: string): Promise<Instance | undefined> {
-    return this.current.get(bindingId)?.ready;
-  }
-
   dispose(instance: Instance): Promise<void> {
     if (instance.disposal) return instance.disposal;
     this.events.deactivate(instance.scope);
+    instance.disposalState = 'pending';
     instance.disposal = (async () => {
       await this.events.idle(instance.scope);
       while (instance.uses.size) await Promise.allSettled([...instance.uses]);
       await instance.operation.dispose();
       this.events.release(instance.scope);
       this.owned.delete(instance);
-    })();
+    })().then(
+      () => {
+        instance.disposalState = 'succeeded';
+      },
+      (error: unknown) => {
+        instance.disposalState = 'failed';
+        throw new Error(`Instance ${instance.scope.bindingId} cleanup failed`, {
+          cause: error,
+        });
+      },
+    );
     return instance.disposal;
+  }
+
+  /** Caller has reconciled external effects; pending disposal can never be acknowledged. */
+  reconcileFailures(): void {
+    if (
+      this.preparing.size ||
+      [...this.owned].some((instance) => instance.disposalState !== 'failed')
+    )
+      throw new Error('Instance cleanup is still pending');
+    for (const instance of this.owned) {
+      this.events.release(instance.scope);
+      this.owned.delete(instance);
+    }
+    this.current.clear();
   }
 
   async disposeAll(): Promise<void> {
@@ -141,6 +168,7 @@ export class Instances {
     const failures = results.filter(
       (result): result is PromiseRejectedResult => result.status === 'rejected',
     );
+    if (!this.owned.size) this.current.clear();
     if (failures.length)
       throw new AggregateError(
         failures.map((result) => result.reason),

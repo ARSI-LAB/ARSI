@@ -12,7 +12,7 @@ import {
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
-import { Policy } from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 

@@ -16,6 +16,7 @@ import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { configSchema } from '../../src/plugins/agent-codex/schema.js';
 import { parseConfig } from '../../src/shared/schema.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { stringify } from 'yaml';
 import { object } from '../../src/shared/json.js';
 
@@ -457,12 +458,9 @@ test('existing Policy accepts the native Codex binding', async () => {
     homeDirectory: false,
   });
   try {
-    const recipe = await import('../../src/runtime/loaders/index.js').then(
-      (m) =>
-        m.loadRecipe(
-          resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
-          runtime.registry,
-        ),
+    const recipe = await Recipe.load(
+      resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
+      runtime.registry,
     );
     const declaration = recipe.toJSON();
     object(declaration.bindings).agent = { plugin: 'agent.codex', config: {} };

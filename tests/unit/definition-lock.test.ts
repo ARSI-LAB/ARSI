@@ -9,6 +9,7 @@ import {
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Manager } from '../../src/runtime/manager/index.js';
+import { PolicyCheckpoints } from '../../src/runtime/policy/checkpoint.js';
 import { object, string } from '../../src/shared/json.js';
 
 test('interrupted experiments recover locked definitions and resources after all source files disappear', async (t) => {
@@ -179,10 +180,11 @@ test('Manager resumes after a committed loop boundary without replaying calls', 
       }),
       /pause after loop boundary/,
     );
-    const checkpoint = await fixture.manager.facts.read(
-      'checkpoints',
+    const checkpoint = await new PolicyCheckpoints(
+      fixture.manager.facts,
       'mid-loop',
-    );
+    ).restore();
+    assert(checkpoint);
     assert(Object.values(object(checkpoint.boundaries)).includes(true));
     assert.equal(
       (await fixture.manager.run(recipePath, { id: 'mid-loop', resume: true }))

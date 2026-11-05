@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import type {
+  AgentInput,
   Candidate,
   JsonObject,
+  JsonValue,
   RuntimeContext,
 } from '../../contracts/index.js';
 import { parseFileTree } from '../../contracts/models/file-tree.js';
@@ -14,6 +16,12 @@ import {
 } from '../shared/metric-decision/index.js';
 import {
   analysisSchema,
+  defaultModelRequestTimeoutMs,
+  operatorEditConstraints,
+  operatorEditOutputSchema,
+  metricsBottleneckSchema,
+  type MetricsBottleneck,
+  type OperatorAgentStage,
   historySchema,
   staticDiagnosisSchema,
   summarySchema,
@@ -416,4 +424,136 @@ export async function readHistory(
   }
   context.signal.throwIfAborted();
   return { ...history, summaries };
+}
+
+export class OperatorModelOutputError extends Error {}
+
+/** A request and all delegated sessions share Manager-owned accounting. */
+export async function requestOperatorAgent(
+  stage: OperatorAgentStage,
+  request: AgentInput,
+  context: RuntimeContext,
+  timeoutMs = defaultModelRequestTimeoutMs,
+): Promise<JsonObject> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
+    throw new Error(
+      'Operator modelRequestTimeoutMs must be a positive integer',
+    );
+  context = context.extend({
+    signal: AbortSignal.any([context.signal, AbortSignal.timeout(timeoutMs)]),
+  });
+  context.signal.throwIfAborted();
+  if (context.scope)
+    throw new Error(
+      'Operator Agent requests cannot replace an outer budget scope',
+    );
+  const scope = {
+    id: 'operator-' + digest({ callId: context.callId, stage }),
+    signal: context.signal,
+    limits: {
+      modelCalls: 2,
+      elapsedWallMs: timeoutMs,
+      evidenceBytes: 2 * 1024 * 1024,
+    },
+  };
+  if (Buffer.byteLength(JSON.stringify(request)) > 2 * 1024 * 1024)
+    throw new Error(
+      'Operator request exceeds 2 MiB; hardware context cannot be truncated',
+    );
+  let result: JsonObject;
+  try {
+    result = await context
+      .extend({ scope, signal: context.signal })
+      .invokeAgent({
+        ...request,
+        prompt:
+          request.prompt +
+          '\n\nThe authorized snapshots are already in input.sourceFiles; use them directly without reading the same files again. This stage has two total model calls, including tool continuations and all delegates. Complete the JSON response directly; do not delegate this bounded stage.',
+        input: {
+          ...object(request.input ?? {}),
+          sourceFiles: request.files ?? {},
+        },
+        maxModelCalls: 2,
+      });
+  } catch (error) {
+    context.signal.throwIfAborted();
+    if (
+      error instanceof Error &&
+      error.message.startsWith(
+        'Agent model-call limit reached; last output validation failed:',
+      )
+    )
+      throw new OperatorModelOutputError(error.message, { cause: error });
+    throw error;
+  }
+  context.signal.throwIfAborted();
+  try {
+    validate(request.outputSchema, result, `Operator ${stage} response`);
+  } catch (error) {
+    throw new OperatorModelOutputError(
+      error instanceof Error ? error.message : String(error),
+      { cause: error },
+    );
+  }
+  return object(result);
+}
+
+/** Validate model data before allocating a mutable workspace; writes enforce these bounds again. */
+export function validateOperatorEdits(response: JsonObject): void {
+  try {
+    validate(operatorEditOutputSchema, response, 'Operator edits');
+    const edits = response.edits;
+    if (
+      Array.isArray(edits) &&
+      edits.some(
+        (raw) =>
+          Buffer.byteLength(String(object(raw).content)) >
+          operatorEditConstraints.maxChangedBytes,
+      )
+    )
+      throw new Error('Operator edit exceeds byte limit');
+  } catch (error) {
+    throw new OperatorModelOutputError(
+      error instanceof Error ? error.message : String(error),
+      { cause: error },
+    );
+  }
+}
+
+/** Bind every model evidence value to a measured kernel metric, excluding assumed hardware ratios. */
+export function parseMetricsBottleneck(
+  raw: unknown,
+  profile: JsonObject,
+): MetricsBottleneck {
+  const result = parseConfig<MetricsBottleneck>(
+    metricsBottleneckSchema,
+    raw,
+    'Metric bottleneck',
+  );
+  for (const evidence of result.evidence) {
+    if (
+      !/^\/kernels\/\d+\/metrics\/[^/]+\//.test(evidence.path) ||
+      /(?:ub_ratio|core_utilization)/.test(evidence.path)
+    )
+      throw new Error(
+        'Metric bottleneck evidence must reference an observed kernel metric',
+      );
+    let value: JsonValue = profile;
+    for (const encoded of evidence.path.slice(1).split('/')) {
+      const key = encoded.replace(/~1/g, '/').replace(/~0/g, '~');
+      if (Array.isArray(value)) value = value[Number(key)] ?? null;
+      else if (value !== null && typeof value === 'object')
+        value = object(value)[key] ?? null;
+      else value = null;
+    }
+    if (
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value !== evidence.value
+    )
+      throw new Error(
+        'Metric bottleneck evidence does not match its measured value',
+      );
+  }
+  return result;
 }

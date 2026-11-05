@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { JsonObject } from '../../contracts/index.js';
-import { object, string } from '../../shared/json.js';
-import type { EmbeddingConfig } from './schema.js';
+import { digest, object, string } from '../../shared/json.js';
+import type {
+  EmbeddingConfig,
+  OperatorProposerConfig,
+  OperatorAgentStage,
+} from './schema.js';
+import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 
 const sha = (bytes: Uint8Array): string =>
   createHash('sha256').update(bytes).digest('hex');
@@ -82,5 +88,94 @@ export async function readKnowledgeResources(
     digest: sha(bytes),
     workerDigest: sha(await readFile(config.retrievalScript)),
     guidelines,
+  };
+}
+
+export type HardwareContext = { text: string; sha256: string };
+
+/** Read the full user document; values are context, never implicit hardware defaults. */
+export async function readHardwareContext(
+  path: string,
+): Promise<HardwareContext> {
+  if (typeof path !== 'string' || path.trim() === '')
+    throw new Error('hardwareContextFile must be a nonempty file path');
+  let bytes: Buffer;
+  try {
+    const stat = await lstat(path);
+    if (!stat.isFile())
+      throw new Error('expected an ordinary file without symlinks');
+    if ((stat.mode & 0o444) === 0) throw new Error('file is not readable');
+    bytes = await readFile(path);
+  } catch (error) {
+    throw new Error(
+      `hardwareContextFile could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+      bytes,
+    );
+  } catch (error) {
+    throw new Error('hardwareContextFile must contain valid UTF-8 text', {
+      cause: error,
+    });
+  }
+  if (text.trim() === '')
+    throw new Error('hardwareContextFile must not be empty');
+  return { text, sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
+export type OperatorResources = {
+  digest: string;
+  knowledgeDigest: string;
+  workerDigest: string;
+  prompts: Record<OperatorAgentStage, string>;
+  metricsGenerate: string;
+  guidelines: string;
+};
+
+const directory = fileURLToPath(new URL('./', import.meta.url));
+
+export async function loadOperatorResources(
+  config: OperatorProposerConfig,
+): Promise<OperatorResources> {
+  const external = await readKnowledgeResources(config.embedding);
+  const contents: Record<string, string> = {};
+  for (const name of [
+    'diagnose',
+    'diagnose-metrics',
+    'generate',
+    'generate-metrics',
+    'repair',
+    'summarize',
+  ]) {
+    contents[name] = await readFile(
+      join(directory, 'prompts', `${name}.md`),
+      'utf8',
+    );
+  }
+  const get = (name: string): string => string(contents[name]);
+  return {
+    digest: digest({
+      prompts: contents,
+      knowledge: external.digest,
+      worker: external.workerDigest,
+      taskModel: await sourceIdentity(import.meta.url, [
+        '../shared/file-application/kernel-task',
+      ]),
+    }),
+    knowledgeDigest: external.digest,
+    workerDigest: external.workerDigest,
+    prompts: {
+      diagnose: get('diagnose'),
+      'diagnose-metrics': get('diagnose-metrics'),
+      generate: get('generate'),
+      repair: get('repair'),
+      summarize: get('summarize'),
+    },
+    metricsGenerate: get('generate-metrics'),
+    guidelines: external.guidelines,
   };
 }

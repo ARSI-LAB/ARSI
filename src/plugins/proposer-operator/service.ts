@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type {
   AgentInput,
   Candidate,
@@ -14,34 +13,33 @@ import type {
 } from '../../contracts/index.js';
 import { operatorProposerContract } from '../../contracts/plugin-types/proposer-operator.js';
 import { applicationContract } from '../../contracts/plugin-types/application.js';
-import {
-  recordSchema,
-  validateMeasurement,
-} from '../../contracts/models/measurement.js';
+import { validateMeasurement } from '../../contracts/models/measurement.js';
 import { digest, object, string, strings } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { applyEdits, resourceFiles } from '../shared/agent-editing/index.js';
 import { loadOperatorTask } from '../shared/file-application/kernel-task.js';
-import { parseStaticDiagnosis, readAnalysis, readHistory } from './context.js';
-import { requestOperatorAgent, OperatorModelOutputError } from './agent.js';
 import {
-  operatorEditConstraints as editConstraints,
-  operatorEditOutputSchema,
+  parseStaticDiagnosis,
+  readAnalysis,
+  readHistory,
+  requestOperatorAgent,
+  OperatorModelOutputError,
   validateOperatorEdits,
-} from './editing.js';
-import { readHardwareContext } from './hardware-context.js';
-import {
-  executeMetricsProposer,
-  type OperatorResources,
-} from './metrics-service.js';
+} from './execution-context.js';
+import { executeMetricsProposer } from './metrics-service.js';
 import { retrieveStaticKnowledge } from './retrieval.js';
-import { readKnowledgeResources } from './resources.js';
-import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
+import {
+  readHardwareContext,
+  loadOperatorResources,
+  type OperatorResources,
+} from './resources.js';
 import {
   analysisSchema,
   configSchema,
   historySchema,
-  staticDiagnosisSchema,
+  diagnosisResponseSchema,
+  operatorEditConstraints as editConstraints,
+  operatorEditOutputSchema,
   summaryResponseSchema,
   summarySchema,
   type OperatorAnalysis,
@@ -50,52 +48,9 @@ import {
   type OperatorSummary,
 } from './schema.js';
 
-const directory = fileURLToPath(new URL('./', import.meta.url));
 const sha = (bytes: Uint8Array): string =>
   createHash('sha256').update(bytes).digest('hex');
-const diagnosisResponseSchema = recordSchema({ issues: staticDiagnosisSchema });
 
-async function resources(
-  config: OperatorProposerConfig,
-): Promise<OperatorResources> {
-  const external = await readKnowledgeResources(config.embedding);
-  const contents: Record<string, string> = {};
-  for (const name of [
-    'diagnose',
-    'diagnose-metrics',
-    'generate',
-    'generate-metrics',
-    'repair',
-    'summarize',
-  ]) {
-    contents[name] = await readFile(
-      join(directory, 'prompts', `${name}.md`),
-      'utf8',
-    );
-  }
-  const get = (name: string): string => string(contents[name]);
-  return {
-    digest: digest({
-      prompts: contents,
-      knowledge: external.digest,
-      worker: external.workerDigest,
-      taskModel: await sourceIdentity(import.meta.url, [
-        '../shared/file-application/kernel-task',
-      ]),
-    }),
-    knowledgeDigest: external.digest,
-    workerDigest: external.workerDigest,
-    prompts: {
-      diagnose: get('diagnose'),
-      'diagnose-metrics': get('diagnose-metrics'),
-      generate: get('generate'),
-      repair: get('repair'),
-      summarize: get('summarize'),
-    },
-    metricsGenerate: get('generate-metrics'),
-    guidelines: external.guidelines,
-  };
-}
 function scalar(measurement: JsonObject, name: string): number | null {
   const metric = object(object(measurement.metrics)[name]);
   if (metric.status === 'unavailable') return null;
@@ -174,7 +129,7 @@ export const createOperatorProposer: OperationDefinition<
     entryRef: string,
     baselineRef: string,
     context: RuntimeContext,
-    loaded: Awaited<ReturnType<typeof resources>>,
+    loaded: OperatorResources,
   ): Promise<OperatorAnalysis> {
     const entry = await candidate(entryRef, context),
       baseline = await measurement(baselineRef, entryRef, context);
@@ -223,7 +178,7 @@ export const createOperatorProposer: OperationDefinition<
   async function existingAnalysis(
     ref: string,
     context: RuntimeContext,
-    loaded: Awaited<ReturnType<typeof resources>>,
+    loaded: OperatorResources,
   ): Promise<OperatorAnalysis> {
     const stored = parseConfig<OperatorAnalysis>(
       analysisSchema,
@@ -279,7 +234,7 @@ export const createOperatorProposer: OperationDefinition<
     prior: OperatorHistory | null,
     goal: string,
     context: RuntimeContext,
-    loaded: Awaited<ReturnType<typeof resources>>,
+    loaded: OperatorResources,
     evidence: JsonValue = null,
   ): Promise<OperatorProposerOutput> {
     const request: AgentInput = {
@@ -366,7 +321,7 @@ export const createOperatorProposer: OperationDefinition<
         'Operator Proposer input',
       );
       context.signal.throwIfAborted();
-      const loaded = await resources(config);
+      const loaded = await loadOperatorResources(config);
       if (input.phase === 'metrics')
         return executeMetricsProposer(
           input,

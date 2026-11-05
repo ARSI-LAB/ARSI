@@ -15,10 +15,8 @@ import { join } from 'node:path';
 
 async function reader(path: string): Promise<{ text: string; sha256: string }> {
   const module: unknown = await import(
-    new URL(
-      '../../src/plugins/proposer-operator/hardware-context.ts',
-      import.meta.url,
-    ).href
+    new URL('../../src/plugins/proposer-operator/resources.ts', import.meta.url)
+      .href
   );
   assert.ok(module && typeof module === 'object');
   const fn: unknown = Reflect.get(module, 'readHardwareContext');

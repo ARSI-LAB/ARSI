@@ -18,19 +18,21 @@ import {
   readDecisionFeedback,
 } from '../shared/metric-decision/index.js';
 import { loadOperatorTask } from '../shared/file-application/kernel-task.js';
-import { readHistory } from './context.js';
-import { parseMetricsBottleneck } from './metrics-analysis.js';
 import {
   OperatorModelOutputError,
   requestOperatorAgent,
-  type OperatorAgentStage,
-} from './agent.js';
+  readHistory,
+  parseMetricsBottleneck,
+  validateOperatorEdits,
+} from './execution-context.js';
 import {
   retrieveMetricsKnowledge,
   MetricsRetrievalUnavailable,
 } from './retrieval.js';
 import {
   metricsAnalysisSchema,
+  operatorEditConstraints as editConstraints,
+  operatorEditOutputSchema,
   metricsBottleneckSchema,
   metricsHistorySchema,
   metricsSummarySchema,
@@ -40,21 +42,8 @@ import {
   type MetricsSummary,
   type OperatorProposerConfig,
 } from './schema.js';
-import {
-  operatorEditConstraints as editConstraints,
-  operatorEditOutputSchema,
-  validateOperatorEdits,
-} from './editing.js';
-import type { HardwareContext } from './hardware-context.js';
+import type { HardwareContext, OperatorResources } from './resources.js';
 
-export type OperatorResources = {
-  digest: string;
-  knowledgeDigest: string;
-  workerDigest: string;
-  prompts: Record<OperatorAgentStage, string>;
-  metricsGenerate: string;
-  guidelines: string;
-};
 const hash = (text: string | Buffer): string =>
   createHash('sha256').update(text).digest('hex');
 async function candidate(

@@ -1,4 +1,4 @@
-# Generate a metrics-guided Triton candidate
+# Generate a metrics-guided Triton-Ascend candidate
 
 Modify the current best input.py around the single supplied bottleneck hypothesis.
 Use measured profile evidence, retrieved metric optimization references, previous

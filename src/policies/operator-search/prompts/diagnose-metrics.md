@@ -1,4 +1,4 @@
-# Diagnose the measured Triton bottleneck
+# Diagnose the measured Triton-Ascend bottleneck
 
 Use the supplied current source, immutable task, measured profile, hardwareContext,
 and previous attempts. Choose one primary bottleneck: scalar, vector, mte2, mte3,

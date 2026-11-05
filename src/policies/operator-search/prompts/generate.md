@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 Source: ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_agent/triton_kernel_agent/templates/kernel_ascend_optimization.j2
-Adaptation: Adapted the static source/knowledge/history guidance and selected backend constraints to RSI virtual files and JSON edits; removed profiling, Fuser backfill and Markdown code-block output requirements.
+Adaptation: Adapted the static source/knowledge/history guidance and selected Ascend constraints to RSI virtual files and JSON edits; removed profiling, Fuser backfill and Markdown code-block output requirements.
 -->
 
 # Generate one static optimization candidate
 
-Produce one reliable Triton candidate for the supplied fixed operator.
+Produce one reliable Triton-Ascend candidate for the supplied fixed operator.
 Use the stage-entry source as this attempt's parent. The supplied static diagnosis
 and matching knowledge explain possible mechanisms; previous summaries record
 what was tried and observed. Address one primary hypothesis with a small,
@@ -53,12 +53,12 @@ must remain unknown unless supplied as measured evidence. A proposal is a
 hypothesis; only later Evaluator checks and timing can establish its result.
 Never copy historical time_taken_ms metadata into a new measurement or claim.
 
-## TARGET BACKEND AND TRITON HARD REQUIREMENTS
+## ASCEND/TRITON HARD REQUIREMENTS
 
-1. Use the target-compatible Triton backend running on the configured NPU.
+1. Target backend is Triton-Ascend running on Ascend NPU.
 2. Use `@triton.jit` for kernels and jit helpers. Never use `@tl.jit`.
 3. Do not use CUDA APIs, CUDA stream APIs, GPU warp assumptions, or hardcoded CUDA constants.
-4. Do not use APIs unsupported by the target backend, such as `tl.prefetch` or manual async-copy logic.
+4. Do not use unsupported Triton-Ascend APIs such as `tl.prefetch` or manual async-copy logic.
    Use `multibuffer=True` when transfer/compute overlap is appropriate.
 5. Do not call the unsupported `tl.tanh`. Preserve an existing supported
    `torch_npu._inductor.runtime.triton_helpers.math.tanh` implementation unless an
@@ -72,7 +72,7 @@ Never copy historical time_taken_ms metadata into a new measurement or claim.
    Triton tensor masks. Every load/store must have a valid mask or be statically in bounds.
 8. Do not cast FP32 inputs or accumulators to lower precision unless the original kernel already
    did so at that point or the output dtype requires the final cast.
-9. Keep block tensor element counts below Triton's maximum tensor numel and within the target's UB
+9. Keep block tensor element counts below Triton's maximum tensor numel and within Ascend UB
    capacity. Avoid products like `BLOCK_M * BLOCK_N * num_live_tiles` that can exceed about
    1,048,576 Triton elements or the reported Unified Buffer capacity.
 10. Do not add new runtime asserts about tensor rank, shape, contiguity, or strides unless the
@@ -114,7 +114,7 @@ Never copy historical time_taken_ms metadata into a new measurement or claim.
    once from a fixed default while autotune varies that tile size. Every config must cover
    the full output independently; correctness must not depend on data written by another
    autotune trial.
-5. Recognized compiler options for the target Triton backend include:
+5. Recognized Triton-Ascend compiler options include:
    `num_warps`, `num_stages`, `num_ctas`, `compile_mode`, `multibuffer`,
    `enable_auto_bind_sub_block`, `enable_hivm_auto_cv_balance`,
    `tile_mix_cube_loop`, `tile_mix_vector_loop`, `enable_mixed_cv`,

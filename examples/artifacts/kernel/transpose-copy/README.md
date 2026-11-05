@@ -1,6 +1,6 @@
 # Transpose-copy operator optimization
 
-This example uses `policy.operator-search` to evaluate a sealed Triton
+This example uses `policy.operator-search` to evaluate a sealed Triton-Ascend
 baseline, generate and repair candidates, select improvements, and independently
 reassess the selected source. Optional hardware diagnostics drive further search
 rounds. `application.kernel` owns source workspaces, `proposer.operator` proposes
@@ -15,9 +15,8 @@ The fixed case uses seed 42 and zero numerical tolerance. The entry point is
 
 ## Configuration and execution
 
-Use a Linux NPU host with the configured device runtime, torch, torch_npu, a
-target-compatible Triton distribution, and the profiling dependencies required by
-the pinned Evaluator SDK. Set `MODEL_NAME`,
+Use a Linux NPU host with CANN, torch, torch_npu, triton-ascend, and the profiling
+dependencies required by the pinned Evaluator SDK. Set `MODEL_NAME`,
 `MODEL_ENDPOINT`, and `MODEL_API_KEY` in private environment configuration.
 
 Before running [the Recipe](./recipe.search.yaml), replace its SDK Python path,

@@ -4,11 +4,12 @@ import type {
   MeasurementSummary,
   MetricRecord,
 } from '../../api/observation-client.js';
+import { executionPathIterations } from '../../../src/shared/execution-path.js';
 import { evaluationOrdinals } from './record-identifiers.js';
 
 export function roundLabel(path: string | null | undefined): string | null {
-  const rounds = [...(path ?? '').matchAll(/(?:^|\/)loop\/(\d+)(?=\/|$)/g)].map(
-    (match) => Number(match[1]) + 1,
+  const rounds = executionPathIterations(path).map(
+    (iteration) => iteration.index + 1,
   );
   return rounds.length
     ? rounds.map((round) => `Round ${round}`).join(' / ')
@@ -22,21 +23,24 @@ export interface HarnessStage {
 export function harnessStage(
   path: string | null | undefined,
 ): HarnessStage | null {
-  const match =
-    /(?:^|\/)loop\/(\d+)\/(base|invariant|domain|compose)\/[^/]+\/(execute_base|propose_inv|execute_inv|propose_dom|execute_dom|compose_candidate|execute_composed)(?:\/|$)/.exec(
-      path ?? '',
-    );
-  if (!match) return null;
   const variants = {
     base: 'Base',
     invariant: 'Invariant',
     domain: 'Domain',
     compose: 'Composed',
   } as const;
-  return {
-    round: `Round ${Number(match[1]) + 1}`,
-    variant: variants[match[2] as keyof typeof variants],
-  };
+  for (const iteration of executionPathIterations(path)) {
+    const match =
+      /^(base|invariant|domain|compose)\/[^/]+\/(execute_base|propose_inv|execute_inv|propose_dom|execute_dom|compose_candidate|execute_composed)$/.exec(
+        iteration.suffix.slice(0, 3).join('/'),
+      );
+    if (match)
+      return {
+        round: `Round ${iteration.index + 1}`,
+        variant: variants[match[1] as keyof typeof variants],
+      };
+  }
+  return null;
 }
 export function buildRoundLabels(
   candidates: CandidateSummary[],

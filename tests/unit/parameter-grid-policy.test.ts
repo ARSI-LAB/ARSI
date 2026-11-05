@@ -12,7 +12,7 @@ import type { JsonObject } from '../../src/contracts/index.js';
 import { gridProposerContract } from '../../src/contracts/plugin-types/proposer-grid.js';
 import { inferencebenchContract } from '../../src/contracts/plugin-types/inferencebench.js';
 import { metricSelectorContract } from '../../src/contracts/plugin-types/selector-metrics.js';
-import { Policy } from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { applicationContract } from '../../src/contracts/plugin-types/application.js';

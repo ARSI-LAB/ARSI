@@ -9,6 +9,7 @@ import type {
   JsonObject,
   JsonValue,
   Operation,
+  OperationDefinition,
 } from '../../contracts/index.js';
 import { object, digest, json } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
@@ -19,7 +20,7 @@ interface CallExecutorOptions {
   id: string;
   registry: Registry;
   facts: FactStore;
-  revisionRefs: JsonObject;
+  revisionRefs: Readonly<JsonObject>;
   context(binding: string, id: string, parent: RuntimeContext): RuntimeContext;
   binding(name: string): Binding | undefined;
   operation(
@@ -35,12 +36,11 @@ interface CallExecutorOptions {
   onFailure(error: unknown, context: RuntimeContext): void;
 }
 export interface CallExecutor {
-  (
+  invoke(
     binding: string,
     input: JsonValue,
     context: RuntimeContext,
     path?: string,
-    parallel?: boolean,
   ): Promise<JsonValue>;
   readonly pending: number;
   close(): void;
@@ -49,9 +49,8 @@ export interface CallExecutor {
 }
 
 export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
-  const { id, context, revisionRefs, charge } = options;
+  const { id, context, charge } = options;
   const active = new Map<string, Promise<JsonValue>>();
-  const pending = new Set<Promise<JsonValue>>();
   const uncertain = new Map<string, () => Promise<void>>();
   const optionalCalls = new Set<string>();
   let accepting = true;
@@ -60,43 +59,78 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
     input: JsonValue,
     caller: RuntimeContext,
     path?: string,
-    _parallel = false,
   ): Promise<JsonValue> => {
     // Admission and registration run without an await, including for old contexts.
     if (!accepting)
       throw new Error('Experiment no longer accepts business calls');
     if (caller.experimentId !== id)
       throw new Error('Call belongs to another experiment');
-    const callId =
+    const rawInput = input;
+    let definition: OperationDefinition;
+    try {
+      const selected = options.binding(bindingId);
+      if (!selected) throw new Error(`Unknown binding ${bindingId}`);
+      definition = options.registry.get(selected.plugin);
+      json(input);
+      input = structuredClone(input);
+      validate(definition.contract.input_schema, input, `${bindingId} input`);
+    } catch (error) {
+      options.onFailure(error, caller);
+      throw error;
+    }
+    const identity = (value: JsonValue): string =>
       'call-' +
       digest({
         experiment: id,
         bindingId,
         path: path ?? caller.callId,
-        input,
+        input: value,
       }).slice(0, 32);
+    const callId = identity(input);
+    const legacyId = identity(rawInput);
     const existing = active.get(callId);
     if (existing) return existing;
+    const checkedOutput = (value: unknown): JsonValue => {
+      json(value);
+      const output = structuredClone(value);
+      validate(
+        definition.contract.output_schema,
+        output,
+        `${bindingId} output`,
+      );
+      if (
+        bindingId === '_application' &&
+        object(input).action !== object(output).action
+      )
+        throw new Error('Application returned wrong action');
+      return output;
+    };
     const job = (async (): Promise<JsonValue> => {
       let ctx = context(bindingId, callId, caller);
       let prior: JsonObject | undefined;
-      try {
-        prior = await options.facts.read('calls', callId);
-      } catch (error) {
-        if (
-          !(
-            error instanceof Error &&
-            'code' in error &&
-            error.code === 'ENOENT'
+      // Prior direct calls hashed input before defaults. Inspect that receipt too,
+      // so upgrading a running experiment cannot repeat its external effects.
+      for (const ref of new Set([callId, legacyId])) {
+        try {
+          prior = await options.facts.read('calls', ref);
+          break;
+        } catch (error) {
+          if (
+            !(
+              error instanceof Error &&
+              'code' in error &&
+              error.code === 'ENOENT'
+            )
           )
-        )
-          throw error;
+            throw error;
+        }
       }
-      if (prior?.status === 'succeeded') return prior.output;
+      if (prior?.status === 'succeeded') return checkedOutput(prior.output);
       ctx.signal.throwIfAborted();
+      // Receipt recovery does not reserve a version; pin it together with its lease.
       const binding = options.binding(bindingId);
       if (!binding) throw new Error(`Unknown binding ${bindingId}`);
-      const revisionRef = revisionRefs[bindingId];
+      const revisionRef = options.revisionRefs[bindingId];
       const info: CallEventInfo = {
         experimentId: id,
         callId,
@@ -106,8 +140,6 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         bindingRef: binding.plugin,
         revisionRef: typeof revisionRef === 'string' ? revisionRef : null,
       };
-      const definition = options.registry.get(binding.plugin);
-      validate(definition.contract.input_schema, input, `${bindingId} input`);
       const isMemory = definition.contract.id === memoryContract.id;
       if (
         isMemory ||
@@ -122,12 +154,8 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         prior?.status === 'failed' &&
         prior.output !== undefined
       ) {
-        validate(
-          definition.contract.output_schema,
-          prior.output,
-          `${bindingId} output`,
-        );
-        if (object(prior.output).status === 'failed') return prior.output;
+        const output = checkedOutput(prior.output);
+        if (object(output).status === 'failed') return output;
       }
       const lease = await options.operation(bindingId, binding);
       ctx = ctx.extend({ event: lease.event });
@@ -217,18 +245,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
             throw new Error('Invalid rsi/before-call decision');
           if (decision.kind === 'reject')
             throw new Error(`Call admission rejected: ${decision.reason}`);
-          output = await lease.operation.execute(input, ctx);
-          json(output);
-          validate(
-            definition.contract.output_schema,
-            output,
-            `${bindingId} output`,
-          );
-          if (
-            bindingId === '_application' &&
-            object(input).action !== object(output).action
-          )
-            throw new Error('Application returned wrong action');
+          output = checkedOutput(await lease.operation.execute(input, ctx));
           memoryFailed = isMemory && object(output).status === 'failed';
           if (
             !(await commit({
@@ -321,24 +338,26 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       throw error;
     });
     active.set(callId, supervised);
-    pending.add(supervised);
-    void supervised.finally(() => pending.delete(supervised)).catch(() => {});
+    void supervised
+      .finally(() => {
+        active.delete(callId);
+      })
+      .catch(() => {});
     return supervised;
   };
-  const executor = Object.assign(invoke, {
+  return {
+    invoke,
     get pending() {
-      return pending.size;
+      return active.size;
     },
     close() {
       accepting = false;
     },
     async idle() {
-      while (pending.size) await Promise.allSettled([...pending]);
+      while (active.size) await Promise.allSettled([...active.values()]);
     },
     async unconfirmed() {
       await Promise.allSettled([...uncertain.values()].map((mark) => mark()));
     },
-  });
-  Object.defineProperty(executor, 'pending', { get: () => pending.size });
-  return executor;
+  };
 }

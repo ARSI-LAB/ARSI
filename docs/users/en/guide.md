@@ -233,7 +233,7 @@ Run this command from an experiment workspace containing a `.rsi` directory. Ope
 | Replace the complete proposal workflow                                             | Implement `contract.proposer` and replace a Proposer binding. |
 | Change orchestration, state, or stopping rules                                     | Register a custom Policy.                                     |
 
-Binding declarations select registered plugins with `plugin`; `policy.id` selects a registered Policy. Config-only overrides inherit the default plugin. For the same plugin, plain objects merge recursively while arrays, scalars and null replace prior values; changing the plugin discards its old configuration. Schema path fields retain their own declaration origins through merges. Loading validates the final configuration and contract. See the [loader](../../../src/runtime/loaders/index.ts).
+Binding declarations select registered plugins with `plugin`; `policy.id` selects a registered Policy. Config-only overrides inherit the default plugin. For the same plugin, plain objects merge recursively while arrays, scalars and null replace prior values; changing the plugin discards its old configuration. Schema path fields retain their own declaration origins through merges. Loading validates the final configuration and contract. See the [loader](../../../src/runtime/loaders/recipe.ts).
 
 Organize a plugin around `schema.ts` (configuration), `service.ts` (business behavior and cleanup), and `index.ts` (definition assembly). Reuse the public contract's input/output schemas. Repository plugins import local contracts; external packages use `ember-rsi` or `ember-rsi/contracts`, not private `src/*` imports.
 
@@ -288,6 +288,10 @@ try {
 ```
 
 `Recipe.load(recipePath, runtime.registry)` returns the assembled definition without initializing the Application. Its `policy` is a `Policy` object; `policyConfig` and `policyInput` hold the configuration and input mapping. `application` and each entry in `bindings` are validated `Binding` objects with `pluginId` and `config`; `toJSON()` exports declarations using `plugin` and `policy.id`. Import `Recipe`, `Policy` and `Binding` from `ember-rsi` when using these model APIs.
+
+The Manager saves incremental checkpoints while continuing to read existing v1 snapshots. Standalone `Policy.execute()` callers can keep their `checkpoint(snapshot)` callback. `recordMeasurement()` owns a copy of its input and returns a stable reference for repeated identical submissions.
+
+Cleanup failures are separate from the experiment result. `runtime.dispose()` reports failed or still-pending cleanup; Runtime retains ownership until cleanup settles. After independently confirming that failed external resources have been released, an embedding host can call `runtime.manager.reconcileCleanup(experimentId)` and then dispose again. Reconciliation never repeats plugin disposal and refuses pending cleanup.
 
 Direct registration in a host process does not modify a separately started CLI process. Use that host for management calls, or load the same extension through `--plugin-dir`. Never persist live `RuntimeContext` objects as JSON.
 

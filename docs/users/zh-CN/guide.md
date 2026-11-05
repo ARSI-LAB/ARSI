@@ -233,7 +233,7 @@ ember-rsi dashboard --port 4317
 | 替换完整的提案流程                                 | 实现 `contract.proposer` 并替换对应 Proposer 绑定。 |
 | 修改编排、状态或停止规则                           | 注册自定义 Policy。                                 |
 
-绑定声明通过 `plugin` 选择已注册插件，`policy.id` 选择已注册 Policy。仅含配置的覆盖项继承默认插件；插件不变时，普通对象递归合并，数组、标量和 null 替换旧值。切换插件会丢弃原插件配置。Schema 标记的路径字段分别保留其声明来源。加载时校验最终配置与契约。参考 [加载器](../../../src/runtime/loaders/index.ts)。
+绑定声明通过 `plugin` 选择已注册插件，`policy.id` 选择已注册 Policy。仅含配置的覆盖项继承默认插件；插件不变时，普通对象递归合并，数组、标量和 null 替换旧值。切换插件会丢弃原插件配置。Schema 标记的路径字段分别保留其声明来源。加载时校验最终配置与契约。参考 [加载器](../../../src/runtime/loaders/recipe.ts)。
 
 插件按 `schema.ts`（配置）、`service.ts`（业务逻辑与清理）、`index.ts`（组装定义）组织，复用公共契约的输入输出 Schema。仓库内插件导入本地契约；外部工程从 `ember-rsi` 或 `ember-rsi/contracts` 导入，不使用私有 `src/*` 子路径。
 
@@ -288,6 +288,10 @@ try {
 ```
 
 `Recipe.load(recipePath, runtime.registry)` 返回装配后的定义，不会初始化 Application。其 `policy` 是 `Policy` 对象，`policyConfig` 与 `policyInput` 分别保存配置和输入映射。`application` 与 `bindings` 中各项是已校验的 `Binding` 对象，提供 `pluginId` 与 `config`；`toJSON()` 导出使用 `plugin` 与 `policy.id` 的声明。使用这些模型 API 时，从 `ember-rsi` 导入 `Recipe`、`Policy` 与 `Binding`。
+
+Manager 保存增量检查点，并继续读取已有的 v1 快照。独立调用 `Policy.execute()` 时，仍可使用 `checkpoint(snapshot)` 回调。`recordMeasurement()` 使用输入的内部副本，重复提交相同内容会返回相同引用。
+
+清理失败与实验结果分别记录。`runtime.dispose()` 会报告失败或仍在进行的清理，Runtime 在清理结束前保留资源所有权。宿主独立确认失败的外部资源已释放后，可以调用 `runtime.manager.reconcileCleanup(experimentId)`，再关闭 Runtime。核对操作不会重复调用插件释放方法，并会拒绝仍在进行的清理。
 
 宿主进程直接注册插件，不会修改另行启动的 CLI 进程。请通过该宿主管理实验，或通过 `--plugin-dir` 加载相同扩展。不要将存活的 `RuntimeContext` 对象作为 JSON 持久化。
 

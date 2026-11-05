@@ -68,3 +68,15 @@ test(
     }
   },
 );
+
+test(
+  'relative native Codex paths resolve before switching the child working directory',
+  { skip: process.platform === 'win32' },
+  () => {
+    assert.deepEqual(codexCommand('./bin/codex'), {
+      executable: join(process.cwd(), 'bin/codex'),
+      args: [],
+    });
+    assert.deepEqual(codexCommand('codex'), { executable: 'codex', args: [] });
+  },
+);

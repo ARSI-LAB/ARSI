@@ -13,7 +13,7 @@ import {
   type OperationDefinition,
 } from '../../src/contracts/index.js';
 import { createRuntime } from '../../src/runtime/context.js';
-import { loadRecipe } from '../../src/runtime/loaders/index.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { object, string } from '../../src/shared/json.js';
 import {
   prepareOperatorProposerFixture,
@@ -123,7 +123,7 @@ async function setup(
 
 test('operator search inherits policy prompt paths while resolving recipe overrides from the recipe', async (t) => {
   const f = await setup(t);
-  const recipe = await loadRecipe(f.recipePath, f.registry);
+  const recipe = await Recipe.load(f.recipePath, f.registry);
   assert.equal(
     recipe.bindings.proposer!.config.promptsDirectory,
     fileURLToPath(
@@ -138,7 +138,7 @@ test('operator search inherits policy prompt paths while resolving recipe overri
   object(object(object(overridden.bindings).proposer).config).promptsDirectory =
     './custom-prompts';
   await writeFile(f.recipePath, stringify(overridden));
-  const custom = await loadRecipe(f.recipePath, f.registry);
+  const custom = await Recipe.load(f.recipePath, f.registry);
   assert.equal(
     custom.bindings.proposer!.config.promptsDirectory,
     join(f.root, 'example/custom-prompts'),

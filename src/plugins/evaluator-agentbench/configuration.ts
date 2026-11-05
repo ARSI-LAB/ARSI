@@ -52,7 +52,6 @@ export function nativeConfiguration(
   }
   for (const service of Object.values(object(native.services))) {
     const m = object(service);
-    if (m.maxTokens === undefined) m.maxTokens = 65536;
     if (
       m.api_key !== undefined &&
       !/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(string(m.api_key))

@@ -25,7 +25,9 @@ export async function managerFixture(
     plugins?: OperationDefinition[];
     bindings?: Record<string, Binding>;
     context?: RuntimeContext;
+    policy?: JsonObject;
     initialize?(context: RuntimeContext): Promise<void>;
+    disposeDriver?(): Promise<void>;
   } = {},
 ): Promise<{
   manager: Manager;
@@ -77,7 +79,9 @@ export async function managerFixture(
       async create(_config, _context) {
         return {
           execute: (_input, context) => execute(context),
-          async dispose() {},
+          async dispose() {
+            await options.disposeDriver?.();
+          },
         };
       },
     };
@@ -106,6 +110,7 @@ export async function managerFixture(
         require: requirements,
         steps: [{ id: 'drive', type: 'invoke', use: 'driver', with: {} }],
         output: '${{ steps.drive.output }}',
+        ...options.policy,
       }),
     );
     registry.registerPolicy('test.policy', join(root, 'policy.yaml'));

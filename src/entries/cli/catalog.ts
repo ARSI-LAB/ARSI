@@ -1,6 +1,6 @@
 import type { JsonObject } from '../../contracts/index.js';
 import type { Registry } from '../../runtime/registry/index.js';
-import { readPolicy } from '../../runtime/compiler/index.js';
+import { Policy } from '../../runtime/policy/index.js';
 
 /** Compatibility denotes declared contract slots, not measured task suitability. */
 export async function describeCatalog(
@@ -10,7 +10,7 @@ export async function describeCatalog(
   const policies = await Promise.all(
     catalog.policies.map(async (id) => ({
       id,
-      policy: await readPolicy(registry.policy(id), registry),
+      policy: await Policy.load(registry.policy(id), registry),
     })),
   );
   return {

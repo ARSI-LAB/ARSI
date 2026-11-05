@@ -15,3 +15,6 @@ implementation:
   config:
     evidenceView: execution
     agentRef: agent
+budget:
+  modelCalls: 50
+  timeoutSeconds: 600

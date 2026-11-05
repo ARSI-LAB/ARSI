@@ -32,7 +32,7 @@ This skill supplies the complete orchestration and baseline; it does not distrib
 ## Existing algorithms
 
 - `policy.harness2` performs base, invariant/domain proposals, composition and artifact selection; its dataset/k/concurrency and editor bindings differ from the starter. It uses execution-only learning evidence and requires actual delivery evidence for artifact selection.
-- `policy.wikiskill` uses disjoint `dataset.trainTaskIds`, `validationTaskIds`, and `testTaskIds`, with an optional `maxRounds` limit. Held-out test runs after learning. A baseline must contain the editable skills declared in its Target.
+- `policy.wikiskill` uses disjoint `dataset.trainTaskIds`, `validationTaskIds`, and `testTaskIds`. Its `maxRounds` limit defaults to 3. Held-out test runs after learning. A baseline must contain the editable skills declared in its Target.
 - `policy.parameter-grid` uses grid proposals with an inference instance. Read [inference experiments](inference-experiments.md) for lifecycle and metric constraints.
 
 `ember-rsi catalog` lists IDs only. Use [public schema lookup](plugins.md#discover-schemas-through-public-apis) to obtain a registered Policy's input/config/default schemas and implementation schemas. Prefer the complete starter when writing a new algorithm; do not infer a built-in Policy's binding keys from another Policy's examples. If a domain workflow needs machine-specific scripts, benchmark assets or a particular bundle, those are user/environment inputs; the skill cannot replace them.

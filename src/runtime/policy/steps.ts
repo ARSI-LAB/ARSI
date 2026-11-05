@@ -1,4 +1,3 @@
-import { scheduler } from 'node:timers/promises';
 import { expressions } from './expression.js';
 import type {
   JsonObject,
@@ -122,15 +121,19 @@ function required(value: JsonValue | undefined, label: string): JsonValue {
   if (value === undefined) throw new Error(`${label} is required`);
   return immutable(structuredClone(value));
 }
-function integer(value: JsonValue, label: string, minimum = 0): number {
+export function boundedInteger(
+  value: JsonValue,
+  label: string,
+  maximum: number,
+  minimum = 0,
+): number {
   if (
     typeof value !== 'number' ||
     !Number.isSafeInteger(value) ||
-    value < minimum
+    value < minimum ||
+    value > maximum
   )
-    throw new Error(
-      `${label} must be a safe integer greater than or equal to ${minimum}`,
-    );
+    throw new Error(`${label} must be an integer ${minimum}..${maximum}`);
   return value;
 }
 function boolean(value: JsonValue, label: string): boolean {
@@ -308,11 +311,12 @@ export class LoopStep implements Step {
       'steps',
       'output',
     ]);
-    this.maxIterations = immutable(
-      structuredClone(value.maxIterations ?? null),
+    this.maxIterations = required(
+      value.maxIterations,
+      `${this.id}.maxIterations`,
     );
-    if (this.maxIterations !== null && !expressions(this.maxIterations).length)
-      integer(this.maxIterations, `${this.id}.maxIterations`);
+    if (!expressions(this.maxIterations).length)
+      boundedInteger(this.maxIterations, `${this.id}.maxIterations`, 100000);
     this.condition = immutable(
       structuredClone(value.while === undefined ? true : value.while),
     );
@@ -331,12 +335,12 @@ export class LoopStep implements Step {
     context.validateTemplate(this.output);
   }
   async execute(context: StepContext): Promise<StepResult> {
-    const value = context.evaluate(this.maxIterations);
-    const maximum =
-      value === null
-        ? null
-        : integer(value, `${context.stepPath}.maxIterations`);
-    for (let index = 0; maximum === null || index < maximum; index++) {
+    const maximum = boundedInteger(
+      context.evaluate(this.maxIterations),
+      `${context.stepPath}.maxIterations`,
+      100000,
+    );
+    for (let index = 0; index < maximum; index++) {
       context.signal.throwIfAborted();
       const locals = { loop: { index } };
       if (
@@ -352,7 +356,6 @@ export class LoopStep implements Step {
       });
       await context.boundary(index);
       if (result.kind === 'break') break;
-      if (maximum === null) await scheduler.yield();
     }
     return { kind: 'completed', output: context.evaluate(this.output) };
   }
@@ -399,7 +402,12 @@ export class ForEachStep implements Step {
       structuredClone(value.concurrency === undefined ? 1 : value.concurrency),
     );
     if (!expressions(this.concurrency).length)
-      integer(this.concurrency, `${this.id}.concurrency`, 1);
+      boundedInteger(
+        this.concurrency,
+        `${this.id}.concurrency`,
+        Number.MAX_SAFE_INTEGER,
+        1,
+      );
     this.steps = parseSteps(value.steps, this.id);
     this.output = immutable(structuredClone(value.output ?? null));
     Object.freeze(this);
@@ -426,9 +434,10 @@ export class ForEachStep implements Step {
     const items = context.evaluate(this.items);
     if (!Array.isArray(items))
       throw new Error(`${context.stepPath}: foreach requires an array`);
-    const concurrency = integer(
+    const concurrency = boundedInteger(
       context.evaluate(this.concurrency),
       `${context.stepPath}.concurrency`,
+      Number.MAX_SAFE_INTEGER,
       1,
     );
     const parallel = context.parallel || concurrency > 1;

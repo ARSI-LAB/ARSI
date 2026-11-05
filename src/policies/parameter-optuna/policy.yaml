@@ -85,7 +85,7 @@ steps:
       searchStateRef: ${{ steps.initialize_search.output.stateRef }}
   - id: search
     type: loop
-    maxIterations: ${{ get(config, 'maxTrials', null) }}
+    maxIterations: ${{ config.maxTrials }}
     while: ${{ !state.stopped }}
     steps:
       - id: propose

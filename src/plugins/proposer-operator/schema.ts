@@ -1,10 +1,35 @@
-import { defaultModelRequestTimeoutMs } from './agent.js';
 import type { JsonObject } from '../../contracts/index.js';
 import {
   operatorAttemptOutcomes,
   type OperatorAttemptOutcome,
 } from '../../contracts/plugin-types/proposer-operator.js';
 import { recordSchema } from '../../contracts/models/measurement.js';
+
+export type OperatorAgentStage =
+  | 'diagnose'
+  | 'diagnose-metrics'
+  | 'generate'
+  | 'repair'
+  | 'summarize';
+
+export const defaultModelRequestTimeoutMs = 120000;
+
+export const operatorEditConstraints = {
+  allowedPaths: ['input.py'],
+  maxChangedFiles: 1,
+  maxChangedBytes: 32768,
+};
+export const operatorEditOutputSchema = recordSchema({
+  edits: {
+    type: 'array',
+    maxItems: 1,
+    items: recordSchema({
+      path: { const: 'input.py' },
+      content: { type: 'string', maxLength: 32768 },
+    }),
+  },
+  reason: { type: 'string', maxLength: 4000 },
+});
 
 export const staticIssueTypes = [
   'core_partition',
@@ -178,6 +203,10 @@ export const staticDiagnosisSchema: JsonObject = {
     evidence: { ...strings(8), minItems: 1 },
   }),
 };
+export const diagnosisResponseSchema = recordSchema({
+  issues: staticDiagnosisSchema,
+});
+
 export const analysisIdentitySchema = recordSchema({
   entryCandidateRef: ref,
   baselineMeasurementRef: ref,

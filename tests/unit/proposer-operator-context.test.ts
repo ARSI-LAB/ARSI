@@ -11,7 +11,7 @@ import {
   parseStaticDiagnosis,
   readAnalysis,
   readHistory,
-} from '../../src/plugins/proposer-operator/context.js';
+} from '../../src/plugins/proposer-operator/execution-context.js';
 import {
   configSchema,
   type OperatorProposerConfig,

@@ -55,7 +55,6 @@ bindings:
           name: agentbundle
       scheduler:
         name: local
-        concurrency: 1
       run:
         timeoutSeconds: 4500
 budget:

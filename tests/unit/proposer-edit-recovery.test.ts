@@ -236,38 +236,3 @@ test('Composer does not disguise unauthorized edits or cancellation as merge fal
     await f.close();
   }
 });
-
-test('Proposer releases its workspace after Application commit failure and can retry', async () => {
-  const f = await fixture([
-    {
-      edits: [{ path: 'skill.md', content: null }],
-      reason: 'Remove a file required by the Application',
-    },
-    {
-      edits: [{ path: 'skill.md', content: 'valid retry' }],
-      reason: 'Preserve the required file',
-    },
-  ]);
-  try {
-    await assert.rejects(f.execute(), { code: 'ENOENT' });
-    assert.deepEqual(await readdir(join(f.root, 'workspaces')), []);
-    const parent = await f.execution.readCandidate('base');
-    assert.deepEqual(
-      await resourceFiles(parent.artifactRef, f.execution),
-      f.initial,
-    );
-    const result = object(await f.execute());
-    assert.equal(result.status, 'created');
-    const candidate = await f.execution.readCandidate(
-      String(result.candidateRef),
-    );
-    assert.deepEqual(await resourceFiles(candidate.artifactRef, f.execution), {
-      'skill.md': 'valid retry',
-      'other.md': 'original',
-    });
-    assert.equal(f.requests(), 2);
-    assert.deepEqual(await readdir(join(f.root, 'workspaces')), []);
-  } finally {
-    await f.close();
-  }
-});

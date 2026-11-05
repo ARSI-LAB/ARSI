@@ -39,7 +39,7 @@ import {
 import { parseConfig, validate } from '../../shared/schema.js';
 import { commitEdits } from '../shared/agent-editing/index.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
-import { loadOperatorTask } from '../shared/file-application/kernel-task.js';
+import { loadOperatorTask } from '../shared/operator-task.js';
 import { readDecisionFeedback } from '../shared/metric-decision/index.js';
 import {
   analysisSchema,
@@ -2206,7 +2206,7 @@ export async function loadOperatorResources(
       knowledge: external.digest,
       worker: external.workerDigest,
       taskModel: await sourceIdentity(import.meta.url, [
-        '../shared/file-application/kernel-task',
+        '../shared/operator-task',
       ]),
     }),
     knowledgeDigest: external.digest,

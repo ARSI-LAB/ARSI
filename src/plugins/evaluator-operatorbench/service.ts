@@ -8,7 +8,7 @@ import type {
   Operation,
   RuntimeContext,
 } from '../../contracts/index.js';
-import { parseKernelExecution } from '../shared/file-application/kernel-execution.js';
+import { parseKernelExecution } from '../application-kernel/schema.js';
 import {
   operatorbenchContract,
   type OperatorbenchInput,
@@ -19,7 +19,7 @@ import { parseConfig, validate } from '../../shared/schema.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { archiveItemExecution } from '../shared/evaluator-adapter/measurement.js';
 import { prepareSdkConfiguration } from './sdk.js';
-import { loadOperatorTask } from '../shared/file-application/kernel-task.js';
+import { loadOperatorTask } from '../shared/operator-task.js';
 import { EvaluatorRunError } from 'ember-evaluator';
 import { sdkRunner } from '../shared/evaluator-adapter/sdk.js';
 import type { PreparedSdkRun } from './sdk.js';
@@ -68,7 +68,8 @@ export async function createOperatorbench(
     './sdk',
     './result',
     './measurement',
-    '../shared/file-application/kernel-task',
+    '../shared/operator-task',
+    '../application-kernel/schema',
   ]);
   const sdkBuildDigest = await sdkBuildIdentity();
   return {

@@ -51,7 +51,7 @@ test('resume recovers a committed initialize result when its success listener ca
         await ctx.invoke('observer', {});
       },
       plugins: [observer],
-      bindings: { observer: { ref: observer.id, config: {} } },
+      bindings: { observer: { plugin: observer.id, config: {} } },
     },
   );
   try {

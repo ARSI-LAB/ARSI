@@ -45,11 +45,11 @@ export class Instances {
     binding: Binding,
     uses: Set<Promise<unknown>>,
   ): Promise<Instance> {
-    const definition = this.registry.get(binding.ref);
+    const definition = this.registry.get(binding.plugin);
     const scope = this.events.prepare(bindingId);
     try {
       const operation = await definition.create(
-        binding.config,
+        structuredClone(binding.config),
         this.context(bindingId).extend({ event: scope.event }),
       );
       const instance: Instance = { operation, scope, uses };

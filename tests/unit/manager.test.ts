@@ -13,8 +13,9 @@ import { Manager } from '../../src/runtime/manager/index.js';
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
 import { applicationContract } from '../../src/contracts/plugin-types/index.js';
 import { object, string } from '../../src/shared/json.js';
+import { managerFixture } from '../helpers/manager-fixture.js';
 
-test('Manager reads original resources and resumes completed or interrupted runs after edits', async () => {
+test('Manager locks startup resources and resumes completed or interrupted runs after source edits', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-live-resources-'));
   const registry = new Registry();
   const manager = new Manager({ registry, rootDirectory: root });
@@ -85,8 +86,8 @@ test('Manager reads original resources and resumes completed or interrupted runs
         input_schema: { type: 'object' },
         output_schema: { type: 'object' },
         require: { reader: { contract: reader.contract.id } },
-        init: { steps: [{ id: 'read', use: 'reader', with: {} }] },
-        output: '${{ init.read.output }}',
+        steps: [{ id: 'read', type: 'invoke', use: 'reader', with: {} }],
+        output: '${{ steps.read.output }}',
       }),
     );
     registry.registerPolicy('test.policy', join(root, 'policy.yaml'));
@@ -95,16 +96,22 @@ test('Manager reads original resources and resumes completed or interrupted runs
       stringify({
         schemaVersion: 'rsi.recipe/v1',
         id: 'live',
-        application: { ref: 'test.application', config: {} },
-        policy: { ref: 'test.policy', config: {}, input: {} },
+        application: { plugin: 'test.application', config: {} },
+        policy: { id: 'test.policy', config: {}, input: {} },
         bindings: {
-          reader: { ref: reader.id, config: { prompt: './prompt.md' } },
+          reader: { plugin: reader.id, config: { prompt: './prompt.md' } },
         },
         budget: { operations: 3, elapsedWallMs: 10000 },
       }),
     );
     const first = await manager.run(recipePath, { id: 'first' });
-    assert.deepEqual(first.output, { path: prompt, content: 'before' });
+    assert.equal(object(first.output).content, 'before');
+    assert.ok(
+      string(object(first.output).path).startsWith(
+        join(root, '.rsi/experiments/first/resources'),
+      ),
+    );
+    assert.notEqual(object(first.output).path, prompt);
     await writeFile(prompt, 'after');
     const resumed = await manager.run(recipePath, {
       id: 'first',
@@ -124,15 +131,13 @@ test('Manager reads original resources and resumes completed or interrupted runs
         input_schema: { type: 'object' },
         output_schema: { type: 'object' },
         require: { reader: { contract: reader.contract.id } },
-        init: {
-          steps: [
-            { id: 'first', use: 'reader', with: {} },
-            { id: 'second', use: 'reader', with: {} },
-          ],
-        },
+        steps: [
+          { id: 'first', type: 'invoke', use: 'reader', with: {} },
+          { id: 'second', type: 'invoke', use: 'reader', with: {} },
+        ],
         output: {
-          first: '${{ init.first.output.content }}',
-          second: '${{ init.second.output.content }}',
+          first: '${{ steps.first.output.content }}',
+          second: '${{ steps.second.output.content }}',
         },
       }),
     );
@@ -152,7 +157,7 @@ test('Manager reads original resources and resumes completed or interrupted runs
     });
     assert.deepEqual(continued.output, {
       first: 'after',
-      second: 'edited before resume',
+      second: 'after',
     });
     assert.equal(reads, 4);
     assert.equal(
@@ -231,8 +236,8 @@ test('Manager persists receipts and completed resume does not repeat calls or sp
           contract: counter.contract.id,
         },
       },
-      init: { steps: [{ id: 'count', use: 'counter', with: {} }] },
-      output: '${{ init.count.output }}',
+      steps: [{ id: 'count', type: 'invoke', use: 'counter', with: {} }],
+      output: '${{ steps.count.output }}',
     };
     await writeFile(join(root, 'policy.yaml'), stringify(policy));
     registry.registerPolicy('test.policy', join(root, 'policy.yaml'));
@@ -240,14 +245,14 @@ test('Manager persists receipts and completed resume does not repeat calls or sp
       schemaVersion: 'rsi.recipe/v1',
       id: 'probe',
       application: {
-        ref: 'test.application',
+        plugin: 'test.application',
         config: {
           baseline: { directory: join(root, 'baseline') },
           target: { schema: { type: 'object' } },
         },
       },
-      policy: { ref: 'test.policy', input: {}, config: {} },
-      bindings: { counter: { ref: 'test.counter', config: {} } },
+      policy: { id: 'test.policy', input: {}, config: {} },
+      bindings: { counter: { plugin: 'test.counter', config: {} } },
       budget: { operations: 2, elapsedWallMs: 10000 },
     };
     await writeFile(join(root, 'recipe.yaml'), stringify(recipe));
@@ -273,5 +278,33 @@ test('Manager persists receipts and completed resume does not repeat calls or sp
   } finally {
     await registry.dispose();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Manager rejects legacy checkpoints before replaying plugin effects', async () => {
+  const cancellation = new AbortController();
+  let executions = 0;
+  const fixture = await managerFixture(async () => {
+    executions++;
+    cancellation.abort(new Error('stop after committed call'));
+    return {};
+  });
+  try {
+    const path = join(fixture.manager.rootDirectory, 'recipe.yaml');
+    await assert.rejects(
+      fixture.manager.run(path, { id: 'test', signal: cancellation.signal }),
+      /stop after committed call/,
+    );
+    assert.equal(executions, 1);
+    await fixture.manager.facts.write('checkpoints', 'test', {
+      boundaries: { completed: null },
+    });
+    await assert.rejects(
+      fixture.manager.run(path, { id: 'test', resume: true }),
+      /checkpoint|snapshot|Unsupported/i,
+    );
+    assert.equal(executions, 1);
+  } finally {
+    await fixture.dispose();
   }
 });

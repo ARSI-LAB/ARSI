@@ -4,10 +4,7 @@ import assert from 'node:assert/strict';
 import { Context } from '@deepseek-ai/cordis';
 import type { JsonObject } from '../../src/contracts/index.js';
 import { compilePolicy } from '../../src/runtime/compiler/index.js';
-import {
-  executePolicy,
-  type PolicyOptions,
-} from '../../src/runtime/policy/index.js';
+import type { PolicyOptions } from '../../src/runtime/policy/index.js';
 
 const definition = {
   schemaVersion: 'rsi.policy/v1',
@@ -19,24 +16,44 @@ const definition = {
     additionalProperties: false,
     properties: { increment: { type: 'integer' } },
   },
-  init: { steps: [{ id: 'initialize', state: { count: 0 } }] },
-  loop: {
-    maxIterations: 2,
-    steps: [
-      {
-        id: 'advance',
-        state: { count: '${{ state.count + config.increment }}' },
-      },
-    ],
+  state_schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { count: { type: 'integer' } },
   },
-  finish: {
-    steps: [{ id: 'finish', state: { count: '${{ state.count + 10 }}' } }],
-  },
+  state: { count: 0 },
+  steps: [
+    {
+      id: 'first',
+      type: 'loop',
+      maxIterations: 2,
+      steps: [
+        {
+          id: 'advance',
+          type: 'state',
+          state: { count: '${{ state.count + config.increment }}' },
+        },
+      ],
+    },
+    {
+      id: 'second',
+      type: 'loop',
+      maxIterations: 1,
+      steps: [
+        {
+          id: 'advance',
+          type: 'state',
+          state: { count: '${{ state.count + 10 }}' },
+        },
+      ],
+    },
+  ],
   output: '${{ state.count }}',
 };
-
 function options(context: Context): PolicyOptions {
   return {
+    input: {},
+    config: { increment: 1 },
     application: {},
     context: new RuntimeContext().extend({
       signal: new AbortController().signal,
@@ -53,7 +70,6 @@ function options(context: Context): PolicyOptions {
     }),
     invoke: async () => null,
     checkpoint: async () => {},
-    boundary: async () => {},
     events: {
       info: {
         experimentId: 'exp-events',
@@ -64,85 +80,67 @@ function options(context: Context): PolicyOptions {
     },
   };
 }
-
-test('Policy publishes committed progress in order and applies boundary patches before advancing', async (t) => {
+test('committed step events and loop boundaries carry stable paths without stage tags', async (t) => {
   const context = new Context();
   t.after(() => context.fiber.dispose());
-  const policy = compilePolicy(definition);
   const trace: string[] = [];
   let checkpoint: JsonObject = {};
-  let finishNotification: (() => void) | undefined;
+  let release!: () => void;
   const notification = new Promise<void>((resolve) => {
-    finishNotification = resolve;
+    release = resolve;
   });
+  t.after(() => release());
   context.on('rsi/policy-started', async (event) => {
-    assert.deepEqual(event, {
-      experimentId: 'exp-events',
-      policyScopeId: 'root',
-      checkpointRef: 'exp-events',
-      policyId: 'policy.events',
-      resumed: false,
-    });
+    assert.equal(event.resumed, false);
     trace.push('start-a');
     await Promise.resolve();
     trace.push('start-b');
   });
   context.on('rsi/policy-step-completed', (event) => {
     assert.ok((checkpoint.journal as JsonObject)[event.stepPath]);
-    trace.push(`${event.stage}:${event.stepPath}`);
+    assert.equal(Object.hasOwn(event, 'stage'), false);
+    trace.push(event.stepPath);
     return notification;
   });
   context.on('rsi/policy-boundary-completed', async (event) => {
-    assert.ok(
-      Object.hasOwn(
-        checkpoint.boundaries as JsonObject,
-        String(event.iteration),
-      ),
-    );
-    trace.push(`boundary:${event.iteration}`);
+    const key =
+      event.boundary === 'policy-completed'
+        ? 'policy-completed'
+        : `${event.stepPath}/iteration-${event.iteration}`;
+    assert.equal((checkpoint.boundaries as JsonObject)[key], true);
+    trace.push(`boundary:${key}`);
     await Promise.resolve();
   });
   context.on('rsi/policy-completed', () => {
     trace.push('completed');
   });
   assert.equal(
-    await executePolicy(
-      policy,
-      {},
-      { increment: 1 },
-      {
-        ...options(context),
-        checkpoint: async (value) => {
-          checkpoint = value;
-        },
-        boundary: async (iteration) => {
-          trace.push(`callback:${iteration}`);
-          return { increment: 2 };
-        },
+    await compilePolicy(definition).execute({
+      ...options(context),
+      checkpoint: async (value) => {
+        checkpoint = value;
       },
-    ),
-    13,
+    }),
+    12,
   );
   assert.deepEqual(trace, [
     'start-a',
     'start-b',
-    'init:init/initialize',
-    'loop:loop/0/advance',
-    'callback:0',
-    'boundary:0',
-    'loop:loop/1/advance',
-    'callback:1',
-    'boundary:1',
-    'finish:finish/finish',
+    'steps/first/iteration-0/advance',
+    'boundary:steps/first/iteration-0',
+    'steps/first/iteration-1/advance',
+    'boundary:steps/first/iteration-1',
+    'steps/first',
+    'steps/second/iteration-0/advance',
+    'boundary:steps/second/iteration-0',
+    'steps/second',
+    'boundary:policy-completed',
     'completed',
   ]);
-  finishNotification!();
 });
-
-test('Policy recovery skips committed steps and boundaries while marking the execution resumed', async (t) => {
+test('recovery skips committed steps and boundaries while marking execution resumed', async (t) => {
   const context = new Context();
   t.after(() => context.fiber.dispose());
-  const policy = compilePolicy(definition);
   let checkpoint: JsonObject | undefined;
   let steps = 0;
   let boundaries = 0;
@@ -158,35 +156,23 @@ test('Policy recovery skips committed steps and boundaries while marking the exe
     boundaries++;
     return undefined;
   });
+  const policy = compilePolicy(definition);
   const runOptions = {
     ...options(context),
     checkpoint: async (value: JsonObject) => {
       checkpoint = value;
     },
-    boundary: async () => ({ increment: 2 }),
   };
+  assert.equal(await policy.execute(runOptions), 12);
   assert.equal(
-    await executePolicy(policy, {}, { increment: 1 }, runOptions),
-    13,
-  );
-  assert.equal(
-    await executePolicy(
-      policy,
-      {},
-      { increment: 1 },
-      {
-        ...runOptions,
-        restore: checkpoint,
-      },
-    ),
-    13,
+    await policy.execute({ ...runOptions, restore: checkpoint }),
+    12,
   );
   assert.deepEqual(resumed, [false, true]);
-  assert.equal(steps, 4);
-  assert.equal(boundaries, 2);
+  assert.equal(steps, 5);
+  assert.equal(boundaries, 4);
 });
-
-test('Policy notification errors preserve committed progress and native synchronous truncation', async (t) => {
+test('notification errors preserve commits and native synchronous listener truncation', async (t) => {
   const context = new Context();
   t.after(() => context.fiber.dispose());
   const diagnostics: string[] = [];
@@ -205,102 +191,83 @@ test('Policy notification errors preserve committed progress and native synchron
     assert.ok(error instanceof Error);
     diagnostics.push(name);
   };
-  assert.equal(
-    await executePolicy(
-      compilePolicy(definition),
-      {},
-      { increment: 1 },
-      runOptions,
-    ),
-    12,
-  );
+  assert.equal(await compilePolicy(definition).execute(runOptions), 12);
   assert.equal(unexpected, 0);
   assert.deepEqual(diagnostics, [
-    ...Array<string>(4).fill('rsi/policy-step-completed'),
+    ...Array<string>(5).fill('rsi/policy-step-completed'),
     'rsi/policy-completed',
   ]);
 });
-
-test('Policy serial failures block progress without undoing persisted steps or boundaries', async (t) => {
+test('boundary listener failure preserves durable progress and recovery resumes after that boundary', async (t) => {
   const context = new Context();
   t.after(() => context.fiber.dispose());
   let checkpoint: JsonObject = {};
   let advanced = false;
-  context.on('rsi/policy-boundary-completed', async () => {
+  const off = context.on('rsi/policy-boundary-completed', async () => {
     throw new Error('boundary listener failed');
   });
   context.on('rsi/policy-boundary-completed', () => {
     advanced = true;
     return undefined;
   });
-  await assert.rejects(
-    executePolicy(
-      compilePolicy(definition),
-      {},
-      { increment: 1 },
-      {
-        ...options(context),
-        checkpoint: async (value) => {
-          checkpoint = value;
-        },
-      },
-    ),
-    /boundary listener failed/,
-  );
-  assert.ok((checkpoint.journal as JsonObject)['loop/0/advance']);
-  assert.equal((checkpoint.journal as JsonObject)['loop/1/advance'], undefined);
-  assert.ok(Object.hasOwn(checkpoint.boundaries as JsonObject, '0'));
-  assert.equal(advanced, false);
-});
-
-test('Policy completion boundary applies configuration patches and does not replay on recovery', async (t) => {
-  const context = new Context();
-  t.after(() => context.fiber.dispose());
-  const { loop: _loop, finish: _finish, ...oneShot } = definition;
-  const policy = compilePolicy({
-    ...oneShot,
-    output: '${{ config.increment }}',
-  });
-  let checkpoint: JsonObject | undefined;
-  let boundaries = 0;
-  context.on('rsi/policy-boundary-completed', (event) => {
-    assert.equal(event.boundary, 'policy-completed');
-    assert.equal(event.iteration, undefined);
-    boundaries++;
-    return undefined;
-  });
+  const policy = compilePolicy(definition);
   const runOptions = {
     ...options(context),
     checkpoint: async (value: JsonObject) => {
       checkpoint = value;
     },
-    boundary: async () => ({ increment: 7 }),
   };
-  assert.equal(
-    await executePolicy(policy, {}, { increment: 1 }, runOptions),
-    7,
+  await assert.rejects(policy.execute(runOptions), /boundary listener failed/);
+  assert.ok(
+    (checkpoint.journal as JsonObject)['steps/first/iteration-0/advance'],
   );
   assert.equal(
-    await executePolicy(
-      policy,
-      {},
-      { increment: 1 },
-      {
-        ...runOptions,
-        restore: checkpoint,
-      },
-    ),
-    7,
+    (checkpoint.journal as JsonObject)['steps/first/iteration-1/advance'],
+    undefined,
   );
-  assert.equal(boundaries, 1);
+  assert.equal(
+    (checkpoint.boundaries as JsonObject)['steps/first/iteration-0'],
+    true,
+  );
+  assert.equal(advanced, false);
+  off();
+  assert.equal(
+    await policy.execute({ ...runOptions, restore: checkpoint }),
+    12,
+  );
 });
-
+test('checkpoint failure emits no step event and a durable snapshot can finish on recovery', async (t) => {
+  const context = new Context();
+  t.after(() => context.fiber.dispose());
+  let snapshot: JsonObject = {};
+  let stepEvents = 0;
+  context.on('rsi/policy-step-completed', () => {
+    stepEvents++;
+  });
+  const policy = compilePolicy(definition);
+  await assert.rejects(
+    policy.execute({
+      ...options(context),
+      checkpoint: async (value) => {
+        snapshot = value;
+        throw new Error('checkpoint interrupted');
+      },
+    }),
+    /checkpoint interrupted/,
+  );
+  assert.equal(stepEvents, 0);
+  assert.equal(
+    await policy.execute({ ...options(context), restore: snapshot }),
+    12,
+  );
+  assert.equal(stepEvents, 4);
+});
 for (const pause of [
   'rsi/policy-started',
   'rsi/policy-boundary-completed',
-  'boundary-callback',
+  'checkpoint',
 ] as const) {
-  test(`Policy cancellation while awaiting ${pause} blocks late progress even with empty steps`, async (t) => {
+  test(`cancellation while awaiting ${pause} prevents further checkpoints and completion`, async (t) => {
     const context = new Context();
     const controller = new AbortController();
     let entered!: () => void;
@@ -320,44 +287,31 @@ for (const pause of [
       await gate;
       return undefined;
     };
-    if (pause !== 'boundary-callback') context.on(pause, wait);
+    if (pause !== 'checkpoint') context.on(pause, wait);
     let checkpoints = 0;
-    let boundaries = 0;
     let completions = 0;
     context.on('rsi/policy-completed', () => {
       completions++;
     });
-    const policy = compilePolicy({
-      schemaVersion: 'rsi.policy/v1',
-      id: 'policy.empty-events',
-      input_schema: { type: 'object' },
-      output_schema: { type: 'integer' },
-      init: { steps: [] },
+    const runOptions = options(context);
+    const running = compilePolicy({
+      ...definition,
+      steps: [],
       output: 0,
-    });
-    const running = executePolicy(
-      policy,
-      {},
-      {},
-      {
-        ...options(context),
-        context: options(context).context.extend({ signal: controller.signal }),
-        checkpoint: async () => {
-          checkpoints++;
-        },
-        boundary: async () => {
-          boundaries++;
-          if (pause === 'boundary-callback') return wait();
-        },
+    }).execute({
+      ...runOptions,
+      context: runOptions.context.extend({ signal: controller.signal }),
+      checkpoint: async () => {
+        checkpoints++;
+        if (pause === 'checkpoint') await wait();
       },
-    );
+    });
     await paused;
-    const checkpointsAtCancellation = checkpoints;
+    const before = checkpoints;
     controller.abort(new Error('experiment cancelled'));
     release();
     await assert.rejects(running, /experiment cancelled/);
-    assert.equal(checkpoints, checkpointsAtCancellation);
-    assert.equal(boundaries, pause === 'rsi/policy-started' ? 0 : 1);
+    assert.equal(checkpoints, before);
     assert.equal(completions, 0);
   });
 }

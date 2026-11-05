@@ -35,7 +35,7 @@ For inspection or diagnosis, use the relevant reference without creating an expe
 | Recipe, Target, baseline, model settings         | [Recipes](references/recipes.md)                                                       |
 | Terminal commands and recovery                   | [CLI](references/cli.md)                                                               |
 | Web observation and control API                  | [Web](references/web.md)                                                               |
-| Algorithm, branches, loops, sub-Policies         | [Policies](references/policies.md)                                                     |
+| Algorithm, typed steps, loops and state          | [Policies](references/policies.md)                                                     |
 | Custom plugin and public service calls           | [Plugins](references/plugins.md), [service signatures](references/runtime-services.md) |
 | Startup registration                             | [External extensions](references/external-plugins.md)                                  |
 | Embedding and candidate handoff                  | [Programmatic integration](references/programmatic.md)                                 |

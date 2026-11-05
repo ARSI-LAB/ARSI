@@ -1,12 +1,12 @@
 schemaVersion: rsi.recipe/v1
 id: dsh-harness2
 application:
-  ref: application.agentbundle
+  plugin: application.agentbundle
   config:
     target: { schema: ./target.yaml }
     baseline: { directory: ./baseline }
 policy:
-  ref: policy.harness2
+  id: policy.harness2
   input:
     candidateRef: ${{ application.initialCandidate }}
   config:
@@ -27,15 +27,15 @@ policy:
         - workbuddy/cross-week-dashboard-migration
 bindings:
   invariantProposer:
-    ref: proposer.agent
+    plugin: proposer.agent
     config:
       guidance: ./guidance/invariant-proposer
   domainProposer:
-    ref: proposer.agent
+    plugin: proposer.agent
     config:
       guidance: ./guidance/domain-proposer
   evaluator:
-    ref: evaluator.agentbench
+    plugin: evaluator.agentbench
     config:
       services:
         default:

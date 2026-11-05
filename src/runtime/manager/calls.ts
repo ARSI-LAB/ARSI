@@ -12,8 +12,6 @@ import type {
 import { object, digest, json } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { errorText } from '../../shared/errors.js';
-import { readPolicy, type CompiledPolicy } from '../compiler/index.js';
-import { executePolicy } from '../policy/index.js';
 import type { Registry } from '../registry/index.js';
 
 interface CallExecutorOptions {
@@ -27,15 +25,6 @@ interface CallExecutorOptions {
     bindingId: string,
     binding: Binding,
   ): Promise<{ operation: Operation; event: EventPipeline; release(): void }>;
-  initialCandidate(): JsonValue;
-  policy?(binding: string): CompiledPolicy | undefined;
-  reflect?(
-    binding: string,
-    context: RuntimeContext,
-    stablePath: string,
-    state: JsonObject,
-    parallel: boolean,
-  ): Promise<JsonValue>;
   charge(
     metric: string,
     amount: number,
@@ -69,7 +58,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
     input: JsonValue,
     caller: RuntimeContext,
     path?: string,
-    parallel = false,
+    _parallel = false,
   ): Promise<JsonValue> => {
     // Admission and registration run without an await, including for old contexts.
     if (!accepting)
@@ -87,11 +76,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
     const existing = active.get(callId);
     if (existing) return existing;
     const job = (async (): Promise<JsonValue> => {
-      let ctx = context(bindingId, callId, caller).extend({
-        phase:
-          caller.phase ??
-          (path?.startsWith('finish/') ? 'report' : 'experiment'),
-      });
+      let ctx = context(bindingId, callId, caller);
       let prior: JsonObject | undefined;
       try {
         prior = await options.facts.read('calls', callId);
@@ -121,36 +106,19 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         bindingId,
         path: path ?? caller.callId,
         parentCallId: caller.callId,
-        bindingRef: binding.ref,
+        bindingRef: binding.plugin,
         revisionRef: typeof revisionRef === 'string' ? revisionRef : null,
       };
-      const subPolicy = options.registry
-        .catalog()
-        .policies.includes(binding.ref)
-        ? (options.policy?.(bindingId) ??
-          (await readPolicy(
-            options.registry.policy(binding.ref),
-            options.registry,
-          )))
-        : null;
-      const definition = subPolicy ? null : options.registry.get(binding.ref);
-      validate(
-        subPolicy
-          ? object(subPolicy.definition.input_schema)
-          : definition!.contract.input_schema,
-        input,
-        `${bindingId} input`,
-      );
-      const lease = subPolicy
-        ? undefined
-        : await options.operation(bindingId, binding);
-      if (lease) ctx = ctx.extend({ event: lease.event });
+      const definition = options.registry.get(binding.plugin);
+      validate(definition.contract.input_schema, input, `${bindingId} input`);
+      const lease = await options.operation(bindingId, binding);
+      ctx = ctx.extend({ event: lease.event });
       try {
         await charge('operations', 1, ctx);
         await mkdir(ctx.directory, { recursive: true });
         const receipt: JsonObject = {
           ...info,
-          pluginId: binding.ref,
+          pluginId: binding.plugin,
           status: 'running',
           input,
           startedAt: new Date().toISOString(),
@@ -212,69 +180,10 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
             throw new Error('Invalid rsi/before-call decision');
           if (decision.kind === 'reject')
             throw new Error(`Call admission rejected: ${decision.reason}`);
-          if (subPolicy) {
-            const checkpointKey = 'sub-' + callId;
-            let restore: JsonObject | undefined;
-            try {
-              restore = await options.facts.read('checkpoints', checkpointKey);
-            } catch (error) {
-              if (
-                !(
-                  error instanceof Error &&
-                  'code' in error &&
-                  error.code === 'ENOENT'
-                )
-              )
-                throw error;
-            }
-            output = await executePolicy(
-              subPolicy,
-              object(input),
-              binding.config,
-              {
-                application: { initialCandidate: options.initialCandidate() },
-                context: ctx,
-                parallel,
-                restore,
-                events: {
-                  info: {
-                    experimentId: id,
-                    policyScopeId: callId,
-                    checkpointRef: checkpointKey,
-                  },
-                  diagnose: options.diagnose,
-                },
-                invoke: async (child, value, childPath, childParallel) =>
-                  invoke(
-                    bindingId + '.' + child,
-                    value,
-                    ctx,
-                    callId + '/' + childPath,
-                    parallel || childParallel,
-                  ),
-                reflect: options.reflect
-                  ? async (childPath, state, childParallel) =>
-                      options.reflect!(
-                        bindingId,
-                        ctx,
-                        childPath,
-                        state,
-                        parallel || childParallel,
-                      )
-                  : undefined,
-                checkpoint: async (snapshot) =>
-                  options.facts.write('checkpoints', checkpointKey, snapshot),
-                boundary: async () => {},
-              },
-            );
-          } else {
-            output = await lease!.operation.execute(input, ctx);
-          }
+          output = await lease.operation.execute(input, ctx);
           json(output);
           validate(
-            subPolicy
-              ? object(subPolicy.definition.output_schema)
-              : definition!.contract.output_schema,
+            definition.contract.output_schema,
             output,
             `${bindingId} output`,
           );
@@ -349,7 +258,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         }
         return output;
       } finally {
-        lease?.release();
+        lease.release();
       }
     })();
     const supervised = job.catch((error) => {

@@ -78,9 +78,9 @@ RSI 不会自动加载 `.env` 文件。请在启动 CLI 或 Web 服务的进程�
 
 优化器 Agent 和被评测的 Solver 可以使用不同模型。Harness² Recipe 中的 `bindings.evaluator.config.services.default.model` 读取必填的 `EVALUATOR_MODEL_NAME` 环境变量，与 `MODEL_NAME` 独立，没有固定默认值。
 
-[Agent 配置 Schema](../../../src/plugins/agent-pi/schema.ts) 默认设置为 `thinkingLevel: low`、`contextWindow: 262144` 和 `retries: 0`。可设置 `maxTokens` 来限制模型输出，或设置 `timeoutMs` 来限制单次模型请求的用时。省略字段时，框架不施加对应上限。请选择模型端点支持的设置。
+[Agent 配置 Schema](../../../src/plugins/agent-pi/schema.ts) 默认设置为 `thinkingLevel: low`、`contextWindow: 262144` 和 `retries: 0`。可设置 `maxTokens` 来限制模型输出、`timeoutMs` 来限制每次模型请求的用时，或设置 `executionTimeoutMs` 来限制整次 Agent 调用。整次执行超时包含模型请求、工具调用、输出纠错、上下文压缩和重试等待，不会随新请求重置。这些字段均无隐式上限；两个超时字段接受 `1` 到 `2147483647` 的整数毫秒。请选择模型端点支持的设置。
 
-所有 `agent.pi` 会话默认提供 `run_subagent`，子代理也可继续委派。各 Agent 自主决定是否委派及如何分工，不额外限制委派层数或子代理数量；各层共用 Runtime 预算和取消机制，启动子代理不会重置预算。子代理使用同一 Agent 绑定，拥有独立对话和明确传入的虚拟文件。详见 [Reflection 机制](reflection.md#reflection-机制)。
+所有 `agent.pi` 会话默认提供 `run_subagent`，子代理也可继续委派。各 Agent 自主决定是否委派及如何分工，不额外限制委派层数或子代理数量；各层共用 Runtime 预算和取消机制，启动子代理不会重置预算，也不会延长父代理的执行截止时间。子代理使用同一 Agent 绑定，拥有独立对话和明确传入的虚拟文件。详见 [Reflection 机制](reflection.md#reflection-机制)。
 
 要使用本机已安装的 Codex CLI 及其已有登录、provider、模型和推理配置，将 Agent 绑定替换为：
 
@@ -127,21 +127,14 @@ bindings:
     plugin: agent.pi
     config:
       thinkingLevel: low
-      maxTokens: 32768
-      timeoutMs: 600000
-  memoryUpdater:
-    config:
-      maxModelCalls: 24
-  selector:
-    config:
-      maxModelCalls: 24
+      timeoutMs: 1800000
+      executionTimeoutMs: 3600000
   evaluator:
     plugin: evaluator.agentbench
     config:
       services:
         default:
           model: ${EVALUATOR_MODEL_NAME}
-          maxTokens: 65536
           base_url: ${MODEL_ENDPOINT}
           api_key: ${MODEL_API_KEY}
       benchmark:
@@ -155,14 +148,10 @@ bindings:
       run:
         timeoutSeconds: 4500
 budget:
-  operations: 1400
-  evaluationRuns: 4
-  modelCalls: 1400
   elapsedWallMs: 259200000
-  cleanupReserveMs: 60000
 ```
 
-将它放在 [Harness² 基线和 Target](../../../examples/harness/dsh-harness2/README.md) 旁边，并将模型替换为端点支持的模型。评测模型必须支持配置的输出上限。实验预算只在对应字段显式设置时生效。省略 `elapsedWallMs` 时实验没有截止时间，省略 `cleanupReserveMs` 时清理没有单独的截止时间。
+将它放在 [Harness² 基线和 Target](../../../examples/harness/dsh-harness2/README.md) 旁边，并将模型替换为端点支持的模型。示例保留 4500 秒评测任务超时和 72 小时实验总时长。Pi 使用 30 分钟请求超时和 60 分钟执行超时，不设置模型调用次数或输出 Token 上限。
 
 Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和 `memory`。目标与交付物评分标准由 Policy 定义，不能通过 `goals` 或 `deliveryRubric` 配置。`k` 控制探索槽位数，`concurrency` 限制 Policy 分支并发数；Evaluator 调度器另有并发设置。固定 `k` 时，当前流程调用 Evaluator 的次数为 `4 × k × 任务数`（基线、通用改进、领域改进、合成）；其他 Policy 的一次 Evaluator 调用可以包含多个任务。
 
@@ -170,7 +159,11 @@ Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和
 
 ### 显式配置原有默认上限
 
-可按下表显式写回原框架默认值，或设置自己的上限。Recipe 路径使用示例里的绑定名。自定义 Policy 也可在 `defaults.bindings.<binding>.config` 声明插件配置。Policy 已有的显式设置继续生效。Harness² 的提案和合成绑定各限制 24 次模型调用，WikiSkill 的 proposer 限制 24 次，Harness² 随包提供的 Reflection 配置限制单次调用最多 50 次模型调用、600 秒。模型调用次数限制依赖能准确计数的后端，例如 `agent.pi`。原生 `agent.codex` 将调用次数标记为不可得，可使用下表中的执行时间限制。
+可按下表显式启用所需上限。Recipe 路径使用示例里的绑定名。自定义 Policy 也可在 `defaults.bindings.<binding>.config` 声明插件配置。用户显式配置的限制仍生效，包括从自定义 Policy 继承的配置。
+
+两份随包提供的 Recipe 均设置 Pi 的 `timeoutMs: 1800000` 和 `executionTimeoutMs: 3600000`。Harness² 保留 4500 秒评测任务超时和 72 小时实验总时长；WikiSkill 保留 3600 秒评测任务超时和 48 小时实验总时长。Harness² Reflection 文件设置 `budget.timeoutSeconds: 3600`。这些配置均不设置模型调用次数或输出 Token 上限。
+
+未配置字段仍遵循后端及模型服务的默认行为。省略 `timeoutMs` 时，Pi 底层 HTTP 客户端使用 10 分钟超时；省略 `run.timeoutSeconds` 时，Evaluator SDK 使用所选配置档或兜底任务超时。模型调用次数限制依赖能准确计数的后端，例如 `agent.pi`；原生 `agent.codex` 将调用次数标记为不可得。
 
 | 位置 | 字段 | 原框架默认值 | 限制范围 |
 | --- | --- | --- | --- |
@@ -178,6 +171,7 @@ Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和
 | Recipe | `budget.modelCalls` | 原本就需显式设置 | 具有计数能力的后端记入实验的总模型调用次数。Pi 包含其子代理和纠错调用。原生 Codex 将此计数标记为不可得。 |
 | Recipe | `bindings.agent.config.maxTokens`（`agent.pi`） | `32768` | 每次模型请求的输出 token 上限。值须在 `contextWindow` 范围内。 |
 | Recipe | `bindings.agent.config.timeoutMs` | Pi 原先为 `600000`，原生 Codex 仅应用显式超时 | `agent.pi` 的单次请求时限，或 `agent.codex` 的整次调用时限。 |
+| Recipe | `bindings.agent.config.executionTimeoutMs`（`agent.pi`） | 无隐式上限 | 整次 Agent 调用，包含工具、纠错、压缩、重试等待和等待子代理的用时。父代理截止时间也会取消后代代理。 |
 | Recipe | `bindings.<binding>.config.maxModelCalls`（`proposer.agent`、`memory.agent`、`selector.artifact`） | 经正常 Recipe 加载后为 `24` | `agent.pi` 等能准确计数的后端在单次 Agent 调用内的模型请求次数。Policy 步骤直接调用 `contract.agent` 时，设置 `steps[].with.maxModelCalls`。Pi 子代理继承显式值作为各自会话的上限。 |
 | Recipe | `bindings.evaluator.config.services.<service>.maxTokens`（`evaluator.agentbench`） | `65536` | 所选评测模型服务每轮的输出 token 上限。 |
 | Recipe | `application.config.remote.timeoutMs`、`application.config.healthcheck.timeoutMs` | 远程命令和远程就绪均为 `600000`，本地就绪为 `120000` | 远程就绪等待继承显式设置的远程超时，单独设置健康检查超时可覆盖。 |
@@ -216,12 +210,12 @@ ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --
 ### Web 观察
 
 ```sh
-ember-rsi serve --port 4317
+ember-rsi dashboard --port 4317
 ```
 
-打开 `http://127.0.0.1:4317`。构建后的 Web 是**只读观察工作区**，展示实验列表、摘要、候选、测量、调用和图表。请通过 CLI 启动、恢复和取消实验；当前 UI 没有 Recipe 编辑器、启动或取消按钮。CLI 和服务端即使是不同进程，只要从相同目录启动，就使用同一磁盘存储。
+请在包含 `.rsi` 目录的实验工作区运行此命令，然后打开终端显示的地址。构建后的 Web 是**只读观察工作区**，展示实验列表、摘要、候选、测量、调用和图表。请通过 CLI 启动、恢复和取消实验；当前 UI 没有 Recipe 编辑器、启动或取消按钮。CLI 和服务端即使是不同进程，只要从相同目录启动，就使用同一磁盘存储。
 
-`pnpm dev:web` 启动 Vite 开发模式，默认将 `/api` 代理到 4317 端口，需要后端配合；`serve` 提供构建后的静态资源。服务监听回环地址并检查 Host/Origin，不提供面向公网部署的用户认证。
+`pnpm dev:web` 启动 Vite 开发模式，默认将 `/api` 代理到 4317 端口，需要后端配合；`dashboard` 提供构建后的静态资源。服务监听回环地址并检查 Host/Origin，不提供面向公网部署的用户认证。
 
 ## 3. 定制绑定与插件
 

@@ -9,13 +9,16 @@ export type AgentPiConfig = {
   thinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   retries?: number;
   retryBaseDelayMs?: number;
+  /** Per-model-request timeout in milliseconds. */
   timeoutMs?: number;
+  /** Total execution timeout, including tools, corrections, compaction and retry waits. */
+  executionTimeoutMs?: number;
 };
 
 export type ResolvedAgentPiConfig = Required<
-  Omit<AgentPiConfig, 'maxTokens' | 'timeoutMs'>
+  Omit<AgentPiConfig, 'maxTokens' | 'timeoutMs' | 'executionTimeoutMs'>
 > &
-  Pick<AgentPiConfig, 'maxTokens' | 'timeoutMs'>;
+  Pick<AgentPiConfig, 'maxTokens' | 'timeoutMs' | 'executionTimeoutMs'>;
 
 export const configSchema: JsonSchema = {
   type: 'object',
@@ -41,6 +44,11 @@ export const configSchema: JsonSchema = {
       default: 1000,
     },
     timeoutMs: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 2147483647,
+    },
+    executionTimeoutMs: {
       type: 'integer',
       minimum: 1,
       maximum: 2147483647,

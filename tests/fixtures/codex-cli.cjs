@@ -120,6 +120,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       }
       threadParams = request.params;
       model = threadParams.model ?? config.model;
+      config.model_reasoning_effort =
+        threadParams.config?.model_reasoning_effort ??
+        config.model_reasoning_effort;
       send({
         id: request.id,
         result: {

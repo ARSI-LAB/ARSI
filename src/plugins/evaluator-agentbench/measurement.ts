@@ -41,6 +41,8 @@ function adapterIdentity(): Promise<string> {
   return (implementationIdentity ??= sourceIdentity(import.meta.url, [
     './index',
     './service',
+    './finalized-timeout',
+    './preparation-recovery',
     './schema',
     './configuration',
     './conditions',

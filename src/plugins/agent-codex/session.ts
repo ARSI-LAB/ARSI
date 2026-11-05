@@ -28,6 +28,7 @@ export async function runSession(options: {
   executable: string;
   directory: string;
   model?: string;
+  reasoningEffort?: string;
   request: AgentInput;
   signal: AbortSignal;
   record: (type: string, data: unknown) => void;
@@ -72,6 +73,11 @@ export async function runSession(options: {
             cwd: options.directory,
             ephemeral: true,
             ...(options.model === undefined ? {} : { model: options.model }),
+            ...(options.reasoningEffort === undefined
+              ? {}
+              : {
+                  config: { model_reasoning_effort: options.reasoningEffort },
+                }),
             dynamicTools: [readFileTool],
           },
         });

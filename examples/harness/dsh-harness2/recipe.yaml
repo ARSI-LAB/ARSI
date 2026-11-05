@@ -29,9 +29,9 @@ bindings:
   agent:
     plugin: agent.pi
     config:
-      # Optimizer output tokens and time per model request (ms).
-      maxTokens: 32768
-      timeoutMs: 600000
+      # Explicit optimizer request/execution deadlines (ms).
+      timeoutMs: 1800000
+      executionTimeoutMs: 3600000
   invariantProposer:
     plugin: proposer.agent
     config:
@@ -40,20 +40,12 @@ bindings:
     plugin: proposer.agent
     config:
       guidance: ./guidance/domain-proposer
-  # Each operation sets the model-call cap sent to its Agent session.
-  memoryUpdater:
-    config:
-      maxModelCalls: 24
-  selector:
-    config:
-      maxModelCalls: 24
   evaluator:
     plugin: evaluator.agentbench
     config:
       services:
         default:
           model: ${EVALUATOR_MODEL_NAME}
-          maxTokens: 65536
           base_url: ${MODEL_ENDPOINT}
           api_key: ${MODEL_API_KEY}
       benchmark:
@@ -67,8 +59,4 @@ bindings:
       run:
         timeoutSeconds: 4500
 budget:
-  operations: 1400
-  evaluationRuns: 40
-  modelCalls: 1400
   elapsedWallMs: 259200000
-  cleanupReserveMs: 60000

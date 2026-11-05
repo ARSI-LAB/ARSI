@@ -17,7 +17,7 @@ import { createFileApplication } from '../../src/plugins/shared/file-application
 import { createProposerAgent } from '../../src/plugins/proposer-agent/service.js';
 import { resourceFiles } from '../../src/plugins/shared/agent-editing/index.js';
 
-async function fixture(responses: JsonObject[]) {
+async function fixture(responses: JsonObject[], patch = false) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-proposer-recovery-'));
   const artifacts = new FileArtifacts(join(root, 'artifacts'));
   const workspaces = new FileWorkspaces(join(root, 'workspaces'), artifacts);
@@ -42,16 +42,17 @@ async function fixture(responses: JsonObject[]) {
   const target = {
     schemaVersion: 'rsi.target/v1',
     id: 'edit-recovery',
-    entries: Object.keys(initial).map((path) => ({
+    entries: [...Object.keys(initial), 'new.md'].map((path) => ({
       path,
       kind: 'file',
       description: 'editable instructions',
-      changes: ['modify', 'delete'],
+      changes: ['create', 'modify', 'delete'],
       content: { encoding: 'utf-8', maxBytes: 131072 },
     })),
   };
   const controller = new AbortController();
   let requests = 0;
+  let commits = 0;
   const context = new RuntimeContext().extend({
     experimentId: 'exp',
     callId: 'call',
@@ -102,6 +103,7 @@ async function fixture(responses: JsonObject[]) {
   const execution = context.extend({
     application: async (input) => {
       assert.equal(input.action, 'commit');
+      commits++;
       return application.execute(
         {
           action: 'commit',
@@ -119,6 +121,7 @@ async function fixture(responses: JsonObject[]) {
     {
       prompt: 'src/policies/harness2/prompts/compose.md',
       evidenceView: 'training-summary',
+      ...(patch ? { editProtocol: 'patch' } : {}),
     },
     execution,
   );
@@ -128,6 +131,7 @@ async function fixture(responses: JsonObject[]) {
     execution,
     controller,
     requests: () => requests,
+    commits: () => commits,
     execute: (editConstraints?: JsonObject) =>
       proposer.execute(
         {
@@ -232,6 +236,70 @@ test('Composer does not disguise unauthorized edits or cancellation as merge fal
     f.controller.abort(new Error('cancelled by caller'));
     await assert.rejects(f.execute(), /cancelled by caller/);
     assert.deepEqual(await readdir(join(f.root, 'workspaces')), []);
+  } finally {
+    await f.close();
+  }
+});
+
+test('patch hunks use the original file and commit together with creation and deletion', async () => {
+  const f = await fixture(
+    [
+      {
+        edits: [
+          {
+            op: 'patch',
+            path: 'skill.md',
+            changes: [
+              { oldText: 'one', newText: 'one three' },
+              { oldText: 'three', newText: 'THREE' },
+            ],
+          },
+          { op: 'create', path: 'new.md', content: '' },
+          { op: 'delete', path: 'other.md' },
+        ],
+        reason: 'Revise instructions',
+      },
+    ],
+    true,
+  );
+  try {
+    const result = await f.execute();
+    assert.equal(result.status, 'created');
+    const candidate = await f.execution.readCandidate(result.candidateRef);
+    assert.deepEqual(await resourceFiles(candidate.artifactRef, f.execution), {
+      'skill.md': 'one three\nmiddle\nTHREE\n',
+      'new.md': '',
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+test('an ambiguous patch prevents the whole batch from being submitted', async () => {
+  const f = await fixture(
+    [
+      {
+        edits: [
+          { op: 'create', path: 'new.md', content: 'uncommitted' },
+          {
+            op: 'patch',
+            path: 'skill.md',
+            changes: [{ oldText: 'e', newText: '' }],
+          },
+        ],
+        reason: 'Invalid edit batch',
+      },
+    ],
+    true,
+  );
+  try {
+    await assert.rejects(f.execute(), /skill.md.*ambiguous/);
+    assert.equal(f.commits(), 0);
+    const parent = await f.execution.readCandidate('base');
+    assert.deepEqual(
+      await resourceFiles(parent.artifactRef, f.execution),
+      f.initial,
+    );
   } finally {
     await f.close();
   }

@@ -18,7 +18,7 @@ import {
 import { Registry } from '../../src/runtime/registry/index.js';
 import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
 import { validateReflection } from '../../src/runtime/revisions/validation.js';
-import { compilePolicy } from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
 import { object } from '../../src/shared/json.js';
 async function fixture(t: TestContext) {
@@ -121,7 +121,7 @@ test('Reflection parses one complete config, preserving per-target permissions a
     proposer: { resources: ['guidance'] },
     other: { resources: ['prompt'] },
   });
-  assert.deepEqual(parsed.budget, { modelCalls: 50 });
+  assert.deepEqual(parsed.budget, {});
   assert.deepEqual(parsed.implementation.config, {
     instructions: join(root, 'prompt.md'),
     mode: 'conservative',
@@ -137,12 +137,12 @@ test('Reflection parses one complete config, preserving per-target permissions a
     parsed.digest,
   );
 });
-test('Reflection budget has one default, optional timeout and explicit zero or larger values', async (t) => {
+test('Reflection budgets apply only when explicitly configured', async (t) => {
   const { definition, load } = await fixture(t);
   const defaults: JsonObject[] = [{}, { timeoutSeconds: 600 }];
   for (const budget of defaults) {
     const parsed = await load({ ...definition, budget });
-    assert.equal(parsed.budget.modelCalls, 50);
+    assert.equal(parsed.budget.modelCalls, undefined);
     assert.equal(
       parsed.budget.elapsedWallMs,
       'timeoutSeconds' in budget ? 600000 : undefined,
@@ -155,6 +155,7 @@ test('Reflection budget has one default, optional timeout and explicit zero or l
     );
   const invalid: JsonObject[] = [
     { modelCalls: -1 },
+    { modelCalls: null },
     { modelCalls: 1.5 },
     { modelCalls: Number.MAX_SAFE_INTEGER + 1 },
     { timeoutSeconds: 0 },
@@ -226,7 +227,7 @@ test('Reflection requires explicit registered implementation, contract and built
     implementation: { ...builtin, config: { agentRef: 'agent' } },
   });
   assert.equal(parsed.implementation.config.agentRef, 'agent');
-  assert.equal(parsed.implementation.config.maxModelCalls, 50);
+  assert.equal(parsed.implementation.config.maxModelCalls, undefined);
   assert.equal(parsed.implementation.config.maxContextBytes, undefined);
   assert.ok(
     (
@@ -285,16 +286,16 @@ const policy = {
   steps: [{ id: 'improve', type: 'reflection' }],
 };
 test('Policy compiler registers Reflection separately from raw generator contracts and enforces serial empty calls', () => {
-  const compiled = compilePolicy(policy);
+  const compiled = new Policy(policy);
   assert.equal(compiled.steps[0]?.type, 'reflection');
   assert.deepEqual(compiled.requirements, {});
   assert.throws(
-    () => compilePolicy({ ...policy, defaults: {} }),
+    () => new Policy({ ...policy, defaults: {} }),
     /defaults.reflection/,
   );
   assert.throws(
     () =>
-      compilePolicy({
+      new Policy({
         ...policy,
         require: { reflection: { contract: reflectionContract.id } },
       }),
@@ -302,19 +303,19 @@ test('Policy compiler registers Reflection separately from raw generator contrac
   );
   assert.throws(
     () =>
-      compilePolicy({
+      new Policy({
         ...policy,
         defaults: { reflection: { ref: './legacy.yaml' } },
       }),
     /migrate.*configFile/,
   );
   assert.throws(
-    () => compilePolicy({ ...policy, defaults: { reflection: {} } }),
+    () => new Policy({ ...policy, defaults: { reflection: {} } }),
     /configFile/,
   );
   assert.throws(
     () =>
-      compilePolicy({
+      new Policy({
         ...policy,
         steps: [
           { id: 'improve', type: 'reflection', with: { goal: 'Override' } },
@@ -322,11 +323,12 @@ test('Policy compiler registers Reflection separately from raw generator contrac
       }),
     /unknown field with/,
   );
-  assert.doesNotThrow(() =>
-    compilePolicy({
-      ...policy,
-      steps: [{ id: 'improve', type: 'reflection' }],
-    }),
+  assert.doesNotThrow(
+    () =>
+      new Policy({
+        ...policy,
+        steps: [{ id: 'improve', type: 'reflection' }],
+      }),
   );
   const concurrent = {
     ...policy,
@@ -343,8 +345,8 @@ test('Policy compiler registers Reflection separately from raw generator contrac
       },
     ],
   };
-  assert.throws(() => compilePolicy(concurrent), /parallel.*Reflection/);
-  const declarationOnly = compilePolicy({
+  assert.throws(() => new Policy(concurrent), /parallel.*Reflection/);
+  const declarationOnly = new Policy({
     ...policy,
     output: {},
     steps: [],

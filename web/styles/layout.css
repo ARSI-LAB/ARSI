@@ -17,37 +17,30 @@
     display: flex;
     flex-direction: column;
     width: var(--sidebar-width);
-    padding: var(--space-6) var(--space-3) var(--space-4);
+    padding: var(--space-2) var(--space-3) var(--space-4);
     overflow-y: auto;
     border-right: 1px solid var(--border);
     background: var(--card);
   }
   .studio-brand {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding-inline: var(--space-2);
-    font-size: 19px;
-    font-weight: 650;
-    letter-spacing: -0.035em;
-  }
-  .studio-brand b {
-    font-weight: 450;
+    align-self: flex-start;
+    max-width: 100%;
   }
   .brand-mark {
     display: block;
-    flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
+    width: 144px;
+    max-width: 100%;
+    height: auto;
   }
   .studio-nav {
     display: grid;
     gap: var(--space-1);
-    margin-top: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
   }
   .studio-nav .nav-caption {
-    margin: var(--space-6) var(--space-2) var(--space-1);
+    margin: 0 var(--space-2) var(--space-1);
     font-size: 12px;
     color: var(--muted-foreground);
   }
@@ -295,13 +288,8 @@
     min-width: 44px;
     min-height: 44px;
   }
-  .studio-sidebar .studio-brand {
-    padding-right: 36px;
-    font-size: 17px;
-    gap: 6px;
-  }
   .studio-sidebar-close {
-    top: 18px;
+    top: var(--space-3);
     right: 4px;
     z-index: 1;
     font-size: 22px;

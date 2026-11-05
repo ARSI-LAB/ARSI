@@ -51,8 +51,9 @@ test('CLI rejects invalid input before runtime initialization', () => {
     ['catalog', '--bad'],
     ['list', 'bad'],
     ['reflection', 'apply'],
-    ['serve', '--port', '0'],
+    ['dashboard', '--port', '0'],
     ['--plugin-dir'],
+    ['serve'],
     ['unknown'],
   ]) {
     assert.throws(() => parseCommand(args));
@@ -67,6 +68,7 @@ test('CLI maps existing commands and defaults to execution inputs', () => {
     ['list'],
     ['list', 'policies'],
     ['catalog'],
+    ['dashboard'],
     ['reflection', 'list'],
     ['reflection', 'list', 'exp'],
     ['reflection', 'show', 'rev'],
@@ -76,8 +78,8 @@ test('CLI maps existing commands and defaults to execution inputs', () => {
     assert.equal(result.command, args[0]);
     assert.deepEqual(result.args, args.slice(1));
   }
-  assert.equal(parseCommand(['serve']).port, 4317);
-  assert.equal(parseCommand(['serve', '--port=65535']).port, 65535);
+  assert.equal(parseCommand(['dashboard']).port, 4317);
+  assert.equal(parseCommand(['dashboard', '--port=65535']).port, 65535);
   assert.equal(parseCommand(['run', 'r.yaml']).resume, false);
 });
 
@@ -85,7 +87,7 @@ test('CLI usage errors include focused help like evaluator', () => {
   for (const args of [
     ['run'],
     ['run', 'r.yaml', '--resume'],
-    ['serve', '--port', '0'],
+    ['dashboard', '--port', '0'],
   ]) {
     assert.throws(
       () => parseCommand(args),

@@ -349,7 +349,7 @@ test('Pi defaults to low reasoning and disables transport or session retries', a
     assert.equal(f.requests[0]!.reasoning_effort, 'low');
     assert.equal(
       f.requests[0]!.max_completion_tokens ?? f.requests[0]!.max_tokens,
-      32768,
+      undefined,
     );
     assert.deepEqual(f.charges, [1]);
     assert.equal(f.chargeAttempts(), 1);
@@ -411,13 +411,18 @@ test('Pi compaction respects Manager budget denial and cancellation', async () =
   }
 });
 
-test('Pi rejects timer overflow before charging and accepts the supported timeout maximum', async () => {
-  const f = await modelFixture([{ delayMs: 20 }], { timeoutMs: 2147483647 });
+test('Pi validates request and execution timeouts before charging and accepts the timer maximum', async () => {
+  const f = await modelFixture([{ delayMs: 20 }], {
+    timeoutMs: 2147483647,
+    executionTimeoutMs: 2147483647,
+  });
   try {
-    await assert.rejects(
-      createAgentPi({ timeoutMs: 2147483648 }, f.services),
-      /timeoutMs/,
-    );
+    for (const field of ['timeoutMs', 'executionTimeoutMs'])
+      for (const value of [0, -1, 1.5, 2147483648])
+        await assert.rejects(
+          createAgentPi({ [field]: value }, f.services),
+          new RegExp(field),
+        );
     assert.equal(f.requests.length, 0);
     assert.deepEqual(f.charges, []);
     assert.deepEqual(await f.run(), { ok: true });
@@ -494,6 +499,60 @@ test('Pi timeout closes a stalled request without retry and permits a fresh exec
     assert.equal(f.disconnected(), 1);
     assert.deepEqual(await f.run(), { ok: true });
     assert.equal(f.requests.length, 2);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Pi execution timeout spans tool continuations and output corrections', async () => {
+  for (const first of [{ read: true }, { content: 'invalid' }]) {
+    const f = await modelFixture(
+      [{ ...first, delayMs: 300 }, { delayMs: 300 }],
+      { timeoutMs: 2000, executionTimeoutMs: 500 },
+    );
+    try {
+      await assert.rejects(f.run(), /Agent execution timed out/);
+      assert.equal(f.requests.length, 2);
+      assert.deepEqual(f.charges, [1, 1]);
+      assert.equal(f.controller.signal.aborted, false);
+    } finally {
+      await f.close();
+    }
+  }
+});
+
+test('Pi execution timeout closes stalled requests without retry and permits a fresh execution', async () => {
+  const f = await modelFixture([{ stall: true }, {}], {
+    executionTimeoutMs: 200,
+    retries: 2,
+    retryBaseDelayMs: 0,
+  });
+  try {
+    await assert.rejects(f.run(), /Agent execution timed out/);
+    assert.equal(f.requests.length, 1);
+    assert.deepEqual(f.charges, [1]);
+    assert.equal(f.controller.signal.aborted, false);
+    await new Promise<void>((done) => setImmediate(done));
+    assert.equal(f.disconnected(), 1);
+    assert.deepEqual(await f.run(), { ok: true });
+    assert.equal(f.requests.length, 2);
+    assert.deepEqual(f.charges, [1, 1]);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Pi execution timeout includes retry backoff and prevents the next attempt', async () => {
+  const f = await modelFixture([{ status: 503 }, {}], {
+    executionTimeoutMs: 200,
+    retries: 2,
+    retryBaseDelayMs: 1000,
+  });
+  try {
+    await assert.rejects(f.run(), /Agent execution timed out/);
+    assert.match(await f.log(), /auto_retry_start/);
+    assert.equal(f.requests.length, 1);
+    assert.deepEqual(f.charges, [1]);
   } finally {
     await f.close();
   }

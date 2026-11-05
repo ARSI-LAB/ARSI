@@ -109,7 +109,7 @@ async function fixture(replies: string[], chargeLimit = Infinity) {
   return {
     requests,
     charges: () => charges,
-    run: (maxModelCalls = 4) =>
+    run: (maxModelCalls?: number) =>
       operation.execute(
         {
           prompt: 'Return JSON.',
@@ -121,7 +121,7 @@ async function fixture(replies: string[], chargeLimit = Infinity) {
             required: ['value'],
             additionalProperties: false,
           },
-          maxModelCalls,
+          ...(maxModelCalls === undefined ? {} : { maxModelCalls }),
         },
         context.extend(services),
       ),
@@ -192,6 +192,22 @@ test('invalid output stops at the shared model-call limit and retains the last f
   }
 });
 
+test('omitted limits allow Pi to repair output after more than 24 model calls', async () => {
+  const f = await fixture([
+    ...Array<string>(24).fill('{"value":"wrong"}'),
+    '{"value":7}',
+  ]);
+  try {
+    assert.deepEqual(await f.run(), { value: 7 });
+    assert.equal(f.charges(), 25);
+    const first = JSON.parse(f.requests[0]!);
+    assert.equal(Object.hasOwn(first, 'max_tokens'), false);
+    assert.equal(Object.hasOwn(first, 'max_completion_tokens'), false);
+  } finally {
+    await f.close();
+  }
+});
+
 test('cancellation stops output recovery without another model request', async () => {
   const f = await fixture(['CANCEL']);
   try {
@@ -230,12 +246,8 @@ test('Manager budget denial prevents the next correction request', async () => {
   }
 });
 
-test('final output rejects prose, result envelopes and oversized replies without salvaging fragments', async () => {
-  for (const reply of [
-    'Here is JSON: {"value":1}',
-    '{"result":{"value":1}}',
-    'x'.repeat(131073),
-  ]) {
+test('final output rejects prose and result envelopes without salvaging fragments', async () => {
+  for (const reply of ['Here is JSON: {"value":1}', '{"result":{"value":1}}']) {
     const f = await fixture([reply]);
     try {
       await assert.rejects(f.run(1), /last output validation failed/);
@@ -243,5 +255,16 @@ test('final output rejects prose, result envelopes and oversized replies without
     } finally {
       await f.close();
     }
+  }
+});
+
+test('final JSON can exceed the former implicit output byte limit', async () => {
+  const reply = `{"value":1}${' '.repeat(131073)}`;
+  const f = await fixture([reply]);
+  try {
+    assert.deepEqual(await f.run(1), { value: 1 });
+    assert.equal(f.charges(), 1);
+  } finally {
+    await f.close();
   }
 });

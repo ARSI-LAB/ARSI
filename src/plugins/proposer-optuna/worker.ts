@@ -12,27 +12,23 @@ export type OptunaWorker = (
 export const workerPath = fileURLToPath(
   new URL('./python/worker.py', import.meta.url),
 );
-const maxBytes = 8 * 1024 * 1024;
 
-/** Own a bounded one-shot child through close, including spawn failure and cancellation. */
+/** Own a one-shot child through close, including spawn failure and cancellation. */
 export async function runJsonProcess(
   executable: string,
   script: string,
   request: JsonObject,
   signal: AbortSignal,
-  timeoutMs: number,
+  timeoutMs?: number,
 ): Promise<JsonObject> {
   signal.throwIfAborted();
   const input = JSON.stringify(request);
-  if (Buffer.byteLength(input) > maxBytes)
-    throw new Error('Optuna worker input exceeds 8 MiB');
   return new Promise((resolve, reject) => {
     const child = spawn(executable, [script], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const output: Buffer[] = [];
-    let size = 0,
-      stderr = '',
+    let stderr = '',
       failure: Error | undefined,
       inputFailure: Error | undefined;
     const stop = (error: Error): void => {
@@ -47,10 +43,10 @@ export async function runJsonProcess(
       );
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) abort();
-    const timer = setTimeout(
-      () => stop(new Error('Optuna worker timeout')),
-      timeoutMs,
-    );
+    const timer =
+      timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => stop(new Error('Optuna worker timeout')), timeoutMs);
     child.once('error', (error) => {
       failure ??= error;
     });
@@ -58,10 +54,7 @@ export async function runJsonProcess(
       inputFailure ??= error;
     });
     child.stdout.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > maxBytes)
-        stop(new Error('Optuna worker output exceeds 8 MiB'));
-      else output.push(chunk);
+      output.push(chunk);
     });
     child.stderr.on('data', (chunk: Buffer) => {
       stderr = (stderr + chunk.toString('utf8')).slice(-65536);

@@ -71,6 +71,39 @@ test('Target validates baseline changes and rejects protected paths and symlinks
   }
 });
 
+test('Target accepts authorized content edits regardless of file permission bits', () => {
+  const target = parseTarget({
+    schemaVersion: 'rsi.target/v1',
+    id: 'portable-target',
+    entries: [
+      {
+        path: 'skills',
+        kind: 'directory',
+        description: 'skills',
+        changes: ['create', 'modify'],
+      },
+    ],
+  });
+  const path = 'skills/example/SKILL.md';
+  const after = {
+    [path]: { content: Buffer.from('after').toString('base64'), mode: 0o666 },
+  };
+  assert.equal(checkTarget({}, after, target)[0].change, 'create');
+  assert.equal(
+    checkTarget(
+      {
+        [path]: {
+          content: Buffer.from('before').toString('base64'),
+          mode: 0o644,
+        },
+      },
+      after,
+      target,
+    )[0].change,
+    'modify',
+  );
+});
+
 test('Target rejects traversal and unsupported edit types before writes', () => {
   assert.throws(
     () =>

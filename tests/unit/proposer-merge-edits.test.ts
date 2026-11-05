@@ -195,23 +195,21 @@ test('line merging preserves CRLF, spaces, tabs and a missing final newline', ()
   );
 });
 
-test('an oversized edit throws even when another path already conflicts', () => {
-  assert.throws(
-    () =>
-      mergeEdits(
-        {
-          edits: [
-            { path: 'conflict.txt', content: 'first' },
-            { path: 'conflict.txt', content: 'second' },
-            { path: 'large.txt', content: '\u754c'.repeat(50000) },
-            { path: 'large.txt', content: 'small' },
-          ],
-          reason: 'Invalid size.',
-        },
-        { 'conflict.txt': 'original', 'large.txt': 'old' },
-      ),
-    /byte limit/i,
+test('merging accepts contents above the old implicit byte limit', () => {
+  const large = '\u754c'.repeat(50000);
+  const result = mergeEdits(
+    {
+      edits: [
+        { path: 'large.txt', content: `${large}\nkeep\nbefore` },
+        { path: 'large.txt', content: 'small\nkeep\nafter' },
+      ],
+      reason: 'Combine.',
+    },
+    { 'large.txt': 'small\nkeep\nbefore' },
   );
+  assert.deepEqual(result.edits, [
+    { path: 'large.txt', content: `${large}\nkeep\nafter` },
+  ]);
 });
 
 test('invalid paths throw even when another path already conflicts', () => {
@@ -232,7 +230,7 @@ test('invalid paths throw even when another path already conflicts', () => {
   );
 });
 
-test('an oversized parent conservatively retains the whole proposal baseline', () => {
+test('overlapping edits still conflict on a large parent', () => {
   const result = mergeEdits(
     {
       edits: [
@@ -245,27 +243,30 @@ test('an oversized parent conservatively retains the whole proposal baseline', (
     { 'skill.md': 'x'.repeat(131073), 'safe.txt': 'old' },
   );
   assert.deepEqual(result.edits, []);
-  assert.match(String(result.reason), /limit|budget|bound/i);
+  assert.match(String(result.reason), /overlapping changes/i);
   assert.match(String(result.reason), /skill\.md/);
   assert.match(String(result.reason), /Original rationale\./);
 });
 
-test('valid edits whose merged content exceeds the bound retain the whole parent', () => {
+test('independent edits can merge into content above the old byte limit', () => {
   const base = `${'a'.repeat(60000)}\nkeep\nlast\n`;
+  const prefix = `${'b'.repeat(40000)}\n`;
+  const suffix = `${'c'.repeat(40000)}\n`;
   const result = mergeEdits(
     {
       edits: [
         { path: 'safe.txt', content: 'safe change' },
-        { path: 'skill.md', content: `${'b'.repeat(40000)}\n${base}` },
-        { path: 'skill.md', content: `${base}${'c'.repeat(40000)}\n` },
+        { path: 'skill.md', content: `${prefix}${base}` },
+        { path: 'skill.md', content: `${base}${suffix}` },
       ],
       reason: 'Independent large additions.',
     },
     { 'skill.md': base, 'safe.txt': 'original' },
   );
-  assert.deepEqual(result.edits, []);
-  assert.match(String(result.reason), /skill\.md.*limit/);
-  assert.match(String(result.reason), /parent/i);
+  assert.deepEqual(result.edits, [
+    { path: 'safe.txt', content: 'safe change' },
+    { path: 'skill.md', content: `${prefix}${base}${suffix}` },
+  ]);
 });
 
 test('many short lines fall back before unbounded diff work', () => {

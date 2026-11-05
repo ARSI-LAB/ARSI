@@ -71,7 +71,11 @@
 
 #### 1. 安装 CLI
 
-需要 **Node.js >=24.19.0 且 <25**、**pnpm 11.22.0**、Git，以及相关 GitHub 仓库的读取权限。AgentBundle 和 Evaluator SDK 通过固定的 Git 依赖安装，并在安装过程中构建，无需准备同级源码目录。
+环境要求
+
+1. **Node.js** >= 24.19.0 且 < 25。
+2. **pnpm** 11.22.0。
+3. **Git**，用于拉取 AgentBundle 和 Evaluator SDK 依赖。
 
 ```sh
 # 克隆并构建 ember-rsi。

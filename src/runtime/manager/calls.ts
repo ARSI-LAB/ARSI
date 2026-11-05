@@ -52,6 +52,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
   const active = new Map<string, Promise<JsonValue>>();
   const pending = new Set<Promise<JsonValue>>();
   const uncertain = new Map<string, () => Promise<void>>();
+  const childFailures = new Map<string, unknown>();
   let accepting = true;
   const invoke = async (
     bindingId: string,
@@ -111,7 +112,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       try {
         if (
           prior &&
-          (prior.status !== 'failed' ||
+          ((prior.status !== 'failed' && prior.status !== 'cancelled') ||
             prior.pluginId !== binding.plugin ||
             !lease?.operation.canRetry ||
             (await lease.operation.canRetry(input, prior, ctx)) !== true)
@@ -215,7 +216,12 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           const status =
             explicit === 'unknown'
               ? 'unknown'
-              : ctx.signal.aborted || explicit === 'cancelled'
+              : explicit === 'cancelled' ||
+                  (ctx.signal.aborted &&
+                    !(
+                      childFailures.has(callId) &&
+                      childFailures.get(callId) === error
+                    ))
                 ? 'cancelled'
                 : 'failed';
           if (
@@ -228,6 +234,10 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
                   : null,
             })
           ) {
+            // Preserve a failure as it propagates through its owning calls,
+            // even after supervision has cancelled the other branches.
+            if (status === 'failed' && uncertain.has(caller.callId))
+              childFailures.set(caller.callId, error);
             try {
               if (status === 'cancelled')
                 await ctx.event.parallel('rsi/call-cancelled', {
@@ -250,6 +260,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           }
           throw error;
         } finally {
+          childFailures.delete(callId);
           uncertain.delete(callId);
         }
         // A result listener failure must not rewrite a committed successful receipt.

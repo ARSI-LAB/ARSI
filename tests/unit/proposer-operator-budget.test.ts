@@ -11,7 +11,6 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
     signal: new AbortController().signal,
     async invokeAgent(this: RuntimeContext, request) {
       assert.equal(request.maxModelCalls, 2);
-      assert.equal(request.allowTools, false);
       assert.deepEqual(request.input, {
         sourceFiles: { 'input.py': 'authorized source' },
       });

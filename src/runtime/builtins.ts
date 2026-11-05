@@ -42,8 +42,6 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
   for (const path of [
     'harness2/policy.yaml',
     'wikiskill/policy.yaml',
-    'operator-baseline/policy.yaml',
-    'operator-diagnostic/policy.yaml',
     'operator-search/policy.yaml',
     'parameter-grid/policy.yaml',
     'parameter-optuna/policy.yaml',

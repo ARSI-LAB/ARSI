@@ -11,8 +11,8 @@ policy:
   id: policy.operator-search
   config:
     goal:
-      Improve the Triton-Ascend top-3 kernel using static analysis followed by measured bottleneck
-      analysis while preserving the complete task contract.
+      Improve the Triton-Ascend top-3 kernel using static analysis followed by
+      measured bottleneck analysis while preserving the complete task contract.
     caseIds:
       - fixed
     maxAttempts: 3
@@ -20,10 +20,6 @@ policy:
     metricsEnabled: true
     maxRounds: 10
     maxNoImprovement: 5
-    evaluationTimeoutMs: 930000
-    modelRequestTimeoutMs: 120000
-    retrievalTimeoutMs: 300000
-    cleanupReserveMs: 60000
 bindings:
   agent:
     plugin: agent.pi
@@ -47,6 +43,8 @@ bindings:
         device: cpu
         timeoutMs: 300000
         similarityThreshold: 0.6
+        resourcesDirectory: REPLACE_WITH_EXTERNAL_KNOWLEDGE_BUNDLE
+        retrievalScript: REPLACE_WITH_EXTERNAL_RETRIEVAL_WORKER
   evaluator:
     plugin: evaluator.operatorbench
     config:

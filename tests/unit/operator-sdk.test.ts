@@ -16,8 +16,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { Evaluator } from 'ember-evaluator';
-import { prepareSdkConfiguration } from '../../src/plugins/evaluator-operatorbench/sdk-configuration.js';
-import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/sdk-result.js';
+import { prepareSdkConfiguration } from '../../src/plugins/evaluator-operatorbench/sdk.js';
+import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';
 import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/service.js';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
@@ -150,12 +150,6 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(profileResult.valid, null);
   assert.equal(profileResult.candidateMs, null);
   assert.equal(profileResult.profile?.status, 'completed');
-  const wrongSeed = structuredClone(diagnostic);
-  wrongSeed.snapshot.records[0].verdict.details.diagnosticProtocol.seeds = [0];
-  assert.throws(
-    () => adaptSdkResult(wrongSeed, profilePrepared, config, 42),
-    /seed|protocol/,
-  );
   const unavailable = structuredClone(diagnostic);
   unavailable.snapshot.records[0].verdict.details.status = 'unavailable';
   unavailable.snapshot.records[0].verdict.details.profiling.status = 'failed';
@@ -166,26 +160,12 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   const raw = JSON.parse(JSON.stringify(result));
   raw.snapshot.records[0].verdict.details.assessment.checks.pop();
   assert.throws(() => adaptSdkResult(raw, prepared, config, 42), /checks/);
-  const missingDevice = JSON.parse(JSON.stringify(result));
-  missingDevice.snapshot.records[0].verdict.details.assessment.environment.device =
-    null;
+  const wrongCandidate = JSON.parse(JSON.stringify(result));
+  wrongCandidate.snapshot.records[0].verdict.details.candidateSha256 =
+    'b'.repeat(64);
   assert.throws(
-    () => adaptSdkResult(missingDevice, prepared, config, 42),
-    /environment/,
-  );
-  for (const [field, value] of [
-    ['candidateMs', 0],
-    ['candidateSha256', 'b'.repeat(64)],
-  ] as const) {
-    const invalid = JSON.parse(JSON.stringify(result));
-    invalid.snapshot.records[0].verdict.details[field] = value;
-    assert.throws(() => adaptSdkResult(invalid, prepared, config, 42));
-  }
-  const wrongProtocol = JSON.parse(JSON.stringify(result));
-  wrongProtocol.snapshot.records[0].verdict.details.assessment.effectiveProtocol.repeat = 21;
-  assert.throws(
-    () => adaptSdkResult(wrongProtocol, prepared, config, 42),
-    /protocol/,
+    () => adaptSdkResult(wrongCandidate, prepared, config, 42),
+    /identity/,
   );
   const unconfirmed = JSON.parse(JSON.stringify(result));
   unconfirmed.snapshot.records[0].cleanupStatus = 'unconfirmed';

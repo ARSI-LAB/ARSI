@@ -49,6 +49,8 @@ test('operator config requires explicit retrieval resources and permits only CPU
     task: { directory: '/task' },
     embedding: {
       python: '/venv/bin/python',
+      resourcesDirectory: '/resources',
+      retrievalScript: '/resources/retrieve.py',
       modelDirectory: '/models/embedding',
       identityFile: '/models/identity.json',
     },

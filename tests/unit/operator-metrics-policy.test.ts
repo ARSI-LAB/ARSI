@@ -18,8 +18,6 @@ async function run(
     maxRounds?: number;
     profileFailure?: number;
     infrastructureFailure?: boolean;
-    remainingEvaluations?: number;
-    remainingWallMs?: number;
   } = {},
 ) {
   const registry = new Registry();
@@ -140,16 +138,6 @@ async function run(
     application: { initialCandidate: 'baseline' },
     context: new RuntimeContext().extend({
       signal: new AbortController().signal,
-      readBudget: async () => ({
-        limits: {},
-        used: {},
-        remaining: {
-          operations: null,
-          modelCalls: null,
-          evaluationRuns: options.remainingEvaluations ?? null,
-        },
-        remainingWallMs: options.remainingWallMs ?? 100000000,
-      }),
     }),
     invoke,
     checkpoint: async (value: JsonObject) => {
@@ -164,10 +152,6 @@ async function run(
     metricsEnabled: true,
     maxRounds: options.maxRounds ?? 10,
     maxNoImprovement: 5,
-    evaluationTimeoutMs: 100,
-    modelRequestTimeoutMs: 100,
-    retrievalTimeoutMs: 100,
-    cleanupReserveMs: 100,
   };
   try {
     const output = object(await executePolicy(policy, {}, config, execution));
@@ -253,14 +237,6 @@ test('unavailable winner diagnostics preserve the promoted source and finish wit
   );
 });
 
-test('budget reserved for final assessment prevents new proposals and diagnostics', async () => {
-  const { output, calls } = await run({ remainingEvaluations: 1 });
-  assert.equal(output.stopReason, 'budget');
-  assert.equal(calls.filter((c) => c.binding === 'proposer').length, 0);
-  assert.equal(calls.filter((c) => c.input.action === 'profile').length, 0);
-  assert.equal(calls.filter((c) => c.input.action === 'evaluate').length, 2);
-});
-
 test('unknown profiling cleanup stops before any final device call', async () => {
   await assert.rejects(
     run({ infrastructureFailure: true }),
@@ -277,13 +253,5 @@ test('unavailable entry diagnostics finish without generating metric candidates'
       .length,
     0,
   );
-  assert.equal(calls.filter((c) => c.input.action === 'evaluate').length, 2);
-});
-
-test('time reserved for final assessment stops search before model or profiling work', async () => {
-  const { output, calls } = await run({ remainingWallMs: 201 });
-  assert.equal(output.stopReason, 'budget');
-  assert.equal(calls.filter((c) => c.binding === 'proposer').length, 0);
-  assert.equal(calls.filter((c) => c.input.action === 'profile').length, 0);
   assert.equal(calls.filter((c) => c.input.action === 'evaluate').length, 2);
 });

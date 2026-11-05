@@ -22,7 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { operatorbenchContract } from '../../src/contracts/plugin-types/operatorbench.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
-import { recordSdkMeasurement } from '../../src/plugins/evaluator-operatorbench/sdk-measurement.js';
+import { recordSdkMeasurement } from '../../src/plugins/evaluator-operatorbench/measurement.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
 
@@ -124,7 +124,7 @@ for (const sdkStatus of ['completed', 'cancelled', 'unknown'] as const)
 
 test('diagnostic calls reject assessments of another source or experiment', async () => {
   const { readProfileAssessment } = await import(
-    '../../src/plugins/evaluator-operatorbench/profile-assessment.js'
+    '../../src/plugins/evaluator-operatorbench/measurement.js'
   );
   const context = new RuntimeContext().extend({
     experimentId: 'exp',
@@ -151,7 +151,7 @@ test('diagnostic calls reject assessments of another source or experiment', asyn
 
 test('a passing assessment cannot certify a different case or seed of the same task', async (t) => {
   const { readProfileAssessment } = await import(
-    '../../src/plugins/evaluator-operatorbench/profile-assessment.js'
+    '../../src/plugins/evaluator-operatorbench/measurement.js'
   );
   const dir = await mkdtemp(join(tmpdir(), 'rsi-profile-case-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -225,11 +225,11 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
     else await symlink(installed, isolated, 'dir');
   }
   const {
-    createSdkOperatorbench,
-  }: typeof import('../../src/plugins/evaluator-operatorbench/sdk-service.js') =
+    createOperatorbench,
+  }: typeof import('../../src/plugins/evaluator-operatorbench/service.js') =
     await import(
       pathToFileURL(
-        join(directory, 'src/plugins/evaluator-operatorbench/sdk-service.ts'),
+        join(directory, 'src/plugins/evaluator-operatorbench/service.ts'),
       ).href
     );
   const taskDirectory = join(directory, 'task');
@@ -306,7 +306,7 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
       });
     },
   });
-  const operation = await createSdkOperatorbench(
+  const operation = await createOperatorbench(
     {
       mode: 'sdk',
       task: { directory: taskDirectory },

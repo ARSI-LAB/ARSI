@@ -19,7 +19,7 @@ import {
 import {
   parseKernelExecution,
   kernelExecutionSchema,
-} from '../../src/contracts/models/kernel.js';
+} from '../../src/plugins/shared/file-application/kernel-execution.js';
 import {
   createApplicationKernel,
   kernelApplicationDefinition,

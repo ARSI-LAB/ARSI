@@ -62,7 +62,6 @@ export async function requestOperatorAgent(
           ...object(request.input ?? {}),
           sourceFiles: request.files ?? {},
         },
-        allowTools: false,
         maxModelCalls: 2,
       });
   } catch (error) {

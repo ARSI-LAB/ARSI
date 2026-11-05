@@ -17,7 +17,7 @@ import {
   metricDecisionSchema,
   readDecisionFeedback,
 } from '../shared/metric-decision/index.js';
-import { loadOperatorTask } from '../evaluator-operatorbench/task.js';
+import { loadOperatorTask } from '../shared/file-application/kernel-task.js';
 import { readHistory } from './context.js';
 import { parseMetricsBottleneck } from './metrics-analysis.js';
 import {
@@ -49,6 +49,8 @@ import type { HardwareContext } from './hardware-context.js';
 
 export type OperatorResources = {
   digest: string;
+  knowledgeDigest: string;
+  workerDigest: string;
   prompts: Record<OperatorAgentStage, string>;
   metricsGenerate: string;
   guidelines: string;
@@ -664,7 +666,8 @@ export async function executeMetricsProposer(
         context,
       );
       if (
-        retrieved.resourcesDigest !== loaded.digest ||
+        retrieved.resourcesDigest !== loaded.knowledgeDigest ||
+        retrieved.workerDigest !== loaded.workerDigest ||
         retrieved.embeddingDigest !== analysis.embeddingDigest
       )
         throw new Error('Metric retrieval resource identity changed');

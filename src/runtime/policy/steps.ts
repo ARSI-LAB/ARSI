@@ -72,8 +72,6 @@ export interface StepContext {
     },
   ): Promise<StepResult>;
   boundary(iteration: number): Promise<void>;
-  /** Freeze a read-only budget observation before a loop decision. */
-  observeBudget(key: string): Promise<void>;
 }
 export interface Step {
   readonly id: string;
@@ -83,7 +81,6 @@ export interface Step {
   toJSON(): JsonObject;
 }
 export const reservedNames = [
-  'budget',
   'application',
   'config',
   'input',
@@ -338,7 +335,6 @@ export class LoopStep implements Step {
     context.validateTemplate(this.output);
   }
   async execute(context: StepContext): Promise<StepResult> {
-    await context.observeBudget('max');
     const maximum = boundedInteger(
       context.evaluate(this.maxIterations),
       `${context.stepPath}.maxIterations`,
@@ -347,7 +343,6 @@ export class LoopStep implements Step {
     for (let index = 0; index < maximum; index++) {
       context.signal.throwIfAborted();
       const locals = { loop: { index } };
-      await context.observeBudget(`while:${index}`);
       if (
         !boolean(
           context.evaluate(this.condition, locals),
@@ -362,7 +357,6 @@ export class LoopStep implements Step {
       await context.boundary(index);
       if (result.kind === 'break') break;
     }
-    await context.observeBudget('output');
     return { kind: 'completed', output: context.evaluate(this.output) };
   }
   toJSON(): JsonObject {

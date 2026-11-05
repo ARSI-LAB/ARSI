@@ -21,6 +21,8 @@ import type {
   StaticIssue,
 } from '../../src/plugins/proposer-operator/schema.js';
 
+import { prepareKnowledgeFixture } from '../fixtures/operator-proposer/setup.js';
+
 const issue: StaticIssue = {
   issue_type: 'core_partition',
   issue_summary: 'Independent row work uses a fixed grid',
@@ -61,7 +63,11 @@ async function fixture(mode = 'success') {
     `#!/usr/bin/env node\nimport {readFile,writeFile} from 'node:fs/promises';\nconst args=process.argv;const input=JSON.parse(await readFile(args[args.indexOf('--request')+1],'utf8'));const identity=JSON.parse(await readFile(input.identityFile,'utf8'));\nif(identity.model.id.startsWith('descendant')){const {spawn}=await import('node:child_process');const {dirname,join}=await import('node:path');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});child.unref();await writeFile(join(dirname(args[args.indexOf('--request')+1]),'descendant.pid'),String(child.pid));if(identity.model.id==='descendant-hang'){setInterval(()=>{},1000);await new Promise(()=>{});}}\nif(identity.model.id==='exit'){process.stderr.write('worker failed');process.exit(7);}\nif(identity.model.id==='hang'){setInterval(()=>{},1000);await new Promise(()=>{});}\nif(identity.model.id==='oversize'){process.stdout.write('x'.repeat(200000));setInterval(()=>{},1000);await new Promise(()=>{});}\nconst result={schemaVersion:'rsi.operator-retrieval/v1',embeddingDigest:input.embeddingDigest,resourcesDigest:input.resourcesDigest,matches:[],knowledgeContext:'',omitted:{techniques:[],examples:[]},model:identity.model,runtime:{python:'fixture',sentenceTransformers:'fixture',transformers:'fixture',torch:'fixture'}};\nif(identity.model.id==='wrong-identity')result.embeddingDigest='0'.repeat(64);\nawait writeFile(args[args.indexOf('--response')+1],JSON.stringify(result));\n`,
   );
   await chmod(worker, 0o755);
+  const resourcesDirectory = join(directory, 'resources');
+  await prepareKnowledgeFixture(resourcesDirectory);
   const config: EmbeddingConfig = {
+    resourcesDirectory,
+    retrievalScript: worker,
     python: worker,
     modelDirectory,
     identityFile,

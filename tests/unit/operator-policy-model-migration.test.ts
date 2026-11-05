@@ -10,7 +10,7 @@ import {
   metricSelectorContract,
 } from '../../src/contracts/index.js';
 
-test('all operator Policies load and round-trip through the unified model', async () => {
+test('the operator Policy loads and round-trip through the unified model', async () => {
   const registry = new Registry();
   for (const contract of [
     agentContract,
@@ -20,11 +20,7 @@ test('all operator Policies load and round-trip through the unified model', asyn
   ])
     registry.registerContract(contract);
   try {
-    for (const name of [
-      'operator-baseline',
-      'operator-diagnostic',
-      'operator-search',
-    ]) {
+    for (const name of ['operator-search']) {
       const policy = await Policy.load(
         resolve(`src/policies/${name}/policy.yaml`),
         registry,

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   AgentInput,
@@ -21,7 +21,7 @@ import {
 import { digest, object, string, strings } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { applyEdits, resourceFiles } from '../shared/agent-editing/index.js';
-import { loadOperatorTask } from '../evaluator-operatorbench/task.js';
+import { loadOperatorTask } from '../shared/file-application/kernel-task.js';
 import { parseStaticDiagnosis, readAnalysis, readHistory } from './context.js';
 import { requestOperatorAgent, OperatorModelOutputError } from './agent.js';
 import {
@@ -35,6 +35,8 @@ import {
   type OperatorResources,
 } from './metrics-service.js';
 import { retrieveStaticKnowledge } from './retrieval.js';
+import { readKnowledgeResources } from './resources.js';
+import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import {
   analysisSchema,
   configSchema,
@@ -53,49 +55,45 @@ const sha = (bytes: Uint8Array): string =>
   createHash('sha256').update(bytes).digest('hex');
 const diagnosisResponseSchema = recordSchema({ issues: staticDiagnosisSchema });
 
-async function resources(): Promise<OperatorResources> {
-  const bytes = await readFile(join(directory, 'knowledge/manifest.json'));
-  const manifest = object(JSON.parse(bytes.toString('utf8')));
-  if (
-    manifest.schemaVersion !== 'rsi.operator-knowledge/v1' ||
-    !Array.isArray(manifest.resources)
-  )
-    throw new Error('Operator resource manifest is invalid');
-  const contents = new Map<string, string>();
-  const base = await realpath(directory);
-  for (const raw of manifest.resources) {
-    const entry = object(raw),
-      path = string(entry.path);
-    const resolved = await realpath(resolve(directory, path)),
-      local = relative(base, resolved);
-    if (
-      isAbsolute(local) ||
-      local === '..' ||
-      local.startsWith('..' + sep) ||
-      !(await lstat(resolve(directory, path))).isFile()
-    )
-      throw new Error('Operator resource escapes its directory');
-    const content = await readFile(resolved);
-    if (sha(content) !== entry.sha256)
-      throw new Error(`Operator resource changed: ${path}`);
-    contents.set(
-      path,
-      new TextDecoder('utf-8', { fatal: true }).decode(content),
+async function resources(
+  config: OperatorProposerConfig,
+): Promise<OperatorResources> {
+  const external = await readKnowledgeResources(config.embedding);
+  const contents: Record<string, string> = {};
+  for (const name of [
+    'diagnose',
+    'diagnose-metrics',
+    'generate',
+    'generate-metrics',
+    'repair',
+    'summarize',
+  ]) {
+    contents[name] = await readFile(
+      join(directory, 'prompts', `${name}.md`),
+      'utf8',
     );
   }
-  const get = (name: string): string =>
-    string(contents.get(name), `Operator resource ${name}`);
+  const get = (name: string): string => string(contents[name]);
   return {
-    digest: sha(bytes),
+    digest: digest({
+      prompts: contents,
+      knowledge: external.digest,
+      worker: external.workerDigest,
+      taskModel: await sourceIdentity(import.meta.url, [
+        '../shared/file-application/kernel-task',
+      ]),
+    }),
+    knowledgeDigest: external.digest,
+    workerDigest: external.workerDigest,
     prompts: {
-      diagnose: get('prompts/diagnose.md'),
-      'diagnose-metrics': get('prompts/diagnose-metrics.md'),
-      generate: get('prompts/generate.md'),
-      repair: get('prompts/repair.md'),
-      summarize: get('prompts/summarize.md'),
+      diagnose: get('diagnose'),
+      'diagnose-metrics': get('diagnose-metrics'),
+      generate: get('generate'),
+      repair: get('repair'),
+      summarize: get('summarize'),
     },
-    metricsGenerate: get('prompts/generate-metrics.md'),
-    guidelines: get('prompts/triton-ascend-guidelines.md'),
+    metricsGenerate: get('generate-metrics'),
+    guidelines: external.guidelines,
   };
 }
 function scalar(measurement: JsonObject, name: string): number | null {
@@ -368,7 +366,7 @@ export const createOperatorProposer: OperationDefinition<
         'Operator Proposer input',
       );
       context.signal.throwIfAborted();
-      const loaded = await resources();
+      const loaded = await resources(config);
       if (input.phase === 'metrics')
         return executeMetricsProposer(
           input,
@@ -439,7 +437,8 @@ export const createOperatorProposer: OperationDefinition<
               );
               if (
                 retrieved.embeddingDigest !== base.identity.embeddingDigest ||
-                retrieved.resourcesDigest !== loaded.digest
+                retrieved.resourcesDigest !== loaded.knowledgeDigest ||
+                retrieved.workerDigest !== loaded.workerDigest
               )
                 throw new Error('Operator retrieval identity changed');
               analysis = {

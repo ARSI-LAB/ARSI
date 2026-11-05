@@ -19,7 +19,6 @@ import { compileFlow } from '../compiler/flow.js';
 import { reflectionConfigFile } from '../revisions/declaration.js';
 import { reflectionResultSchema } from '../revisions/declaration.js';
 import { evaluateTemplate } from './expression.js';
-import { budgetSnapshotSchema } from '../../contracts/runtime/services.js';
 import {
   immutable,
   parseSteps,
@@ -83,22 +82,12 @@ function changedFields(
 function readRestore(
   value: JsonObject,
   identity: string,
-): {
-  journal: JsonObject;
-  boundaries: JsonObject;
-  budgetObservations: JsonObject;
-} {
+): { journal: JsonObject; boundaries: JsonObject } {
   if (value.schemaVersion !== checkpointVersion)
     throw new Error('Policy checkpoint format is unsupported');
   unknownKeys(
     value,
-    [
-      'schemaVersion',
-      'identity',
-      'journal',
-      'boundaries',
-      'budgetObservations',
-    ],
+    ['schemaVersion', 'identity', 'journal', 'boundaries'],
     'Policy checkpoint',
   );
   if (value.identity !== identity)
@@ -128,16 +117,7 @@ function readRestore(
       (path !== 'policy-completed' && !/^steps\/.+\/iteration-\d+$/.test(path))
     )
       throw new Error(`checkpoint.boundaries: invalid boundary ${path}`);
-  const budgetObservations = structuredClone(
-    object(value.budgetObservations ?? {}, 'checkpoint.budgetObservations'),
-  );
-  for (const observation of Object.values(budgetObservations))
-    validate(
-      budgetSnapshotSchema,
-      observation,
-      'checkpoint.budgetObservations',
-    );
-  return { journal, boundaries, budgetObservations };
+  return { journal, boundaries };
 }
 function stepResult(value: JsonValue): StepResult {
   const result = object(value, 'checkpoint.result');
@@ -352,9 +332,12 @@ export class Policy {
       config,
       application,
     });
-    const { journal, boundaries, budgetObservations } =
+    const {
+      journal,
+      boundaries,
+    }: { journal: JsonObject; boundaries: JsonObject } =
       options.restore === undefined
-        ? { journal: {}, boundaries: {}, budgetObservations: {} }
+        ? { journal: {}, boundaries: {} }
         : readRestore(options.restore, identity);
     let queue = Promise.resolve();
     async function persist(): Promise<void> {
@@ -363,7 +346,6 @@ export class Policy {
         identity,
         journal,
         boundaries,
-        budgetObservations,
       });
       queue = queue.then(async () => {
         signal.throwIfAborted();
@@ -371,23 +353,6 @@ export class Policy {
         signal.throwIfAborted();
       });
       await queue;
-    }
-    // Observations are durable decisions, not reservations. Resuming an unfinished
-    // container retains its admitted branch while new child steps read fresh usage.
-    async function observeBudget(
-      key: string,
-      scope: Environment,
-    ): Promise<void> {
-      if (typeof options.context.readBudget !== 'function') return;
-      if (!Object.hasOwn(budgetObservations, key)) {
-        const snapshot = object(await options.context.readBudget());
-        validate(budgetSnapshotSchema, snapshot, 'policy.budget');
-        budgetObservations[key] = structuredClone(snapshot);
-        await persist();
-      }
-      scope.locals.budget = immutable(
-        structuredClone(budgetObservations[key]!),
-      );
     }
     function updateState(patch: JsonObject, parallel: boolean): JsonObject {
       if (parallel)
@@ -463,7 +428,6 @@ export class Policy {
     ): Promise<StepResult> {
       signal.throwIfAborted();
       const stepPath = `${path}/${step.id}`;
-      scope = { ...scope, locals: { ...scope.locals } };
       let result: StepResult;
       if (Object.hasOwn(journal, stepPath)) {
         const record = object(journal[stepPath]);
@@ -471,7 +435,6 @@ export class Policy {
         if (Object.keys(patch).length) updateState(patch, parallel);
         result = stepResult(record.result!);
       } else {
-        await observeBudget(`step:${stepPath}`, scope);
         const before = state;
         const context: StepContext = {
           input,
@@ -535,9 +498,6 @@ export class Policy {
               settings.output,
             );
           },
-          observeBudget(key) {
-            return observeBudget(`${key}:${stepPath}`, scope);
-          },
           boundary(iteration) {
             return boundary(stepPath, iteration);
           },
@@ -582,7 +542,6 @@ export class Policy {
         });
       }
       signal.throwIfAborted();
-      await observeBudget(`output:${path}`, scope);
       return { kind: 'completed', output: evaluate(output, scope) };
     }
     if (eventInfo)

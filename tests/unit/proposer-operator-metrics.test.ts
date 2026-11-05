@@ -116,7 +116,7 @@ test('operator edits reject unauthorized paths and oversized UTF-8 output as mod
   assert.throws(
     () =>
       parse({
-        edits: [{ path: 'input.py', content: '算'.repeat(12000) }],
+        edits: [{ path: 'input.py', content: '\u20ac'.repeat(12000) }],
         reason: 'Too many bytes',
       }),
     /byte/i,

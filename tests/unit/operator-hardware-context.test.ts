@@ -37,7 +37,8 @@ test('hardware context preserves the complete user text and hashes its original 
   const root = await mkdtemp(join(tmpdir(), 'rsi-hardware-context-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const path = join(root, 'hardware-context.md');
-  const text = '\uFEFF# 用户硬件说明\r\n\r\nCustom fields are allowed.  \r\n';
+  const text =
+    '\uFEFF# User hardware notes \u03bb\r\n\r\nCustom fields are allowed.  \r\n';
   await writeFile(path, text);
   const result = await reader(path);
   assert.equal(result.text, text);

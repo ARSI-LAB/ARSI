@@ -31,6 +31,7 @@ async function fixture(
   options: {
     modelCalls?: number;
     scopeCalls?: number;
+    executionTimeoutMs?: number;
     execute?(context: RuntimeContext): Promise<JsonObject>;
   } = {},
 ) {
@@ -122,6 +123,9 @@ async function fixture(
               base_url: `http://127.0.0.1:${address.port}/v1`,
               api_key: '${RSI_SUBAGENT_TEST_KEY}',
               timeoutMs: 3000,
+              ...(options.executionTimeoutMs === undefined
+                ? {}
+                : { executionTimeoutMs: options.executionTimeoutMs }),
             },
           },
           reflector: {
@@ -400,6 +404,27 @@ test('cancellation stops an active grandchild and prevents all ancestor continua
   );
   assert.equal(calls.length, 3);
   assert.ok(calls.every((c) => c.status === 'cancelled'));
+});
+
+test('parent execution timeout cancels active descendants before their own deadlines', async (t) => {
+  const f = await fixture([dispatch(), dispatch(), null, final, final], {
+    executionTimeoutMs: 2000,
+  });
+  t.after(() => f.close());
+  await assert.rejects(f.run(), /Agent execution timed out/);
+  assert.equal(f.requests.length, 3);
+  assert.equal(f.controller.signal.aborted, false);
+  const calls = (await f.manager.facts.list('calls')).filter(
+    (c) => c.bindingId === 'agent',
+  );
+  assert.equal(calls.length, 3);
+  const parent = calls.find((c) => object(c.input).goal === 'Parent-only goal');
+  assert.equal(parent?.status, 'failed');
+  assert.ok(
+    calls
+      .filter((c) => c.callId !== parent?.callId)
+      .every((c) => c.status === 'cancelled'),
+  );
 });
 
 test('Reflection retains its complete input and consolidates actual delegated edits', async (t) => {

@@ -3,7 +3,7 @@ import type {
   JsonValue,
   RuntimeContext,
 } from '../../contracts/index.js';
-import type { KernelExecution } from '../shared/file-application/kernel-execution.js';
+import type { KernelExecution } from '../application-kernel/schema.js';
 import {
   evaluationFeedbackSchema,
   measurementEvidenceSchema,

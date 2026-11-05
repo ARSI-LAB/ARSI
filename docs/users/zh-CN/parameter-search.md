@@ -34,12 +34,12 @@ RSI_OPTUNA_PYTHON="$PWD/.scratch/optuna-venv/bin/python" node --import tsx --tes
 
 ```yaml
 policy:
-  ref: policy.parameter-optuna
+  id: policy.parameter-optuna
   config:
     maxTrials: 50
 bindings:
   proposer:
-    ref: proposer.optuna
+    plugin: proposer.optuna
     config:
       path: tuning.json
       python:

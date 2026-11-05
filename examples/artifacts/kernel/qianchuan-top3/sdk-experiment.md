@@ -10,9 +10,9 @@
 
 ## 在 NPU 主机运行
 
-1. 在同一主机部署相邻 RSI、Evaluator 和 AgentBundle，使用双方支持的 Node `>=24.22.1 <25` 和 pnpm `11.22.0`。
+1. 安装 RSI 及锁定提交的 Evaluator SDK；SDK 自己管理 AgentBundle、依赖安装和构建，无需相邻源码仓库。使用 Node `>=24.22.1 <25` 和 pnpm `11.22.0`。
 2. 准备已安装 PyTorch、torch_npu、Triton-Ascend、CANN 和驱动的 Python 环境。解释器和设备由命令显式指定。需要 profiling 时还需 msprof。
-3. 从 RSI 仓库根目录联合构建，然后运行：
+3. 从 RSI 仓库根目录安装依赖并构建，然后运行：
 
 ```bash
 pnpm install --frozen-lockfile
@@ -31,11 +31,17 @@ node scripts/run-operator-sdk.mjs \
 
 开启 profiling：在上述命令后增加 `--profile`。默认不使用 profiling 缓存；普通采集失败会单独记录，正确性和计时仍可有效。取消或清理未确认会停止实验。
 
+### Recipe、Policy 与 SDK 版本
+
+当前配置使用 `application.plugin`、`policy.id` 和 `bindings.<name>.plugin`，三个算子 Policy 使用显式 `state_schema/state` 及统一 `steps/type`。旧 `init/loop/finish` 检查点不迁移；已有实验使用原构建审计或恢复，新构建使用新的实验 ID。业务结果中的 `phase: static/metrics` 仍表示算子搜索阶段，与已删除的 Runtime 阶段标签无关。
+
+`package.json` 和 `pnpm-lock.yaml` 固定包含严格评测、关联证据计时审计和 Default/MSTX 诊断的 Evaluator 提交。SDK 对应 [Evaluator PR #11](https://github.com/evolving-foundry/ember-evaluator/pull/11)；该 PR 合入前，需要保留固定提交，不能替换为缺少这些能力的主线版本。`pnpm install --frozen-lockfile` 使用该提交构建 SDK；`pnpm check` 与 `pnpm check:package` 验证本地行为和独立安装包消费，不执行模型或 NPU。
+
 ## 结果与恢复
 
 运行数据位于 `.rsi/operator-sdk/<id>/`：
 
-- `manifest.json`：`rsi.operator-inputs/v2` 输入快照，记录当前构建、相邻依赖与执行参数身份。
+- `manifest.json`：`rsi.operator-inputs/v2` 输入快照，记录当前构建、实际安装的 SDK 与执行参数身份。
 - `inputs/`：实际使用的 Recipe、目标、baseline、参考、任务契约，以及 `runtime/` 中冻结的 RSI 构建与 Policy 资源。
 - `summary.json`：实验状态、两次测量、SDK runId、用量、诊断、清理状态及最终源码路径。
 - `best-input.py`：选中源码；默认与初始 baseline 相同。

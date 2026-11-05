@@ -214,13 +214,13 @@ async function copiedRecipe(
   const search = options.kind === 'search';
   if (search) validateOperatorSearchBudgets(recipe);
   const diagnostic =
-    !search && recipe.policy?.ref === 'policy.operator-diagnostic';
+    !search && recipe.policy?.id === 'policy.operator-diagnostic';
   const label = search ? 'Operator search' : 'SDK baseline';
   const application = record(recipe.application, 'application');
   const policy = record(recipe.policy, 'policy');
   if (
-    application.ref !== 'application.kernel' ||
-    policy.ref !==
+    application.plugin !== 'application.kernel' ||
+    policy.id !==
       (search
         ? 'policy.operator-search'
         : diagnostic
@@ -243,7 +243,7 @@ async function copiedRecipe(
     );
   for (const [name, ref] of Object.entries(expected)) {
     const binding = record(bindings[name], `bindings.${name}`);
-    if (binding.ref !== ref || binding.bindings !== undefined)
+    if (binding.plugin !== ref || binding.bindings !== undefined)
       throw new Error(
         `${label} requires ${name} binding ${ref} without nested bindings`,
       );
@@ -752,9 +752,9 @@ function confirmedPolicyProgress(calls) {
   const at = (path, bindingId) =>
     calls.find((call) => call.path === path && call.bindingId === bindingId);
   const successful = (call) => call?.status === 'succeeded';
-  const baseline = at('init/check_baseline', 'selector');
-  const finalEvaluation = at('finish/evaluate_final', 'evaluator');
-  const finalSelection = at('finish/check_final', 'selector');
+  const baseline = at('steps/check_baseline', 'selector');
+  const finalEvaluation = at('steps/evaluate_final', 'evaluator');
+  const finalSelection = at('steps/check_final', 'selector');
   if (!baseline && !finalEvaluation) return null;
   let bestCandidateRef = successful(baseline)
     ? baseline.output.selectedCandidateRef
@@ -767,8 +767,8 @@ function confirmedPolicyProgress(calls) {
       successful(call) &&
       call.bindingId === 'selector' &&
       call.pluginId === 'selector.metric' &&
-      call.path !== 'init/check_baseline' &&
-      call.path !== 'finish/check_final',
+      call.path !== 'steps/check_baseline' &&
+      call.path !== 'steps/check_final',
   );
   const visited = new Set();
   for (;;) {
@@ -1066,7 +1066,8 @@ export async function summarizeOperatorExperiment(manager, id, manifestPath) {
       manager,
       calls.find(
         (call) =>
-          call.path === 'init/evaluate_baseline' && call.status === 'succeeded',
+          call.path === 'steps/evaluate_baseline' &&
+          call.status === 'succeeded',
       )?.output.measurementRef,
     ),
     bestMeasurement: await measurementSummary(

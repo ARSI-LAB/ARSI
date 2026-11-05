@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -21,6 +22,8 @@ import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/s
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { object } from '../../src/shared/json.js';
+
+useOperatorSdkTestEnvironment();
 
 test('operator SDK configuration runs the actual kernel SDK with only the device worker replaced', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-kernel-sdk-'));
@@ -77,7 +80,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   );
   const result = await new Evaluator().run({
     configPath: prepared.configPath,
-    env: prepared.env,
+    env: { ...process.env, ...prepared.env },
   });
   assert.equal(result.kind, 'local');
   if (result.kind !== 'local') throw new Error('Expected local SDK');

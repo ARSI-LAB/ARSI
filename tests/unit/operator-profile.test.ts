@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -9,6 +10,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -23,6 +25,8 @@ import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { recordSdkMeasurement } from '../../src/plugins/evaluator-operatorbench/sdk-measurement.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
+
+useOperatorSdkTestEnvironment();
 
 test('operatorbench requires explicit purpose and an assessment for diagnostic calls', () => {
   validate(operatorbenchContract.input_schema, {
@@ -217,7 +221,7 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
     const installed = join(repository, 'node_modules', name);
     const isolated = join(modules, name);
     if (name === 'ember-evaluator')
-      await cp(installed, isolated, { recursive: true });
+      await cp(await realpath(installed), isolated, { recursive: true });
     else await symlink(installed, isolated, 'dir');
   }
   const {

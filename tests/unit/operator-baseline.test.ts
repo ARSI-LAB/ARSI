@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, rm } from 'node:fs/promises';
@@ -7,12 +8,14 @@ import { object } from '../../src/shared/json.js';
 import { prepareOperatorFixture } from '../fixtures/operator-sdk/setup.js';
 import { readExperimentEvidence } from '../../src/entries/cli/operator-experiments/evidence.js';
 
+useOperatorSdkTestEnvironment();
+
 test('SDK baseline evaluates the unchanged source twice without any Agent binding and resumes without new effects', async (t) => {
   const fixture = await prepareOperatorFixture();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
   recipe.policy = {
-    ref: 'policy.operator-baseline',
+    id: 'policy.operator-baseline',
     config: { caseIds: ['fixed'] },
   };
   const bindings = object(recipe.bindings);

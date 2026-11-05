@@ -1,18 +1,20 @@
-# Calibration and independent retest annotate confidence; they do not gate generation.
 schemaVersion: rsi.recipe/v1
 id: operator-top3-metrics-search
 application:
-  ref: application.kernel
+  plugin: application.kernel
   config:
     target:
       schema: ./target.yaml
     baseline:
       directory: ./baseline
 policy:
-  ref: policy.operator-search
+  id: policy.operator-search
   config:
-    goal: Improve the Triton-Ascend top-3 kernel using static analysis followed by measured bottleneck analysis while preserving the complete task contract.
-    caseIds: [fixed]
+    goal:
+      Improve the Triton-Ascend top-3 kernel using static analysis followed by measured bottleneck
+      analysis while preserving the complete task contract.
+    caseIds:
+      - fixed
     maxAttempts: 3
     repairLimit: 3
     metricsEnabled: true
@@ -24,14 +26,14 @@ policy:
     cleanupReserveMs: 60000
 bindings:
   agent:
-    ref: agent.pi
+    plugin: agent.pi
     config:
       model: ${MODEL_NAME}
       base_url: ${MODEL_ENDPOINT}
       api_key: ${MODEL_API_KEY}
       retries: 0
   proposer:
-    ref: proposer.operator
+    plugin: proposer.operator
     config:
       hardwareContextFile: ./hardware-context.md
       modelRequestTimeoutMs: 120000
@@ -46,7 +48,7 @@ bindings:
         timeoutMs: 300000
         similarityThreshold: 0.6
   evaluator:
-    ref: evaluator.operatorbench
+    plugin: evaluator.operatorbench
     config:
       mode: sdk
       task:
@@ -70,7 +72,7 @@ bindings:
           attemptTimeoutSeconds: 300
           roundNum: 1
   selector:
-    ref: selector.metric
+    plugin: selector.metric
     config:
       metric: latencyMeanMs
       direction: minimize

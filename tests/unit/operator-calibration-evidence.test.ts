@@ -1,3 +1,4 @@
+import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rm } from 'node:fs/promises';
@@ -5,6 +6,8 @@ import { createRuntime } from '../../src/runtime/context.js';
 import { object } from '../../src/shared/json.js';
 import { prepareOperatorFixture } from '../fixtures/operator-sdk/setup.js';
 import { readExperimentEvidence } from '../../src/entries/cli/operator-experiments/evidence.js';
+
+useOperatorSdkTestEnvironment();
 
 test('calibration audits two real SDK measurements and rejects damaged archived CSV', async (t) => {
   const fixture = await prepareOperatorFixture();

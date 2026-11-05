@@ -18,6 +18,11 @@ import { checkSdkConsumer } from './check-sdk-consumer.mjs';
 import { parse, stringify } from 'yaml';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const temporary = await realpath(await mkdtemp(join(tmpdir(), 'rsi-package-')));
+const networkConfigPath = join(temporary, 'network.yaml');
+const consumerEnv = {
+  ...process.env,
+  EVALUATOR_NETWORK_CONFIG: networkConfigPath,
+};
 function run(args, cwd, stdio = 'inherit') {
   const executable = process.env.npm_execpath;
   assert.ok(
@@ -31,13 +36,14 @@ function run(args, cwd, stdio = 'inherit') {
     {
       cwd,
       stdio,
-      env: process.env,
+      env: consumerEnv,
       timeout: 600000,
       encoding: 'utf8',
     },
   );
 }
 try {
+  await writeFile(networkConfigPath, '{}\n');
   run(['pack', '--pack-destination', temporary], root, [
     'ignore',
     'ignore',
@@ -82,6 +88,7 @@ try {
     'node_modules/ember-rsi/dist/src/entries/cli/main.js',
   );
   const help = execFileSync(process.execPath, [command, '--help'], {
+    env: consumerEnv,
     cwd: outside,
     encoding: 'utf8',
     timeout: 30000,
@@ -100,6 +107,7 @@ try {
     ['reflection', 'apply', '--help'],
   ]) {
     const detail = execFileSync(process.execPath, [command, ...args], {
+      env: consumerEnv,
       cwd: outside,
       encoding: 'utf8',
       timeout: 30000,
@@ -129,6 +137,7 @@ try {
     process.platform === 'win32' ? 'ember-rsi.cmd' : 'ember-rsi',
   );
   const binHelp = execFileSync(installedBin, ['--help'], {
+    env: consumerEnv,
     cwd: outside,
     encoding: 'utf8',
     timeout: 30000,
@@ -139,6 +148,7 @@ try {
   assert.deepEqual(
     JSON.parse(
       execFileSync(process.execPath, [command, 'reflection', 'list'], {
+        env: consumerEnv,
         cwd: outside,
         encoding: 'utf8',
         timeout: 30000,
@@ -153,7 +163,13 @@ try {
         execFileSync(
           process.execPath,
           [command, 'reflection', action, 'revision-missing'],
-          { cwd: outside, encoding: 'utf8', stdio: 'pipe', timeout: 30000 },
+          {
+            env: consumerEnv,
+            cwd: outside,
+            encoding: 'utf8',
+            stdio: 'pipe',
+            timeout: 30000,
+          },
         ),
       (error) =>
         /Unknown revision ID revision-missing/.test(String(error.stderr)),
@@ -179,13 +195,14 @@ export function register(registry) {
   );
   await writeFile(
     join(extension, 'policy.yaml'),
-    'schemaVersion: rsi.policy/v1\nid: external.policy\ninput_schema: { type: object }\noutput_schema: { type: object }\noutput: {}\n',
+    'schemaVersion: rsi.policy/v1\nid: external.policy\ninput_schema: { type: object }\noutput_schema: { type: object }\nsteps: []\noutput: {}\n',
   );
   const externalCatalog = JSON.parse(
     execFileSync(
       process.execPath,
       [command, 'catalog', '--plugin-dir', extension],
       {
+        env: consumerEnv,
         cwd: outside,
         encoding: 'utf8',
         timeout: 30000,
@@ -196,6 +213,7 @@ export function register(registry) {
   assert.ok(externalCatalog.policies.includes('external.policy'));
   const catalog = JSON.parse(
     execFileSync(process.execPath, [command, 'catalog'], {
+      env: consumerEnv,
       cwd: outside,
       encoding: 'utf8',
       timeout: 30000,
@@ -206,7 +224,6 @@ export function register(registry) {
     16,
     'all sixteen plugin definitions ship in the archive',
   );
-  assert.ok(catalog.plugins.includes('agent.codex'));
   for (const id of [
     'application.kernel',
     'evaluator.operatorbench',
@@ -214,6 +231,7 @@ export function register(registry) {
   ])
     assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
   assert.ok(!catalog.plugins.includes('agent.scripted'));
+  assert.ok(catalog.plugins.includes('agent.codex'));
   assert.deepEqual(
     [...catalog.policies].sort(),
     [
@@ -237,6 +255,7 @@ export function register(registry) {
         process.execPath,
         [command, 'validate', join(example, 'recipe.yaml')],
         {
+          env: consumerEnv,
           cwd: outside,
           encoding: 'utf8',
           timeout: 30000,
@@ -271,7 +290,7 @@ export function register(registry) {
       execFileSync(
         process.execPath,
         [command, 'validate', join(outside, name, 'recipe.yaml')],
-        { cwd: outside, encoding: 'utf8', timeout: 30000 },
+        { env: consumerEnv, cwd: outside, encoding: 'utf8', timeout: 30000 },
       ),
     );
     assert.equal(
@@ -292,6 +311,7 @@ export function register(registry) {
   if (process.env.RSI_OPTUNA_PYTHON) {
     const checked = JSON.parse(
       execFileSync(process.env.RSI_OPTUNA_PYTHON, [packagedWorker], {
+        env: consumerEnv,
         cwd: outside,
         input: JSON.stringify({ action: 'check' }),
         encoding: 'utf8',
@@ -301,6 +321,7 @@ export function register(registry) {
     assert.equal(checked.environment.optuna, '4.5.0');
     const sampled = JSON.parse(
       execFileSync(process.env.RSI_OPTUNA_PYTHON, [packagedWorker], {
+        env: consumerEnv,
         cwd: outside,
         input: JSON.stringify({
           action: 'suggest',
@@ -334,6 +355,7 @@ export function register(registry) {
   await writeFile(sdkRecipePath, stringify(sdkRecipe));
   const operatorValidation = JSON.parse(
     execFileSync(process.execPath, [command, 'validate', sdkRecipePath], {
+      env: consumerEnv,
       cwd: outside,
       encoding: 'utf8',
       timeout: 30000,
@@ -353,7 +375,7 @@ export function register(registry) {
     execFileSync(
       process.execPath,
       [command, 'run', sdkRecipePath, '--id', sdkExperimentId],
-      { cwd: outside, encoding: 'utf8', timeout: 30000 },
+      { env: consumerEnv, cwd: outside, encoding: 'utf8', timeout: 30000 },
     ),
   );
   assert.equal(sdkExperiment.status, 'succeeded');
@@ -366,6 +388,7 @@ export function register(registry) {
       process.execPath,
       [command, 'run', sdkRecipePath, '--id', sdkExperimentId, '--resume'],
       {
+        env: consumerEnv,
         cwd: outside,
         encoding: 'utf8',
         timeout: 30000,
@@ -376,6 +399,7 @@ export function register(registry) {
   assert.deepEqual(resumedSdkExperiment.usage, sdkExperiment.usage);
   const shownOperator = JSON.parse(
     execFileSync(process.execPath, [command, 'show', sdkExperimentId], {
+      env: consumerEnv,
       cwd: outside,
       encoding: 'utf8',
       timeout: 30000,
@@ -395,6 +419,7 @@ export function register(registry) {
        assert.match(helper, /def collect_flow_timing/);`,
     ],
     {
+      env: consumerEnv,
       cwd: join(consumer, 'node_modules/ember-rsi'),
       stdio: 'inherit',
       timeout: 30000,
@@ -418,7 +443,7 @@ import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,readPolicy,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext} from 'ember-rsi';
+import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext} from 'ember-rsi';
 import {RuntimeContext as ContractContext,parseKernelExecution,parseFileTree} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
 const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
@@ -480,15 +505,15 @@ try {
   const goalFile=fileURLToPath(new URL('plugins/reflection-agent/goals/'+goal+'/prompt.md',installed));
   const configFile=resolve(${JSON.stringify(outside)},'reflection-'+goal+'.json');
   await writeFile(configFile,JSON.stringify({evidence:['proposer'],targets:{proposer:{resources:['guidance']}},goal:goalFile,implementation:{contract:'contract.reflection',ref:'reflection.agent',config:{agentRef:'agent'}}}));
-  const configuration=await validateReflection(configFile,{proposer:{ref:'proposer.agent',config:{prompt,guidance:targetDirectory}},agent:{ref:'agent.pi',config:{}}},id=>runtime.registry.get(id),id=>runtime.registry.contract(id));
+  const configuration=await validateReflection(configFile,{proposer:Binding.resolve({name:'proposer',registry:runtime.registry,required:proposerContract,override:{declaration:{plugin:'proposer.agent',config:{prompt,guidance:targetDirectory,agentRef:'agent'}},directory:${JSON.stringify(outside)}}}).toJSON(),agent:Binding.resolve({name:'agent',registry:runtime.registry,required:runtime.registry.get('agent.pi').contract,override:{declaration:{plugin:'agent.pi',config:{}},directory:${JSON.stringify(outside)}}}).toJSON()},id=>runtime.registry.get(id),id=>runtime.registry.contract(id));
   assert.equal(configuration.goal,await readFile(goalFile,'utf8'),'explicit installed goal selection loads contents');
   assert.equal(await realpath(configuration.implementation.config.prompt),await realpath(prompt),'installed generic prompt is the default');
  }
  for(const id of runtime.registry.catalog().policies){
-  const path=await packageResource(runtime.registry.policy(id)),policy=await readPolicy(path,runtime.registry);
-  assert.equal(policy.definition.schemaVersion,'rsi.policy/v1');
-  const requirement=policy.require.invariantProposer??policy.require.proposer;
-  if(id==='policy.operator-baseline'||id==='policy.operator-diagnostic')assert.deepEqual(Object.keys(policy.require).sort(),['evaluator','selector']);
+  const path=await packageResource(runtime.registry.policy(id)),policy=await Policy.load(path,runtime.registry);
+  assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
+  const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;
+  if(id==='policy.operator-baseline'||id==='policy.operator-diagnostic')assert.deepEqual(Object.keys(policy.requirements).sort(),['evaluator','selector']);
   else assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?parameterSearchProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
   assert.deepEqual(runtime.registry.get('proposer.agent').contract,proposerContract);
   const reflection=policy.defaults.reflection;
@@ -559,14 +584,14 @@ try {
  await writeFile(policyPath,JSON.stringify({
   schemaVersion:'rsi.policy/v1',id:'consumer.policy',input_schema:{type:'object'},output_schema:{type:'object'},
   require:{worker:{contract:contract.id},unused:{contract:contract.id}},
-  init:{steps:[{id:'first',use:'worker',with:{}},{id:'second',use:'worker',with:{}}]},output:{}
+  steps:[{id:'first',type:'invoke',use:'worker',with:{}},{id:'second',type:'invoke',use:'worker',with:{}}],output:{}
  }));
  runtime.registry.registerPolicy('consumer.policy',policyPath);
  const recipePath=resolve(${JSON.stringify(outside)},'consumer-recipe.yaml');
  await writeFile(recipePath,JSON.stringify({
-  schemaVersion:'rsi.recipe/v1',id:'consumer.recipe',application:{ref:'consumer.application',config:{}},
-  policy:{ref:'consumer.policy',config:{},input:{}},budget:{operations:10,elapsedWallMs:10000},
-  bindings:{worker:{ref:'consumer.worker',config:{}},unused:{ref:'consumer.worker',config:{}}}
+  schemaVersion:'rsi.recipe/v1',id:'consumer.recipe',application:{plugin:'consumer.application',config:{}},
+  policy:{id:'consumer.policy',config:{},input:{}},budget:{operations:10,elapsedWallMs:10000},
+  bindings:{worker:{plugin:'consumer.worker',config:{}},unused:{plugin:'consumer.worker',config:{}}}
  }));
  const experiment=await runtime.manager.run(recipePath,{id:'consumer.experiment'});
  assert.equal(experiment.status,'succeeded');assert.equal(experiment.recipeId,'consumer.recipe');
@@ -578,6 +603,7 @@ console.log('Installed resources and managed ctx.event subscriptions, publishing
 `,
   );
   execFileSync(process.execPath, [join(consumer, 'consume.mjs')], {
+    env: consumerEnv,
     cwd: outside,
     stdio: 'inherit',
     timeout: 30000,
@@ -695,6 +721,7 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
   ];
   for (const file of ['contracts-consumer.ts', 'events-consumer.ts']) {
     execFileSync(process.execPath, [compiler, ...compileArgs, file], {
+      env: consumerEnv,
       cwd: consumer,
       stdio: 'inherit',
       timeout: 30000,
@@ -721,6 +748,7 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
     let diagnostics = '';
     try {
       execFileSync(process.execPath, [compiler, ...compileArgs, file], {
+        env: consumerEnv,
         cwd: consumer,
         encoding: 'utf8',
         stdio: 'pipe',

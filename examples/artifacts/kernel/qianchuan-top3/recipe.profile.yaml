@@ -1,20 +1,20 @@
-# Baseline assessment followed by independent diagnostics; no model calls or final retiming.
 schemaVersion: rsi.recipe/v1
 id: operator-top3-sdk-diagnostic
 application:
-  ref: application.kernel
+  plugin: application.kernel
   config:
     target:
       schema: ./target.yaml
     baseline:
       directory: ./baseline
 policy:
-  ref: policy.operator-diagnostic
+  id: policy.operator-diagnostic
   config:
-    caseIds: [fixed]
+    caseIds:
+      - fixed
 bindings:
   evaluator:
-    ref: evaluator.operatorbench
+    plugin: evaluator.operatorbench
     config:
       mode: sdk
       task:
@@ -38,7 +38,7 @@ bindings:
           attemptTimeoutSeconds: 300
           roundNum: 1
   selector:
-    ref: selector.metric
+    plugin: selector.metric
     config:
       metric: latencyMeanMs
       direction: minimize

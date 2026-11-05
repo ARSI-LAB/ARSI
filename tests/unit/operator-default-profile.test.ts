@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKernelContract } from 'ember-evaluator';
 import type { JsonObject } from '../../src/contracts/index.js';
 import { adaptProfileResult } from '../../src/plugins/evaluator-operatorbench/profile-result.js';
 import type { PreparedSdkRun } from '../../src/plugins/evaluator-operatorbench/sdk-configuration.js';
@@ -46,7 +45,7 @@ function fixture(collection: 'Default' | 'PipeTimeline,Default') {
     candidateSha256: candidate,
     referenceSha256: reference,
     env: {},
-    contract: parseKernelContract({
+    contract: {
       schemaVersion: 1,
       caseId: 'fixed',
       inputs: [{ shape: [4], dtype: 'float16', contiguous: true }],
@@ -57,7 +56,7 @@ function fixture(collection: 'Default' | 'PipeTimeline,Default') {
         independent: true,
       },
       inputUnmodified: true,
-    }),
+    },
   };
   const profile: JsonObject = {
     status: 'completed',

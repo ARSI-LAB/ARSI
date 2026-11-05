@@ -128,16 +128,18 @@ test('operator request uses the real Manager scope to stop recursive model effec
         agent: { contract: 'contract.agent' },
         driver: { contract: 'contract.scope-driver' },
       },
-      init: { steps: [{ id: 'request', use: 'driver', with: {} }] },
-      output: '${{ init.request.output }}',
+      state_schema: { type: 'object', additionalProperties: false },
+      state: {},
+      steps: [{ id: 'request', type: 'invoke', use: 'driver', with: {} }],
+      output: '${{ steps.request.output }}',
     }),
   );
   runtime.registry.registerPolicy('scope.policy', path);
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
-  recipe.policy = { ref: 'scope.policy' };
+  recipe.policy = { id: 'scope.policy' };
   recipe.bindings = {
-    agent: { ref: 'agent.scope-test', config: {} },
-    driver: { ref: 'scope.driver', config: {} },
+    agent: { plugin: 'agent.scope-test', config: {} },
+    driver: { plugin: 'scope.driver', config: {} },
   };
   recipe.budget = {
     operations: 20,

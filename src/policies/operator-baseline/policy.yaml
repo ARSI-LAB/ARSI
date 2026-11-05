@@ -13,37 +13,38 @@ require:
     contract: contract.operatorbench
   selector:
     contract: contract.selector-metrics
-init:
-  steps:
-    - id: evaluate_baseline
-      use: evaluator
-      with:
-        action: evaluate
-        candidateRef: ${{ input.candidateRef }}
-        caseIds: ${{ config.caseIds }}
-    - id: check_baseline
-      use: selector
-      with:
-        incumbentMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
-        candidateMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
-finish:
-  steps:
-    - id: evaluate_final
-      use: evaluator
-      with:
-        action: evaluate
-        candidateRef: ${{ input.candidateRef }}
-        caseIds: ${{ config.caseIds }}
-    - id: check_final
-      use: selector
-      with:
-        incumbentMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
-        candidateMeasurementRef: ${{ finish.evaluate_final.output.measurementRef }}
 output:
   bestCandidateRef: ${{ input.candidateRef }}
-  bestMeasurementRef: ${{ init.evaluate_baseline.output.measurementRef }}
-  finalMeasurementRef: ${{ finish.evaluate_final.output.measurementRef }}
-  finalDecisionRef: ${{ finish.check_final.output.decisionRef }}
-  finalValidity: ${{ if(finish.check_final.output.candidateFeasible, 'valid', 'invalid') }}
+  bestMeasurementRef: ${{ steps.evaluate_baseline.output.measurementRef }}
+  finalMeasurementRef: ${{ steps.evaluate_final.output.measurementRef }}
+  finalDecisionRef: ${{ steps.check_final.output.decisionRef }}
+  finalValidity: ${{ if(steps.check_final.output.candidateFeasible, 'valid', 'invalid') }}
   stopReason: baseline-only
   attempts: []
+steps:
+  - id: evaluate_baseline
+    use: evaluator
+    with:
+      action: evaluate
+      candidateRef: ${{ input.candidateRef }}
+      caseIds: ${{ config.caseIds }}
+    type: invoke
+  - id: check_baseline
+    use: selector
+    with:
+      incumbentMeasurementRef: ${{ steps.evaluate_baseline.output.measurementRef }}
+      candidateMeasurementRef: ${{ steps.evaluate_baseline.output.measurementRef }}
+    type: invoke
+  - id: evaluate_final
+    use: evaluator
+    with:
+      action: evaluate
+      candidateRef: ${{ input.candidateRef }}
+      caseIds: ${{ config.caseIds }}
+    type: invoke
+  - id: check_final
+    use: selector
+    with:
+      incumbentMeasurementRef: ${{ steps.evaluate_baseline.output.measurementRef }}
+      candidateMeasurementRef: ${{ steps.evaluate_final.output.measurementRef }}
+    type: invoke

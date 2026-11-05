@@ -2,7 +2,6 @@ import { diff3Merge } from 'node-diff3';
 import type { JsonObject } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 
-const maxContentBytes = 128 * 1024;
 // Bound worst-case line comparisons across all pairwise and accumulated merges.
 const maxMergeWork = 8_000_000;
 
@@ -18,8 +17,7 @@ export function mergeEdits(
   result: JsonObject,
   parentFiles: JsonObject,
 ): JsonObject {
-  if (!Array.isArray(result.edits) || result.edits.length > 32)
-    throw new Error('Expected bounded edits array');
+  if (!Array.isArray(result.edits)) throw new Error('Expected edits array');
   const groups = new Map<string, (string | null)[]>();
   // Complete validation before conflict fallback so invalid edits still fail.
   for (const raw of result.edits) {
@@ -33,8 +31,6 @@ export function mergeEdits(
     const content = edit.content;
     if (content !== null && typeof content !== 'string')
       throw new Error('Invalid edit content');
-    if (content !== null && Buffer.byteLength(content) > maxContentBytes)
-      throw new Error('Resource edit exceeds byte limit');
     const group = groups.get(path) ?? [];
     group.push(content);
     groups.set(path, group);
@@ -81,11 +77,6 @@ export function mergeEdits(
       );
       continue;
     }
-    if (Buffer.byteLength(base) > maxContentBytes) {
-      conflicts.push(`${path} (parent exceeds merge byte limit)`);
-      continue;
-    }
-
     const original = lines(base);
     const variants = changed
       .filter((content): content is string => content !== null)
@@ -114,10 +105,6 @@ export function mergeEdits(
       continue;
     }
     const content = accumulated.join('');
-    if (Buffer.byteLength(content) > maxContentBytes) {
-      conflicts.push(`${path} (merged content exceeds byte limit)`);
-      continue;
-    }
     edits.push({ path, content });
   }
 

@@ -593,7 +593,6 @@ export async function collectReflectionEvidence(
       measurements,
       artifacts: context.artifacts,
       view: 'execution',
-      maxBytes: limit,
     });
     for (const rawMeasurement of projected.measurements as JsonValue[]) {
       const measurement = object(rawMeasurement);

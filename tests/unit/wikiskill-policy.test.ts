@@ -150,13 +150,16 @@ test('memory receives authorized summary and current skills, persists Wiki and r
           ],
           reason: 'Attempt to modify read-only source.',
         });
-        await assert.rejects(
-          memory.execute(
+        const failed = object(
+          await memory.execute(
             { ...input, memoryRef: updated.memoryRef! },
             context.extend(services),
           ),
-          /read-only source/,
         );
+        assert.equal(failed.status, 'failed');
+        assert.equal(failed.memoryRef, updated.memoryRef);
+        assert.equal(failed.changeRef, null);
+        assert.match(string(failed.reason), /read-only source/);
         assert.deepEqual(await readdir(join(root, 'workspaces')), []);
       }
       const shadow = await artifacts.putJson({
@@ -170,13 +173,15 @@ test('memory receives authorized summary and current skills, persists Wiki and r
         ],
       });
       services.invokeAgent = unused;
-      await assert.rejects(
-        memory.execute(
+      const shadowed = object(
+        await memory.execute(
           { ...input, memoryRef: shadow },
           context.extend(services),
         ),
-        /source.*shadow|shadow.*source/,
       );
+      assert.equal(shadowed.status, 'failed');
+      assert.equal(shadowed.memoryRef, shadow);
+      assert.match(string(shadowed.reason), /source.*shadow|shadow.*source/);
       assert.deepEqual(await readdir(join(root, 'workspaces')), []);
     } finally {
       await memory.dispose();

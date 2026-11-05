@@ -46,7 +46,7 @@ function parseBudget(value: unknown): Record<string, number> {
         throw new Error(
           `recipe.budget.${key}: expected a nonnegative safe integer`,
         );
-      if (key.endsWith('Ms') && (limit <= 0 || limit > 4294967295))
+      if (key.endsWith('Ms') && (limit <= 0 || limit > 2147483647))
         throw new Error(
           `recipe.budget.${key}: expected a positive integer within the timer limit`,
         );

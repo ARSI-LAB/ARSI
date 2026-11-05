@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readKnowledgeResources } from '../../src/plugins/proposer-operator/resources.js';
+import { readKnowledgeResources } from '../../src/plugins/proposer-operator/service.js';
 import { prepareKnowledgeFixture } from '../fixtures/operator-proposer/setup.js';
 
 async function fixture() {

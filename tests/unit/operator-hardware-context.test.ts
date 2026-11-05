@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 async function reader(path: string): Promise<{ text: string; sha256: string }> {
   const module: unknown = await import(
-    new URL('../../src/plugins/proposer-operator/resources.ts', import.meta.url)
+    new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
       .href
   );
   assert.ok(module && typeof module === 'object');

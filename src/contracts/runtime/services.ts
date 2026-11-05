@@ -54,7 +54,7 @@ declare module './context.js' {
       options?: {
         format?: 'files';
         view?: 'execution' | 'training-summary' | 'delivery';
-        /** Requested serialized-output budget, capped by Runtime and scope limits. */
+        /** Requested serialized-output budget. JSON projections and scoped reads may apply a lower limit. */
         maxBytes?: number;
       },
     ): Promise<JsonValue>;

@@ -62,6 +62,15 @@ export async function createOptunaProposer(
   const workerDigest = digest(await readFile(workerPath, 'utf8'));
   const settings = object(config);
   const configuration = digest({ settings, workerDigest });
+  // Older checkpoints included defaults even when neither limit was set.
+  const previousConfiguration = digest({
+    settings: {
+      ...settings,
+      maxSamplingAttempts: config.maxSamplingAttempts ?? 1000,
+      python: { timeoutMs: 30000, ...config.python },
+    },
+    workerDigest,
+  });
   const total = cardinality(config);
   const request = async (
     action: 'check' | 'suggest',
@@ -141,11 +150,14 @@ export async function createOptunaProposer(
       if (
         state.experimentId !== context.experimentId ||
         state.bindingId !== context.bindingId ||
-        state.configuration !== configuration
+        (state.configuration !== configuration &&
+          state.configuration !== previousConfiguration)
       )
         throw new Error(
           'Parameter search identity/scope/configuration mismatch',
         );
+      state.configuration = configuration;
+      state.settings = settings;
       const history = state.history;
       if (input.action === 'observe') {
         const index = Number(input.trialId);
@@ -211,10 +223,9 @@ export async function createOptunaProposer(
       });
       if (total !== null && seen.size >= total)
         return stopped('search-exhausted');
-      for (
-        let attempt = 0;
-        attempt < 32 && history.length < config.maxSamplingAttempts;
-        attempt++
+      while (
+        config.maxSamplingAttempts === undefined ||
+        history.length < config.maxSamplingAttempts
       ) {
         const response = await request('suggest', history, context);
         if (canonical(response.environment) !== canonical(state.environment))

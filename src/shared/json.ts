@@ -1,10 +1,29 @@
 import { createHash } from 'node:crypto';
 import type { JsonObject, JsonValue } from '../contracts/index.js';
-/** Freeze an owned, acyclic JSON snapshot recursively; callers copy before handing over ownership. */
+/** Freeze an owned JSON snapshot iteratively, rejecting cycles; callers copy before handing over ownership. */
 export function freezeSnapshot<T>(value: T): T {
-  if (value !== null && typeof value === 'object') {
-    for (const child of Object.values(value)) freezeSnapshot(child);
-    Object.freeze(value);
+  if (value === null || typeof value !== 'object') return value;
+  const active = new WeakSet<object>();
+  const completed = new WeakSet<object>();
+  const stack: { node: object; exit: boolean }[] = [
+    { node: value, exit: false },
+  ];
+  while (stack.length) {
+    const { node, exit } = stack.pop()!;
+    if (exit) {
+      Object.freeze(node);
+      active.delete(node);
+      completed.add(node);
+      continue;
+    }
+    if (active.has(node)) throw new Error('Cannot freeze cyclic snapshot');
+    if (completed.has(node)) continue;
+    active.add(node);
+    stack.push({ node, exit: true });
+    const children: unknown[] = Object.values(node);
+    for (const child of children.reverse())
+      if (child !== null && typeof child === 'object')
+        stack.push({ node: child, exit: false });
   }
   return value;
 }

@@ -8,8 +8,6 @@ export type ProposerInput = {
   sources?: { candidateRef: string; measurementRef?: string }[];
   memoryRef?: string | null;
   editConstraints?: JsonObject;
-  /** Previous proposal and selection observations supplied by the Policy. */
-  observations?: JsonObject | null;
 };
 export type ProposerOutput =
   | {
@@ -44,7 +42,6 @@ export const proposerContract = defineContract({
         minLength: 1,
         type: 'string',
       },
-      observations: { type: ['object', 'null'] },
       memoryRef: {
         anyOf: [
           {

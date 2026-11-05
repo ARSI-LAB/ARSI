@@ -170,6 +170,8 @@ async function setup(
       task: { directory: join(fixture.root, 'example/task') },
       embedding: {
         python: fixture.embeddingPython,
+        resourcesDirectory: fixture.resourcesDirectory,
+        retrievalScript: fixture.retrievalScript,
         modelDirectory: fixture.modelDirectory,
         identityFile: fixture.identityFile,
       },

@@ -20,6 +20,8 @@ export type StaticIssue = {
   evidence: string[];
 };
 export type EmbeddingConfig = {
+  resourcesDirectory: string;
+  retrievalScript: string;
   python: string;
   modelDirectory: string;
   identityFile: string;
@@ -130,6 +132,8 @@ export const configSchema = recordSchema(
     embedding: recordSchema(
       {
         python: ref,
+        resourcesDirectory: { ...ref, 'x-rsi-path': 'directory' },
+        retrievalScript: { ...ref, 'x-rsi-path': 'file' },
         modelDirectory: ref,
         identityFile: { ...ref, 'x-rsi-path': 'file' },
         device: { const: 'cpu', default: 'cpu' },
@@ -146,7 +150,13 @@ export const configSchema = recordSchema(
           default: 0.6,
         },
       },
-      ['python', 'modelDirectory', 'identityFile'],
+      [
+        'python',
+        'modelDirectory',
+        'identityFile',
+        'resourcesDirectory',
+        'retrievalScript',
+      ],
     ),
   },
   ['task', 'embedding'],

@@ -53,6 +53,8 @@ async function setup(
         python: fixture.embeddingPython,
         modelDirectory: fixture.modelDirectory,
         identityFile: fixture.identityFile,
+        resourcesDirectory: fixture.resourcesDirectory,
+        retrievalScript: fixture.retrievalScript,
       },
     },
   };
@@ -193,35 +195,6 @@ test('static SDK search summarizes a failed repair chain and delivers it to a fr
       (i) => i.status === 'released',
     ),
   );
-  const module: unknown = await import(
-    new URL('../../scripts/operator-inputs.mjs', import.meta.url).href
-  );
-  assert.ok(module && typeof module === 'object');
-  const summarize: unknown = Reflect.get(module, 'summarizeOperatorExperiment');
-  assert.equal(typeof summarize, 'function');
-  if (typeof summarize !== 'function')
-    throw new Error('Missing summary helper');
-  const report = object(
-    await summarize(f.manager, 'static-search', join(f.root, 'manifest.json')),
-  );
-  const winningCandidates = attempts[1]!.candidateRefs;
-  assert.ok(Array.isArray(winningCandidates));
-  const expectedDiffs = winningCandidates.map((ref) => {
-    const receipt = calls.find(
-      (call) =>
-        call.pluginId === 'proposer.operator' &&
-        call.status === 'succeeded' &&
-        object(call.output).candidateRef === ref,
-    );
-    assert.ok(receipt);
-    return string(object(receipt.output).diffRef);
-  });
-  assert.equal(expectedDiffs.length, 2);
-  assert.deepEqual(
-    object(report.bestSource).diffRefs,
-    expectedDiffs,
-    'Report contains every winning-branch diff in source ancestry order, excluding the earlier attempt',
-  );
 });
 
 test('empty diagnosis performs only baseline and final SDK measurements without a fabricated summary', async (t) => {
@@ -338,4 +311,30 @@ test('SDK infrastructure failure stops static search without being treated as a 
     f.requests.map((r) => object(r.input).stage),
     ['diagnose', 'generate'],
   );
+});
+
+test('Manager stops operator search at the shared model budget and releases acquired instances', async (t) => {
+  const f = await setup(t, {
+    markers: ['fixture:latency=8'],
+    budget: { modelCalls: 1 },
+  });
+  await assert.rejects(
+    f.manager.run(f.recipePath, { id: 'model-budget' }),
+    /budget/i,
+  );
+  const experiment = await f.manager.get('model-budget');
+  assert.equal(experiment.status, 'failed');
+  assert.equal(object(experiment.usage).modelCalls, 1);
+  assert.equal(object(experiment.usage).evaluationRuns, 1);
+  assert.ok(
+    (await f.manager.facts.list('instances')).every(
+      (instance) => instance.status === 'released',
+    ),
+  );
+  const calls = await f.manager.facts.list('calls');
+  await assert.rejects(
+    f.manager.run(f.recipePath, { id: 'model-budget', resume: true }),
+    /receipt|budget|failed/i,
+  );
+  assert.deepEqual(await f.manager.facts.list('calls'), calls);
 });

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-/** Exercise the packaged Proposer and its worker paths outside the source checkout. */
+/** Exercise the packaged search loop with explicitly supplied retrieval resources. */
 export async function checkOperatorConsumer(consumer, example) {
   const file = join(consumer, 'operator-search-consumer.mjs');
   await writeFile(
@@ -31,10 +31,13 @@ const arg=name=>process.argv[process.argv.indexOf(name)+1];
 const request=JSON.parse(await readFile(arg('--request'),'utf8'));const identity=JSON.parse(await readFile(request.identityFile,'utf8'));
 await writeFile(arg('--response'),JSON.stringify({schemaVersion:'rsi.operator-retrieval/v1',embeddingDigest:request.embeddingDigest,resourcesDigest:request.resourcesDigest,matches:[],knowledgeContext:'',omitted:{techniques:[],examples:[]},model:identity.model,runtime:{python:'TEST-FIXTURE',sentenceTransformers:'TEST-FIXTURE',transformers:'TEST-FIXTURE',torch:'TEST-FIXTURE'}}));\`);
 await chmod(embeddingPython,0o755);
-const recipe=parse(await readFile(join(example,'recipe.sdk.fixture.yaml'),'utf8'));
+const resourcesDirectory=join(example,'external-knowledge');await mkdir(join(resourcesDirectory,'knowledge'),{recursive:true});
+await writeFile(join(resourcesDirectory,'knowledge/manifest.json'),JSON.stringify({schemaVersion:'rsi.operator-knowledge/v1',techniques:[],metrics:[],resources:[]}));
+const recipe=parse(await readFile(join(example,'recipe.search.yaml'),'utf8'));
+recipe.bindings.evaluator.config.sdk.python=join(example,'sdk-fixture-worker.mjs');recipe.bindings.evaluator.config.sdk.timeoutSeconds=15;
 recipe.policy={id:'policy.operator-search',config:{goal:'Installed functional fixture',caseIds:['fixed'],maxAttempts:1,repairLimit:0,metricsEnabled:false}};
 recipe.bindings.agent={plugin:'agent.installed-operator-fixture',config:{}};
-recipe.bindings.proposer={plugin:'proposer.operator',config:{agentRef:'agent',task:{directory:join(example,'task')},embedding:{python:embeddingPython,modelDirectory,identityFile}}};
+recipe.bindings.proposer={plugin:'proposer.operator',config:{agentRef:'agent',task:{directory:join(example,'task')},embedding:{python:embeddingPython,modelDirectory,identityFile,resourcesDirectory,retrievalScript:embeddingPython}}};
 recipe.budget={operations:256,evaluationRuns:14,modelCalls:32,elapsedWallMs:2400000,cleanupReserveMs:60000};
 const path=join(example,'recipe.search.fixture.yaml');await writeFile(path,stringify(recipe));
 const runtime=await createRuntime({rootDirectory:join(example,'search-workspace')});const stages=[];

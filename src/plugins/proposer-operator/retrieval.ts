@@ -12,9 +12,9 @@ import {
 import { createHash } from 'node:crypto';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import type { JsonObject, RuntimeContext } from '../../contracts/index.js';
 import { canonical, object } from '../../shared/json.js';
+import { readKnowledgeResources } from './resources.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { recordSchema } from '../../contracts/models/measurement.js';
 import {
@@ -38,6 +38,7 @@ export type EmbeddingIdentity = {
 };
 export type StaticRetrievalResult = {
   schemaVersion: 'rsi.operator-retrieval/v1';
+  workerDigest: string;
   embeddingDigest: string;
   resourcesDigest: string;
   matches: StaticKnowledgeMatch[];
@@ -53,7 +54,6 @@ export type StaticRetrievalResult = {
 };
 const maxBytes = 2 * 1024 * 1024,
   maxLogBytes = 65536;
-const pluginDirectory = fileURLToPath(new URL('.', import.meta.url));
 const hash = { type: 'string', pattern: '^[a-f0-9]{64}$' };
 const text = { type: 'string', minLength: 1, maxLength: 4096 };
 const identitySchema = recordSchema({
@@ -350,11 +350,11 @@ export async function retrieveStaticKnowledge(
     config,
     context.signal,
   );
-  const manifestBytes = await readJson(
-    join(pluginDirectory, 'knowledge/manifest.json'),
-  );
-  const resourcesDigest = sha(manifestBytes);
-  const manifest = object(JSON.parse(manifestBytes.toString('utf8')));
+  const {
+    manifest,
+    digest: resourcesDigest,
+    workerDigest,
+  } = await readKnowledgeResources(config);
   if (!Array.isArray(manifest.resources) || !Array.isArray(manifest.techniques))
     throw new Error('Invalid retrieval resource manifest');
   const resources = new Map<string, JsonObject>();
@@ -381,7 +381,7 @@ export async function retrieveStaticKnowledge(
       modelDirectory: resolve(config.modelDirectory),
       identityFile: resolve(config.identityFile),
       embeddingDigest,
-      resourcesDirectory: pluginDirectory,
+      resourcesDirectory: resolve(config.resourcesDirectory),
       resourcesDigest,
       device: 'cpu',
       similarityThreshold: config.similarityThreshold,
@@ -395,7 +395,7 @@ export async function retrieveStaticKnowledge(
     await runWorker(
       config,
       [
-        fileURLToPath(new URL('./python/retrieve.py', import.meta.url)),
+        resolve(config.retrievalScript),
         '--request',
         requestPath,
         '--response',
@@ -407,11 +407,14 @@ export async function retrieveStaticKnowledge(
     );
     const bytes = await readJson(responsePath);
     await writeFile(join(directory, 'response.json'), bytes, { flag: 'wx' });
-    const result = parseConfig<StaticRetrievalResult>(
+    const raw = parseConfig<Omit<StaticRetrievalResult, 'workerDigest'>>(
       resultSchema,
       JSON.parse(bytes.toString('utf8')),
       'Retrieval worker result',
     );
+    if ((await fileDigest(config.retrievalScript)) !== workerDigest)
+      throw new Error('Retrieval script changed during execution');
+    const result = { ...raw, workerDigest };
     if (
       result.embeddingDigest !== embeddingDigest ||
       result.resourcesDigest !== resourcesDigest ||
@@ -478,11 +481,11 @@ export async function retrieveMetricsKnowledge(
     config,
     context.signal,
   );
-  const manifestBytes = await readJson(
-    join(pluginDirectory, 'knowledge/manifest.json'),
-  );
-  const resourcesDigest = sha(manifestBytes);
-  const manifest = object(JSON.parse(manifestBytes.toString('utf8')));
+  const {
+    manifest,
+    digest: resourcesDigest,
+    workerDigest,
+  } = await readKnowledgeResources(config);
   if (!Array.isArray(manifest.metrics) || !Array.isArray(manifest.resources))
     throw new Error('Metrics knowledge manifest is missing');
   const techniques = manifest.metrics.map((value) => object(value));
@@ -503,7 +506,7 @@ export async function retrieveMetricsKnowledge(
       modelDirectory: resolve(config.modelDirectory),
       identityFile: resolve(config.identityFile),
       embeddingDigest,
-      resourcesDirectory: pluginDirectory,
+      resourcesDirectory: resolve(config.resourcesDirectory),
       resourcesDigest,
       device: 'cpu',
       similarityThreshold: config.similarityThreshold,
@@ -518,7 +521,7 @@ export async function retrieveMetricsKnowledge(
       await runWorker(
         config,
         [
-          fileURLToPath(new URL('./python/retrieve.py', import.meta.url)),
+          resolve(config.retrievalScript),
           '--request',
           requestPath,
           '--response',
@@ -564,11 +567,14 @@ export async function retrieveMetricsKnowledge(
       techniques: { type: 'array', items: text },
       examples: { type: 'array', items: text },
     });
-    const result = parseConfig<MetricsRetrievalResult>(
+    const raw = parseConfig<Omit<MetricsRetrievalResult, 'workerDigest'>>(
       schema,
       JSON.parse(bytes.toString('utf8')),
       'Metric retrieval result',
     );
+    if ((await fileDigest(config.retrievalScript)) !== workerDigest)
+      throw new Error('Retrieval script changed during execution');
+    const result = { ...raw, workerDigest };
     if (
       result.embeddingDigest !== embeddingDigest ||
       result.resourcesDigest !== resourcesDigest ||

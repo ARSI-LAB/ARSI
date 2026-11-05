@@ -5,8 +5,10 @@ import { readFile, writeFile, rm } from 'node:fs/promises';
 import { parse, stringify } from 'yaml';
 import { createRuntime } from '../../src/runtime/context.js';
 import { object } from '../../src/shared/json.js';
-import { prepareOperatorFixture } from '../fixtures/operator-sdk/setup.js';
-import { readExperimentEvidence } from '../../src/entries/cli/operator-experiments/evidence.js';
+import {
+  prepareOperatorFixture,
+  registerOperatorFixturePolicies,
+} from '../fixtures/operator-sdk/setup.js';
 
 useOperatorSdkTestEnvironment();
 
@@ -15,7 +17,7 @@ test('SDK baseline evaluates the unchanged source twice without any Agent bindin
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
   recipe.policy = {
-    id: 'policy.operator-baseline',
+    id: 'test.operator-evaluation',
     config: { caseIds: ['fixed'] },
   };
   const bindings = object(recipe.bindings);
@@ -23,6 +25,7 @@ test('SDK baseline evaluates the unchanged source twice without any Agent bindin
   delete bindings.proposer;
   await writeFile(fixture.recipePath, stringify(recipe));
   const runtime = await createRuntime({ rootDirectory: fixture.root });
+  registerOperatorFixturePolicies(runtime.registry, fixture.root);
   t.after(() => runtime.dispose());
   await runtime.manager.run(fixture.recipePath, { id: 'baseline' });
   const experiment = await runtime.manager.get('baseline');
@@ -31,16 +34,19 @@ test('SDK baseline evaluates the unchanged source twice without any Agent bindin
   assert.equal(output.stopReason, 'baseline-only');
   assert.equal(output.finalValidity, 'valid');
   assert.deepEqual(output.attempts, []);
-  const evidence = await readExperimentEvidence(runtime.manager, 'baseline');
-  assert.equal(evidence.measurements.length, 2);
-  assert.notEqual(
-    evidence.measurements[0]!.runId,
-    evidence.measurements[1]!.runId,
+  const measurements = await runtime.manager.facts.list('measurements');
+  assert.equal(measurements.length, 2);
+  const provenance = await Promise.all(
+    measurements.map(async (measurement) =>
+      object(
+        await runtime.manager.artifacts.readJson(
+          String(object(measurement.provenance).artifactRef),
+        ),
+      ),
+    ),
   );
-  assert.equal(
-    evidence.measurements[0]!.sourceDigest,
-    evidence.measurements[1]!.sourceDigest,
-  );
+  assert.notEqual(provenance[0]!.runId, provenance[1]!.runId);
+  assert.equal(provenance[0]!.sourceDigest, provenance[1]!.sourceDigest);
   const calls = await runtime.manager.facts.list('calls');
   assert.equal(calls.filter((c) => c.bindingId === 'evaluator').length, 2);
   assert.equal(

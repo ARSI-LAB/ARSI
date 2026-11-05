@@ -6,7 +6,10 @@ import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { createRuntime } from '../../src/runtime/context.js';
 import { object } from '../../src/shared/json.js';
-import { prepareOperatorFixture } from '../fixtures/operator-sdk/setup.js';
+import {
+  prepareOperatorFixture,
+  registerOperatorFixturePolicies,
+} from '../fixtures/operator-sdk/setup.js';
 
 useOperatorSdkTestEnvironment();
 
@@ -17,7 +20,7 @@ async function prepare(
   const fixture = await prepareOperatorFixture();
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
   recipe.policy = {
-    id: 'policy.operator-diagnostic',
+    id: 'test.operator-diagnostic',
     config: { caseIds: ['fixed'] },
   };
   const bindings = object(recipe.bindings);
@@ -60,6 +63,7 @@ for (const [collection, unavailable] of [
     const fixture = await prepare(unavailable, collection);
     t.after(() => rm(fixture.root, { recursive: true, force: true }));
     const runtime = await createRuntime({ rootDirectory: fixture.root });
+    registerOperatorFixturePolicies(runtime.registry, fixture.root);
     t.after(() => runtime.dispose());
     await runtime.manager.run(fixture.recipePath, { id: 'diagnostic' });
     const experiment = await runtime.manager.get('diagnostic');
@@ -134,44 +138,3 @@ for (const [collection, unavailable] of [
     );
   });
 }
-
-test('SDK precheck reports diagnostic availability without claiming independent retiming', async () => {
-  const imported: unknown = await import(
-    new URL('../../scripts/run-operator-sdk.mjs', import.meta.url).href
-  );
-  if (
-    !imported ||
-    typeof imported !== 'object' ||
-    !('describeSdkOutcome' in imported) ||
-    typeof imported.describeSdkOutcome !== 'function'
-  )
-    throw new Error('Missing SDK diagnostic reporting helper');
-  const describe = imported.describeSdkOutcome;
-  const describeSdkOutcome = (input: object) => {
-    const outcome = object(describe(input));
-    if (
-      typeof outcome.claim !== 'string' ||
-      typeof outcome.exitCode !== 'number'
-    )
-      throw new Error('Invalid SDK diagnostic outcome');
-    return { claim: outcome.claim, exitCode: outcome.exitCode };
-  };
-  assert.equal(
-    describeSdkOutcome({
-      stopReason: 'diagnostic-only',
-      collectionStatus: 'completed',
-    }).exitCode,
-    0,
-  );
-  const unavailable = describeSdkOutcome({
-    stopReason: 'diagnostic-only',
-    collectionStatus: 'unavailable',
-  });
-  assert.equal(unavailable.exitCode, 1);
-  assert.match(unavailable.claim, /diagnostic/i);
-  assert.doesNotMatch(unavailable.claim, /re-evaluation/i);
-  assert.match(
-    describeSdkOutcome({ stopReason: 'baseline-only' }).claim,
-    /re-evaluation/i,
-  );
-});

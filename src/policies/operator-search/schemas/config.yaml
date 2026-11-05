@@ -35,22 +35,6 @@ properties:
     minimum: 1
     maximum: 5
     default: 5
-  evaluationTimeoutMs:
-    type: integer
-    minimum: 1
-    default: 900000
-  modelRequestTimeoutMs:
-    type: integer
-    minimum: 1
-    default: 120000
-  retrievalTimeoutMs:
-    type: integer
-    minimum: 1
-    default: 300000
-  cleanupReserveMs:
-    type: integer
-    minimum: 1
-    default: 60000
 required:
   - goal
   - caseIds

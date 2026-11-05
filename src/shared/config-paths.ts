@@ -118,3 +118,10 @@ export function configPathFields(
   walk(schema, value, '', 0, '');
   return [...fields.values()];
 }
+
+/** Distinguish external resource URLs from local filesystem paths. */
+export function isResourceUrl(value: string): boolean {
+  return (
+    !/^[A-Za-z]:[\\/]/.test(value) && /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)
+  );
+}

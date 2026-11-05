@@ -21,3 +21,16 @@ export { defineContract } from './contracts/contract.js';
 export { RuntimeContext } from './contracts/runtime/context.js';
 export * from './contracts/plugin-types/index.js';
 export type * from './contracts/index.js';
+
+export { Recipe } from './runtime/loaders/recipe.js';
+export { Binding } from './runtime/loaders/binding.js';
+export { Policy } from './runtime/compiler/index.js';
+export {
+  InvokeStep,
+  StateStep,
+  IfStep,
+  LoopStep,
+  ForEachStep,
+  ControlStep,
+  ReflectionStep,
+} from './runtime/policy/steps.js';

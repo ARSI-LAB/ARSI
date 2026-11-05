@@ -1,20 +1,21 @@
 schemaVersion: rsi.recipe/v1
 id: recipe.skill-terminalbench
 application:
-  ref: application.agentbundle
+  plugin: application.agentbundle
   config:
     target: { schema: ./target.yaml }
     baseline: { directory: ./baseline }
 policy:
-  ref: policy.skill-terminalbench
+  id: policy.skill-terminalbench
   config:
     maxRounds: 1
     taskIds: [terminal-bench/html-js-filter]
-    goal: Improve prompt.md instructions for reliable terminal task completion; preserve generality and do not embed benchmark answers.
+    goal: Improve prompt.md instructions for reliable terminal task completion;
+      preserve generality and do not embed benchmark answers.
   input: {}
 bindings:
   agent:
-    ref: agent.pi
+    plugin: agent.pi
     config:
       model: ${MODEL_NAME}
       base_url: ${MODEL_ENDPOINT}
@@ -22,13 +23,13 @@ bindings:
       maxTokens: 4096
       timeoutMs: 60000
   proposer:
-    ref: proposer.agent
+    plugin: proposer.agent
     config:
       agentRef: agent
       prompt: ./terminalbench-proposer.md
       maxModelCalls: 6
   evaluator:
-    ref: evaluator.agentbench
+    plugin: evaluator.agentbench
     config:
       services:
         default:
@@ -42,7 +43,7 @@ bindings:
       run: { timeoutSeconds: 300 }
   selector:
     {
-      ref: selector.metric,
+      plugin: selector.metric,
       config: { metric: successRate, direction: maximize },
     }
 budget:

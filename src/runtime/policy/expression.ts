@@ -27,9 +27,8 @@ const roots = new Set([
   'input',
   'state',
   'application',
-  'init',
+  'steps',
   'loop',
-  'finish',
 ]);
 const precedence: Record<string, number> = {
   '||': 1,

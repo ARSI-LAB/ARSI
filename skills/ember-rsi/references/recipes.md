@@ -5,15 +5,15 @@ Use the complete [recipe](../assets/minimal/recipe.yaml), [Target](../assets/min
 | Recipe field      | Shape                                                                       |
 | ----------------- | --------------------------------------------------------------------------- |
 | schemaVersion, id | `rsi.recipe/v1`, nonempty identity                                          |
-| application       | `{ ref, config }`                                                           |
-| policy            | `{ ref, config, input }`                                                    |
-| bindings          | Binding name → `{ ref, config, bindings? }`                                 |
+| application       | `{ plugin, config }`                                                        |
+| policy            | `{ id, config, input }`                                                     |
+| bindings          | Binding name → `{ plugin?, config? }`                                       |
 | budget            | Numeric usage limits and durations                                          |
 | reflection        | Optional `{ configFile: ./reflection.yaml }`; omit when no module is needed |
 
 `reflection: false`, `{ ref: ... }` and old rule files are unsupported. Omission inherits a Policy's `defaults.reflection.configFile` when present; it does not disable an inherited module. Use a Policy without the module/call when disabling it.
 
-Same-ref overrides merge config **one property level deep**; replacing a nested property replaces that object. Changing ref replaces the implementation configuration. Child bindings merge by child key. Keep `policy.config` (algorithm parameters), `policy.input` (call input) and binding config (implementation settings) distinct. Use [public schema lookup](plugins.md#discover-schemas-through-public-apis) when adapting a binding.
+Overrides recursively merge plain configuration objects when `plugin` is inherited or unchanged. Arrays, scalars and null replace their previous values; null is then checked by the final schema. Changing `plugin` replaces the binding and discards the old implementation configuration. A config-only override inherits the default implementation. The final binding must resolve a registered plugin matching the required contract. Keep `policy.config` (algorithm parameters), `policy.input` (call input) and binding config (implementation settings) distinct. Use [public schema lookup](plugins.md#discover-schemas-through-public-apis) when adapting a binding.
 
 ## Target
 
@@ -38,7 +38,7 @@ The supplied baseline is complete: numeric `schemaVersion: 1`, `kind: dsh-agent-
 
 ## Paths, models and budgets
 
-Fields annotated `x-rsi-path: file|directory` resolve relative to their declaring Recipe or Policy file; names alone do not confer path behavior. Overrides retain origin per top-level property. Copy resources together and stay inside the host's resource bases.
+Fields annotated `x-rsi-path: file|directory` resolve relative to their declaring Recipe or Policy file; names alone do not confer path behavior. Overrides retain origin per concrete schema path field, including fields inherited through recursive merges. Copy resources together and stay inside the host's resource bases.
 
 `agent.pi` config uses `model`, `base_url`, `api_key`; the key must be an environment reference such as `${MODEL_API_KEY}`, never a literal secret. `${MODEL_NAME}` differs from Policy `${{ config.name }}` expressions. Not every string supports environment substitution. See the complete [learning recipe](../assets/learning/learning-recipe.yaml).
 

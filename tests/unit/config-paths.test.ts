@@ -2,12 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import type { JsonSchema } from '../../src/contracts/index.js';
-import {
-  parseBinding,
-  resolveBindings,
-  resolveBindingPaths,
-  resolveConfig,
-} from '../../src/runtime/loaders/index.js';
+import { resolveConfig } from '../../src/runtime/loaders/index.js';
 
 test('configuration paths follow declarations, including nested arrays and local Schema references', () => {
   const directory = resolve('fixtures/recipe');
@@ -51,56 +46,6 @@ test('configuration paths follow declarations, including nested arrays and local
       target: { schema: join(directory, 'target.yaml') },
     },
   );
-});
-
-test('merged bindings keep the declaring directory for each field and nested binding', () => {
-  const policyDirectory = resolve('fixtures/policy');
-  const recipeDirectory = resolve('fixtures/recipe');
-  const supplied = parseBinding(
-    {
-      ref: 'worker',
-      config: { asset: './override.txt' },
-      bindings: {
-        child: { ref: 'worker', config: { instructions: './child.md' } },
-      },
-    },
-    recipeDirectory,
-  );
-  const merged = resolveBindings(
-    {
-      worker: {
-        ref: 'worker',
-        config: {
-          instructions: './policy.md',
-          asset: './default.txt',
-          prompt: './literal.md',
-        },
-      },
-    },
-    { worker: supplied },
-    policyDirectory,
-  ).worker!;
-  const schema: JsonSchema = {
-    type: 'object',
-    properties: {
-      instructions: { type: 'string', 'x-rsi-path': 'file' },
-      asset: { type: 'string', 'x-rsi-path': 'file' },
-      prompt: { type: 'string' },
-    },
-  };
-  resolveBindingPaths(merged, schema, resolve('unrelated'));
-  resolveBindingPaths(merged.bindings!.child, schema, resolve('unrelated'));
-  assert.deepEqual(merged.config, {
-    instructions: join(policyDirectory, 'policy.md'),
-    asset: join(recipeDirectory, 'override.txt'),
-    prompt: './literal.md',
-  });
-  assert.equal(
-    merged.bindings!.child.config.instructions,
-    join(recipeDirectory, 'child.md'),
-  );
-  resolveBindingPaths(merged, schema, resolve('different'));
-  assert.equal(merged.config.instructions, join(policyDirectory, 'policy.md'));
 });
 
 test('only the applicable union branch declares a path and non-local values remain unchanged', () => {

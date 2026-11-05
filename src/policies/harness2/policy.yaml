@@ -1,10 +1,29 @@
 schemaVersion: rsi.policy/v1
 id: policy.harness2
-description: Optimize agent harnesses through invariant, domain and composition proposals with memory and reflection.
-config_schema:
-  $ref: ./schemas/harness2-config.yaml
+description: Optimize agent harnesses through invariant, domain and composition
+  proposals with memory and reflection.
 input_schema:
   $ref: ../../contracts/policies/candidate-input.yaml
+config_schema:
+  $ref: ./schemas/harness2-config.yaml
+state_schema:
+  type: object
+  properties:
+    deliveries:
+      type: array
+      items:
+        type: object
+    wikiRef:
+      type:
+        - string
+        - 'null'
+  required:
+    - deliveries
+    - wikiRef
+  additionalProperties: false
+state:
+  deliveries: []
+  wikiRef: null
 output_schema:
   $ref: ./schemas/task-deliveries.yaml
 require:
@@ -32,13 +51,13 @@ defaults:
   # Evaluator still archives scoring for reporting; it is not learning input here.
   bindings:
     agent:
-      ref: agent.pi
+      plugin: agent.pi
       config:
         model: ${MODEL_NAME}
         base_url: ${MODEL_ENDPOINT}
         api_key: ${MODEL_API_KEY}
     invariantProposer:
-      ref: proposer.agent
+      plugin: proposer.agent
       config:
         evidenceView: execution
         agentRef: agent
@@ -47,7 +66,7 @@ defaults:
         skills: [./skills/harness-edit]
         maxModelCalls: 24
     domainProposer:
-      ref: proposer.agent
+      plugin: proposer.agent
       config:
         evidenceView: execution
         agentRef: agent
@@ -56,7 +75,7 @@ defaults:
         skills: [./skills/harness-edit]
         maxModelCalls: 24
     composer:
-      ref: proposer.agent
+      plugin: proposer.agent
       config:
         evidenceView: execution
         agentRef: agent
@@ -66,146 +85,169 @@ defaults:
     # Final selection compares anonymous deliverables via the delivery capability,
     # independently of the evaluator scores retained for reporting.
     selector:
-      ref: selector.artifact
+      plugin: selector.artifact
       config:
         agentRef: agent
         prompt: ./prompts/select-delivery.md
     memoryUpdater:
-      ref: memory.agent
+      plugin: memory.agent
       config:
         evidenceView: execution
         agentRef: agent
         prompt: ./memory.md
-init:
-  steps:
-    - id: initialize
-      state:
-        deliveries: []
-        wikiRef: null
-loop:
-  maxIterations: ${{ size(config.dataset.taskIds) }}
-  steps:
-    - id: base
-      foreach: ${{ range(0, config.k) }}
-      as: slot
-      key: ${{ slot }}
-      concurrency: ${{ config.concurrency }}
-      steps:
-        - id: execute_base
-          use: evaluator
-          with:
-            candidateRef: ${{ input.candidateRef }}
-            taskIds:
-              - ${{ config.dataset.taskIds[loop.index] }}
-      yield:
-        slot: ${{ slot }}
-        candidateRef: ${{ input.candidateRef }}
-        measurementRef: ${{ loop.execute_base.output.measurementRef }}
-    - id: invariant
-      foreach: ${{ loop.base.output }}
-      as: base
-      key: ${{ base.slot }}
-      concurrency: ${{ config.concurrency }}
-      steps:
-        - id: propose_inv
-          use: invariantProposer
-          with:
-            parent: ${{ input.candidateRef }}
-            goal: Improve general execution, tool use, and completion checks.
-            evidenceRefs:
-              - ${{ base.measurementRef }}
-            memoryRef: ${{ state.wikiRef }}
-        - id: execute_inv
-          use: evaluator
-          with:
-            candidateRef: ${{ loop.propose_inv.output.candidateRef }}
-            taskIds:
-              - ${{ config.dataset.taskIds[loop.index] }}
-      yield:
-        candidateRef: ${{ loop.propose_inv.output.candidateRef }}
-        measurementRef: ${{ loop.execute_inv.output.measurementRef }}
-    - id: domain
-      foreach: ${{ loop.base.output }}
-      as: base
-      key: ${{ base.slot }}
-      concurrency: ${{ config.concurrency }}
-      steps:
-        - id: propose_dom
-          use: domainProposer
-          with:
-            parent: ${{ input.candidateRef }}
-            goal: Improve task-family analysis and deliverable generation using authorized evidence.
-            evidenceRefs:
-              - ${{ base.measurementRef }}
-            memoryRef: ${{ state.wikiRef }}
-        - id: execute_dom
-          use: evaluator
-          with:
-            candidateRef: ${{ loop.propose_dom.output.candidateRef }}
-            taskIds:
-              - ${{ config.dataset.taskIds[loop.index] }}
-      yield:
-        candidateRef: ${{ loop.propose_dom.output.candidateRef }}
-        measurementRef: ${{ loop.execute_dom.output.measurementRef }}
-    - id: compose
-      foreach: ${{ loop.base.output }}
-      as: base
-      key: ${{ base.slot }}
-      concurrency: ${{ config.concurrency }}
-      steps:
-        - id: compose_candidate
-          use: composer
-          with:
-            parent: ${{ input.candidateRef }}
-            goal: Compose supported, compatible improvements while preserving a complete, runnable application.
-            sources: ${{ concat(loop.invariant.output, loop.domain.output) }}
-            evidenceRefs:
-              - ${{ base.measurementRef }}
-            memoryRef: ${{ state.wikiRef }}
-        - id: execute_composed
-          use: evaluator
-          with:
-            candidateRef: ${{ loop.compose_candidate.output.candidateRef }}
-            taskIds:
-              - ${{ config.dataset.taskIds[loop.index] }}
-      yield:
-        candidateRef: ${{ loop.compose_candidate.output.candidateRef }}
-        measurementRef: ${{ loop.execute_composed.output.measurementRef }}
-    - id: select
-      use: selector
-      with:
-        candidates: ${{ loop.compose.output }}
-        rubric: Select the final deliverable based on the user request, completeness, correctness, and observable usability.
-    - id: retain_delivery
-      state:
-        deliveries: ${{ append(state.deliveries, loop.select.output) }}
-    - id: remember_if_enabled
-      if: ${{ config.memory }}
-      then:
-        - id: remember
-          use: memoryUpdater
-          with:
-            memoryRef: ${{ state.wikiRef }}
-            goal: Maintain compact harness-improvement experience from this task's supplied execution contrasts. Preserve sources, confounding and unresolved edit attribution; do not cache task answers.
-            evidenceRefs:
-              ${{ concat(concat(pluck(loop.base.output, 'measurementRef'), pluck(loop.invariant.output,
-              'measurementRef')), concat(pluck(loop.domain.output, 'measurementRef'), pluck(loop.compose.output,
-              'measurementRef'))) }}
-            # Compare actual candidate snapshots with H0, include every probe and
-            # the persisted output-selection decision, without exposing grades.
-            comparison:
-              baselineCandidateRef: ${{ input.candidateRef }}
-              probes:
-                base: ${{ loop.base.output }}
-                invariant: ${{ loop.invariant.output }}
-                domain: ${{ loop.domain.output }}
-                compose: ${{ loop.compose.output }}
-              selection: ${{ loop.select.output }}
-        - id: save_memory
-          state:
-            wikiRef: ${{ loop.remember.output.memoryRef }}
+steps:
+  - id: search
+    type: loop
+    maxIterations: ${{ size(config.dataset.taskIds) }}
+    steps:
+      - id: base
+        type: foreach
+        foreach: ${{ range(0, config.k) }}
+        as: slot
+        key: ${{ slot }}
+        concurrency: ${{ config.concurrency }}
+        steps:
+          - id: execute_base
+            type: invoke
+            use: evaluator
+            with:
+              candidateRef: ${{ input.candidateRef }}
+              taskIds:
+                - ${{ config.dataset.taskIds[loop.index] }}
+        output:
+          slot: ${{ slot }}
+          candidateRef: ${{ input.candidateRef }}
+          measurementRef: ${{ steps.execute_base.output.measurementRef }}
+      - id: invariant
+        type: foreach
+        foreach: ${{ steps.base.output }}
+        as: base
+        key: ${{ base.slot }}
+        concurrency: ${{ config.concurrency }}
+        steps:
+          - id: propose_inv
+            type: invoke
+            use: invariantProposer
+            with:
+              parent: ${{ input.candidateRef }}
+              goal: Improve general execution, tool use, and completion checks.
+              evidenceRefs:
+                - ${{ base.measurementRef }}
+              memoryRef: ${{ state.wikiRef }}
+          - id: execute_inv
+            type: invoke
+            use: evaluator
+            with:
+              candidateRef: ${{ steps.propose_inv.output.candidateRef }}
+              taskIds:
+                - ${{ config.dataset.taskIds[loop.index] }}
+        output:
+          candidateRef: ${{ steps.propose_inv.output.candidateRef }}
+          measurementRef: ${{ steps.execute_inv.output.measurementRef }}
+      - id: domain
+        type: foreach
+        foreach: ${{ steps.base.output }}
+        as: base
+        key: ${{ base.slot }}
+        concurrency: ${{ config.concurrency }}
+        steps:
+          - id: propose_dom
+            type: invoke
+            use: domainProposer
+            with:
+              parent: ${{ input.candidateRef }}
+              goal:
+                Improve task-family analysis and deliverable generation using authorized
+                evidence.
+              evidenceRefs:
+                - ${{ base.measurementRef }}
+              memoryRef: ${{ state.wikiRef }}
+          - id: execute_dom
+            type: invoke
+            use: evaluator
+            with:
+              candidateRef: ${{ steps.propose_dom.output.candidateRef }}
+              taskIds:
+                - ${{ config.dataset.taskIds[loop.index] }}
+        output:
+          candidateRef: ${{ steps.propose_dom.output.candidateRef }}
+          measurementRef: ${{ steps.execute_dom.output.measurementRef }}
+      - id: compose
+        type: foreach
+        foreach: ${{ steps.base.output }}
+        as: base
+        key: ${{ base.slot }}
+        concurrency: ${{ config.concurrency }}
+        steps:
+          - id: compose_candidate
+            type: invoke
+            use: composer
+            with:
+              parent: ${{ input.candidateRef }}
+              goal:
+                Compose supported, compatible improvements while preserving a complete,
+                runnable application.
+              sources: ${{ concat(steps.invariant.output, steps.domain.output) }}
+              evidenceRefs:
+                - ${{ base.measurementRef }}
+              memoryRef: ${{ state.wikiRef }}
+          - id: execute_composed
+            type: invoke
+            use: evaluator
+            with:
+              candidateRef: ${{ steps.compose_candidate.output.candidateRef }}
+              taskIds:
+                - ${{ config.dataset.taskIds[loop.index] }}
+        output:
+          candidateRef: ${{ steps.compose_candidate.output.candidateRef }}
+          measurementRef: ${{ steps.execute_composed.output.measurementRef }}
+      - id: select
+        type: invoke
+        use: selector
+        with:
+          candidates: ${{ steps.compose.output }}
+          rubric:
+            Select the final deliverable based on the user request, completeness,
+            correctness, and observable usability.
+      - id: retain_delivery
+        type: state
+        state:
+          deliveries: ${{ append(state.deliveries, steps.select.output) }}
+      - id: remember_if_enabled
+        type: if
+        if: ${{ config.memory }}
+        then:
+          steps:
+            - id: remember
+              type: invoke
+              use: memoryUpdater
+              with:
+                memoryRef: ${{ state.wikiRef }}
+                goal:
+                  Maintain compact harness-improvement experience from this task's supplied
+                  execution contrasts. Preserve sources, confounding and
+                  unresolved edit attribution; do not cache task answers.
+                evidenceRefs:
+                  ${{ concat(concat(pluck(steps.base.output, 'measurementRef'),
+                  pluck(steps.invariant.output, 'measurementRef')),
+                  concat(pluck(steps.domain.output, 'measurementRef'),
+                  pluck(steps.compose.output, 'measurementRef'))) }}
+                # Compare snapshots with H0, every probe and the saved selection,
+                # without exposing grades to the learning operation.
+                comparison:
+                  baselineCandidateRef: ${{ input.candidateRef }}
+                  probes:
+                    base: ${{ steps.base.output }}
+                    invariant: ${{ steps.invariant.output }}
+                    domain: ${{ steps.domain.output }}
+                    compose: ${{ steps.compose.output }}
+                  selection: ${{ steps.select.output }}
+            - id: save_memory
+              type: state
+              state:
+                wikiRef: ${{ steps.remember.output.memoryRef }}
     # - id: improve_guidance
-    #   use: reflection
+    #   type: reflection
 output:
   baseline: ${{ input.candidateRef }}
   deliveries: ${{ state.deliveries }}

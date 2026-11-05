@@ -15,7 +15,7 @@ function nativeError(value: unknown): string {
   return message || code ? `: ${message}${code}` : '';
 }
 
-export const readFileTool = {
+const readFileTool = {
   type: 'function',
   name: 'read_file',
   description:
@@ -46,7 +46,6 @@ export async function runSession(options: {
   await runCodexProcess(
     options.executable,
     options.directory,
-    ['app-server'],
     JSON.stringify({
       id: 1,
       method: 'initialize',

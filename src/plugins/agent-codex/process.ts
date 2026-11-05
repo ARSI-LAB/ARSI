@@ -5,10 +5,9 @@ import { codexCommand } from './executable.js';
 export async function runCodexProcess(
   executable: string,
   directory: string,
-  args: string[],
   input: string,
   signal: AbortSignal,
-  onLine?: (
+  onLine: (
     line: string,
     send: (message: unknown) => void,
   ) => void | boolean | Promise<void | boolean>,
@@ -16,7 +15,7 @@ export async function runCodexProcess(
   signal.throwIfAborted();
   const command = codexCommand(executable);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command.executable, [...command.args, ...args], {
+    const child = spawn(command.executable, [...command.args, 'app-server'], {
       cwd: directory,
       detached: process.platform !== 'win32',
       // Codex owns local authentication, credential refresh and provider environment references.
@@ -55,7 +54,7 @@ export async function runCodexProcess(
       /* Exit status reports an early stdin close. */
     });
     child.stdout.on('data', (chunk: string) => {
-      if (!onLine || failure) return;
+      if (failure) return;
       try {
         buffer += chunk;
         let end: number;
@@ -95,7 +94,6 @@ export async function runCodexProcess(
         reject(new Error(`Codex process exited with code ${code}`));
       else resolve();
     });
-    if (onLine) child.stdin.write(input);
-    else child.stdin.end(input);
+    child.stdin.write(input);
   });
 }

@@ -8,7 +8,7 @@ Use repeatable `--plugin-dir` options after the command:
 ember-rsi catalog --plugin-dir ./my-extension
 ember-rsi validate ./recipe.yaml --plugin-dir ./my-extension
 ember-rsi run ./recipe.yaml --plugin-dir ./my-extension --id experiment-01
-ember-rsi serve --plugin-dir ./my-extension --port 4317
+ember-rsi dashboard --plugin-dir ./my-extension --port 4317
 ```
 
 Each explicitly selected directory contains `index.mjs` exporting `register(registry)`. Synchronous and asynchronous registration are supported. A directory can register several implementations and Policies. RSI does not recursively scan subdirectories or auto-import arbitrary files. Compiled plugin modules and their dependencies must be available to Node.

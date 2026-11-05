@@ -30,7 +30,7 @@ export class BudgetLedger {
     private readonly id: string,
     private readonly facts: FactStore,
     private readonly limits: Record<string, number>,
-    private readonly exceeded: (error: Error) => void,
+    private readonly fail: (error: unknown) => void,
   ) {}
 
   get usage(): Record<string, number> {
@@ -57,7 +57,7 @@ export class BudgetLedger {
       if (limit !== undefined && next > limit) {
         const error = new Error(`Budget exceeded: ${metric}`);
         error.name = 'ExperimentBudgetExceeded';
-        this.exceeded(error);
+        this.fail(error);
         throw error;
       }
       const staged: BudgetSnapshot = {
@@ -68,14 +68,23 @@ export class BudgetLedger {
       if (scope) {
         const state = this.snapshot.scopes[scope.id] ?? {};
         const count = (state[metric] ?? 0) + amount;
-        if (metric === 'modelCalls' && count > scope.limits.modelCalls)
+        if (
+          metric === 'modelCalls' &&
+          scope.limits.modelCalls !== undefined &&
+          count > scope.limits.modelCalls
+        )
           throw new Error('Reflection modelCalls budget exceeded');
         staged.scopes[scope.id] = { ...state, [metric]: count };
       }
-      await this.facts.write('budgets', this.id, {
-        ...staged.usage,
-        scopes: staged.scopes,
-      });
+      try {
+        await this.facts.write('budgets', this.id, {
+          ...staged.usage,
+          scopes: staged.scopes,
+        });
+      } catch (error) {
+        this.fail(error);
+        throw error;
+      }
       this.snapshot = staged;
     });
     this.pending = job.catch(() => {});

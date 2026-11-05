@@ -123,9 +123,8 @@ export class ExperimentFacts {
     )
       throw new Error('readEvidence.maxBytes must be a positive safe integer');
     const fileMode = options?.format === 'files';
-    const maxBytes = Math.min(
-      requestedBytes ?? (fileMode ? 32 * 1024 * 1024 : 60000),
-      fileMode ? 32 * 1024 * 1024 : 80000,
+    const evidenceLimit = Math.min(
+      requestedBytes ?? Number.POSITIVE_INFINITY,
       ctx.scope?.limits.evidenceBytes ?? Number.POSITIVE_INFINITY,
     );
     const view = options?.view ?? 'execution';
@@ -154,13 +153,22 @@ export class ExperimentFacts {
         measurements,
         artifacts: this.artifacts,
         view,
-        maxBytes,
+        maxBytes: Number.isFinite(evidenceLimit) ? evidenceLimit : undefined,
       });
-      if (summaries.length) result.summaries = summaries;
-      if (Buffer.byteLength(JSON.stringify(result)) > maxBytes)
-        throw new Error('Full evidence context exceeds byte limit');
+      if (summaries.length) {
+        result.summaries = summaries;
+        if (
+          Number.isFinite(evidenceLimit) &&
+          Buffer.byteLength(JSON.stringify(result)) > evidenceLimit
+        )
+          throw new Error('Full evidence context exceeds byte limit');
+      }
       return result;
     }
+    const maxBytes = Math.min(
+      evidenceLimit,
+      requestedBytes === undefined ? 60000 : 80000,
+    );
     const result = await projectEvidence({
       measurements,
       artifacts: this.artifacts,

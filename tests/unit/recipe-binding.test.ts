@@ -16,6 +16,7 @@ import type {
 import { defineContract } from '../../src/contracts/contract.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Binding } from '../../src/runtime/loaders/binding.js';
+import { registerBuiltins } from '../../src/runtime/builtins.js';
 
 const contract = defineContract({
   id: 'contract.binding-test',
@@ -300,6 +301,83 @@ test('Recipe assembles registered definitions, prepares paths/defaults and prese
     policy: recipe.policy,
   });
   assert.deepEqual(restored.toJSON(), recipe.toJSON());
+});
+
+test('bundled Recipes preserve time budgets without injecting call or token limits', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  for (const name of ['dsh-harness2', 'dsh-wikiskill']) {
+    const sourcePath = resolve(`examples/harness/${name}/recipe.yaml`);
+    const raw = object(await readYaml(sourcePath));
+    const overrides = object(raw.bindings);
+    const agentConfig = object(object(overrides.agent).config);
+    const evaluatorServices = object(
+      object(object(overrides.evaluator).config).services,
+    );
+    const configured = await Recipe.fromJSON(raw, registry, { sourcePath });
+    assert.deepEqual(configured.budget, {
+      elapsedWallMs: name === 'dsh-harness2' ? 259200000 : 172800000,
+    });
+    assert.deepEqual(
+      configured.reflection?.budget ?? {},
+      name === 'dsh-harness2' ? { elapsedWallMs: 3600000 } : {},
+    );
+    assert.equal(configured.bindings.agent!.config.timeoutMs, 1800000);
+    assert.equal(configured.bindings.agent!.config.executionTimeoutMs, 3600000);
+    assert.equal(configured.bindings.agent!.config.retries, 3);
+    assert.equal(configured.bindings.agent!.config.retryBaseDelayMs, 2000);
+    assert.equal(
+      object(configured.bindings.evaluator!.config.run ?? {}).timeoutSeconds,
+      name === 'dsh-harness2' ? 4500 : 3600,
+    );
+    delete agentConfig.timeoutMs;
+    delete agentConfig.executionTimeoutMs;
+    const recipe = await Recipe.fromJSON(raw, registry, { sourcePath });
+    assert.equal(recipe.budget.modelCalls, undefined);
+    assert.equal(recipe.bindings.agent!.config.maxTokens, undefined);
+    for (const service of Object.values(
+      object(recipe.bindings.evaluator!.config.services),
+    ))
+      assert.equal(object(service).maxTokens, undefined);
+    assert.equal(recipe.bindings.agent!.config.timeoutMs, undefined);
+    assert.equal(recipe.bindings.agent!.config.executionTimeoutMs, undefined);
+    assert.equal(recipe.reflection?.budget.modelCalls, undefined);
+    assert.equal(
+      recipe.reflection?.implementation.config.maxModelCalls,
+      undefined,
+    );
+    const editors = Object.entries(recipe.bindings).filter(([, binding]) =>
+      ['proposer.agent', 'memory.agent', 'selector.artifact'].includes(
+        binding.pluginId,
+      ),
+    );
+    for (const [bindingName, binding] of editors) {
+      assert.equal(binding.config.maxModelCalls, undefined);
+      const declaration = object(overrides[bindingName] ?? {});
+      overrides[bindingName] = {
+        ...declaration,
+        config: { ...object(declaration.config ?? {}), maxModelCalls: 2 },
+      };
+    }
+    object(raw.budget).modelCalls = 17;
+    agentConfig.maxTokens = 32768;
+    object(evaluatorServices.default).maxTokens = 65536;
+    agentConfig.timeoutMs = 1800000;
+    agentConfig.executionTimeoutMs = 3600000;
+    const limited = await Recipe.fromJSON(raw, registry, { sourcePath });
+    assert.equal(limited.budget.modelCalls, 17);
+    assert.equal(limited.bindings.agent!.config.maxTokens, 32768);
+    assert.equal(
+      object(object(limited.bindings.evaluator!.config.services).default)
+        .maxTokens,
+      65536,
+    );
+    assert.equal(limited.bindings.agent!.config.timeoutMs, 1800000);
+    assert.equal(limited.bindings.agent!.config.executionTimeoutMs, 3600000);
+    for (const [bindingName] of editors)
+      assert.equal(limited.bindings[bindingName]!.config.maxModelCalls, 2);
+  }
 });
 
 test('Recipe rejects unknown bindings, invalid budgets, legacy fields and mismatched registered Policy IDs', async (t) => {

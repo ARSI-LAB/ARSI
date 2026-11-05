@@ -106,6 +106,12 @@ export class Registry {
             validate(contract.output_schema, output, 'plugin output');
             return output;
           },
+          ...(operation.canRetry
+            ? {
+                canRetry: (input, receipt, context) =>
+                  operation.canRetry!(input as I, receipt, context),
+              }
+            : {}),
           dispose: () => operation.dispose(),
         };
       },

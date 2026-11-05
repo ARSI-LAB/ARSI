@@ -24,9 +24,10 @@ export class CleanupLifecycle {
   private marking: Promise<void> | undefined;
   private settled = false;
   private retryPreparation: (() => Promise<void>) | undefined;
+  private readonly unboundedSignal = new AbortController().signal;
   constructor(
     readonly id: string,
-    private readonly reserveMs: number,
+    private readonly reserveMs: number | undefined,
     private readonly facts: FactStore,
     private readonly events: ManagedEvents,
     private readonly instances: Instances,
@@ -37,6 +38,7 @@ export class CleanupLifecycle {
     return this.state === 'released';
   }
   get signal(): AbortSignal {
+    if (this.reserveMs === undefined) return this.unboundedSignal;
     return AbortSignal.timeout(
       Math.max(
         1,
@@ -48,11 +50,16 @@ export class CleanupLifecycle {
   }
 
   async within<T>(job: Promise<T>): Promise<T> {
+    if (this.reserveMs === undefined) return job;
     this.deadline ??= Date.now() + this.reserveMs;
     return this.bounded(job, Math.max(0, this.deadline - Date.now()));
   }
 
-  private async bounded<T>(job: Promise<T>, milliseconds: number): Promise<T> {
+  private async bounded<T>(
+    job: Promise<T>,
+    milliseconds: number | undefined,
+  ): Promise<T> {
+    if (milliseconds === undefined) return job;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
@@ -108,11 +115,14 @@ export class CleanupLifecycle {
     cleanupId: string,
   ): void {
     const job = this.markPending().then(() => this.instances.dispose(instance));
-    const timer = setTimeout(() => {
-      const error = new Error('Instance cleanup deadline exceeded');
-      this.events.abort(instance.scope, error);
-      void this.record(error, cleanupId).catch(() => {});
-    }, this.reserveMs);
+    const timer =
+      this.reserveMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            const error = new Error('Instance cleanup deadline exceeded');
+            this.events.abort(instance.scope, error);
+            void this.record(error, cleanupId).catch(() => {});
+          }, this.reserveMs);
     void job
       .catch((error: unknown) => this.record(error, cleanupId))
       .finally(() => clearTimeout(timer))
@@ -175,7 +185,8 @@ export class CleanupLifecycle {
   /** Retry only failed preparation before disposal; otherwise observe the original effects. */
   async observe(): Promise<void> {
     if (this.settled && this.state === 'failed' && this.retryPreparation) {
-      this.deadline = Date.now() + this.reserveMs;
+      this.deadline =
+        this.reserveMs === undefined ? undefined : Date.now() + this.reserveMs;
       this.attempt(this.retryPreparation);
     }
     await this.bounded(this.job, this.reserveMs);

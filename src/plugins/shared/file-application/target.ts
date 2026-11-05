@@ -16,14 +16,14 @@ export interface TargetEntry {
   changes: Change[];
   include: string[];
   minBytes: number;
-  maxBytes: number;
+  maxBytes?: number;
 }
 export interface Target {
   id: string;
   entries: TargetEntry[];
   protected: string[];
-  maxChangedFiles: number;
-  maxChangedBytes: number;
+  maxChangedFiles?: number;
+  maxChangedBytes?: number;
 }
 export interface ChangedFile {
   path: string;
@@ -47,13 +47,12 @@ export function safePath(value: unknown): string {
 }
 function integer(
   value: JsonValue | undefined,
-  fallback: number,
   label: string,
-): number {
-  const n = value ?? fallback;
-  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0)
+): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
     throw new Error(`${label}: expected non-negative integer`);
-  return n;
+  return value;
 }
 export function parseTarget(value: unknown): Target {
   const raw = object(value, 'target');
@@ -97,9 +96,10 @@ export function parseTarget(value: unknown): Target {
     );
     if (content.encoding !== undefined && content.encoding !== 'utf-8')
       throw new Error('target.content.encoding must be utf-8');
-    const minBytes = integer(content.minBytes, 0, 'minBytes'),
-      maxBytes = integer(content.maxBytes, 1048576, 'maxBytes');
-    if (minBytes > maxBytes) throw new Error('minBytes exceeds maxBytes');
+    const minBytes = integer(content.minBytes, 'minBytes') ?? 0;
+    const maxBytes = integer(content.maxBytes, 'maxBytes');
+    if (maxBytes !== undefined && minBytes > maxBytes)
+      throw new Error('minBytes exceeds maxBytes');
     return {
       path: safePath(entry.path),
       kind: entry.kind,
@@ -107,7 +107,7 @@ export function parseTarget(value: unknown): Target {
       changes: changes as Change[],
       include: entry.include === undefined ? ['**/*'] : strings(entry.include),
       minBytes,
-      maxBytes,
+      ...(maxBytes === undefined ? {} : { maxBytes }),
     };
   });
   if (new Set(entries.map((e) => e.path)).size !== entries.length)
@@ -119,20 +119,20 @@ export function parseTarget(value: unknown): Target {
     ['maxChangedFiles', 'maxChangedBytes'],
     'target.constraints',
   );
+  const maxChangedFiles = integer(
+    constraints.maxChangedFiles,
+    'maxChangedFiles',
+  );
+  const maxChangedBytes = integer(
+    constraints.maxChangedBytes,
+    'maxChangedBytes',
+  );
   return {
     id: string(raw.id, 'target.id'),
     entries,
     protected: raw.protected === undefined ? [] : strings(raw.protected),
-    maxChangedFiles: integer(
-      constraints.maxChangedFiles,
-      32,
-      'maxChangedFiles',
-    ),
-    maxChangedBytes: integer(
-      constraints.maxChangedBytes,
-      1048576,
-      'maxChangedBytes',
-    ),
+    ...(maxChangedFiles === undefined ? {} : { maxChangedFiles }),
+    ...(maxChangedBytes === undefined ? {} : { maxChangedBytes }),
   };
 }
 export async function scanTree(directory: string): Promise<FileTree> {
@@ -210,7 +210,10 @@ export function checkTarget(
     if (next) {
       const content = Buffer.from(next.content, 'base64');
       new TextDecoder('utf-8', { fatal: true }).decode(content);
-      if (content.length < entry.minBytes || content.length > entry.maxBytes)
+      if (
+        content.length < entry.minBytes ||
+        (entry.maxBytes !== undefined && content.length > entry.maxBytes)
+      )
         throw new Error(`content size outside bounds: ${path}`);
       bytes += content.length;
     } else bytes += Buffer.from(previous.content, 'base64').length;
@@ -222,38 +225,30 @@ export function checkTarget(
       after: next?.content ?? null,
     });
   }
+  const maxChangedFiles = integer(
+    constraints.maxChangedFiles,
+    'maxChangedFiles',
+  );
   if (
-    changes.length >
-    Math.min(
-      target.maxChangedFiles,
-      integer(
-        constraints.maxChangedFiles,
-        target.maxChangedFiles,
-        'maxChangedFiles',
-      ),
-    )
+    (target.maxChangedFiles !== undefined &&
+      changes.length > target.maxChangedFiles) ||
+    (maxChangedFiles !== undefined && changes.length > maxChangedFiles)
   )
     throw new Error('maxChangedFiles exceeded');
+  const maxChangedBytes = integer(
+    constraints.maxChangedBytes,
+    'maxChangedBytes',
+  );
   if (
-    bytes >
-    Math.min(
-      target.maxChangedBytes,
-      integer(
-        constraints.maxChangedBytes,
-        target.maxChangedBytes,
-        'maxChangedBytes',
-      ),
-    )
+    (target.maxChangedBytes !== undefined && bytes > target.maxChangedBytes) ||
+    (maxChangedBytes !== undefined && bytes > maxChangedBytes)
   )
     throw new Error('maxChangedBytes exceeded');
-  if (
-    roots.size >
-    integer(
-      constraints.maxChangedSubtrees,
-      target.entries.length,
-      'maxChangedSubtrees',
-    )
-  )
+  const maxChangedSubtrees = integer(
+    constraints.maxChangedSubtrees,
+    'maxChangedSubtrees',
+  );
+  if (maxChangedSubtrees !== undefined && roots.size > maxChangedSubtrees)
     throw new Error('maxChangedSubtrees exceeded');
   return changes;
 }

@@ -84,12 +84,11 @@ export function evaluateDataFunction(
         typeof second !== 'number' ||
         !Number.isSafeInteger(first) ||
         !Number.isSafeInteger(second) ||
-        second < first ||
-        second - first > 10_000
+        second < first
       )
         throw new ProtocolError(
           'expression.range',
-          'requires ordered integer bounds with at most 10000 items',
+          'requires ordered safe integer bounds',
         );
       return Array.from(
         { length: second - first },

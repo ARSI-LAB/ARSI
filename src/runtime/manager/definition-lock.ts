@@ -57,7 +57,6 @@ export function parseLockedReflection(value: JsonValue): ReflectionConfig {
         },
         budget: {
           type: 'object',
-          required: ['modelCalls'],
           properties: {
             modelCalls: { type: 'integer', minimum: 0 },
             elapsedWallMs: { type: 'integer', minimum: 1 },
@@ -89,7 +88,9 @@ export function parseLockedReflection(value: JsonValue): ReflectionConfig {
       config: object(implementation.config),
     },
     budget: {
-      modelCalls: Number(budget.modelCalls),
+      ...(budget.modelCalls === undefined
+        ? {}
+        : { modelCalls: Number(budget.modelCalls) }),
       ...(budget.elapsedWallMs === undefined
         ? {}
         : { elapsedWallMs: Number(budget.elapsedWallMs) }),

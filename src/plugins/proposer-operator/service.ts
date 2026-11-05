@@ -25,6 +25,7 @@ import {
 } from '../../contracts/index.js';
 import { parseFileTree } from '../../contracts/models/file-tree.js';
 import { validateMeasurement } from '../../contracts/models/measurement.js';
+import { applicationContract } from '../../contracts/plugin-types/application.js';
 import {
   operatorProposerContract,
   type MetricsOperatorProposerInput,
@@ -37,7 +38,7 @@ import {
   strings,
 } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
-import { commitEdits } from '../shared/agent-editing/index.js';
+import { applyEdits } from '../shared/agent-editing/index.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { loadOperatorTask } from '../shared/operator-task.js';
 import { readDecisionFeedback } from '../shared/metric-decision/index.js';
@@ -696,13 +697,20 @@ async function commitOperatorEdits(
     parent.ref,
   );
   try {
-    const result = await commitEdits(
-      workspace,
-      response,
-      parent.ref,
-      context,
+    await applyEdits(workspace.directory, response, context, editConstraints);
+    const result = await context.application({
+      action: 'commit',
+      parentCandidateRef: parent.ref,
+      editRef: workspace.ref,
       editConstraints,
+    });
+    validate(
+      applicationContract.output_schema,
+      result,
+      'Operator candidate commit',
     );
+    if (result.action !== 'commit')
+      throw new Error('Operator Application did not commit');
     const candidateRef = string(result.candidateRef);
     const rationale = string(response.reason);
     if (result.status === 'created')

@@ -90,12 +90,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         )
           throw error;
       }
-      if (prior) {
-        if (prior.status === 'succeeded') return prior.output;
-        throw new Error(
-          `Call ${callId} has unconfirmed/failed effects; inspect its receipt before recovery`,
-        );
-      }
+      if (prior?.status === 'succeeded') return prior.output;
       ctx.signal.throwIfAborted();
       const binding = options.binding(bindingId);
       if (!binding) throw new Error(`Unknown binding ${bindingId}`);
@@ -114,14 +109,32 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       const lease = await options.operation(bindingId, binding);
       ctx = ctx.extend({ event: lease.event });
       try {
+        if (
+          prior &&
+          (prior.status !== 'failed' ||
+            prior.pluginId !== binding.plugin ||
+            !lease?.operation.canRetry ||
+            (await lease.operation.canRetry(input, prior, ctx)) !== true)
+        ) {
+          throw new Error(
+            `Call ${callId} has unconfirmed/failed effects; inspect its receipt before recovery`,
+          );
+        }
+        ctx.signal.throwIfAborted();
         await charge('operations', 1, ctx);
         await mkdir(ctx.directory, { recursive: true });
+        const recoveredFrom = prior
+          ? `${callId}-${digest(prior).slice(0, 24)}`
+          : null;
+        if (prior && recoveredFrom)
+          await options.facts.write('call-attempts', recoveredFrom, prior);
         const receipt: JsonObject = {
           ...info,
           pluginId: binding.plugin,
           status: 'running',
           input,
           startedAt: new Date().toISOString(),
+          ...(recoveredFrom ? { recoveredFrom } : {}),
         };
         await options.facts.write('calls', callId, receipt);
         let committed = false;

@@ -23,7 +23,7 @@
   <a href="#architecture">How it works</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#usage">Using ember-rsi</a> ·
-  <a href="#web-workspace">Experiment viewer</a> ·
+  <a href="#web-workspace">Check experiment progress</a> ·
   <a href="#experiment-results">Experiment results</a> ·
   <a href="#user-guide">User guides</a>
 </p>
@@ -210,17 +210,21 @@ Load the RSI Skill in a coding agent and provide the optimization goal, permitte
 
 <a id="web-workspace"></a>
 
-## 🖥️ Experiment viewer
+## 🖥️ Check experiment progress
 
-Start the local read-only web workspace and open [http://127.0.0.1:4317](http://127.0.0.1:4317) in your browser.
+Run both commands from the same directory where you ran `ember-rsi run`. They read experiment data from that directory's `.rsi/` folder.
+
+To check an experiment's status in the terminal, pass its ID to `show`.
 
 ```sh
-ember-rsi serve --port 4317
+ember-rsi show my-harness2-task
 ```
 
-<p align="center">
-  <img src="docs/users/assets/rsi-studio-wikiskill-compact.gif" alt="Demo of the ember-rsi WikiSkill experiment viewer" width="1200">
-</p>
+To view progress in the browser, start the local read-only dashboard and open the address printed in the terminal.
+
+```sh
+ember-rsi dashboard
+```
 
 <a id="experiment-results"></a>
 

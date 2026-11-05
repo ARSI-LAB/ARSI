@@ -1,5 +1,6 @@
 import type { AgentEditingConfig } from './schema.js';
 import type {
+  JsonObject,
   OperationDefinition,
   ProposerInput,
   ProposerOutput,
@@ -17,6 +18,7 @@ import {
 } from '../shared/agent-editing/index.js';
 import { proposerExecutionContext } from './execution-context.js';
 import { mergeEdits } from './merge-edits.js';
+import { expandPatchEdits, patchEditOutputSchema } from './patch-edits.js';
 
 export const createProposerAgent: OperationDefinition<
   ProposerInput,
@@ -40,32 +42,56 @@ export const createProposerAgent: OperationDefinition<
         );
         execution = proposerExecutionContext(full);
       }
+      const patch = config.editProtocol === 'patch';
       const response = await requestEdit(
         config,
         { ...input, target: metadata.target },
         parent.artifactRef,
         context,
         execution,
+        patch ? patchEditOutputSchema : undefined,
       );
+      const patchResult = patch
+        ? expandPatchEdits(
+            response,
+            await context.artifacts.readJson(parent.artifactRef),
+          )
+        : undefined;
       const edit = await services.workspaces.create(
         parent.artifactRef,
         parent.ref,
       );
       try {
         const constraints = input.editConstraints ?? {};
-        // Check scope and raw bounds before a conflict can become a no-change.
-        await validateEdits(
+        let result = patchResult;
+        if (!result) {
+          // Check scope and raw bounds before a conflict can become a no-change.
+          await validateEdits(
+            edit.directory,
+            response,
+            context,
+            constraints,
+            true,
+          );
+          result = mergeEdits(
+            response,
+            await resourceFiles(parent.artifactRef, context),
+          );
+        }
+        const createOnly = patch
+          ? new Set(
+              (response.edits as JsonObject[])
+                .filter((entry) => entry.op === 'create')
+                .map((entry) => string(entry.path)),
+            )
+          : undefined;
+        await applyEdits(
           edit.directory,
-          response,
+          result,
           context,
           constraints,
-          true,
+          createOnly,
         );
-        const result = mergeEdits(
-          response,
-          await resourceFiles(parent.artifactRef, context),
-        );
-        await applyEdits(edit.directory, result, context, constraints);
         const committed = await context.application({
           action: 'commit',
           parentCandidateRef: parent.ref,

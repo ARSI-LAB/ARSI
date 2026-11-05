@@ -11,6 +11,8 @@ import React, {
   useSyncExternalStore,
 } from 'react';
 import { readObservationSource } from '../api/observation-client';
+import emberRsiLogo from '../../docs/users/assets/ember-rsi-logo.png';
+
 export function WorkspaceLayout({
   children,
   routeKey,
@@ -124,12 +126,7 @@ export function WorkspaceLayout({
           </button>
         ) : null}
         <a href="#" className="studio-brand">
-          <img
-            src={`${import.meta.env.BASE_URL}rsi-mark.svg`}
-            className="brand-mark"
-            alt=""
-          />
-          RSI <b>Studio</b>
+          <img src={emberRsiLogo} className="brand-mark" alt="ember-rsi" />
         </a>
         <nav className="studio-nav" aria-label="Workspace">
           <span className="nav-caption">WORKSPACE</span>

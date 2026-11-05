@@ -16,5 +16,4 @@ implementation:
     evidenceView: execution
     agentRef: agent
 budget:
-  modelCalls: 50
-  timeoutSeconds: 600
+  timeoutSeconds: 3600

@@ -135,10 +135,14 @@ export const createAgentPi: OperationDefinition<
         base_url: endpoint,
         api_key: apiKey,
       } = resolveModelConfig(config);
-      const signal = context.signal;
+      const executionController = new AbortController();
+      const signal = AbortSignal.any([
+        context.signal,
+        executionController.signal,
+      ]);
       signal.throwIfAborted();
       await mkdir(context.directory, { recursive: true });
-      const directory = await mkdtemp(join(tmpdir(), 'rsi-pi-'));
+      let directory: string | undefined;
       let session:
         | Awaited<ReturnType<typeof createAgentSession>>['session']
         | undefined;
@@ -155,7 +159,20 @@ export const createAgentPi: OperationDefinition<
           { mode: 0o600 },
         );
       };
+      const executionTimer =
+        config.executionTimeoutMs === undefined
+          ? undefined
+          : setTimeout(
+              () =>
+                executionController.abort(
+                  new DOMException('Agent execution timed out', 'TimeoutError'),
+                ),
+              config.executionTimeoutMs,
+            );
+      executionTimer?.unref();
       try {
+        directory = await mkdtemp(join(tmpdir(), 'rsi-pi-'));
+        signal.throwIfAborted();
         const runtime = await ModelRuntime.create({
           authPath: join(directory, 'auth.json'),
           modelsPath: null,
@@ -208,7 +225,7 @@ export const createAgentPi: OperationDefinition<
               return text(readVirtualFile(files, object(value)));
             },
           },
-          createSubagentTool(request, context),
+          createSubagentTool(request, context.extend({ signal })),
         ];
         ({ session } = await createAgentSession({
           cwd: directory,
@@ -412,10 +429,12 @@ export const createAgentPi: OperationDefinition<
           signal.removeEventListener('abort', cancel);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const cause: unknown = signal.aborted ? signal.reason : error;
+        const message = cause instanceof Error ? cause.message : String(cause);
         record('error', { message });
         throw new Error(redact(message));
       } finally {
+        clearTimeout(executionTimer);
         unsubscribe?.();
         try {
           await session?.abort();
@@ -423,7 +442,8 @@ export const createAgentPi: OperationDefinition<
           try {
             session?.dispose();
           } finally {
-            await rm(directory, { recursive: true, force: true });
+            if (directory)
+              await rm(directory, { recursive: true, force: true });
           }
         }
       }

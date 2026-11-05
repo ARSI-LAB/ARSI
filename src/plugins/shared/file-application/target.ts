@@ -193,10 +193,6 @@ export function checkTarget(
         : next === undefined
           ? 'delete'
           : 'modify';
-    if (previous && next && previous.mode !== next.mode)
-      throw new Error(`file mode change is not authorized: ${path}`);
-    if (next && !previous && next.mode !== 0o644)
-      throw new Error(`new file mode must be 0644: ${path}`);
     if (target.protected.some((pattern) => matchesGlob(path, pattern)))
       throw new Error(`protected path: ${path}`);
     const entry = target.entries.find((e) =>

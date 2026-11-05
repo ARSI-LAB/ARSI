@@ -61,7 +61,8 @@ export function parseCommand(argv: string[]): ParsedCommand {
       result.id = opts.id;
       result.resume = opts.resume ?? false;
     }
-    if (command === 'serve') result.port = cmd.opts<{ port: number }>().port;
+    if (command === 'dashboard')
+      result.port = cmd.opts<{ port: number }>().port;
   };
   program
     .command('run <recipe.yaml>')
@@ -119,8 +120,8 @@ export function parseCommand(argv: string[]): ParsedCommand {
     .description('Show registered contracts, plugins, and policies')
     .action((_opts: unknown, cmd: Command) => capture('catalog', [], cmd));
   program
-    .command('serve')
-    .description('Serve the Web UI on localhost')
+    .command('dashboard')
+    .description('Start the dashboard on localhost')
     .option(
       '--port <port>',
       'Listening port (1..65535)',
@@ -132,7 +133,7 @@ export function parseCommand(argv: string[]): ParsedCommand {
       },
       4317,
     )
-    .action((_opts: unknown, cmd: Command) => capture('serve', [], cmd));
+    .action((_opts: unknown, cmd: Command) => capture('dashboard', [], cmd));
   const configure = (cmd: Command): void => {
     cmd.exitOverride().allowExcessArguments(false).showHelpAfterError();
     for (const child of cmd.commands) configure(child);

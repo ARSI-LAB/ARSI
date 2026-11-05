@@ -3,10 +3,10 @@
 From the same workspace as your CLI facts:
 
 ```sh
-ember-rsi serve --port 4317 --plugin-dir .rsi/skill-demo/extension
+ember-rsi dashboard --port 4317 --plugin-dir .rsi/skill-demo/extension
 ```
 
-Use the installed `ember-rsi` CLI. The server binds loopback and serves built Web assets. `pnpm dev:web` starts the Vite frontend and normally still needs a backend on 4317. The current frontend is an observation workspace; do not promise Recipe editing or frontend launch controls. Backend control routes remain available.
+Use the installed `ember-rsi` CLI from an experiment workspace containing a `.rsi` directory. The server binds loopback and serves built Web assets. `pnpm dev:web` starts the Vite frontend and normally still needs a backend on 4317. The current frontend is an observation workspace; do not promise Recipe editing or frontend launch controls. Backend control routes remain available.
 
 | Request                          | Meaning                                                |
 | -------------------------------- | ------------------------------------------------------ |

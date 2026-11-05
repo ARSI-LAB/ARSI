@@ -9,7 +9,7 @@ export type AgentEditingConfig = {
   maxModelCalls?: number;
 };
 
-export const agentConfigSchema: JsonSchema = {
+export const agentConfigSchema = {
   type: 'object',
   properties: {
     agentRef: { type: 'string', default: 'agent.default' },
@@ -28,4 +28,4 @@ export const agentConfigSchema: JsonSchema = {
   },
   required: ['prompt'],
   additionalProperties: false,
-};
+} satisfies JsonSchema;

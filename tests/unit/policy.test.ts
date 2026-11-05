@@ -55,6 +55,24 @@ test('explicit state, independent execution, lazy input defaults and loop output
   assert.equal(await policy.execute({ ...options(), input: { value: 1 } }), 3);
   assert.equal(await policy.execute({ ...options(), input: { value: 2 } }), 3);
 });
+test('large ranges and explicit foreach concurrency pass the former DSL ceilings', async () => {
+  const policy = compilePolicy({
+    ...base,
+    steps: [
+      {
+        id: 'map',
+        type: 'foreach',
+        foreach: [1],
+        as: 'entry',
+        key: '${{ entry }}',
+        concurrency: 65,
+        steps: [],
+      },
+    ],
+    output: '${{ length(range(0, 10001)) }}',
+  });
+  assert.equal(await policy.execute(options()), 10001);
+});
 test('journal recovery skips completed containers and replays control at the nearest loop', async () => {
   const policy = compilePolicy({
     ...base,

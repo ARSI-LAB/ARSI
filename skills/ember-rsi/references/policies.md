@@ -48,7 +48,7 @@ The closed function set is `get`, `length`, `size`, `flatten`, `append`, `concat
 
 Do not use optional chaining, `??`, arbitrary methods, JavaScript `eval`, or `coalesce`. There are no `try`, `catch`, `finally`, `retry`, `onError`, `shell`, `http`, or `parallel` step types. Use foreach for bounded concurrency and provider-owned handling for external errors. A loop does not authorize repeating an effect with an unknown outcome.
 
-Runtime limits include 100000 loop iterations, 10000 foreach/range items, foreach concurrency 1–64, and expression size/token bounds. Recipe budgets may stop work sooner. YAML aliases and duplicate keys are unsupported. These are upper bounds, not suggested workloads; account for checkpoint I/O and inspect outcomes after a host command timeout.
+`maxIterations` is required and must evaluate to an integer from 0 to 100,000. `foreach` runs serially by default and accepts a positive safe integer for `concurrency`. `range` accepts ordered safe-integer endpoints. Expression size and token bounds still apply, and configured Recipe budgets may stop execution. YAML aliases and duplicate keys are unsupported. Account for checkpoint I/O and inspect outcomes after a host command timeout.
 
 ## Defaults, loading and schemas
 

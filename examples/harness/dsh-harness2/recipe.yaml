@@ -26,6 +26,12 @@ policy:
         - workbuddy/contract-extract-L3-014
         - workbuddy/cross-week-dashboard-migration
 bindings:
+  agent:
+    plugin: agent.pi
+    config:
+      # Optimizer output tokens and time per model request (ms).
+      maxTokens: 32768
+      timeoutMs: 600000
   invariantProposer:
     plugin: proposer.agent
     config:
@@ -34,6 +40,13 @@ bindings:
     plugin: proposer.agent
     config:
       guidance: ./guidance/domain-proposer
+  # Each operation sets the model-call cap sent to its Agent session.
+  memoryUpdater:
+    config:
+      maxModelCalls: 24
+  selector:
+    config:
+      maxModelCalls: 24
   evaluator:
     plugin: evaluator.agentbench
     config:

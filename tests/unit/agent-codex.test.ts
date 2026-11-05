@@ -393,7 +393,7 @@ for (const scenario of [
   {
     name: 'explicit timeout',
     reply: 'WAIT',
-    timeoutMs: 200,
+    timeoutMs: 5000,
     error: /timed out/,
   },
 ])

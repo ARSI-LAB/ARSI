@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import { memoryContract, reflectionContract } from '../../contracts/index.js';
 import type {
   Binding,
   RuntimeContext,
@@ -52,6 +53,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
   const active = new Map<string, Promise<JsonValue>>();
   const pending = new Set<Promise<JsonValue>>();
   const uncertain = new Map<string, () => Promise<void>>();
+  const optionalCalls = new Set<string>();
   let accepting = true;
   const invoke = async (
     bindingId: string,
@@ -106,6 +108,27 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       };
       const definition = options.registry.get(binding.plugin);
       validate(definition.contract.input_schema, input, `${bindingId} input`);
+      const isMemory = definition.contract.id === memoryContract.id;
+      if (
+        isMemory ||
+        definition.contract.id === reflectionContract.id ||
+        optionalCalls.has(caller.callId)
+      )
+        optionalCalls.add(callId);
+      // A handled Memory failure is a completed update boundary, even when its
+      // Policy checkpoint was interrupted. Reuse its old reference on resume.
+      if (
+        isMemory &&
+        prior?.status === 'failed' &&
+        prior.output !== undefined
+      ) {
+        validate(
+          definition.contract.output_schema,
+          prior.output,
+          `${bindingId} output`,
+        );
+        if (object(prior.output).status === 'failed') return prior.output;
+      }
       const lease = await options.operation(bindingId, binding);
       ctx = ctx.extend({ event: lease.event });
       try {
@@ -176,6 +199,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           }
         });
         let output: JsonValue;
+        let memoryFailed = false;
         try {
           const decision = await ctx.event.waterfall(
             'rsi/before-call',
@@ -205,7 +229,14 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
             object(input).action !== object(output).action
           )
             throw new Error('Application returned wrong action');
-          if (!(await commit({ status: 'succeeded', output })))
+          memoryFailed = isMemory && object(output).status === 'failed';
+          if (
+            !(await commit({
+              status: memoryFailed ? 'failed' : 'succeeded',
+              output,
+              ...(memoryFailed ? { error: object(output).reason! } : {}),
+            }))
+          )
             throw new Error(`Call ${callId} outcome remains unconfirmed`);
         } catch (error) {
           const explicit =
@@ -252,22 +283,33 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         } finally {
           uncertain.delete(callId);
         }
-        // A result listener failure must not rewrite a committed successful receipt.
+        // Notification errors do not undo a settled optional update.
+        const eventName = memoryFailed
+          ? 'rsi/call-failed'
+          : 'rsi/call-succeeded';
         try {
-          await ctx.event.parallel('rsi/call-succeeded', {
-            ...info,
-            status: 'succeeded',
-            ...(output &&
-            typeof output === 'object' &&
-            !Array.isArray(output) &&
-            typeof output.measurementRef === 'string'
-              ? { measurementRef: output.measurementRef }
-              : {}),
-          });
+          if (memoryFailed)
+            await ctx.event.parallel('rsi/call-failed', {
+              ...info,
+              status: 'failed',
+            });
+          else
+            await ctx.event.parallel('rsi/call-succeeded', {
+              ...info,
+              status: 'succeeded',
+              ...(output &&
+              typeof output === 'object' &&
+              !Array.isArray(output) &&
+              typeof output.measurementRef === 'string'
+                ? { measurementRef: output.measurementRef }
+                : {}),
+            });
         } catch (error) {
-          throw new Error('Event handling failed: rsi/call-succeeded', {
-            cause: error,
-          });
+          if (optionalCalls.has(callId)) options.diagnose(eventName, error);
+          else
+            throw new Error(`Event handling failed: ${eventName}`, {
+              cause: error,
+            });
         }
         return output;
       } finally {
@@ -275,7 +317,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       }
     })();
     const supervised = job.catch((error) => {
-      options.onFailure(error, caller);
+      if (!optionalCalls.has(callId)) options.onFailure(error, caller);
       throw error;
     });
     active.set(callId, supervised);

@@ -75,6 +75,8 @@ defaults:
         model: ${MODEL_NAME}
         base_url: ${MODEL_ENDPOINT}
         api_key: ${MODEL_API_KEY}
+        retries: 3
+        retryBaseDelayMs: 2000
     # WikiSkill §3.2 / appendix E: Wiki maintenance and skill proposals use
     # authorized training scores, outcomes and execution evidence.
     # This Policy evaluates test tasks only after its learning loop finishes.

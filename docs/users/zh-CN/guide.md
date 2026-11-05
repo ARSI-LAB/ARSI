@@ -57,7 +57,11 @@ flowchart TB
 
 Memory 将经验保存为制品引用，并存入 `state.wikiRef` 等实验状态。后续调用通过 `memoryRef` 接收它；仅写入 Memory 不会让所有插件自动使用经验。
 
+`memory.agent` 更新失败时返回 `status: failed`、原有 `memoryRef`、`changeRef: null` 和脱敏后的原因。调用回执仍记录为 `failed`，Policy 可以保留该引用并继续执行。首次更新失败时保留 `null`。恢复运行会复用持久化的失败结果，不会重新执行这个已结束的更新边界。正常的 `no-change` 结果仍与失败区分。
+
 Reflection 为授权的插件资源提出修改。Runtime 校验、持久化并启用**当前实验内**的新版本。只有后续调用读取并使用新资源，修改才参与执行。新实验不会自动继承这些版本，源 Policy 文件也不会被覆盖。
+
+Memory 和 Reflection 的更新失败，包括子 Agent 调用失败，本身不会取消整个实验。Reflection 记录被拒绝的更新并保留当前有效指导。用户取消、实验总预算耗尽和关键 Runtime 状态持久化失败仍会停止执行。
 
 Harness² 声明了 Reflection 配置，但其 `improve_guidance` 步骤目前被注释，默认不会执行 Reflection。显式调用与持久化行为见 [Reflection 指南](reflection.md)。
 
@@ -81,6 +85,8 @@ RSI 不会自动加载 `.env` 文件。请在启动 CLI 或 Web 服务的进程�
 [Agent 配置 Schema](../../../src/plugins/agent-pi/schema.ts) 默认设置为 `thinkingLevel: low`、`contextWindow: 262144` 和 `retries: 0`。可设置 `maxTokens` 来限制模型输出、`timeoutMs` 来限制每次模型请求的用时，或设置 `executionTimeoutMs` 来限制整次 Agent 调用。整次执行超时包含模型请求、工具调用、输出纠错、上下文压缩和重试等待，不会随新请求重置。这些字段均无隐式上限；两个超时字段接受 `1` 到 `2147483647` 的整数毫秒。请选择模型端点支持的设置。
 
 所有 `agent.pi` 会话默认提供 `run_subagent`，子代理也可继续委派。各 Agent 自主决定是否委派及如何分工，不额外限制委派层数或子代理数量；各层共用 Runtime 预算和取消机制，启动子代理不会重置预算，也不会延长父代理的执行截止时间。子代理使用同一 Agent 绑定，拥有独立对话和明确传入的虚拟文件。详见 [Reflection 机制](reflection.md#reflection-机制)。
+
+内置 Harness² 与 WikiSkill Policy 为共享的 `agent` 绑定显式设置 `retries: 3` 和 `retryBaseDelayMs: 2000`：符合重试条件的模型请求最多尝试四次，基础退避为两秒。所有引用该绑定的调用方共用此配置。可通过 Recipe 的 `bindings.agent.config` 覆盖。Memory 和 Reflection 不再增加组件级重试循环，也无需额外的 Policy 失败处理配置。
 
 要使用本机已安装的 Codex CLI 及其已有登录、provider、模型和推理配置，将 Agent 绑定替换为：
 

@@ -57,7 +57,11 @@ Use [Runtime evidence services](../../../src/runtime/services/facts/evidence.ts)
 
 Memory stores experience as an artifact reference in experiment state, such as `state.wikiRef`. Later calls receive it through `memoryRef`; writing Memory alone does not make every plugin consume it.
 
+`memory.agent` returns `status: failed` with the previous `memoryRef`, `changeRef: null`, and a redacted reason when an update fails. Its call receipt remains `failed`, while the Policy can retain that reference and continue. A first failed update retains `null`. Resume reuses a persisted failed result rather than rerunning that completed update boundary. Normal `no-change` results remain distinct.
+
 Reflection proposes changes to authorized plugin resources. The Runtime validates, persists, and activates revisions **within the current experiment**. Later calls must read and use the revised resources for a change to affect execution. A new experiment does not automatically inherit those revisions or overwrite the source Policy files.
+
+Memory and Reflection update failures, including child Agent failures, do not by themselves cancel the experiment. Reflection records rejected updates and retains the effective guidance. User cancellation, total experiment budget exhaustion, and failures to persist critical Runtime state still stop execution.
 
 Harness² declares a Reflection configuration, but its `improve_guidance` step is currently commented out. Reflection does not run by default. See the [Reflection guide](reflection.md) for explicit invocation and persistence.
 
@@ -81,6 +85,8 @@ The optimizer Agent and the evaluated solver can use different models. In the Ha
 The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` to request an output limit, `timeoutMs` for each model request, or `executionTimeoutMs` for the complete Agent invocation. The execution timeout includes model requests, tool calls, output correction, context compaction and retry backoff; it does not reset between requests. These fields have no implicit limits. Both timeout fields accept integer milliseconds from `1` to `2147483647`. Choose settings supported by your endpoint.
 
 Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget or extend its parent's execution deadline. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
+
+The bundled Harness² and WikiSkill Policies explicitly configure their shared `agent` binding with `retries: 3` and `retryBaseDelayMs: 2000`: eligible model requests have up to four attempts with a two-second base backoff. All callers of that binding use these settings. Override them under `bindings.agent.config` in the Recipe. Memory and Reflection do not add a component retry loop or require extra Policy failure settings.
 
 To use the installed Codex CLI and its existing local login, provider, model and reasoning configuration, replace the Agent binding with:
 

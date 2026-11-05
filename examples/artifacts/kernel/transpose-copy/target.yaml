@@ -3,7 +3,7 @@ id: target.transpose-copy
 entries:
   - path: input.py
     kind: file
-    description: Complete Triton source with the fixed kernel_function entry point.
+    description: Complete Triton Ascend source with the fixed kernel_function entry point.
     changes:
       - modify
     content:

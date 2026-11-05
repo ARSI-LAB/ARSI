@@ -1,7 +1,6 @@
 <!--
 SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
-Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,7 +18,7 @@ Source: ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_
 Adaptation: Replaced Jinja interpolation with supplied RSI context and wrapped the upstream issues array in a strict JSON object; invalid responses do not become empty diagnoses.
 -->
 
-# Source-only Triton diagnosis
+# Source-only Triton-Ascend diagnosis
 
 Inspect the supplied stage-entry kernel source, fixed problem/contract and actual
 hardware observations. Diagnose source-visible opportunities only. Do not assume

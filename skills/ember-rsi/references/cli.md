@@ -13,14 +13,14 @@ ember-rsi show demo-01
 ember-rsi list
 ember-rsi cancel demo-01
 ember-rsi run .rsi/skill-demo/recipe.yaml --id demo-01 --resume --plugin-dir .rsi/skill-demo/extension
-ember-rsi serve --port 4317 --plugin-dir .rsi/skill-demo/extension
+ember-rsi dashboard --port 4317 --plugin-dir .rsi/skill-demo/extension
 ```
 
 `ember-rsi list plugins` (alias `list plugin`) returns descriptions, contract IDs, input/output/config Schemas and compatible Policy binding slots. `ember-rsi list policies` (alias `list policy`) returns descriptions, Schemas, required contracts, compatible plugins and defaults. Compatibility is structural, not proof of suitability. Bare `ember-rsi list` lists experiments; `ember-rsi catalog` retains compact ID lists.
 
 These are command shapes, not a sequence to cancel and resume an already successful demo. All commands accept repeatable `--plugin-dir`. `run` takes a Recipe **path**, not catalog ID. `--resume` requires `--id`. Data is `.rsi/` under the current working directory; inspect and resume from that same directory. There are no `--data-dir`, `--json`, `--recipe`, `--request-id`, pause, continue or detach options.
 
-Output is JSON for ordinary commands, not a versioned CLI envelope. Exit 0 means the command returned normally; inspect the experiment's status separately. Errors return 1 and interruption returns 130. `serve` prints its address and keeps running. For clean machine stdout invoke the supplied binary or `node dist/src/entries/cli/main.js` in a checkout, avoiding package-manager banners.
+Output is JSON for ordinary commands, not a versioned CLI envelope. Exit 0 means the command returned normally; inspect the experiment's status separately. Errors return 1 and interruption returns 130. `dashboard` requires a `.rsi` directory in the current working directory, prints its address, and keeps running. For clean machine stdout invoke the supplied binary or `node dist/src/entries/cli/main.js` in a checkout, avoiding package-manager banners.
 
 The process running the experiment owns execution. Cancellation is a request: observe terminal state and released instances afterward. Do not cancel a terminal experiment; it has no active work, and this supported revision has a known unhandled rejection risk on the HTTP cancel route for terminal IDs.
 

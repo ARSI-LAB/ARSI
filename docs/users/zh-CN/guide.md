@@ -216,12 +216,12 @@ ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --
 ### Web 观察
 
 ```sh
-ember-rsi serve --port 4317
+ember-rsi dashboard --port 4317
 ```
 
-打开 `http://127.0.0.1:4317`。构建后的 Web 是**只读观察工作区**，展示实验列表、摘要、候选、测量、调用和图表。请通过 CLI 启动、恢复和取消实验；当前 UI 没有 Recipe 编辑器、启动或取消按钮。CLI 和服务端即使是不同进程，只要从相同目录启动，就使用同一磁盘存储。
+请在包含 `.rsi` 目录的实验工作区运行此命令，然后打开终端显示的地址。构建后的 Web 是**只读观察工作区**，展示实验列表、摘要、候选、测量、调用和图表。请通过 CLI 启动、恢复和取消实验；当前 UI 没有 Recipe 编辑器、启动或取消按钮。CLI 和服务端即使是不同进程，只要从相同目录启动，就使用同一磁盘存储。
 
-`pnpm dev:web` 启动 Vite 开发模式，默认将 `/api` 代理到 4317 端口，需要后端配合；`serve` 提供构建后的静态资源。服务监听回环地址并检查 Host/Origin，不提供面向公网部署的用户认证。
+`pnpm dev:web` 启动 Vite 开发模式，默认将 `/api` 代理到 4317 端口，需要后端配合；`dashboard` 提供构建后的静态资源。服务监听回环地址并检查 Host/Origin，不提供面向公网部署的用户认证。
 
 ## 3. 定制绑定与插件
 

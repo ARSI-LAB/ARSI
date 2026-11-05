@@ -216,12 +216,12 @@ The default store is `.rsi/` under the current directory. Completed calls can re
 ### Web observation
 
 ```sh
-ember-rsi serve --port 4317
+ember-rsi dashboard --port 4317
 ```
 
-Open `http://127.0.0.1:4317`. The built Web UI is a **read-only observation workspace** for experiment lists, summaries, candidates, measurements, calls, and charts. Start, resume, and cancel experiments through the CLI; the current UI has no Recipe editor, start button, or cancellation button. Separate CLI and server processes use the same on-disk store when started from the same directory.
+Run this command from an experiment workspace containing a `.rsi` directory. Open the address printed by the dashboard. The built Web UI is a **read-only observation workspace** for experiment lists, summaries, candidates, measurements, calls, and charts. Start, resume, and cancel experiments through the CLI; the current UI has no Recipe editor, start button, or cancellation button. Separate CLI and server processes use the same on-disk store when started from the same directory.
 
-`pnpm dev:web` starts Vite development mode and proxies `/api` to port 4317 by default; it needs a backend. `serve` serves built assets. The server listens on loopback and checks Host/Origin; it does not provide user authentication for a public deployment.
+`pnpm dev:web` starts Vite development mode and proxies `/api` to port 4317 by default; it needs a backend. `dashboard` serves built assets. The server listens on loopback and checks Host/Origin; it does not provide user authentication for a public deployment.
 
 ## 3. Customize bindings and plugins
 

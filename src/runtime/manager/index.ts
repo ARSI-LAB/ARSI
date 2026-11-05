@@ -381,7 +381,16 @@ export class Manager {
           scopeUsage[scoped.id] = { ...state, [metric]: count };
         }
         usage[metric] = next;
-        await this.facts.write('budgets', id, { ...usage, scopes: scopeUsage });
+        try {
+          await this.facts.write('budgets', id, {
+            ...usage,
+            scopes: scopeUsage,
+          });
+        } catch (error) {
+          failureCause = error;
+          stopping.abort(error);
+          throw error;
+        }
       });
       ledger = job.catch(() => {});
       await job;

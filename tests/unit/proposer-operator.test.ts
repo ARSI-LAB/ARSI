@@ -16,7 +16,7 @@ import {
 } from '../../src/contracts/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
-import { readHistory } from '../../src/plugins/proposer-operator/execution-context.js';
+import { readHistory } from '../../src/plugins/proposer-operator/service.js';
 import {
   prepareOperatorProposerFixture,
   operatorFixtureSource,
@@ -820,6 +820,85 @@ const invalidEditResponse = () =>
   new Error(
     'Agent model-call limit reached; last output validation failed: agent output/edits must NOT have more than 1 items',
   );
+
+for (const abortAt of ['summary', 'history'] as const)
+  test(`cancelling while writing ${abortAt} artifacts keeps the summary call cancelled`, async (t) => {
+    const controller = new AbortController();
+    const writes: string[] = [];
+    const fixture = await setup(
+      async (context) => {
+        const { entry, baselineRef } = await baseline(context);
+        const proposal = object(
+          await context.invoke('proposer', {
+            action: 'propose',
+            phase: 'static',
+            entryCandidateRef: entry,
+            baselineMeasurementRef: baselineRef,
+            attempt: 1,
+            goal: 'Keep the unchanged candidate',
+            analysisRef: null,
+            historyRef: null,
+          }),
+        );
+        const artifacts = context.artifacts;
+        const putJson = artifacts.putJson;
+        artifacts.putJson = async (value) => {
+          const ref = await putJson.call(artifacts, value);
+          const version = object(value).schemaVersion;
+          const kind =
+            version === 'rsi.operator-summary/v1'
+              ? 'summary'
+              : version === 'rsi.operator-history/v1'
+                ? 'history'
+                : null;
+          if (kind !== null) writes.push(kind);
+          if (kind === abortAt)
+            controller.abort(new Error('Cancelled during summary persistence'));
+          return ref;
+        };
+        try {
+          return object(
+            await context.invoke('proposer', {
+              action: 'summarize',
+              phase: 'static',
+              entryCandidateRef: entry,
+              analysisRef: proposal.analysisRef,
+              historyRef: null,
+              attempt: 1,
+              candidateRefs: [entry],
+              measurementRefs: [],
+              decisionRef: null,
+              outcome: 'no-change',
+            }),
+          );
+        } finally {
+          artifacts.putJson = putJson;
+        }
+      },
+      false,
+      { noChange: true },
+    );
+    t.after(() => fixture.dispose());
+    await assert.rejects(
+      fixture.runtime.manager.run(fixture.recipePath, {
+        id: `cancel-${abortAt}-persistence`,
+        signal: controller.signal,
+      }),
+      /Cancelled during summary persistence/,
+    );
+    const calls = await fixture.runtime.manager.facts.list('calls');
+    const summarized = calls.filter(
+      (call) =>
+        call.pluginId === 'proposer.operator' &&
+        object(call.input).action === 'summarize',
+    );
+    assert.equal(summarized.length, 1);
+    assert.equal(summarized[0]!.status, 'cancelled');
+    assert.deepEqual(
+      writes,
+      abortAt === 'summary' ? ['summary'] : ['summary', 'history'],
+    );
+  });
 
 test('asynchronous invalid generation retains error evidence and history for the next static attempt', async (t) => {
   const fixture = await setup(

@@ -1,4 +1,4 @@
-import type { JsonObject } from '../../contracts/index.js';
+import type { Candidate, JsonObject } from '../../contracts/index.js';
 import {
   operatorAttemptOutcomes,
   type OperatorAttemptOutcome,
@@ -93,28 +93,31 @@ export type OperatorAnalysis = {
   matches: StaticKnowledgeMatch[];
   knowledgeContext: string;
 };
-export type OperatorSummary = {
-  schemaVersion: 'rsi.operator-summary/v1';
-  summaryStatus?: 'available' | 'unavailable';
+type AttemptFacts = {
+  outcome: OperatorAttemptOutcome;
+  wasTransformCorrect: boolean | null;
+  baselineMs: number;
+  candidateMs: number | null;
+  accepted: boolean;
+};
+type SummaryContent = {
   experimentId: string;
   analysisRef: string;
-  attempt: number;
   candidateRefs: string[];
   measurementRefs: string[];
   decisionRef: string | null;
-  techniqueIds: StaticIssueType[];
   actionSummary: string;
-  facts: {
-    outcome: OperatorAttemptOutcome;
-    wasTransformCorrect: boolean | null;
-    baselineMs: number;
-    candidateMs: number | null;
-    accepted: boolean;
-  };
   explanation: string;
   lessons: string[];
   avoidPatterns: string[];
   tryPatterns: string[];
+};
+export type OperatorSummary = SummaryContent & {
+  schemaVersion: 'rsi.operator-summary/v1';
+  summaryStatus?: 'available' | 'unavailable';
+  attempt: number;
+  techniqueIds: StaticIssueType[];
+  facts: AttemptFacts;
 };
 export type OperatorHistoryArtifact = {
   schemaVersion: 'rsi.operator-history/v1';
@@ -258,6 +261,16 @@ export const analysisSchema = recordSchema(
     'knowledgeContext',
   ],
 );
+const assessmentFactProperties = {
+  outcome: { enum: [...operatorAttemptOutcomes] },
+  wasTransformCorrect: { type: ['boolean', 'null'] },
+  baselineMs: positive,
+  candidateMs: { anyOf: [positive, { type: 'null' }] },
+};
+const summaryReferenceProperties = {
+  measurementRefs: refs(0, 4),
+  decisionRef: { anyOf: [ref, { type: 'null' }] },
+};
 const summaryResponseProperties: JsonObject = {
   explanation: { type: 'string', maxLength: 4000 },
   lessons: strings(3),
@@ -273,8 +286,7 @@ export const summarySchema = recordSchema(
     analysisRef: ref,
     attempt: { type: 'integer', minimum: 1, maximum: 3 },
     candidateRefs: refs(1, 4),
-    measurementRefs: refs(0, 4),
-    decisionRef: { anyOf: [ref, { type: 'null' }] },
+    ...summaryReferenceProperties,
     techniqueIds: {
       type: 'array',
       maxItems: 4,
@@ -283,10 +295,7 @@ export const summarySchema = recordSchema(
     },
     actionSummary: { type: 'string', maxLength: 4000 },
     facts: recordSchema({
-      outcome: { enum: [...operatorAttemptOutcomes] },
-      wasTransformCorrect: { type: ['boolean', 'null'] },
-      baselineMs: positive,
-      candidateMs: { anyOf: [positive, { type: 'null' }] },
+      ...assessmentFactProperties,
       accepted: { type: 'boolean' },
     }),
     ...summaryResponseProperties,
@@ -339,32 +348,17 @@ export type MetricsAnalysis = {
   retrievalRef: string | null;
   retrievalStatus: 'skipped' | 'available' | 'unavailable';
 };
-export type MetricsSummary = {
+export type MetricsSummary = SummaryContent & {
   schemaVersion: 'rsi.operator-metrics-summary/v1';
-  actionSummary: string;
-  experimentId: string;
   round: number;
-  analysisRef: string;
   parentCandidateRef: string;
   incumbentMeasurementRef: string;
-  candidateRefs: string[];
-  measurementRefs: string[];
-  decisionRef: string | null;
   candidateDiagnosticMeasurementRef: string | null;
-  facts: {
-    outcome: OperatorAttemptOutcome;
-    wasTransformCorrect: boolean | null;
-    baselineMs: number;
-    candidateMs: number | null;
+  facts: AttemptFacts & {
     improvement: number | null;
-    accepted: boolean;
     selectedCandidateRef: string;
   };
   summaryStatus: 'available' | 'unavailable';
-  explanation: string;
-  lessons: string[];
-  avoidPatterns: string[];
-  tryPatterns: string[];
 };
 export type MetricsHistory = {
   schemaVersion: 'rsi.operator-metrics-history/v1';
@@ -411,14 +405,10 @@ export const metricsSummarySchema = recordSchema({
   parentCandidateRef: ref,
   incumbentMeasurementRef: ref,
   candidateRefs: refs(0, 4),
-  measurementRefs: refs(0, 4),
-  decisionRef: { anyOf: [ref, { type: 'null' }] },
+  ...summaryReferenceProperties,
   candidateDiagnosticMeasurementRef: { anyOf: [ref, { type: 'null' }] },
   facts: recordSchema({
-    outcome: { enum: [...operatorAttemptOutcomes] },
-    wasTransformCorrect: { type: ['boolean', 'null'] },
-    baselineMs: positive,
-    candidateMs: { anyOf: [positive, { type: 'null' }] },
+    ...assessmentFactProperties,
     improvement: { type: ['number', 'null'] },
     accepted: { type: 'boolean' },
     selectedCandidateRef: ref,
@@ -431,3 +421,172 @@ export const metricsHistorySchema = recordSchema({
   experimentId: ref,
   summaryRefs: refs(0, 10),
 });
+
+export type HardwareContext = { text: string; sha256: string };
+export type OperatorResources = {
+  digest: string;
+  knowledgeDigest: string;
+  workerDigest: string;
+  prompts: Record<OperatorAgentStage, string>;
+  metricsGenerate: string;
+  guidelines: string;
+};
+export type EmbeddingIdentity = {
+  schemaVersion: 'rsi.operator-embedding-identity/v1';
+  model: { id: string; revision: string };
+  encoding: {
+    queryPromptName: 'query';
+    normalizeEmbeddings: true;
+    device: 'cpu';
+    batchSize: 32;
+  };
+  files: { path: string; sha256: string }[];
+};
+export type MetricsKnowledgeMatch = Omit<
+  StaticKnowledgeMatch,
+  'techniqueId' | 'exampleDigest'
+> & { techniqueId: string; exampleDigest: string | null };
+export type OperatorRetrievalResult<Match extends MetricsKnowledgeMatch> = {
+  schemaVersion: 'rsi.operator-retrieval/v1';
+  workerDigest: string;
+  embeddingDigest: string;
+  resourcesDigest: string;
+  matches: Match[];
+  knowledgeContext: string;
+  omitted: { techniques: string[]; examples: string[] };
+  model: { id: string; revision: string };
+  runtime: {
+    python: string;
+    sentenceTransformers: string;
+    transformers: string;
+    torch: string;
+  };
+};
+export type StaticRetrievalResult =
+  OperatorRetrievalResult<StaticKnowledgeMatch>;
+export type MetricsRetrievalResult =
+  OperatorRetrievalResult<MetricsKnowledgeMatch>;
+export type KnowledgeResources = {
+  manifest: JsonObject;
+  resources: Map<string, string>;
+  digest: string;
+  workerDigest: string;
+  guidelines: string;
+};
+export type KnowledgeQuery =
+  | { issues: StaticIssue[] }
+  | { mode: 'metrics'; query: string };
+const retrievalText = { type: 'string', minLength: 1, maxLength: 4096 };
+export const embeddingIdentitySchema = recordSchema({
+  schemaVersion: { const: 'rsi.operator-embedding-identity/v1' },
+  model: recordSchema({ id: retrievalText, revision: retrievalText }),
+  encoding: recordSchema({
+    queryPromptName: { const: 'query' },
+    normalizeEmbeddings: { const: true },
+    device: { const: 'cpu' },
+    batchSize: { const: 32 },
+  }),
+  files: {
+    type: 'array',
+    minItems: 1,
+    maxItems: 10000,
+    items: recordSchema({ path: retrievalText, sha256: hash }),
+  },
+});
+const retrievalMatch = {
+  score: { type: 'number', minimum: -1, maximum: 1 },
+  sourceReference: retrievalText,
+  documentDigest: hash,
+};
+const retrievalResult = {
+  schemaVersion: { const: 'rsi.operator-retrieval/v1' },
+  embeddingDigest: hash,
+  resourcesDigest: hash,
+  knowledgeContext: { type: 'string', maxLength: 20000 },
+  model: recordSchema({ id: retrievalText, revision: retrievalText }),
+  runtime: recordSchema({
+    python: retrievalText,
+    sentenceTransformers: retrievalText,
+    transformers: retrievalText,
+    torch: retrievalText,
+  }),
+};
+export const staticRetrievalSchema = recordSchema({
+  ...retrievalResult,
+  matches: {
+    type: 'array',
+    maxItems: 4,
+    items: recordSchema({
+      ...retrievalMatch,
+      techniqueId: { enum: [...staticIssueTypes] },
+      exampleDigest: hash,
+      issueIndexes: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 16,
+        uniqueItems: true,
+        items: { type: 'integer', minimum: 0, maximum: 15 },
+      },
+    }),
+  },
+  omitted: recordSchema({
+    techniques: {
+      type: 'array',
+      maxItems: 4,
+      uniqueItems: true,
+      items: { enum: [...staticIssueTypes] },
+    },
+    examples: {
+      type: 'array',
+      maxItems: 4,
+      uniqueItems: true,
+      items: { enum: [...staticIssueTypes] },
+    },
+  }),
+});
+export const metricsRetrievalSchema = recordSchema({
+  ...retrievalResult,
+  matches: {
+    type: 'array',
+    maxItems: 3,
+    items: recordSchema({
+      ...retrievalMatch,
+      techniqueId: retrievalText,
+      exampleDigest: { anyOf: [hash, { type: 'null' }] },
+      issueIndexes: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 1,
+        items: { const: 0 },
+      },
+    }),
+  },
+  omitted: recordSchema({
+    techniques: { type: 'array', items: retrievalText },
+    examples: { type: 'array', items: retrievalText },
+  }),
+});
+
+export type OperatorAttempt = {
+  phase: 'static' | 'metrics';
+  rootCandidateRef: string;
+  baselineMeasurementRef: string;
+  candidateRefs: string[];
+  measurementRefs: string[];
+  decisionRef: string | null;
+  outcome: OperatorAttemptOutcome;
+};
+
+export type PreparedAttempt = {
+  parent: Candidate;
+  baseline: JsonObject;
+  analysisRef: string;
+  historyArtifact: OperatorHistoryArtifact | MetricsHistory;
+  generationContext: JsonObject;
+  summaryContext: JsonObject;
+  generatePrompt: string;
+  techniqueIds: OperatorSummary['techniqueIds'];
+  noStaticIssues: boolean;
+};
+
+export type AnalysisReceipt = { analysisRef: string | null };

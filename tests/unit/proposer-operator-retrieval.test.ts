@@ -15,7 +15,8 @@ import { RuntimeContext } from '../../src/contracts/index.js';
 import {
   readEmbeddingIdentity,
   retrieveStaticKnowledge,
-} from '../../src/plugins/proposer-operator/retrieval.js';
+  retrieveMetricsKnowledge,
+} from '../../src/plugins/proposer-operator/service.js';
 import type {
   EmbeddingConfig,
   StaticIssue,
@@ -99,6 +100,71 @@ test('local retrieval owns one CPU worker and preserves a normal empty match wit
   );
   assert.equal(request.device, 'cpu');
   assert.deepEqual(request.issues, [issue]);
+  const recorded = JSON.parse(
+    await readFile(join(f.context.directory, 'retrieval/result.json'), 'utf8'),
+  );
+  assert.deepEqual(recorded, result);
+});
+
+test('metrics retrieval preserves its query, free technique ID, nullable example and persisted identities', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const document = 'Measured vector bottleneck technique';
+  const documentPath = 'knowledge/vector.txt';
+  await writeFile(join(f.config.resourcesDirectory, documentPath), document);
+  const manifest = JSON.stringify({
+    schemaVersion: 'rsi.operator-knowledge/v1',
+    techniques: [],
+    metrics: [{ id: 'category_vector', document: documentPath, example: null }],
+    resources: [{ path: documentPath, sha256: digest(document) }],
+  });
+  await writeFile(
+    join(f.config.resourcesDirectory, 'knowledge/manifest.json'),
+    manifest,
+  );
+  const worker = `
+import { readFile, writeFile } from 'node:fs/promises';
+const argument = (name) => process.argv[process.argv.indexOf(name) + 1];
+const request = JSON.parse(await readFile(argument('--request'), 'utf8'));
+const identity = JSON.parse(await readFile(request.identityFile, 'utf8'));
+await writeFile(argument('--response'), JSON.stringify({
+  schemaVersion: 'rsi.operator-retrieval/v1',
+  embeddingDigest: request.embeddingDigest,
+  resourcesDigest: request.resourcesDigest,
+  model: identity.model,
+  matches: [{
+    techniqueId: 'category_vector',
+    score: 0.9,
+    issueIndexes: [0],
+    sourceReference: 'fixture/vector',
+    documentDigest: '${digest(document)}',
+    exampleDigest: null,
+  }],
+  knowledgeContext: '${document}',
+  omitted: { techniques: [], examples: [] },
+  runtime: { python: 'fixture', sentenceTransformers: 'fixture', transformers: 'fixture', torch: 'fixture' },
+}));
+`;
+  await writeFile(f.config.retrievalScript, worker);
+  const result = await retrieveMetricsKnowledge(
+    'vector bottleneck',
+    { ...f.config, python: process.execPath },
+    f.context,
+  );
+  assert.equal(result.matches[0]?.techniqueId, 'category_vector');
+  assert.equal(result.matches[0]?.exampleDigest, null);
+  assert.equal(result.matches[0]?.documentDigest, digest(document));
+  assert.equal(result.resourcesDigest, digest(manifest));
+  assert.equal(result.workerDigest, digest(worker));
+  assert.equal(
+    result.embeddingDigest,
+    digest(await readFile(f.config.identityFile, 'utf8')),
+  );
+  const request = JSON.parse(
+    await readFile(join(f.context.directory, 'retrieval/request.json'), 'utf8'),
+  );
+  assert.equal(request.mode, 'metrics');
+  assert.equal(request.query, 'vector bottleneck');
   const recorded = JSON.parse(
     await readFile(join(f.context.directory, 'retrieval/result.json'), 'utf8'),
   );

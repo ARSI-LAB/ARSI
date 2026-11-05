@@ -46,10 +46,8 @@ test('invalid model output is an explicit business failure with retained analysi
 
 async function metricAnalysisModule(): Promise<Record<string, unknown>> {
   const loaded: unknown = await import(
-    new URL(
-      '../../src/plugins/proposer-operator/execution-context.ts',
-      import.meta.url,
-    ).href
+    new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
+      .href
   );
   assert.ok(loaded && typeof loaded === 'object');
   return loaded as Record<string, unknown>;
@@ -94,10 +92,8 @@ test('metric analysis requires measured numeric evidence and keeps model inferen
 
 test('operator edits reject unauthorized paths and oversized UTF-8 output as model data', async () => {
   const loaded: unknown = await import(
-    new URL(
-      '../../src/plugins/proposer-operator/execution-context.ts',
-      import.meta.url,
-    ).href
+    new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
+      .href
   );
   assert.ok(loaded && typeof loaded === 'object');
   const parse: unknown = Reflect.get(loaded, 'validateOperatorEdits');

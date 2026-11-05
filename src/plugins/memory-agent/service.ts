@@ -14,6 +14,20 @@ export const createMemoryAgent: OperationDefinition<
   AgentEditingConfig
 >['create'] = async (config, _context) => {
   return {
+    async canRetry(_input, receipt, context) {
+      if (
+        receipt.status !== 'failed' ||
+        receipt.experimentId !== context.experimentId ||
+        typeof receipt.callId !== 'string' ||
+        !receipt.callId
+      )
+        return false;
+      // Evidence preparation is read-only. Editing and artifact capture occur only
+      // after invokeAgent, whose child receipt is persisted before model execution.
+      return !(await context.facts.list('calls')).some(
+        (call) => call.parentCallId === receipt.callId,
+      );
+    },
     async execute(input, context) {
       json(input);
       const comparison =

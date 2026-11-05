@@ -3,10 +3,17 @@ import { join } from 'node:path';
 import type {
   AgentbenchInput,
   AgentbenchOutput,
+  JsonObject,
   Operation,
   RuntimeContext,
 } from '../../contracts/index.js';
-import { object, string, strings, unknownKeys } from '../../shared/json.js';
+import {
+  digest,
+  object,
+  string,
+  strings,
+  unknownKeys,
+} from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { redact } from '../shared/evaluator-adapter/data.js';
 import {
@@ -16,14 +23,43 @@ import {
 import { evaluationStatus } from '../shared/evaluator-adapter/measurement.js';
 import { nativeConfiguration } from './configuration.js';
 import { normalizeEvaluation } from './measurement.js';
+import { canRestartPreparation } from './preparation-recovery.js';
 import { configSchema, type AgentbenchConfig } from './schema.js';
+import {
+  isFinalizedVerifierTimeout,
+  reconciledVerifierTimeout,
+} from './finalized-timeout.js';
 export async function createAgentbench(
   config: AgentbenchConfig,
   _context: RuntimeContext,
   runner: EvaluatorRunner = sdkRunner,
 ): Promise<Operation<AgentbenchInput, AgentbenchOutput>> {
   validate(configSchema, config, 'evaluator config');
+  const reconciled = new Map<
+    string,
+    { inputDigest: string; measurementRef: string | null; attempt: string }
+  >();
   return {
+    async canRetry(input, receipt, context) {
+      const key = `${context.experimentId}/${context.callId}`;
+      reconciled.delete(key);
+      const measurementRef = await reconciledVerifierTimeout(
+        input,
+        receipt,
+        context,
+      );
+      if (
+        !measurementRef &&
+        !(await canRestartPreparation(input, receipt, context))
+      )
+        return false;
+      reconciled.set(key, {
+        inputDigest: digest(input),
+        measurementRef,
+        attempt: digest(receipt),
+      });
+      return true;
+    },
     async execute(input, context): Promise<AgentbenchOutput> {
       object(input);
       unknownKeys(input, ['candidateRef', 'taskIds'], 'evaluator input');
@@ -31,7 +67,47 @@ export async function createAgentbench(
       const ids = strings('taskIds' in input ? input.taskIds : undefined);
       if (!ids.length || new Set(ids).size !== ids.length)
         throw new Error('taskIds must be nonempty and unique');
-      return context.withInstance(
+      context.signal.throwIfAborted();
+      const key = `${context.experimentId}/${context.callId}`;
+      const recovered = reconciled.get(key);
+      if (recovered) {
+        reconciled.delete(key);
+        if (recovered.inputDigest !== digest(input))
+          throw new Error('Reconciled evaluator input changed');
+        if (recovered.measurementRef)
+          return { measurementRef: recovered.measurementRef };
+      }
+      // A released acquisition receipt must never supply the new workspace.
+      const withInstance = async <T>(
+        candidateRef: string,
+        capability: string,
+        use: (execution: JsonObject) => Promise<T>,
+      ): Promise<T> => {
+        if (!recovered)
+          return context.withInstance(candidateRef, capability, use);
+        const instanceId =
+          'instance-' +
+          digest({
+            callId: context.callId,
+            attempt: recovered.attempt,
+            candidateRef,
+            capability,
+          }).slice(0, 32);
+        try {
+          const acquired = await context.application({
+            action: 'acquire',
+            candidateRef,
+            capability,
+            instanceId,
+          });
+          return await use(object(acquired.execution));
+        } finally {
+          await context
+            .extend({ signal: context.cleanup })
+            .application({ action: 'release', instanceId });
+        }
+      };
+      return withInstance(
         string(input.candidateRef),
         'agentbundle',
         async (execution) => {
@@ -102,7 +178,8 @@ export async function createAgentbench(
               new Error('Evaluator result has no confirmed collected snapshot'),
               { measurementRef, status: 'unknown' },
             );
-          if (raw.exitCode !== 0)
+          context.signal.throwIfAborted();
+          if (raw.exitCode !== 0 && !isFinalizedVerifierTimeout(raw, ids))
             throw Object.assign(
               new Error('Evaluator completed with nonzero exitCode'),
               {

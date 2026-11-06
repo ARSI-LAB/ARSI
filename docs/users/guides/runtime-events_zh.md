@@ -2,9 +2,11 @@
 
 [English](runtime-events.md) | 简体中文 · [快速入门](../getting-started_zh.md) · [Reflection](reflection_zh.md)
 
-插件通过 `RuntimeContext.event` 使用事件系统：在 `create(config, ctx)` 中注册监听，在 `execute(input, ctx)` 或监听回调中发布事件、调用服务。
+本指南介绍如何订阅内置事件、发布自定义事件，并在插件生命周期中管理监听与清理。
 
-- `RuntimeContext` 可从 `ember-rsi/contracts` 导入。
+插件可通过 `RuntimeContext.event` 使用事件系统：在 `create(config, ctx)` 中注册监听，在 `execute(input, ctx)` 或监听回调中发布事件、调用服务。
+
+从 `ember-rsi/contracts` 导入 `RuntimeContext`。
 
 ## 1. 内置事件一览
 

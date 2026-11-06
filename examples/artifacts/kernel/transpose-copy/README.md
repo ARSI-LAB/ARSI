@@ -1,5 +1,7 @@
 # Transpose-copy operator optimization
 
+> English | [Simplified Chinese](./README.zh-CN.md)
+
 This example uses `policy.operator-search` to evaluate a sealed Triton-Ascend
 baseline, generate and repair candidates, select improvements, and independently
 reassess the selected source. Optional hardware diagnostics drive further search
@@ -155,7 +157,7 @@ It marks timeline evidence as unavailable; it does not establish PipeTimeline,
 overlap, bubble, or Double Buffer results. Choose `PipeTimeline,Default` explicitly
 when usable trace evidence is required. The SDK owns collection, cleanup,
 metric units, and evidence validation; see its pinned
-[NPU kernel guide](https://github.com/evolving-foundry/ember-evaluator/blob/7f40ed57f881c8ce511ae604a6c36ce87ab19bab/docs/users/benchmarks/kernel-npu.md).
+[NPU kernel guide](https://github.com/evolving-foundry/ember-evaluator/blob/aacedfdb606ffd7ce7ca932ab15d4dcd82f95813/docs/users/benchmarks/kernel-npu.md).
 
 ## Results and verification
 

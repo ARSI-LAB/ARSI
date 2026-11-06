@@ -1,0 +1,37 @@
+type: object
+additionalProperties: false
+required:
+  - baselineCandidateRef
+  - bestCandidateRef
+  - bestAggregateScore
+  - completedRounds
+  - rolloutsUsed
+  - maxRollouts
+  - feedbackTaskIds
+  - selectionTaskIds
+  - datasetDegenerate
+  - candidates
+  - rounds
+  - weightsChanged
+properties:
+  baselineCandidateRef: { type: [string, 'null'] }
+  bestCandidateRef: { type: [string, 'null'] }
+  bestAggregateScore: { type: [number, 'null'] }
+  completedRounds: { type: integer, minimum: 0 }
+  rolloutsUsed: { type: integer, minimum: 0 }
+  maxRollouts: { type: integer, minimum: 0 }
+  feedbackTaskIds:
+    type: array
+    items: { type: string }
+  selectionTaskIds:
+    type: array
+    items: { type: string }
+  datasetDegenerate: { type: boolean }
+  stopReason: { type: [string, 'null'] }
+  candidates:
+    type: array
+    items: { type: object }
+  rounds:
+    type: array
+    items: { type: object }
+  weightsChanged: { const: false }

@@ -7,6 +7,7 @@ properties:
     maximum: 10
     default: 1
   concurrency:
+    description: Maximum concurrent exploration slots within each task.
     type: integer
     minimum: 1
     maximum: 64

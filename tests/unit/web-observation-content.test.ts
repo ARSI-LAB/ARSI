@@ -79,6 +79,9 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
   const before = await snapshot();
   const server = await createServer({
     manager: {
+      reflection: () => {
+        throw new Error('Unexpected reflection call');
+      },
       directory,
       facts,
       artifacts,

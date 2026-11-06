@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Context } from '@deepseek-ai/cordis';
 import type { JsonObject } from '../../src/contracts/index.js';
-import { compilePolicy } from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 import type { PolicyOptions } from '../../src/runtime/policy/index.js';
 
 const definition = {
@@ -115,7 +115,7 @@ test('committed step events and loop boundaries carry stable paths without stage
     trace.push('completed');
   });
   assert.equal(
-    await compilePolicy(definition).execute({
+    await new Policy(definition).execute({
       ...options(context),
       checkpoint: async (value) => {
         checkpoint = value;
@@ -156,7 +156,7 @@ test('recovery skips committed steps and boundaries while marking execution resu
     boundaries++;
     return undefined;
   });
-  const policy = compilePolicy(definition);
+  const policy = new Policy(definition);
   const runOptions = {
     ...options(context),
     checkpoint: async (value: JsonObject) => {
@@ -191,7 +191,7 @@ test('notification errors preserve commits and native synchronous listener trunc
     assert.ok(error instanceof Error);
     diagnostics.push(name);
   };
-  assert.equal(await compilePolicy(definition).execute(runOptions), 12);
+  assert.equal(await new Policy(definition).execute(runOptions), 12);
   assert.equal(unexpected, 0);
   assert.deepEqual(diagnostics, [
     ...Array<string>(5).fill('rsi/policy-step-completed'),
@@ -210,7 +210,7 @@ test('boundary listener failure preserves durable progress and recovery resumes 
     advanced = true;
     return undefined;
   });
-  const policy = compilePolicy(definition);
+  const policy = new Policy(definition);
   const runOptions = {
     ...options(context),
     checkpoint: async (value: JsonObject) => {
@@ -244,7 +244,7 @@ test('checkpoint failure emits no step event and a durable snapshot can finish o
   context.on('rsi/policy-step-completed', () => {
     stepEvents++;
   });
-  const policy = compilePolicy(definition);
+  const policy = new Policy(definition);
   await assert.rejects(
     policy.execute({
       ...options(context),
@@ -294,7 +294,7 @@ for (const pause of [
       completions++;
     });
     const runOptions = options(context);
-    const running = compilePolicy({
+    const running = new Policy({
       ...definition,
       steps: [],
       output: 0,

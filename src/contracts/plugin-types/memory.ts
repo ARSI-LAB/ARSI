@@ -25,7 +25,7 @@ export type MemoryInput = {
 export type MemoryOutput =
   | { status: 'updated'; memoryRef: string; changeRef: string; reason: string }
   | {
-      status: 'no-change';
+      status: 'no-change' | 'failed';
       memoryRef: string | null;
       changeRef: null;
       reason: string;
@@ -183,7 +183,7 @@ export const memoryContract = defineContract({
             type: 'string',
           },
           status: {
-            const: 'no-change',
+            enum: ['no-change', 'failed'],
           },
         },
         required: ['status', 'memoryRef', 'changeRef', 'reason'],

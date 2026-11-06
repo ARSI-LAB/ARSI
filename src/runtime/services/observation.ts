@@ -33,6 +33,7 @@ import { redactText, secretValues } from '../../shared/secrets.js';
 import { validate } from '../../shared/schema.js';
 import { measurementItemsSchema } from '../../contracts/models/measurement.js';
 import { parseFileTree } from '../../contracts/models/file-tree.js';
+import { executionPathIterations } from '../../shared/execution-path.js';
 import { safeId } from '../storage/index.js';
 
 function restrictedFile(path: string): boolean {
@@ -97,9 +98,7 @@ function page<T>(items: T[], offset: number, limit: number): Page<T> {
 /** Reads through existing stores; never writes facts, executes plugins, or interprets Policy outputs. */
 export class ObservationQueries {
   constructor(
-    private readonly facts: Pick<FactStore, 'read' | 'list'> & {
-      scan?(kind: string): AsyncIterable<JsonObject>;
-    },
+    private readonly facts: Pick<FactStore, 'read' | 'list' | 'scan'>,
     private readonly artifacts: Pick<ArtifactStore, 'readJson'>,
     private readonly directory?: string,
   ) {}
@@ -182,15 +181,120 @@ export class ObservationQueries {
     };
     const experiment = await this.experiment(id);
     if (experiment.output !== undefined) collect(experiment.output);
-    for (const kind of ['candidates', 'measurements', 'calls'] as const)
+    for (const kind of [
+      'candidates',
+      'measurements',
+      'calls',
+      'revisions',
+    ] as const)
       for await (const entry of this.scanOwned(kind, id)) {
-        if (kind === 'candidates') collect(entry.artifactRef!);
+        if (kind === 'revisions') {
+          if (entry.resourceRef) collect(entry.resourceRef);
+        } else if (kind === 'candidates') collect(entry.artifactRef!);
         else if (kind === 'calls') {
           if (entry.output !== undefined) collect(entry.output);
+          if (
+            entry.pluginId === 'memory.agent' &&
+            entry.input &&
+            typeof entry.input === 'object' &&
+            !Array.isArray(entry.input) &&
+            entry.input.memoryRef
+          )
+            collect(entry.input.memoryRef);
           if (entry.evidenceRef !== undefined) collect(entry.evidenceRef);
         } else collect(entry);
       }
     return refs;
+  }
+
+  /** Compact learning records; file contents use the existing bounded artifact projection. */
+  private async reflectionPaths(id: string): Promise<Map<string, string>> {
+    const paths = new Map<string, string>();
+    for await (const record of this.scanOwned('reflection', id)) {
+      if (
+        typeof record.reflectionId === 'string' &&
+        typeof record.stepPath === 'string'
+      )
+        paths.set(record.reflectionId, record.stepPath);
+    }
+    return paths;
+  }
+
+  async learning(
+    id: string,
+    kind: 'revisions' | 'memories',
+  ): Promise<JsonObject[]> {
+    const secrets = await this.secrets(id);
+    const paths =
+      kind === 'revisions'
+        ? await this.reflectionPaths(id)
+        : new Map<string, string>();
+    const records: JsonObject[] = [];
+    for await (const entry of this.scanOwned(
+      kind === 'revisions' ? 'revisions' : 'calls',
+      id,
+    )) {
+      if (kind === 'revisions') {
+        records.push({
+          id: entry.ref ?? null,
+          path: paths.get(String(entry.reflectionId)) ?? null,
+          binding: entry.binding ?? null,
+          kind: entry.kind ?? 'legacy',
+          parentRef: entry.parentRef ?? null,
+          resourceRef: entry.resourceRef ?? null,
+          reason: entry.reason ?? null,
+          status: entry.status ?? 'unknown',
+        });
+      } else if (entry.pluginId === 'memory.agent') {
+        const input =
+          entry.input &&
+          typeof entry.input === 'object' &&
+          !Array.isArray(entry.input)
+            ? entry.input
+            : {};
+        const output =
+          entry.output &&
+          typeof entry.output === 'object' &&
+          !Array.isArray(entry.output)
+            ? entry.output
+            : {};
+        records.push({
+          id: entry.callId ?? null,
+          binding: entry.bindingId ?? null,
+          kind: 'memory',
+          parentRef: input.memoryRef ?? null,
+          resourceRef: output.memoryRef ?? null,
+          reason: output.reason ?? entry.error ?? null,
+          status: output.status ?? entry.status ?? 'unknown',
+          path: entry.path ?? null,
+          startedAt: entry.startedAt ?? null,
+        });
+      }
+    }
+    return records.map((record) => object(this.clean(record, secrets)));
+  }
+
+  async assertRevision(id: string, ref: string): Promise<void> {
+    await this.experiment(id);
+    const revision = await this.facts.read('revisions', safeId(ref));
+    if (revision.experimentId !== id)
+      throw Object.assign(new Error('Revision not found in experiment'), {
+        statusCode: 404,
+      });
+  }
+
+  /** Project application metadata without sending raw file bytes to the browser. */
+  async applicationPreview(id: string, value: JsonObject): Promise<JsonObject> {
+    return object(
+      this.clean(
+        {
+          applicationAllowed: value.applicationAllowed ?? false,
+          restrictions: value.restrictions ?? [],
+          changes: value.changes ?? [],
+        },
+        await this.secrets(id),
+      ),
+    );
   }
 
   async details(id: string): Promise<ExperimentDetails> {
@@ -388,7 +492,7 @@ export class ObservationQueries {
       output: this.preview(record.output, secrets),
     };
   }
-  private callScan: Promise<JsonObject[]> | undefined;
+  private readonly callScans = new Map<string, Promise<JsonObject[]>>();
 
   private async *scanOwned(
     kind: string,
@@ -403,14 +507,12 @@ export class ObservationQueries {
   }
 
   /** Share concurrent scans; retain only list/provenance fields, never call payloads. */
-  private compactCalls(): Promise<JsonObject[]> {
-    if (this.callScan) return this.callScan;
+  private compactCalls(id: string): Promise<JsonObject[]> {
+    const pending = this.callScans.get(id);
+    if (pending) return pending;
     const scan = async (): Promise<JsonObject[]> => {
       const records: JsonObject[] = [];
-      const entries = this.facts.scan
-        ? this.facts.scan('calls')
-        : await this.facts.list('calls');
-      for await (const entry of entries) {
+      for await (const entry of this.scanOwned('calls', id)) {
         const compact: JsonObject = {};
         for (const key of [
           'experimentId',
@@ -436,30 +538,35 @@ export class ObservationQueries {
       }
       return records;
     };
-    this.callScan = scan().finally(() => {
-      this.callScan = undefined;
+    const pendingScan = scan().finally(() => {
+      this.callScans.delete(id);
     });
-    return this.callScan;
+    this.callScans.set(id, pendingScan);
+    return pendingScan;
   }
 
   private async owned(kind: string, id: string): Promise<JsonObject[]> {
-    if (kind === 'calls') {
-      await this.experiment(id);
-      return (await this.compactCalls()).filter(
-        (entry) => entry.experimentId === id,
-      );
-    }
+    if (kind === 'calls') return this.compactCalls(id);
     const records: JsonObject[] = [];
     for await (const entry of this.scanOwned(kind, id)) records.push(entry);
     return records;
   }
-  private call(record: JsonObject, secrets: string[]): CallSummary {
+  private call(
+    record: JsonObject,
+    secrets: string[],
+    paths = new Map<string, string>(),
+  ): CallSummary {
     return {
       callId: string(record.callId),
       parentCallId: optionalText(record.parentCallId),
       bindingId: string(record.bindingId),
       pluginId: string(record.pluginId),
       path: optionalText(record.path),
+      triggerPath:
+        record.pluginId === 'reflection.agent'
+          ? (paths.get(String(record.path).replace(/^reflection\//, '')) ??
+            null)
+          : null,
       status: string(record.status),
       startedAt: optionalText(record.startedAt),
       finishedAt: optionalText(record.finishedAt),
@@ -470,6 +577,7 @@ export class ObservationQueries {
     };
   }
   async calls(id: string, offset = 0, limit = 50): Promise<Page<CallSummary>> {
+    const paths = await this.reflectionPaths(id);
     const entries = await this.owned('calls', id),
       secrets = await this.secrets(id);
     entries.sort(
@@ -477,11 +585,11 @@ export class ObservationQueries {
         String(a.startedAt ?? '').localeCompare(String(b.startedAt ?? '')) ||
         string(a.callId).localeCompare(string(b.callId)),
     );
-    return page(
-      entries.map((entry) => this.call(entry, secrets)),
-      offset,
-      limit,
-    );
+    const selected = page(entries, offset, limit);
+    return {
+      ...selected,
+      items: selected.items.map((entry) => this.call(entry, secrets, paths)),
+    };
   }
   async callTrace(
     id: string,
@@ -594,7 +702,7 @@ export class ObservationQueries {
     const secrets = await this.secrets(id),
       record = await this.ownedCall(id, callId);
     return {
-      ...this.call(record, secrets),
+      ...this.call(record, secrets, await this.reflectionPaths(id)),
       input: this.preview(record.input, secrets),
       output: this.preview(record.output, secrets),
     };
@@ -604,51 +712,77 @@ export class ObservationQueries {
     offset = 0,
     limit = 50,
   ): Promise<Page<CandidateSummary>> {
-    const entries = await this.owned('candidates', id);
-    const calls = await this.owned('calls', id);
+    const [entries, calls] = await Promise.all([
+      this.owned('candidates', id),
+      this.owned('calls', id),
+    ]);
     const byId = new Map(calls.map((call) => [string(call.callId), call]));
-    const originPath = (ref: string): string | null => {
-      const origins = calls
-        .filter((call) => {
-          const output = call.output;
-          return (
-            output &&
-            typeof output === 'object' &&
-            !Array.isArray(output) &&
-            (output.candidateRef === ref || output.initialCandidateRef === ref)
-          );
-        })
-        .sort((a, b) =>
-          String(a.startedAt ?? '').localeCompare(String(b.startedAt ?? '')),
-        );
-      for (const origin of origins) {
-        let call: JsonObject | undefined = origin;
-        const seen = new Set<string>();
-        while (call && !seen.has(string(call.callId))) {
-          seen.add(string(call.callId));
-          const path = optionalText(call.path);
-          if (path && /(?:^|\/)loop\/\d+\//.test(path)) return path;
-          call =
-            typeof call.parentCallId === 'string'
-              ? byId.get(call.parentCallId)
-              : undefined;
+    const originsByRef = new Map<string, JsonObject[]>();
+    calls.sort(
+      (a, b) =>
+        String(a.startedAt ?? '').localeCompare(String(b.startedAt ?? '')) ||
+        string(a.callId).localeCompare(string(b.callId)),
+    );
+    for (const call of calls) {
+      const output = call.output;
+      if (!output || typeof output !== 'object' || Array.isArray(output))
+        continue;
+      for (const ref of new Set([
+        output.candidateRef,
+        output.initialCandidateRef,
+      ])) {
+        if (typeof ref !== 'string') continue;
+        const origins = originsByRef.get(ref) ?? [];
+        origins.push(call);
+        originsByRef.set(ref, origins);
+      }
+    }
+    const paths = new Map<string, string | null>();
+    const callPath = (origin: JsonObject): string | null => {
+      let call: JsonObject | undefined = origin;
+      const seen = new Set<string>();
+      let path: string | null = null;
+      while (call && !seen.has(string(call.callId))) {
+        const callId = string(call.callId);
+        if (paths.has(callId)) {
+          path = paths.get(callId)!;
+          break;
         }
+        seen.add(callId);
+        const recordedPath = optionalText(call.path);
+        if (recordedPath && executionPathIterations(recordedPath).length) {
+          path = recordedPath;
+          break;
+        }
+        call =
+          typeof call.parentCallId === 'string'
+            ? byId.get(call.parentCallId)
+            : undefined;
+      }
+      for (const callId of seen) paths.set(callId, path);
+      return path;
+    };
+    const originPath = (ref: string): string | null => {
+      for (const origin of originsByRef.get(ref) ?? []) {
+        const path = callPath(origin);
+        if (path) return path;
       }
       return null;
     };
 
     entries.sort((a, b) => string(a.ref).localeCompare(string(b.ref)));
-    return page(
-      entries.map((entry) => ({
+    const selected = page(entries, offset, limit);
+    return {
+      ...selected,
+      items: selected.items.map((entry) => ({
         ref: string(entry.ref),
         parentRef: optionalText(entry.parentRef),
         artifactRef: string(entry.artifactRef),
         originPath: originPath(string(entry.ref)),
       })),
-      offset,
-      limit,
-    );
+    };
   }
+
   private async metrics(
     rawMetrics: JsonValue,
     secrets: string[],

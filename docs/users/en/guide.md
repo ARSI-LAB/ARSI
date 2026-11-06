@@ -57,7 +57,11 @@ Use [Runtime evidence services](../../../src/runtime/services/facts/evidence.ts)
 
 Memory stores experience as an artifact reference in experiment state, such as `state.wikiRef`. Later calls receive it through `memoryRef`; writing Memory alone does not make every plugin consume it.
 
+`memory.agent` returns `status: failed` with the previous `memoryRef`, `changeRef: null`, and a redacted reason when an update fails. Its call receipt remains `failed`, while the Policy can retain that reference and continue. A first failed update retains `null`. Resume reuses a persisted failed result rather than rerunning that completed update boundary. Normal `no-change` results remain distinct.
+
 Reflection proposes changes to authorized plugin resources. The Runtime validates, persists, and activates revisions **within the current experiment**. Later calls must read and use the revised resources for a change to affect execution. A new experiment does not automatically inherit those revisions or overwrite the source Policy files.
+
+Memory and Reflection update failures, including child Agent failures, do not by themselves cancel the experiment. Reflection records rejected updates and retains the effective guidance. User cancellation, total experiment budget exhaustion, and failures to persist critical Runtime state still stop execution.
 
 Harness² declares a Reflection configuration, but its `improve_guidance` step is currently commented out. Reflection does not run by default. See the [Reflection guide](reflection.md) for explicit invocation and persistence.
 
@@ -81,6 +85,8 @@ The optimizer Agent and the evaluated solver can use different models. In the Ha
 The [Agent configuration schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` to request an output limit, `timeoutMs` for each model request, or `executionTimeoutMs` for the complete Agent invocation. The execution timeout includes model requests, tool calls, output correction, context compaction and retry backoff; it does not reset between requests. These fields have no implicit limits. Both timeout fields accept integer milliseconds from `1` to `2147483647`. Choose settings supported by your endpoint.
 
 Every `agent.pi` session provides `run_subagent` by default, including child sessions. Agents decide whether and how to delegate recursively, with no additional depth or subagent-count limit. All levels share the Runtime budget and cancellation; a new child does not reset the budget or extend its parent's execution deadline. Each child uses the same Agent binding with an independent conversation and explicitly supplied virtual files. See [how Reflection works](reflection.md#how-reflection-works).
+
+The bundled Harness² and WikiSkill Policies explicitly configure their shared `agent` binding with `retries: 3` and `retryBaseDelayMs: 2000`: eligible model requests have up to four attempts with a two-second base backoff. All callers of that binding use these settings. Override them under `bindings.agent.config` in the Recipe. Memory and Reflection do not add a component retry loop or require extra Policy failure settings.
 
 To use the installed Codex CLI and its existing local login, provider, model and reasoning configuration, replace the Agent binding with:
 
@@ -144,7 +150,6 @@ bindings:
           name: agentbundle
       scheduler:
         name: local
-        concurrency: 1
       run:
         timeoutSeconds: 4500
 budget:
@@ -153,7 +158,7 @@ budget:
 
 Place it beside the [Harness² baseline and Target](../../../examples/harness/dsh-harness2/README.md), and replace the model with one your endpoint supports. The example retains the 4,500-second evaluator task timeout and 72-hour experiment wall budget. Pi uses a 30-minute request timeout and 60-minute execution timeout. Model-call and output-token ceilings are omitted.
 
-Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy.config`. Goals and the delivery rubric are defined by the Policy; `goals` and `deliveryRubric` are not accepted configuration fields. `k` controls exploration slots; `concurrency` limits concurrent Policy branches. The Evaluator scheduler has a separate concurrency setting. With fixed `k`, the current flow makes `4 × k × task count` evaluator calls (base, invariant, domain, composition); one evaluator call can contain multiple tasks in other Policies.
+Harness² accepts `k`, `concurrency`, `dataset.taskIds`, and `memory` in `policy.config`. Goals and the delivery rubric are defined by the Policy; `goals` and `deliveryRubric` are not accepted configuration fields. `k` controls exploration slots; `concurrency` limits concurrent exploration slots within each task. Tasks run serially, and each Evaluator call receives exactly one task, so the Recipe omits Evaluator scheduler concurrency. With fixed `k`, the current flow makes `4 × k × task count` evaluator calls (base, invariant, domain, composition); one evaluator call can contain multiple tasks in other Policies.
 
 [WikiSkill](../../../examples/harness/dsh-wikiskill/README.md) accepts `maxRounds` (default 3), optional `stopAtScore`, and disjoint `trainTaskIds`, `validationTaskIds`, and `testTaskIds` under `dataset`. It learns from training evidence, gates candidates on validation measurements, and evaluates independent test tasks after its learning loop. Its Recipe selects `linux/amd64` task images, including on ARM64 hosts; Docker/emulation and benchmark prerequisites still apply. Consult the [current Recipe](../../../examples/harness/dsh-wikiskill/recipe.yaml) and [Policy schema](../../../src/policies/wikiskill/schemas/wikiskill-config.yaml) before changing fields.
 
@@ -228,7 +233,7 @@ Run this command from an experiment workspace containing a `.rsi` directory. Ope
 | Replace the complete proposal workflow                                             | Implement `contract.proposer` and replace a Proposer binding. |
 | Change orchestration, state, or stopping rules                                     | Register a custom Policy.                                     |
 
-Binding declarations select registered plugins with `plugin`; `policy.id` selects a registered Policy. Config-only overrides inherit the default plugin. For the same plugin, plain objects merge recursively while arrays, scalars and null replace prior values; changing the plugin discards its old configuration. Schema path fields retain their own declaration origins through merges. Loading validates the final configuration and contract. See the [loader](../../../src/runtime/loaders/index.ts).
+Binding declarations select registered plugins with `plugin`; `policy.id` selects a registered Policy. Config-only overrides inherit the default plugin. For the same plugin, plain objects merge recursively while arrays, scalars and null replace prior values; changing the plugin discards its old configuration. Schema path fields retain their own declaration origins through merges. Loading validates the final configuration and contract. See the [loader](../../../src/runtime/loaders/recipe.ts).
 
 Organize a plugin around `schema.ts` (configuration), `service.ts` (business behavior and cleanup), and `index.ts` (definition assembly). Reuse the public contract's input/output schemas. Repository plugins import local contracts; external packages use `ember-rsi` or `ember-rsi/contracts`, not private `src/*` imports.
 
@@ -283,6 +288,10 @@ try {
 ```
 
 `Recipe.load(recipePath, runtime.registry)` returns the assembled definition without initializing the Application. Its `policy` is a `Policy` object; `policyConfig` and `policyInput` hold the configuration and input mapping. `application` and each entry in `bindings` are validated `Binding` objects with `pluginId` and `config`; `toJSON()` exports declarations using `plugin` and `policy.id`. Import `Recipe`, `Policy` and `Binding` from `ember-rsi` when using these model APIs.
+
+The Manager saves incremental checkpoints while continuing to read existing v1 snapshots. Standalone `Policy.execute()` callers can keep their `checkpoint(snapshot)` callback. `recordMeasurement()` owns a copy of its input and returns a stable reference for repeated identical submissions.
+
+Cleanup failures are separate from the experiment result. `runtime.dispose()` reports failed or still-pending cleanup; Runtime retains ownership until cleanup settles. After independently confirming that failed external resources have been released, an embedding host can call `runtime.manager.reconcileCleanup(experimentId)` and then dispose again. Reconciliation never repeats plugin disposal and refuses pending cleanup.
 
 Direct registration in a host process does not modify a separately started CLI process. Use that host for management calls, or load the same extension through `--plugin-dir`. Never persist live `RuntimeContext` objects as JSON.
 

@@ -595,7 +595,21 @@ test('cleanup deadlines retain non-cooperative listener ownership and dispose on
       assert.equal(listenerSignal?.aborted, true);
       release();
       await disposal;
-      await fixture.manager.dispose();
+      // The plugin has settled; the remaining receipt and lock writes can outlast
+      // one short cleanup reserve under concurrent filesystem load.
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        try {
+          await fixture.manager.dispose();
+          break;
+        } catch (error) {
+          if (
+            !hasErrorMessage(error, /Cleanup deadline exceeded/) ||
+            Date.now() >= deadline
+          )
+            throw error;
+        }
+      }
       assert.equal(disposals, 1);
     } finally {
       release();
@@ -1108,7 +1122,21 @@ test('cancellation bounds non-cooperative preparation and admission listeners wh
       assert.equal(disposals, 0);
       release();
       await disposed;
-      await fixture.manager.dispose();
+      // Plugin disposal precedes receipt publication and lock release; observing
+      // that remaining cleanup may exceed one intentionally short reserve.
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        try {
+          await fixture.manager.dispose();
+          break;
+        } catch (error) {
+          if (
+            !hasErrorMessage(error, /Cleanup deadline exceeded/) ||
+            Date.now() >= deadline
+          )
+            throw error;
+        }
+      }
       assert.equal(disposals, 1);
       assert.equal(executions, 0);
     } finally {

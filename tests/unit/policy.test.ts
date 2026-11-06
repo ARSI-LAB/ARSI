@@ -1,7 +1,8 @@
 import { RuntimeContext } from '../../src/contracts/index.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compilePolicy } from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
+import type { PolicyExecutionOptions } from '../../src/runtime/policy/executor.js';
 import type { JsonObject, JsonValue } from '../../src/contracts/index.js';
 
 const base = {
@@ -31,7 +32,7 @@ function options() {
   };
 }
 test('explicit state, independent execution, lazy input defaults and loop output use the outer scope', async () => {
-  const policy = compilePolicy({
+  const policy = new Policy({
     ...base,
     input_schema: { type: 'object', required: ['value'] },
     input: { value: '${{ application.missing }}' },
@@ -56,7 +57,7 @@ test('explicit state, independent execution, lazy input defaults and loop output
   assert.equal(await policy.execute({ ...options(), input: { value: 2 } }), 3);
 });
 test('large ranges and explicit foreach concurrency pass the former DSL ceilings', async () => {
-  const policy = compilePolicy({
+  const policy = new Policy({
     ...base,
     steps: [
       {
@@ -74,7 +75,7 @@ test('large ranges and explicit foreach concurrency pass the former DSL ceilings
   assert.equal(await policy.execute(options()), 10001);
 });
 test('journal recovery skips completed containers and replays control at the nearest loop', async () => {
-  const policy = compilePolicy({
+  const policy = new Policy({
     ...base,
     steps: [
       {
@@ -136,7 +137,7 @@ test('journal recovery skips completed containers and replays control at the nea
   );
 });
 test('dynamic parallel checks happen before dispatch and serial foreach can update state', async () => {
-  const policy = compilePolicy({
+  const policy = new Policy({
     ...base,
     config_schema: {
       type: 'object',
@@ -199,11 +200,11 @@ test('foreach preflights canonical keys and preserves source order', async () =>
     output: '${{ steps.each.output }}',
   };
   await assert.rejects(
-    compilePolicy(definition).execute(options()),
+    new Policy(definition).execute(options()),
     /duplicate foreach key/,
   );
   assert.deepEqual(
-    await compilePolicy({
+    await new Policy({
       ...definition,
       steps: [{ ...definition.steps[0], foreach: [3, 1, 2], concurrency: 3 }],
     }).execute(options()),
@@ -216,7 +217,7 @@ test('state updates commit normalized defaults and invocation payloads have inde
     input_schema: true,
     output_schema: true,
   };
-  const policy = compilePolicy(
+  const policy = new Policy(
     {
       ...base,
       state_schema: {
@@ -258,7 +259,7 @@ test('state updates commit normalized defaults and invocation payloads have inde
   });
 });
 test('zero loops skip their condition and empty blocks return explicit null outputs', async () => {
-  const policy = compilePolicy({
+  const policy = new Policy({
     ...base,
     steps: [
       {
@@ -297,7 +298,7 @@ test('zero loops skip their condition and empty blocks return explicit null outp
   });
 });
 test('continue propagates through if, skips unfinished output and resets each iteration scope', async () => {
-  const policy = compilePolicy({
+  const policy = new Policy({
     ...base,
     steps: [
       {
@@ -356,7 +357,7 @@ test('incomplete containers reuse committed external calls on recovery and chang
       },
     ],
   };
-  const policy = compilePolicy(definition, {
+  const policy = new Policy(definition, {
     contracts: { contract: () => contract },
   });
   let snapshot: JsonObject = {};
@@ -386,7 +387,7 @@ test('incomplete containers reuse committed external calls on recovery and chang
   assert.equal(await policy.execute({ ...runOptions, restore: snapshot }), 2);
   assert.equal(calls, 2);
   await assert.rejects(
-    compilePolicy(
+    new Policy(
       { ...definition, output: 99 },
       { contracts: { contract: () => contract } },
     ).execute({ ...runOptions, restore: snapshot }),
@@ -399,7 +400,7 @@ test('foreach waits for launched branches after failure and dispatches no furthe
     input_schema: true,
     output_schema: true,
   };
-  const policy = compilePolicy(
+  const policy = new Policy(
     {
       ...base,
       require: { work: { contract: contract.id } },
@@ -480,7 +481,7 @@ test('parallel ancestors apply to nested serial foreach and Reflection', async (
   };
   let calls = 0;
   await assert.rejects(
-    compilePolicy(definition).execute({
+    new Policy(definition).execute({
       ...options(),
       config: { concurrency: 2 },
       reflect: async () => {
@@ -508,7 +509,7 @@ test('failed state validation preserves the previous state and nested values des
   t.after(() => {
     StateStep.prototype.execute = execute;
   });
-  const policy = compilePolicy({
+  const policy = new Policy({
     ...base,
     state_schema: {
       type: 'object',
@@ -560,7 +561,7 @@ test('serial Reflection preserves result and following invocations observe the a
     input_schema: true,
     output_schema: true,
   };
-  const policy = compilePolicy(
+  const policy = new Policy(
     {
       ...base,
       require: { work: { contract: contract.id } },
@@ -600,7 +601,7 @@ test('serial Reflection preserves result and following invocations observe the a
 });
 
 test('state fields declared by patternProperties accept valid updates and enforce value types', async () => {
-  const policy = compilePolicy({
+  const policy = new Policy({
     schemaVersion: 'rsi.policy/v1',
     id: 'policy.pattern-state',
     input_schema: { type: 'object' },
@@ -619,5 +620,148 @@ test('state fields declared by patternProperties accept valid updates and enforc
   invalid.steps = [
     { id: 'update', type: 'state', state: { metric_score: 'invalid' } },
   ];
-  await assert.rejects(compilePolicy(invalid).execute(options()), /integer/);
+  await assert.rejects(new Policy(invalid).execute(options()), /integer/);
+});
+
+test('standalone invocation validates external IO while the internal controlled bridge preserves ownership and cancellation', async () => {
+  const { executeControlledPolicy } = await import(
+    '../../src/runtime/policy/executor.js'
+  );
+  const contract = {
+    id: 'contract.work',
+    input_schema: {
+      type: 'object',
+      required: ['value'],
+      properties: { value: { type: 'integer' } },
+    },
+    output_schema: { type: 'integer' },
+  };
+  const policy = new Policy(
+    {
+      ...base,
+      require: { work: { contract: contract.id } },
+      steps: [{ id: 'one', type: 'invoke', use: 'work', with: { value: 1 } }],
+      output: '${{ steps.one.output }}',
+    },
+    { contracts: { contract: () => contract } },
+  );
+  await assert.rejects(
+    policy.execute({ ...options(), invoke: async () => 'invalid' }),
+    /work.output/,
+  );
+  const payload = { output: 1 };
+  const result = await executeControlledPolicy(policy, {
+    ...options(),
+    invoke: async (_name, input) => {
+      (input as JsonObject).value = 9;
+      return payload;
+    },
+  });
+  assert.deepEqual(result, payload);
+  assert.notEqual(result, payload);
+  assert.deepEqual(policy.steps[0]!.toJSON().with, { value: 1 });
+  const controller = new AbortController();
+  await assert.rejects(
+    executeControlledPolicy(policy, {
+      ...options(),
+      context: new RuntimeContext().extend({ signal: controller.signal }),
+      invoke: async () => {
+        controller.abort(new Error('cancelled'));
+        return 1;
+      },
+    }),
+    /cancelled/,
+  );
+});
+
+test('standalone invocation preserves the options receiver', async () => {
+  const contract = {
+    id: 'contract.work',
+    input_schema: true,
+    output_schema: true,
+  };
+  const policy = new Policy(
+    {
+      ...base,
+      require: { work: { contract: contract.id } },
+      steps: [{ id: 'call', type: 'invoke', use: 'work' }],
+      output: '${{ steps.call.output }}',
+    },
+    { contracts: { contract: () => contract } },
+  );
+  assert.equal(
+    await policy.execute({
+      ...options(),
+      application: { value: 7 },
+      async invoke() {
+        return this.application.value!;
+      },
+    }),
+    7,
+  );
+});
+
+test('snapshot checkpoint callbacks preserve the options receiver', async () => {
+  const policy = new Policy(base);
+  const snapshots: JsonObject[] = [];
+  await policy.execute({
+    ...options(),
+    application: { value: 7 },
+    async checkpoint(snapshot) {
+      assert.equal(this.application.value, 7);
+      snapshots.push(snapshot);
+    },
+  });
+  assert.equal(snapshots.length, 1);
+});
+
+test('cancellation after standalone invocation takes precedence over invalid output', async () => {
+  const contract = {
+    id: 'contract.work',
+    input_schema: true,
+    output_schema: { type: 'integer' },
+  };
+  const policy = new Policy(
+    {
+      ...base,
+      require: { work: { contract: contract.id } },
+      steps: [{ id: 'call', type: 'invoke', use: 'work' }],
+    },
+    { contracts: { contract: () => contract } },
+  );
+  const controller = new AbortController();
+  const reason = new Error('cancelled during invocation');
+  await assert.rejects(
+    policy.execute({
+      ...options(),
+      context: new RuntimeContext().extend({ signal: controller.signal }),
+      async invoke() {
+        controller.abort(reason);
+        return 'invalid';
+      },
+    }),
+    (error: unknown) => error === reason,
+  );
+});
+
+test('Policy.execute supports subclass overrides', async () => {
+  class CustomPolicy extends Policy {
+    override async execute(
+      settings: PolicyExecutionOptions,
+    ): Promise<JsonValue> {
+      return { input: settings.input!, config: settings.config! };
+    }
+  }
+  const policy = new CustomPolicy(base);
+  assert.deepEqual(
+    await policy.execute({
+      ...options(),
+      input: { value: 1 },
+      config: { option: 2 },
+    }),
+    {
+      input: { value: 1 },
+      config: { option: 2 },
+    },
+  );
 });

@@ -2,6 +2,8 @@
 
 English | [简体中文](using-skills_zh.md) · [Getting started](../getting-started.md)
 
+This guide explains how to provide skills to a coding assistant, the evaluated Agent, and the optimizer.
+
 ## Give a coding assistant the RSI skill
 
 Make the complete [`skills/ember-rsi/` directory](../../../skills/ember-rsi/SKILL.md) available using your assistant's skill discovery mechanism, or point it directly to `SKILL.md` in this checkout. Keep `references/` and `assets/` alongside the entry file so the assistant can follow the instructions and load examples. The skill names its target RSI revision. Ask the assistant to check the current catalog and Schemas before adapting a referenced example.
@@ -10,7 +12,7 @@ For example, ask the assistant to create a one-round WikiSkill Recipe with disti
 
 ## Add a skill to the evaluated Bundle
 
-For a WikiSkill baseline, put the file at `baseline/plugins/terminal-base/skills/<name>/SKILL.md`. The baseline's terminal plugin loads the files into the evaluated Agent's system prompt. If you want the loop to edit these skills, include that path in the Application's Target. A valid file has YAML frontmatter with string `name` and `description` and a nonempty Markdown body. See the [completion-checks skill](../../../examples/harness/dsh-wikiskill/baseline/plugins/terminal-base/skills/completion-checks/SKILL.md) and [baseline loader](../../../examples/harness/dsh-wikiskill/baseline/plugins/terminal-base/index.js).
+The WikiSkill baseline starts with no skills. To provide an initial skill, create `baseline/plugins/terminal-base/skills/<name>/SKILL.md`; the baseline's terminal plugin loads it into the evaluated Agent's system prompt. If you want the loop to create or edit skills, include that path in the Application's Target. A valid file has YAML frontmatter with string `name` and `description` and a nonempty Markdown body. See the [WikiSkill example](../../../examples/harness/dsh-wikiskill/README.md) and [baseline loader](../../../examples/harness/dsh-wikiskill/baseline/plugins/terminal-base/index.js).
 
 ## Give the optimizer a skill
 

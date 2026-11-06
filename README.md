@@ -308,7 +308,6 @@ ember-rsi dashboard
 - [Getting started](docs/users/getting-started.md) for writing a first Recipe and finding follow-on guides
 - [Architecture and core concepts](docs/users/concepts/architecture.md) for the roles of Applications, Policies, plugins, and the Runtime
 - [Reflection guide](docs/users/guides/reflection.md) for improving component guidance
-- [Inference parameter search](docs/users/guides/parameter-search.md) for tuning inference services
 - [Runtime events](docs/users/guides/runtime-events.md) for event subscriptions and extensions
 - Complete experiment Recipes for [DSH Harness²](examples/harness/dsh-harness2/README.md), [DSH WikiSkill (Terminal-Bench 4.0)](examples/harness/dsh-wikiskill/README.md), [vLLM grid search](examples/artifacts/inference/parameter-grid/README.md), and [vLLM TPE search](examples/artifacts/inference/parameter-tpe/README.md)
 

@@ -56,7 +56,7 @@
 
 ## 📦 安装与部署
 
-### Agent Instruction
+### Agent 指令
 
 将下面这段指令复制给你的编程 Agent：
 
@@ -67,7 +67,7 @@
 运行 ember-rsi --help，并确认当前 Agent 能发现和读取该 skill。本次只完成安装，不启动实验或调用模型。
 ```
 
-### Manual Installation
+### 手动安装
 
 #### 1. 安装 CLI
 
@@ -310,7 +310,6 @@ ember-rsi dashboard
 - [快速入门](docs/users/getting-started_zh.md)，编写第一个 Recipe 并查找后续指南
 - [架构与核心概念](docs/users/concepts/architecture_zh.md)，了解 Application、Policy、插件与 Runtime 如何协作
 - **组件级自演进指导**：[Reflection 使用指南](docs/users/guides/reflection_zh.md)
-- **推理服务参数调优**：[推理参数搜索指南](docs/users/guides/parameter-search_zh.md)
 - **事件订阅与二次开发**：[事件系统开发指南](docs/users/guides/runtime-events_zh.md)
 - **完整实验配方示例**：[DSH Harness²](examples/harness/dsh-harness2/README.md) · [DSH WikiSkill (Terminal-Bench 4.0)](examples/harness/dsh-wikiskill/README.md) · [vLLM 参数网格搜索](examples/artifacts/inference/parameter-grid/README.md) · [vLLM 参数 TPE 搜索](examples/artifacts/inference/parameter-tpe/README.md)
 

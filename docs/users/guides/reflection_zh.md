@@ -2,13 +2,13 @@
 
 [English](reflection.md) | 简体中文 · [快速入门](../getting-started_zh.md) · [运行时事件](runtime-events_zh.md)
 
-Reflection 复盘已完成的执行证据，为后续插件调用提出指导资源修改。开发者选择观察对象、修改权限和调用位置；Runtime 准备输入、校验提案，并在当前实验内启用通过检查的新版本。
+Reflection 根据执行证据改进目标插件，使后续调用采用改进后的行为。本指南介绍如何选择目标插件、配置修改范围并在 Policy 中调用 Reflection。
 
-内置 Harness² Policy 声明了可修订 Invariant Proposer 和 Domain Proposer 指导资源的 Reflection 配置。`improve_guidance` 步骤默认处于注释状态。参见 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 和 [Reflection 配置](../../../src/policies/harness2/reflection.yaml)。
+- 内置 Harness² Policy 已配置 Reflection 来改进 Invariant Proposer 和 Domain Proposer，目前允许修改它们的 `guidance`。`improve_guidance` 步骤默认处于注释状态。参见 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 和 [Reflection 配置](../../../src/policies/harness2/reflection.yaml)。
 
 ## 1. 配置 Reflection 模块
 
-将 `reflection.yaml` 等配置文件放在 Policy 旁边。以下示例使用 Harness² 的绑定名：
+`reflection.yaml` 指定参考哪些执行记录、改进哪些插件、允许修改插件的哪些内容，以及由哪个 Reflection 插件和 Agent 完成反思。将文件放在 Policy 旁；下面使用 Harness² 已声明的绑定名，接入自己的 Policy 时按实际绑定名调整：
 
 ```yaml
 evidence:
@@ -21,7 +21,7 @@ targets:
     resources: [guidance]
   domainProposer:
     resources: [guidance]
-goal: ./reflection-goal.md # 目标文档存放 reflection 改进目标的提示词
+goal: ./reflection-goal.md # The goal file describes what Reflection should improve.
 implementation:
   contract: contract.reflection
   ref: reflection.agent
@@ -32,32 +32,50 @@ budget:
   timeoutSeconds: 3600
 ```
 
-| 字段                      | 含义                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------ |
-| `evidence`                | 非空且不重复的 Policy 绑定名，其针对已完成的调用提供经验。                           |
-| `targets`                 | 非空的插件绑定映射，列出允许修改的已配置资源名称，例如 `guidance`。                  |
-| `goal`                    | 非空 UTF-8 目标文件的路径，该文件需要阐明改进目标，应说明可观察条件。                |
-| `implementation.contract` | 必填，必须为 `contract.reflection`。                                                 |
-| `implementation.ref`      | 必填的已注册实现，例如 `reflection.agent`；                                          |
-| `implementation.config`   | 由所选实现的 Schema 校验；`reflection.agent` 要求用 `agentRef` 显式指定 Agent 绑定。 |
-| `budget`                  | 可选的单次模型调用和超时限制，同时受实验剩余总预算约束。                             |
+### 参考哪些记录、改进哪些插件
 
-对于 `reflection.agent`，省略 `prompt` 时使用随包提供的 Reflection 提示词，也可以提供自己的文件。实现配置中的相对资源路径以选中的 Reflection 文件为基准。不要在这里配置 `maxContextBytes` 或 `maxModelCalls`：上下文处理由框架负责，模型调用限制应放在 `budget.modelCalls`。
+| 字段                         | 必填 | 作用                                         | 如何填写                                                                                                  |
+| ---------------------------- | ---- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `evidence`                   | 是   | 选择哪些插件调用的执行记录作为反思材料。     | 填 Policy 中已有的绑定名列表，如 `[domainProposer, composer]`；至少一项，不能重复。                       |
+| `targets`                    | 是   | 选择本次要改进的目标插件。                   | 以 Policy 绑定名为键，如 `domainProposer`，并在每项下填写 `resources`；至少选择一个绑定。                 |
+| `targets.<绑定名>.resources` | 是   | 限定对该插件可以修改的配置资源。             | 填插件配置中的资源字段名，如 `[guidance]`。这些字段需已配置路径，并在插件 Schema 中声明为文件或目录资源。 |
+| `goal`                       | 是   | 说明希望目标插件解决什么问题、达到什么效果。 | 填目标说明文件的路径，如 `./reflection-goal.md`。文件须为非空 UTF-8 文本。                                |
 
-将 `budget.modelCalls` 设为非负整数可限制单次 Reflection 的模型调用次数，设为 `0` 会阻止新增模型调用。将 `budget.timeoutSeconds` 设为计时器范围内的正整数可限制单次执行时间。省略哪个字段，Reflection 就不施加对应的局部上限。已配置的实验和 Agent 限制也会生效。
+- 上例参考四个绑定的执行记录，改进的对象是两个 Proposer，具体通过修改它们的 `guidance` 来实现。例如，若 `domainProposer` 的配置中写了 `guidance: ./guidance`，那么 `resources: [guidance]` 授权修改的就是这个 `./guidance` 目录内的文件。
 
-上面的示例和随包提供的 Harness² Reflection 文件均设置 60 分钟局部超时，不设置模型调用次数上限。Reflection 调用 `agent.pi` 时，Agent 中显式配置的 `executionTimeoutMs` 也会生效。不需要独立的 Reflection 截止时间时，可省略 `budget.timeoutSeconds`。
+### 由谁执行 Reflection
 
-源码见 [配置校验器](../../../src/runtime/revisions/validation.ts) 和 [内置示例](../../../src/policies/harness2/reflection.yaml)。
+`implementation` 选择负责提出目标插件改进方案的 Reflection 插件，`implementation.config` 是传给该插件的配置。下表中的配置字段以内置 `reflection.agent` 为例：
+
+| 字段                                 | 必填 | 作用                                         | 如何填写                                                                                                   |
+| ------------------------------------ | ---- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `implementation.contract`            | 是   | 声明所选插件需要遵循的公共接口。             | 当前内置为 `contract.reflection`。                                                                         |
+| `implementation.ref`                 | 是   | 选择执行反思并提出插件改进方案的实现。       | 填已注册且符合上述契约的插件 ID，如 `reflection.agent`。                                                   |
+| `implementation.config.agentRef`     | 是   | 选择实际执行反思的 Agent。                   | 填 Policy 中已有的 Agent 绑定名，如 `agent`；它使用哪个后端和模型，由该绑定配置。                          |
+| `implementation.config.evidenceView` | 否   | 决定反思可读取哪些证据内容。                 | `execution`（默认）使用执行证据；允许使用已有、授权评分反馈时，可选 `training-summary`。详见下文证据范围。 |
+| `implementation.config.prompt`       | 否   | 指导 Reflection 如何分析证据、改进目标插件。 | 填自定义提示词文件的路径，如 `./reflection-prompt.md`；省略时使用内置提示词。                              |
+
+### 限制一次 Reflection 的开销
+
+`budget` 整体可省略，以下两项也可分别省略：
+
+| 字段                    | 作用                                         | 如何填写                                                                |
+| ----------------------- | -------------------------------------------- | ----------------------------------------------------------------------- |
+| `budget.modelCalls`     | 限制一次 Reflection 最多新增多少次模型调用。 | 非负整数，如 `10`；`0` 表示禁止新增模型调用。省略时不设置这项局部上限。 |
+| `budget.timeoutSeconds` | 限制一次 Reflection 最长运行多久，单位为秒。 | 正整数，如 `3600` 表示 60 分钟。省略时不设置这项局部上限。              |
+
+注意，实验总预算和 Agent 自身的限制仍同时生效，例如 `agent.pi` 的 `executionTimeoutMs`。
 
 ### Reflection 收到哪些证据
 
 **Runtime 按完成时间选择相邻两次 Reflection 边界之间、匹配 `evidence` 绑定的调用；**
 
 - 首个窗口从实验开始计算，终态中的成功、失败、取消和未知结果分别保留。
-- 为版本对照，每个选中插件还可引用上一版本最近一次已完成调用；大小限制、缺失或截断的证据会明确标注。
+- 大小限制、缺失或截断的证据会明确标注。
 
 **`implementation.config.evidenceView` 默认 `execution`，排除评分侧反馈；`training-summary` 额外允许读取已有、授权的评分、诊断及返回提示。**
+
+各视图的定义与可见范围见 [Evidence](../concepts/architecture_zh.md#evidence)。
 
 - 读取的资源快照包含目标绑定配置中 Schema 声明的路径资源，但修改权限仅限 `targets` 列出的名称。
 
@@ -69,38 +87,28 @@ budget:
 默认的 [Reflection 提示词](../../../src/plugins/reflection-agent/prompt.md) 说明“怎么反思”，`goal` 文件说明“希望改进什么”。一次反思按下面的流程进行：
 
 1. **先看材料。** 主 Agent 拿到目标、当前资源和本轮执行证据，阅读相关记录，找出值得改进的问题。
-2. **自主决定是否分工。** 主 Agent 可以自己分析，也可以用 `run_subagent` 把问题和材料交给子代理。子代理也能继续委派，各级共用预算和取消机制。
-3. **汇总修改建议。** 主 Agent 根据证据整理发现、处理相互矛盾的建议，给出允许修改的文件的完整新内容和修改理由。没有有用的改进，就说明原因并保持不变。
-4. **检查并生效。** Runtime 检查修改是否符合授权范围、内容要求和版本约束，通过后保存并启用新版本，供当前实验的后续调用读取使用。已完成的调用和结果不会因此改变。
+2. **自主决定是否分工。** 使用 `agent.pi` 时，主 Agent 可以自己分析，也可以用 `run_subagent` 把问题和材料交给子代理。子代理也能继续委派，各级共用预算和取消机制。原生 Codex 的能力遵循其本地配置，参见 [Agent 后端](configuration_zh.md#agent-与环境变量)。
+3. **汇总插件改进方案。** 主 Agent 根据证据整理对目标插件的改进建议、处理相互矛盾的建议，并给出授权文件的完整新内容和修改理由。没有有用的改进，就说明原因并保持不变。
+4. **检查并生效。** Runtime 检查修改是否符合授权范围、内容要求和版本约束，通过后，会保存并启用插件的修订版本，供当前实验的后续调用使用。
 
 ## 2. 显式调用 Reflection
 
-Policy 通过 `defaults.reflection.configFile` 选择默认文件，路径以 Policy 文件为基准。在需要学习的调用之后添加串行步骤：
+### 第一步：声明 Reflection 配置文件
+
+在 Policy 的 `defaults.reflection.configFile` 中指定第 1 节编写的配置文件。路径相对于 Policy 文件解析：
 
 ```yaml
-# Excerpt from a custom Policy based on Harness².
+# Policy excerpt
 defaults:
   reflection:
     configFile: ./reflection.yaml
-  # Keep the Policy's required bindings here.
-steps:
-  # Keep the proposal, evaluation, selection and Memory steps before this call.
-  - id: improve_guidance
-    type: reflection
 ```
 
-此节选需配合 Policy 的其余 Schema、依赖和流程使用。如需在其他时机调用 Reflection，可注册自己的 Policy ID 并在 Recipe 中选择它。见 [Policy 注册](writing-policies_zh.md#注册-policy)。
+Runtime 加载 Policy 时会校验这份配置，实际执行由第二步添加的 Reflection 步骤触发。
 
-| 配置与流程                 | 结果                                                              |
-| -------------------------- | ----------------------------------------------------------------- |
-| 无声明，也无调用           | 不加载 Reflection 模块。                                          |
-| 有声明，但未执行到调用步骤 | 校验配置，不执行生成器。                                          |
-| 有声明，且执行到调用步骤   | Policy 等待 Reflection 结果，可能跳过、无修改、拒绝或启用新版本。 |
-| 有调用但无声明             | 在执行前拒绝。                                                    |
+#### 通过 Recipe 替换文件
 
-Reflection 必须串行执行。编译器或 Runtime 拒绝并行分支中的调用，也检查嵌套的并行步骤块。
-
-### 通过 Recipe 替换文件
+如果某个实验需要使用不同的 Reflection 配置，在 Recipe 中指定：
 
 ```yaml
 # Recipe excerpt
@@ -108,15 +116,38 @@ reflection:
   configFile: ./reflection-custom.yaml
 ```
 
-这会为根 Policy 选择**完整替换文件**，根 Policy 必须已经声明 `defaults.reflection`。不会逐字段合并，也不会在流程中插入调用。覆盖路径相对于 Recipe 解析，所选文件内部的路径相对于该文件解析。
+这里的 `reflection.configFile` 相对于 Recipe 文件解析，选择的文件仍按第 1 节编写。它会完整替换 Policy 声明的默认配置，因此 Policy 需要先声明 `defaults.reflection`。调用时机仍由 Policy 决定。
 
-替换文件省略 `budget` 时，Reflection 不设局部模型调用预算或时间预算。无效的替换文件会导致校验失败。
+### 第二步：指定 Reflection 调用时机
 
-## 3. 让自定义插件使用新资源
+在 Policy 的 `steps` 中，把 `type: reflection` 步骤放到需要反思的位置。例如，放在一轮提案、评测、选择和 Memory 调用之后，让下一轮插件调用使用改进后的版本：
 
-需要同时具备三项条件：Schema 路径声明、Reflection 授权，以及后续调用读取并使用新资源。
+```yaml
+# Policy steps excerpt
+steps:
+  # Existing proposal, evaluation, selection and Memory steps go here.
+  - id: improve_guidance
+    type: reflection
+  # Later calls to target plugins use the activated revisions.
+```
 
-在插件配置 Schema 中声明文件或目录字段：
+`id: improve_guidance` 是这一步的名称，可以自行命名；`type: reflection` 表示执行反思。**Policy 会先等待这次反思结束，再继续后面的步骤。**
+
+- **Reflection 必须串行执行，不能放入并行分支。**
+- 如需在后续步骤查看处理结果，可读取 `steps.improve_guidance.output`。
+
+可以自主调整语句在 Policy 的调用处来实现频率安排：
+
+- **每轮优化后反思**：放在优化循环末尾，顺序为“本轮优化 → Reflection → 下一轮优化”。
+- **全部优化完成后只反思一次**：放在优化循环之后，顺序为“所有轮次优化 → Reflection”。
+
+## 3. 让自定义插件接入 Reflection
+
+下面以自定义提案插件 `proposer.custom` 为例：它读取提示词和指导文档来生成提案。Reflection 可以通过更新这些内容改进它的提案行为。
+
+### 第一步：声明插件使用哪些文件和目录
+
+在插件的配置 Schema 中，标明 `prompt` 填文件路径、`guidance` 填目录路径。`x-rsi-path` 是给 Runtime 识别路径用的标记，让它能够读取相应内容：
 
 ```ts
 import type { JsonSchema } from 'ember-rsi/contracts';
@@ -132,46 +163,59 @@ export const configSchema: JsonSchema = {
 };
 ```
 
-绑定已注册实现，并提供实际资源路径：
+### 第二步：在 Policy 中填写实际路径
+
+在 Policy 中声明 `domainProposer` 绑定，选择已注册的 `proposer.custom`，并为它指定要读取的文件和目录：
 
 ```yaml
-# Policy defaults excerpt
-bindings:
+# Policy excerpt
+require:
   domainProposer:
-    plugin: proposer.custom
-    config:
-      prompt: ./prompts/domain.md
-      guidance: ./guidance
+    contract: contract.proposer
+defaults:
+  bindings:
+    domainProposer:
+      plugin: proposer.custom
+      config:
+        prompt: ./prompts/domain.md
+        guidance: ./guidance
 ```
 
-Reflection 文件中的 `targets.domainProposer.resources: [guidance]` 授权修改已配置的指导目录，不会因 `prompt` 也是 Schema 路径资源而自动授权它。没有 `x-rsi-path` 的普通字符串不能被选择。资源不存在、路径未配置、文件或目录类型错误，都在调用生成器前报错。
+- Runtime 会在反思开始前检查文件和目录是否存在、类型是否与 Schema 声明一致。
 
-`configFile` 接口允许在授权路径内创建和修改资源内容。Runtime 会在启用版本前校验提案的父版本和资源路径。见 [版本处理](../../../src/runtime/revisions/index.ts)。
+### 第三步：选择要改进的插件及允许修改的内容
 
-插件必须实际读取收到的路径。内置 Proposer 在每次编辑请求时调用 `loadAgentPrompt(config)`：读取基础提示词，递归读取 `config.guidance` 中排序后的 Markdown 文件，将指导文字加入 Agent 请求。见 [共享编辑代码](../../../src/plugins/shared/agent-editing/index.ts)。仅声明 `x-rsi-path` 不会自动将文件内容加入提示词或改变算法，自定义插件负责资源格式与实际使用方式。
+在第 1 节的 `reflection.yaml` 中，选择这个插件作为观察和改进对象：
+
+```yaml
+# Reflection configuration excerpt
+evidence: [domainProposer]
+targets:
+  domainProposer:
+    resources: [guidance]
+```
+
+这里的 `domainProposer` 对应第二步的插件绑定，`resources: [guidance]` 对应该绑定配置的 `./guidance` 目录。Reflection 会参考这个插件的执行记录，通过修改该目录内的指导文档改进插件。若也允许修改提示词，将列表写为 `resources: [prompt, guidance]`。
+
+### 第四步：在插件中使用修改后的内容
+
+**插件需要在后续调用中读取并使用 Runtime 提供的修订配置，才能让 Reflection 的修改影响其行为。**
+
+- 例如，内置 `proposer.agent` 会读取 `prompt` 文件及 `guidance` 目录中的 Markdown 文件，再将内容交给 Agent 使用；
+
+- 自定义插件需按自身逻辑使用修订后的内容。
 
 ## 4. 持久化、启用与恢复
 
-实验执行期间，Reflection **不会覆盖**源 Policy 包或原始指导目录。通过检查的内容保存为实验版本，有效绑定配置接收物化后的资源路径。下文说明如何显式应用到原始用户资源。
+实验执行期间，Reflection **不会覆盖**源 Policy 包或原始插件内容。通过检查的内容保存为实验版本，但保留显式应用的路径，下文说明如何显式应用到原始用户资源。
 
 使用默认本地存储时：
 
 | 数据                        | 位置                                                                  |
 | --------------------------- | --------------------------------------------------------------------- |
-| 不可变资源快照与修改制品    | `.rsi/artifacts/`                                                     |
+| 各版本资源内容与修改记录    | `.rsi/artifacts/`                                                     |
 | 供插件读取的版本资源        | `.rsi/experiments/<experiment-id>/revisions/<version-key>/resources/` |
-| 版本、Reflection 与启用事实 | `.rsi/facts/`                                                         |
-
-执行顺序为：提案 → 范围、内容及父版本校验 → 版本持久化 → 启用 → 后续读取资源。已完成的调用和结果不被重写。仅保存或启用版本不能证明指导内容进入了模型请求；需要验证同一个未结束实验中的后续执行加载并使用了它。
-
-| 结果                     | 行为                                                                                   |
-| ------------------------ | -------------------------------------------------------------------------------------- |
-| `skipped` 或 `no-change` | 保留当前有效版本。                                                                     |
-| `rejected`               | 不启用无效提案。                                                                       |
-| 启用前失败               | 保留此前有效配置；重试前检查已保存事实。                                               |
-| 持久化或启用期间中断     | 恢复时核对已保存的 Reflection 和启用记录；父版本冲突或已准备输入变化可能导致恢复失败。 |
-| 恢复同一个实验           | 恢复已持久化的有效资源和检查点。                                                       |
-| 创建新实验               | 从新实验声明的资源开始，不自动继承此前实验的版本。                                     |
+| 版本、Reflection 与启用记录 | `.rsi/facts/`                                                         |
 
 ### 将版本应用到后续实验
 
@@ -187,8 +231,10 @@ ember-rsi reflection apply <revisionID>
 - `show` 展示所选内容、记录的目标路径及应用时会新增、覆盖、删除的文件，不执行写入。
 - `apply` 将完整快照恢复到记录的原始用户资源路径，后续选用这些路径的新实验即可读取。
 
-注意应用时，存在以下规则，源码见[应用校验与写入](../../../src/runtime/revisions/application.ts)：
+也可在[工作台](running-experiments_zh.md#工作台)打开实验详情，进入 **Reflection & Memory → Reflection**，选择版本后点击 `Preview application`。在 `Apply to source files` 对话框中检查目标路径及将新增、覆盖、删除的文件，勾选确认后点击 `Apply changes`。
+
+CLI 和工作台应用时都遵循以下规则，源码见[应用校验与写入](../../../src/runtime/revisions/application.ts)：
 
 1. 在**生成 revision 之前**，通过 Recipe 绑定配置专属用户指导目录，如果之后修改 Recipe 则无法应用之前的reflection内容。
-2. **Apply(应用) 会覆盖本地修改，并删除专属目标目录中快照没有的文件；兄弟目录和其他资源不受影响。**
-3. 同一 Runtime 数据目录中有活跃或状态尚未解决的实验时，应用会被阻止，需先完成或恢复实验；`list` 和 `show` 仍可使用。不同 Runtime 数据目录不能并发共享这些可写资源。新实验不会自动继承旧版本。
+2. **Apply(应用) 会覆盖本地修改，并删除专属目标目录中快照没有的文件；**
+3. 同一 Runtime 数据目录中有活跃或状态尚未解决的实验时，应用会被阻止，需先完成或恢复实验；`list` 和 `show` 仍可使用。

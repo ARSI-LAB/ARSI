@@ -2,6 +2,8 @@
 
 English | [简体中文](runtime-events_zh.md) · [Getting started](../getting-started.md) · [Reflection](reflection.md)
 
+This guide explains how to subscribe to built-in events, publish custom events, and manage listeners and cleanup across a plugin's lifecycle.
+
 Plugins access events through `RuntimeContext.event`: subscribe in `create(config, ctx)` and publish events or call services in `execute(input, ctx)` or a listener callback.
 
 Import `RuntimeContext` from `ember-rsi/contracts`.

@@ -4,12 +4,12 @@ This file defines documentation organization and maintenance. See the [root AGEN
 
 ## Directory responsibilities
 
-| Location             | Content                                                                       | Maintenance                                                         |
-| -------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `design/YYYY-MM-DD/` | RSI protocols, role responsibilities, strategies, and interface designs       | Append-only; retain the latest 14 days, including the boundary date |
-| `tasks/YYYY-MM-DD/`  | Development plans, progress, and acceptance for the RSI library               | Append-only; retain the latest 5 days, including the boundary date  |
-| `users/`             | Project introduction, installation, configuration, usage, and troubleshooting | Keep English and Chinese pages side by side and aligned with current behavior  |
-| `lessons/`           | Reusable lessons                                                              | Record established conclusions with evidence references             |
+| Location             | Content                                                                       | Maintenance                                                                   |
+| -------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `design/YYYY-MM-DD/` | RSI protocols, role responsibilities, strategies, and interface designs       | Append-only; retain the latest 14 days, including the boundary date           |
+| `tasks/YYYY-MM-DD/`  | Development plans, progress, and acceptance for the RSI library               | Append-only; retain the latest 5 days, including the boundary date            |
+| `users/`             | Project introduction, installation, configuration, usage, and troubleshooting | Keep English and Chinese pages side by side and aligned with current behavior |
+| `lessons/`           | Reusable lessons                                                              | Record established conclusions with evidence references                       |
 
 Create directories only when needed; do not create empty placeholders. Store runtime data, logs, temporary scripts, one-off checks, and raw trajectories in `.scratch/` or other locations specified by the root guidelines, outside formal documentation directories.
 

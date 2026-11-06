@@ -2,6 +2,8 @@
 
 [English](using-skills.md) | 简体中文 · [快速入门](../getting-started_zh.md)
 
+本指南介绍如何为编程助手、被评测的 Agent 和优化器分别接入 Skill。
+
 ## 为编程助手接入 RSI Skill
 
 通过助手的 Skill 发现机制提供完整的 [`skills/ember-rsi/` 目录](../../../skills/ember-rsi/SKILL.md)，也可以在任务中直接给出当前检出下的 `SKILL.md` 路径。将 `references/` 和 `assets/` 与入口文件放在一起，让助手能读到引用说明和示例。Skill 标明了对应的 RSI 版本。让助手先核对当前构建注册的 ID 和 Schema，再复用示例。
@@ -10,7 +12,7 @@
 
 ## 为被评测的 Bundle 添加 Skill
 
-以 WikiSkill 基线为例，将文件放在 `baseline/plugins/terminal-base/skills/<name>/SKILL.md`。基线的终端插件会将 Skill 加入被评测 Agent 的系统提示词。如果希望优化循环编辑该文件，需把路径纳入 Application 的 Target。文件应有 YAML frontmatter，其中 `name` 和 `description` 为字符串，且 Markdown 正文非空。参见 [completion-checks Skill](../../../examples/harness/dsh-wikiskill/baseline/plugins/terminal-base/skills/completion-checks/SKILL.md) 和 [基线加载代码](../../../examples/harness/dsh-wikiskill/baseline/plugins/terminal-base/index.js)。
+WikiSkill 基线初始没有 Skill。若要提供初始 Skill，可以创建 `baseline/plugins/terminal-base/skills/<name>/SKILL.md`，基线的终端插件会将它加入被评测 Agent 的系统提示词。如果希望优化循环创建或编辑 Skill，需把路径纳入 Application 的 Target。文件应有 YAML frontmatter，其中 `name` 和 `description` 为字符串，且 Markdown 正文非空。参见 [WikiSkill 示例](../../../examples/harness/dsh-wikiskill/README.md) 和[基线加载代码](../../../examples/harness/dsh-wikiskill/baseline/plugins/terminal-base/index.js)。
 
 ## 为优化器配置 Skill
 

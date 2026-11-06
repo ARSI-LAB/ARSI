@@ -52,6 +52,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
   const { id, context, charge } = options;
   const active = new Map<string, Promise<JsonValue>>();
   const uncertain = new Map<string, () => Promise<void>>();
+  const childFailures = new Map<string, unknown>();
   const optionalCalls = new Set<string>();
   let accepting = true;
   const invoke = async (
@@ -162,7 +163,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       try {
         if (
           prior &&
-          (prior.status !== 'failed' ||
+          ((prior.status !== 'failed' && prior.status !== 'cancelled') ||
             prior.pluginId !== binding.plugin ||
             !lease?.operation.canRetry ||
             (await lease.operation.canRetry(input, prior, ctx)) !== true)
@@ -263,7 +264,12 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           const status =
             explicit === 'unknown'
               ? 'unknown'
-              : ctx.signal.aborted || explicit === 'cancelled'
+              : explicit === 'cancelled' ||
+                  (ctx.signal.aborted &&
+                    !(
+                      childFailures.has(callId) &&
+                      childFailures.get(callId) === error
+                    ))
                 ? 'cancelled'
                 : 'failed';
           if (
@@ -276,6 +282,10 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
                   : null,
             })
           ) {
+            // Preserve a failure as it propagates through its owning calls,
+            // even after supervision has cancelled the other branches.
+            if (status === 'failed' && uncertain.has(caller.callId))
+              childFailures.set(caller.callId, error);
             try {
               if (status === 'cancelled')
                 await ctx.event.parallel('rsi/call-cancelled', {
@@ -298,6 +308,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           }
           throw error;
         } finally {
+          childFailures.delete(callId);
           uncertain.delete(callId);
         }
         // Notification errors do not undo a settled optional update.

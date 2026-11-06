@@ -71,7 +71,11 @@ Run ember-rsi --help and confirm that this agent can discover and read the skill
 
 #### 1. Install the CLI
 
-You need **Node.js >=24.19.0 and <25**, **pnpm 11.22.0**, Git, and read access to the GitHub repositories. AgentBundle and the Evaluator SDK are installed from the pinned Git dependencies and built during installation; sibling checkouts are not required.
+Requirements
+
+1. **Node.js** >= 24.19.0 and < 25.
+2. **pnpm** 11.22.0.
+3. **Git**, required to fetch the AgentBundle and Evaluator SDK dependencies.
 
 ```sh
 # Clone and build ember-rsi.

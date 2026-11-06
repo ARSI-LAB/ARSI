@@ -93,6 +93,7 @@ test('call recovery retries only explicitly reconciled failures and preserves re
     'failed',
     'unknown',
     'cancelled',
+    'cancelled-declined',
     'running',
     'declined',
     'unsupported',
@@ -112,7 +113,7 @@ test('call recovery retries only explicitly reconciled failures and preserves re
               : {
                   canRetry: async () => {
                     retries++;
-                    return scenario !== 'declined';
+                    return !scenario.endsWith('declined');
                   },
                 }),
             async execute() {
@@ -149,15 +150,19 @@ test('call recovery retries only explicitly reconciled failures and preserves re
       const prior = (await facts.list('calls'))[0]!;
       const status = ['declined', 'unsupported'].includes(scenario)
         ? 'failed'
-        : scenario;
+        : scenario === 'cancelled-declined'
+          ? 'cancelled'
+          : scenario;
       await facts.write('calls', String(prior.callId), { ...prior, status });
-      if (scenario === 'failed') {
+      if (scenario === 'failed' || scenario === 'cancelled') {
         assert.deepEqual(await invoke(), { recovered: true });
         assert.deepEqual(await invoke(), { recovered: true });
         assert.equal(executions, 2);
         assert.equal(charges, 2);
         assert.equal(retries, 1);
-        assert.deepEqual(await facts.list('call-attempts'), [prior]);
+        assert.deepEqual(await facts.list('call-attempts'), [
+          { ...prior, status },
+        ]);
         const current = await facts.read('calls', String(prior.callId));
         assert.equal(current.status, 'succeeded');
         assert.equal(typeof current.recoveredFrom, 'string');
@@ -165,7 +170,7 @@ test('call recovery retries only explicitly reconciled failures and preserves re
         await assert.rejects(invoke(), /unconfirmed\/failed effects/);
         assert.equal(executions, 1);
         assert.equal(charges, 1);
-        assert.equal(retries, scenario === 'declined' ? 1 : 0);
+        assert.equal(retries, scenario.endsWith('declined') ? 1 : 0);
         assert.deepEqual(await facts.list('call-attempts'), []);
         assert.equal(
           (await facts.read('calls', String(prior.callId))).status,

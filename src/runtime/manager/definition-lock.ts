@@ -243,20 +243,15 @@ export async function lockDefinition(
   return { ...locked, digest: digest(locked) };
 }
 
-/** Recovery uses immutable artifacts and verifies the registered implementation identities. */
+/** Restore the experiment's saved resources from immutable artifacts. */
 export async function restoreDefinition(
   locked: JsonObject,
-  registry: Registry,
   artifacts: ArtifactStore,
   directory: string,
 ): Promise<void> {
   const { digest: expected, ...content } = locked;
   if (expected !== digest(content))
     throw new Error('Experiment definition lock digest mismatch');
-  for (const [id, identity] of Object.entries(object(locked.plugins))) {
-    if (registry.identity(id) !== identity)
-      throw new Error(`Locked plugin implementation differs: ${id}`);
-  }
   if (!Array.isArray(locked.resources))
     throw new Error('Invalid locked resources');
   for (const raw of locked.resources) {

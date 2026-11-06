@@ -28,6 +28,15 @@ export const createAgentCodex: OperationDefinition<
     'agent.codex config',
   );
   return {
+    async canRetry(_input, receipt) {
+      // Older receipts also carry this error on sibling calls cancelled by it.
+      return (
+        typeof receipt.error === 'string' &&
+        /^EBUSY: resource busy or locked, rmdir '[^'\r\n]*[\\/]rsi-codex-[a-zA-Z0-9]+'$/.test(
+          receipt.error,
+        )
+      );
+    },
     async execute(request, context) {
       json(request);
       validateSchemaDefinition(request.outputSchema, 'Agent outputSchema');
@@ -72,7 +81,13 @@ export const createAgentCodex: OperationDefinition<
       } finally {
         if (timer) clearTimeout(timer);
         controller.abort();
-        if (directory) await rm(directory, { recursive: true, force: true });
+        if (directory)
+          await rm(directory, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 200,
+          });
       }
     },
     async dispose() {},

@@ -18,7 +18,8 @@ export const patchEditOutputSchema: JsonSchema = {
       type: 'array',
       maxItems: 32,
       items: {
-        oneOf: [
+        // Required, distinct op tags keep these branches exclusive with anyOf.
+        anyOf: [
           {
             type: 'object',
             additionalProperties: false,

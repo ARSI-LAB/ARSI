@@ -1,7 +1,10 @@
-import { buildRoundLabels, harnessStage } from './round-label-model';
+import { Feedback } from '../../components/observation-feedback';
+import { buildRoundLabels } from './round-label-model';
+import { comparisonPolicy } from './policy-presentation';
 import React, { createContext, useContext, useMemo } from 'react';
 import {
   parseCalls,
+  parseDetails,
   type CallSummary,
   type MeasurementSummary,
   type Page,
@@ -9,7 +12,11 @@ import {
   parseMeasurements,
   parseMetricRecords,
 } from '../../api/observation-client';
-import { useAllObservations, type QueryState } from './use-observation';
+import {
+  useAllObservations,
+  useObservation,
+  type QueryState,
+} from './use-observation';
 
 const LabelContext = createContext<ReturnType<typeof buildRoundLabels>>({
   candidate: () => '…',
@@ -18,8 +25,12 @@ const LabelContext = createContext<ReturnType<typeof buildRoundLabels>>({
   task: () => null,
   evaluationGroup: () => null,
   isHarness: false,
+  candidateStage: () => null,
 });
 const RecordsContext = createContext<{
+  labelsLoading: boolean;
+  labelsError: string;
+  refreshLabels: () => void;
   calls: QueryState<Page<CallSummary>>;
   measurements: QueryState<Page<MeasurementSummary>>;
 } | null>(null);
@@ -39,6 +50,16 @@ export function RoundLabels({
   finished?: boolean;
   children: React.ReactNode;
 }): React.JSX.Element {
+  const details = useObservation(
+    `/${encodeURIComponent(id)}/details`,
+    parseDetails,
+    finished ? null : 15000,
+    finished,
+  );
+  const policy = useMemo(
+    () => comparisonPolicy(details.data?.configuration),
+    [details.data],
+  );
   const calls = useAllObservations(
     `/${encodeURIComponent(id)}/calls`,
     parseCalls,
@@ -55,9 +76,7 @@ export function RoundLabels({
     finished ? null : 15000,
   );
   const taskRecords = useAllObservations(
-    calls.data?.items.some((call) => harnessStage(call.path))
-      ? `/${encodeURIComponent(id)}/metric-observations`
-      : null,
+    policy !== null ? `/${encodeURIComponent(id)}/metric-observations` : null,
     parseMetricRecords,
     finished ? null : 15000,
   );
@@ -68,15 +87,60 @@ export function RoundLabels({
         calls.data?.items ?? [],
         measurements.data?.items ?? [],
         taskRecords.data?.items ?? [],
+        policy,
       ),
-    [calls.data, candidates.data, measurements.data, taskRecords.data],
+    [calls.data, candidates.data, measurements.data, taskRecords.data, policy],
   );
   return (
-    <RecordsContext.Provider value={{ calls, measurements }}>
+    <RecordsContext.Provider
+      value={{
+        calls,
+        measurements,
+        labelsLoading:
+          details.loading ||
+          calls.loading ||
+          candidates.loading ||
+          measurements.loading ||
+          taskRecords.loading,
+        labelsError:
+          details.error ||
+          calls.error ||
+          candidates.error ||
+          measurements.error ||
+          taskRecords.error,
+        refreshLabels: () => {
+          details.refresh();
+          calls.refresh();
+          candidates.refresh();
+          measurements.refresh();
+          taskRecords.refresh();
+        },
+      }}
+    >
       <LabelContext.Provider value={labels}>{children}</LabelContext.Provider>
     </RecordsContext.Provider>
   );
 }
 export function useRoundLabels(): ReturnType<typeof buildRoundLabels> {
   return useContext(LabelContext);
+}
+
+/** Do not select a presentation from incomplete policy/task associations. */
+export function PresentationReady({
+  children,
+  required = true,
+}: {
+  children: React.ReactNode;
+  required?: boolean;
+}): React.JSX.Element {
+  const records = useCallRecords();
+  if (required && (records.labelsLoading || records.labelsError))
+    return (
+      <Feedback
+        loading={records.labelsLoading}
+        error={records.labelsError}
+        refresh={records.refreshLabels}
+      />
+    );
+  return <>{children}</>;
 }

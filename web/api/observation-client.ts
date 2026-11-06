@@ -112,6 +112,7 @@ function parseCall(raw: unknown): CallSummary {
     callId: text(data.callId),
     parentCallId: nullable(data.parentCallId),
     bindingId: text(data.bindingId),
+    triggerPath: data.triggerPath == null ? null : text(data.triggerPath),
     pluginId: text(data.pluginId),
     path: nullable(data.path),
     status: text(data.status),

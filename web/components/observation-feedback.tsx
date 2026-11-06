@@ -48,9 +48,14 @@ export function Feedback({
   return (
     <>
       {loading ? (
-        <p role="status" className="empty-state">
-          Loading recorded facts…
-        </p>
+        <div role="status" className="loading-feedback">
+          <span>Loading recorded facts…</span>
+          <div className="loading-feedback-lines" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
       ) : null}
       {error && error !== connectionError ? (
         <div role="alert" className="error-notice">

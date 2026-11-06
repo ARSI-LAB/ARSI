@@ -35,6 +35,7 @@ export async function runSession(options: {
 }): Promise<JsonObject> {
   const { request, signal, record } = options;
   let threadId = '';
+  let turnId = '';
   let response = '';
   let result: JsonObject | undefined;
   const prompt = JSON.stringify({
@@ -98,13 +99,26 @@ export async function runSession(options: {
             outputSchema: request.outputSchema,
           },
         });
+      } else if (message.method === undefined && message.id === 3) {
+        turnId = string(object(object(message.result).turn).id);
       } else if (message.method === 'item/tool/call') {
         const params = object(message.params);
-        if (
-          params.threadId !== threadId ||
-          params.tool !== 'read_file' ||
-          params.namespace
-        )
+        if (params.threadId !== threadId || params.turnId !== turnId) {
+          send({
+            id: message.id,
+            result: {
+              success: false,
+              contentItems: [
+                {
+                  type: 'inputText',
+                  text: 'Virtual files are authorized only for the active root turn.',
+                },
+              ],
+            },
+          });
+          return;
+        }
+        if (params.tool !== 'read_file' || params.namespace)
           throw new Error('Codex requested a forbidden tool');
         signal.throwIfAborted();
         let text: string;
@@ -129,7 +143,9 @@ export async function runSession(options: {
           result: { success, contentItems: [{ type: 'inputText', text }] },
         });
       } else if (message.method === 'item/completed') {
-        const item = object(object(message.params).item);
+        const params = object(message.params);
+        if (params.threadId !== threadId || params.turnId !== turnId) return;
+        const item = object(params.item);
         if (item.type === 'agentMessage' && item.phase !== 'commentary') {
           if (typeof item.text !== 'string')
             throw new Error('Invalid Codex agent message');
@@ -137,7 +153,9 @@ export async function runSession(options: {
         }
         if (item.type === 'contextCompaction') record('context_compaction', {});
       } else if (message.method === 'thread/tokenUsage/updated') {
-        const usage = object(object(message.params).tokenUsage);
+        const params = object(message.params);
+        if (params.threadId !== threadId || params.turnId !== turnId) return;
+        const usage = object(params.tokenUsage);
         const counts = (value: unknown): JsonObject => {
           const raw = object(value);
           return Object.fromEntries(
@@ -161,7 +179,9 @@ export async function runSession(options: {
               : null,
         });
       } else if (message.method === 'turn/completed') {
-        const turn = object(object(message.params).turn);
+        const params = object(message.params);
+        const turn = object(params.turn);
+        if (params.threadId !== threadId || turn.id !== turnId) return;
         if (turn.status !== 'completed')
           throw new Error(
             `Codex turn ${string(turn.status)}${nativeError(turn.error)}`,

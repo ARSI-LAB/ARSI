@@ -42,6 +42,8 @@ Keep `measurement.evaluator.pluginId` aligned with the registered evaluator impl
 
 Each available metric has definitionRef, status, a scalar/distribution value and source `{ artifactRef, pointer }`. Definition specifies id, description, unit, valueKind, version 1, aggregation and mapping. Unavailable metrics retain null value and reason. Items use `rsi.measurement-items/v1`; evidence uses `rsi.measurement-evidence/v1` with entries specifying access (`execution`, `delivery`, `private`) and integrity. Never expose private verifier material as execution evidence.
 
+Status governs whether a value may be compared. Keep unavailable, failed and unknown-coverage results out of the pools used to sample a winner or admit a candidate, and preserve their original meaning when reporting; never coerce them to zero. A measured scalar `0` is an observed value and may legitimately win or be admitted. An unavailable baseline or initial evaluation leaves no admission threshold rather than a zero one, so require a successful measurement before treating a candidate as an improvement over it.
+
 The stock metric selector requires successful, complete, comparable measurements with equal nonempty comparisonKey and matching metric definitions. Scalar values need no statistic; distributions require one. Ties retain incumbent. Preserve the chosen candidate and measurement together.
 
 `facts.read(kind,id)` and `facts.list(kind)` are useful for scoped inspection; filter by experimentId when listing. Do not use `facts.write` to bypass Manager candidate/measurement/receipt ownership.

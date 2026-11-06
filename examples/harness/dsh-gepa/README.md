@@ -16,7 +16,9 @@ Configure `MODEL_ENDPOINT`, `MODEL_API_KEY`, `GEPA_WORKBUDDY_SOURCE` and
 `GEPA_WORKBUDDY_CACHE` in the execution environment. The model name is a proxy
 alias; inspect its upstream route before running a real evaluation. The example
 contains the Office Bundle and its narrow Target; the WorkBuddy dataset remains
-an external local source.
+an external local source. Point `GEPA_WORKBUDDY_SOURCE` at the complete
+`wb-bench-office-v1.0` dataset. The SDK's Office defaults check that the source
+contains all 50 tasks before filtering by the requested task IDs.
 
 ```sh
 pnpm build
@@ -95,14 +97,20 @@ candidate sequence also requires identical Agent and Evaluator results, includin
 the same receipt-replay behavior. A seed does not make live model output
 deterministic.
 
-## Single-task integration
+## Office task split
 
-The Office example Recipe uses
-`workbuddy/board-material-update-timeline-excel` for both feedback and
-selection. `datasetDegenerate` in the output is `true` for this integration.
-That is an explicit single-task degeneracy; the optimizer still keeps the two
-sets separate in state and uses the general multi-instance code path. General
-multi-instance behavior is exercised by the local deterministic tests.
+The Recipe uses ten training tasks and five disjoint validation tasks from the
+[WorkBuddy Bench Office subset](https://github.com/Tencent/workbuddy-bench#overview).
+The ordered task lists live in `policy.config`: `feedbackTaskIds` is the training
+pool and `selectionTaskIds` is the validation pool. `paretoSize: 5` keeps all five
+validation tasks for candidate selection. There is no independent test set or
+test evaluation stage; GEPA does not need an extra `testTaskIds` setting.
+`datasetDegenerate` is `false` for this split.
+
+The existing run limits remain `maxRounds: 3`, `maxRollouts: 64`, and
+`minibatchSize: 1`. These allow at most three optimization attempts, each sampling
+one training task, and do not guarantee coverage of all ten training tasks.
+Review these limits and the Recipe-wide budgets before a longer experiment.
 
 ## Evidence and limits
 

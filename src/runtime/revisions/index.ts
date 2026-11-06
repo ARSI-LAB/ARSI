@@ -210,6 +210,10 @@ export async function reflect(
     return result;
   }
   const elapsedLimit = options.config.budget.elapsedWallMs;
+  const evidenceLimit = Math.min(
+    options.config.budget.evidenceBytes ?? Number.POSITIVE_INFINITY,
+    options.context.scope?.limits.evidenceBytes ?? Number.POSITIVE_INFINITY,
+  );
   const elapsed = Date.now() - Date.parse(scopeStartedAt);
   if (!Number.isFinite(elapsed))
     throw new Error('Invalid persisted reflection start time');
@@ -227,6 +231,9 @@ export async function reflect(
         ? {}
         : { modelCalls: options.config.budget.modelCalls }),
       ...(elapsedLimit === undefined ? {} : { elapsedWallMs: elapsedLimit }),
+      ...(Number.isFinite(evidenceLimit)
+        ? { evidenceBytes: evidenceLimit }
+        : {}),
     },
   };
   const assertScope = (): void => {
@@ -276,7 +283,7 @@ export async function reflect(
       names: options.config.evidence,
       identity,
       capturedAt: scopeStartedAt,
-      maxBytes: 32 * 1024 * 1024,
+      maxBytes: scope.limits.evidenceBytes,
       policyScopeId: options.invocation.policyScopeId,
       moduleKey: options.config.path,
       configDigest: options.config.digest,

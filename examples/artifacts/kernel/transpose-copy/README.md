@@ -116,11 +116,15 @@ at the end.
 
 | Recipe setting                                                 | Example value | Meaning                                                                         |
 | -------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------- |
-| `policy.config.maxAttempts`                                    | `3`           | Static attempts; Schema allows 1–3.                                             |
-| `policy.config.repairLimit`                                    | `3`           | Repairs per invalid candidate chain; Schema allows 0–3.                         |
-| `policy.config.maxRounds`                                      | `10`          | Metrics rounds; Schema allows 1–10.                                             |
-| `policy.config.maxNoImprovement`                               | `5`           | Valid candidates without promotion since the last promotion; Schema allows 1–5. |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms.                                   |
+| `policy.config.maxAttempts`                                    | `3`           | Positive static attempt limit.                                                  |
+| `policy.config.repairLimit`                                    | `3`           | Nonnegative repair limit per invalid candidate chain.                           |
+| `policy.config.maxRounds`                                      | `10`          | Positive metrics round limit.                                                   |
+| `policy.config.maxNoImprovement`                               | `5`           | Positive limit of valid candidates without promotion since the last promotion.  |
+| `bindings.proposer.config.historyWindow`                       | `5`           | Number of recent summaries delivered to generation; defaults to 5.              |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms; `0` disables this local deadline. |
+| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`      | Retrieval worker deadline, in ms; `0` disables it.                              |
+| `bindings.proposer.config.embedding.maxPayloadBytes`           | Omitted       | Optional byte limit for each external retrieval JSON payload.                   |
+| `bindings.proposer.config.embedding.maxLogBytes`               | Omitted       | Optional byte limit for each retrieval worker output stream.                    |
 | `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`         | Minimum retrieval match score.                                                  |
 | `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                        |
 | `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                 |
@@ -129,8 +133,13 @@ This example's Manager limits are 1,024 operations, 65 evaluation runs, 152 mode
 calls, 7,200,000 ms elapsed time, and a 60,000 ms cleanup reserve. Evaluation runs
 include both `evaluate` and `profile`; model calls include tool continuations and
 delegates. Individual Agent requests and execution scopes can impose lower
-limits. Raising the overall budget does not bypass those limits or the Policy
-Schema maxima, and does not guarantee that every configured round will run.
+configured limits. Raising the overall budget does not bypass those limits and
+does not guarantee that every configured round will run. Both Proposer timeout
+fields accept integer milliseconds from `0` to `2147483647` and keep the defaults
+shown above. Omitted retrieval byte limits leave those dimensions unrestricted.
+The Application [Target](./target.yaml) controls source and changed-byte limits;
+this example explicitly sets both to 32,768 bytes. Raise or omit those Target
+limits when authorizing larger sources.
 
 ## Ascend profiling setup
 

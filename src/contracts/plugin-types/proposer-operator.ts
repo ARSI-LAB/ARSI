@@ -122,7 +122,7 @@ export type OperatorProposerOutput =
 
 const ref: JsonObject = { type: 'string', minLength: 1 };
 const nullableRef: JsonObject = { anyOf: [ref, { type: 'null' }] };
-const attempt: JsonObject = { type: 'integer', minimum: 1, maximum: 3 };
+const attempt: JsonObject = { type: 'integer', minimum: 1 };
 const shape = (properties: JsonObject): JsonObject => ({
   type: 'object',
   additionalProperties: false,
@@ -132,7 +132,6 @@ const shape = (properties: JsonObject): JsonObject => ({
 const refs = (minimum: number): JsonObject => ({
   type: 'array',
   minItems: minimum,
-  maxItems: 4,
   uniqueItems: true,
   items: ref,
 });
@@ -200,7 +199,7 @@ export const operatorProposerContract = defineContract({
         parentCandidateRef: ref,
         incumbentMeasurementRef: ref,
         diagnosticMeasurementRef: ref,
-        round: { type: 'integer', minimum: 1, maximum: 10 },
+        round: { type: 'integer', minimum: 1 },
         historyRef: nullableRef,
         staticHistoryRef: nullableRef,
         goal: ref,
@@ -211,7 +210,7 @@ export const operatorProposerContract = defineContract({
         failedCandidateRef: ref,
         measurementRef: ref,
         analysisRef: ref,
-        round: { type: 'integer', minimum: 1, maximum: 10 },
+        round: { type: 'integer', minimum: 1 },
         repairIndex: attempt,
         historyRef: nullableRef,
         staticHistoryRef: nullableRef,
@@ -223,7 +222,7 @@ export const operatorProposerContract = defineContract({
         parentCandidateRef: ref,
         incumbentMeasurementRef: ref,
         analysisRef: ref,
-        round: { type: 'integer', minimum: 1, maximum: 10 },
+        round: { type: 'integer', minimum: 1 },
         historyRef: nullableRef,
         staticHistoryRef: nullableRef,
         candidateRefs: refs(0),

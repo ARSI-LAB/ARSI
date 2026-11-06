@@ -110,6 +110,7 @@ async function modelFixture(
   const charges: number[] = [];
   const controller = new AbortController();
   const timers = new Set<ReturnType<typeof setTimeout>>();
+  const responseCloses: Promise<void>[] = [];
   let disconnected = 0;
   let chargeAttempts = 0;
   const server = createServer(async (request, response) => {
@@ -117,9 +118,14 @@ async function modelFixture(
     for await (const chunk of request) body += String(chunk);
     requests.push(JSON.parse(body));
     const reply = replies[Math.min(requests.length - 1, replies.length - 1)]!;
-    response.once('close', () => {
-      disconnected++;
-    });
+    responseCloses.push(
+      new Promise<void>((resolve) => {
+        response.once('close', () => {
+          disconnected++;
+          resolve();
+        });
+      }),
+    );
     if (reply.stall) return;
     const timer = setTimeout(() => {
       timers.delete(timer);
@@ -208,6 +214,28 @@ async function modelFixture(
     controller,
     services,
     disconnected: () => disconnected,
+    async waitForResponseClose(requestIndex: number): Promise<void> {
+      const closed = responseCloses[requestIndex];
+      if (!closed)
+        throw new Error(`Fixture request ${requestIndex} was not received`);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          closed,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new Error(`Fixture response ${requestIndex} did not close`),
+                ),
+              4000,
+            );
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    },
     chargeAttempts: () => chargeAttempts,
     run: () =>
       operation.execute(
@@ -363,10 +391,9 @@ test('Pi rejects invalid settings at creation before resolving credentials or in
       { contextWindow: 0 },
       { contextWindow: 8192, maxTokens: 32768 },
       { retries: -1 },
-      { retries: 11 },
       { maxTokens: 262145 },
       { retryBaseDelayMs: -1 },
-      { retryBaseDelayMs: 300001 },
+      { retryBaseDelayMs: 2147483648 },
     ];
     for (const invalid of invalidConfigs) {
       await assert.rejects(
@@ -379,6 +406,15 @@ test('Pi rejects invalid settings at creation before resolving credentials or in
   } finally {
     await f.close();
   }
+});
+
+test('Pi accepts configured retry counts and delays above former fixed ceilings without model execution', async () => {
+  const context = new RuntimeContext();
+  const operation = await createAgentPi(
+    { retries: 11, retryBaseDelayMs: 300001 },
+    context,
+  );
+  await operation.dispose();
 });
 
 test('Pi retries transient failures once per charged attempt', async () => {
@@ -588,7 +624,7 @@ test('Pi timeout closes a stalled request without retry and permits a fresh exec
     await assert.rejects(f.run(), /timeout|timed out|aborted/i);
     assert.equal(f.requests.length, 1);
     assert.deepEqual(f.charges, [1]);
-    await new Promise<void>((done) => setImmediate(done));
+    await f.waitForResponseClose(0);
     assert.equal(f.disconnected(), 1);
     assert.deepEqual(await f.run(), { ok: true });
     assert.equal(f.requests.length, 2);
@@ -625,7 +661,7 @@ test('Pi execution timeout closes stalled requests without retry and permits a f
     assert.equal(f.requests.length, 1);
     assert.deepEqual(f.charges, [1]);
     assert.equal(f.controller.signal.aborted, false);
-    await new Promise<void>((done) => setImmediate(done));
+    await f.waitForResponseClose(0);
     assert.equal(f.disconnected(), 1);
     assert.deepEqual(await f.run(), { ok: true });
     assert.equal(f.requests.length, 2);

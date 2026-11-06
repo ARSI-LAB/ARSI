@@ -19,7 +19,6 @@ const taskSchema = recordSchema({
   cases: {
     type: 'array',
     minItems: 1,
-    maxItems: 100,
     items: recordSchema({ id: text, seed: { type: 'integer', minimum: 0 } }),
   },
   contract: recordSchema({

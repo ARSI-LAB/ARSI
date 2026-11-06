@@ -74,6 +74,42 @@ test('operator config requires explicit retrieval resources and permits only CPU
   assert.throws(() => validate(configSchema, missingPrompts));
 });
 
+test('operator config accepts disabled or extended deadlines and explicit retrieval byte limits', () => {
+  const raw = {
+    promptsDirectory: '/prompts',
+    task: { directory: '/task' },
+    historyWindow: 11,
+    modelRequestTimeoutMs: 0,
+    embedding: {
+      python: '/venv/bin/python',
+      resourcesDirectory: '/resources',
+      retrievalScript: '/resources/retrieve.py',
+      modelDirectory: '/models/embedding',
+      identityFile: '/models/identity.json',
+      timeoutMs: 0,
+      maxPayloadBytes: 4194304,
+      maxLogBytes: 131072,
+    },
+  };
+  validate(configSchema, raw);
+  validate(configSchema, {
+    ...raw,
+    modelRequestTimeoutMs: 2147483647,
+    embedding: { ...raw.embedding, timeoutMs: 2147483647 },
+  });
+  for (const timeout of [-1, 0.5, 2147483648])
+    assert.throws(() =>
+      validate(configSchema, { ...raw, modelRequestTimeoutMs: timeout }),
+    );
+  for (const bytes of [0, 0.5, 9007199254740992])
+    assert.throws(() =>
+      validate(configSchema, {
+        ...raw,
+        embedding: { ...raw.embedding, maxPayloadBytes: bytes },
+      }),
+    );
+});
+
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'operator-context-'));
   const artifacts = new FileArtifacts(join(directory, 'artifacts'));
@@ -336,6 +372,30 @@ test('analysis binds the explicit baseline measurement to its owned entry and ef
   await assert.rejects(
     readAnalysis(f.analysisRef, f.identity, f.context),
     /experiment|ownership/i,
+  );
+});
+
+test('analysis rereads complete knowledge context beyond the former text limit', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const knowledgeContext = 'External knowledge\n'.repeat(1500);
+  const analysisRef = await f.artifacts.putJson({
+    ...f.analysis,
+    knowledgeContext,
+    matches: [
+      {
+        techniqueId: 'loop_invariant_hoisting',
+        score: 0.8,
+        issueIndexes: [0],
+        sourceReference: 'knowledge/hoisting.md',
+        documentDigest: 'a'.repeat(64),
+        exampleDigest: 'b'.repeat(64),
+      },
+    ],
+  });
+  assert.equal(
+    (await readAnalysis(analysisRef, f.identity, f.context)).knowledgeContext,
+    knowledgeContext,
   );
 });
 

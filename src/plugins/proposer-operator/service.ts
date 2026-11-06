@@ -489,7 +489,6 @@ export async function readHistory(
 
 export class OperatorModelOutputError extends Error {}
 
-const operatorModelCallsPerStage = 24;
 const operatorReviewer = {
   name: 'operator-reviewer',
   description:
@@ -513,13 +512,18 @@ export async function requestOperatorAgent(
   context: RuntimeContext,
   timeoutMs = defaultModelRequestTimeoutMs,
 ): Promise<JsonObject> {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 0 ||
+    timeoutMs > 2147483647
+  )
     throw new Error(
-      'Operator modelRequestTimeoutMs must be a positive integer',
+      'Operator modelRequestTimeoutMs must be an integer from 0 to 2147483647; 0 disables the stage deadline',
     );
-  context = context.extend({
-    signal: AbortSignal.any([context.signal, AbortSignal.timeout(timeoutMs)]),
-  });
+  if (timeoutMs > 0)
+    context = context.extend({
+      signal: AbortSignal.any([context.signal, AbortSignal.timeout(timeoutMs)]),
+    });
   context.signal.throwIfAborted();
   if (context.scope)
     throw new Error(
@@ -528,22 +532,14 @@ export async function requestOperatorAgent(
   const scope = {
     id: 'operator-' + digest({ callId: context.callId, stage }),
     signal: context.signal,
-    limits: {
-      modelCalls: operatorModelCallsPerStage,
-      elapsedWallMs: timeoutMs,
-      evidenceBytes: 2 * 1024 * 1024,
-    },
+    limits: timeoutMs > 0 ? { elapsedWallMs: timeoutMs } : {},
   };
-  if (Buffer.byteLength(JSON.stringify(request)) > 2 * 1024 * 1024)
-    throw new Error(
-      'Operator request exceeds 2 MiB; hardware context cannot be truncated',
-    );
   let result: JsonObject;
   try {
     const cwd = await prepareAgentProject(
       context,
       request.prompt +
-        `\n\nRead context/input.json for the stage data. The authorized operator source is in input.py and the task snapshots are in context/task/. Treat all snapshots as read-only and return any proposed edits in the JSON response. This stage shares ${operatorModelCallsPerStage} total model calls across tool continuations and all delegates. Delegate when useful and complete the JSON response within this shared budget.`,
+        `\n\nRead context/input.json for the stage data. The authorized operator source is in input.py and the task snapshots are in context/task/. Treat all snapshots as read-only and return any proposed edits in the JSON response. Delegate when useful and return the complete JSON response.`,
       { ...request.files, 'context/input.json': JSON.stringify(request.input) },
       [],
       [operatorReviewer],
@@ -574,16 +570,6 @@ export async function requestOperatorAgent(
 export function validateOperatorEdits(response: JsonObject): void {
   try {
     validate(operatorEditOutputSchema, response, 'Operator edits');
-    const edits = response.edits;
-    if (
-      Array.isArray(edits) &&
-      edits.some(
-        (raw) =>
-          Buffer.byteLength(String(object(raw).content)) >
-          editConstraints.maxChangedBytes,
-      )
-    )
-      throw new Error('Operator edit exceeds byte limit');
   } catch (error) {
     throw new OperatorModelOutputError(
       error instanceof Error ? error.message : String(error),
@@ -842,7 +828,7 @@ async function summaryExplanation(
     if (!(error instanceof OperatorModelOutputError)) throw error;
     return {
       summaryStatus: 'unavailable',
-      explanation: `Summary unavailable: ${error.message}`.slice(0, 4000),
+      explanation: `Summary unavailable: ${error.message}`,
       lessons: [],
       avoidPatterns: [],
       tryPatterns: [],
@@ -1093,8 +1079,6 @@ export const createOperatorProposer: OperationDefinition<
         retrievalDigest: digest({
           device: config.embedding.device,
           similarityThreshold: config.embedding.similarityThreshold,
-          contextLimit: 20000,
-          maxCodeExamples: 3,
         }),
       },
       baselineMs: mean,
@@ -1499,11 +1483,7 @@ export const createOperatorProposer: OperationDefinition<
         )
         .map((call) => String(object(call.output).rationale ?? ''))
         .join('\n');
-      actionSummary =
-        rationale.length > 4000
-          ? rationale.slice(0, 3900) +
-            '\n[Truncated; full rationale remains in successful call receipts.]'
-          : rationale;
+      actionSummary = rationale;
       summaryInput = {
         stage: 'summarize',
         ...prepared.summaryContext,
@@ -1532,8 +1512,7 @@ export const createOperatorProposer: OperationDefinition<
         .map(
           (action) => `${action.action}: ${action.status}; ${action.rationale}`,
         )
-        .join('\n')
-        .slice(0, 4000);
+        .join('\n');
       let candidateProfile: JsonObject | null = null;
       if (input.candidateDiagnosticMeasurementRef !== null) {
         if (!facts.accepted)
@@ -1730,9 +1709,6 @@ export const createOperatorProposer: OperationDefinition<
   };
 };
 
-const maxRetrievalBytes = 2 * 1024 * 1024;
-const maxLogBytes = 65536;
-
 function safeRelativeResource(path: string): string {
   if (
     isAbsolute(path) ||
@@ -1743,10 +1719,17 @@ function safeRelativeResource(path: string): string {
     throw new Error('Invalid operator resource identity relative file path');
   return path;
 }
-async function readRetrievalJson(path: string): Promise<Buffer> {
+async function readRetrievalJson(
+  path: string,
+  maxPayloadBytes?: number,
+): Promise<Buffer> {
   const stat = await lstat(path);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > maxRetrievalBytes)
-    throw new Error('Retrieval JSON must be an ordinary file of at most 2 MiB');
+  if (!stat.isFile() || stat.isSymbolicLink())
+    throw new Error('Retrieval JSON must be an ordinary file');
+  if (maxPayloadBytes !== undefined && stat.size > maxPayloadBytes)
+    throw new Error(
+      `Retrieval JSON exceeds maxPayloadBytes (${maxPayloadBytes})`,
+    );
   return readFile(path);
 }
 async function fileDigest(path: string, signal?: AbortSignal): Promise<string> {
@@ -1756,7 +1739,10 @@ async function fileDigest(path: string, signal?: AbortSignal): Promise<string> {
   return hash.digest('hex');
 }
 export async function readKnowledgeResources(
-  config: Pick<EmbeddingConfig, 'resourcesDirectory' | 'retrievalScript'>,
+  config: Pick<
+    EmbeddingConfig,
+    'resourcesDirectory' | 'retrievalScript' | 'maxPayloadBytes'
+  >,
 ): Promise<KnowledgeResources> {
   const directory = await realpath(config.resourcesDirectory);
   const manifestPath = join(directory, 'knowledge/manifest.json');
@@ -1765,7 +1751,7 @@ export async function readKnowledgeResources(
     throw new Error(
       'Knowledge manifest must be an ordinary file inside its directory',
     );
-  const bytes = await readRetrievalJson(manifestPath);
+  const bytes = await readRetrievalJson(manifestPath, config.maxPayloadBytes);
   const manifest = object(JSON.parse(bytes.toString('utf8')));
   if (
     manifest.schemaVersion !== 'rsi.operator-knowledge/v1' ||
@@ -1818,11 +1804,17 @@ export async function readKnowledgeResources(
 
 /** Verify the exact deployed model inventory before invoking its CPU worker. */
 export async function readEmbeddingIdentity(
-  config: Pick<EmbeddingConfig, 'modelDirectory' | 'identityFile'>,
+  config: Pick<
+    EmbeddingConfig,
+    'modelDirectory' | 'identityFile' | 'maxPayloadBytes'
+  >,
   signal?: AbortSignal,
 ): Promise<{ identity: EmbeddingIdentity; digest: string }> {
   signal?.throwIfAborted();
-  const bytes = await readRetrievalJson(config.identityFile);
+  const bytes = await readRetrievalJson(
+    config.identityFile,
+    config.maxPayloadBytes,
+  );
   const identity = parseConfig<EmbeddingIdentity>(
     embeddingIdentitySchema,
     JSON.parse(bytes.toString('utf8')),
@@ -1845,8 +1837,6 @@ export async function readEmbeddingIdentity(
           path: relative(directory, path).split(sep).join('/'),
           sha256: await fileDigest(path, signal),
         });
-        if (found.length > 10000)
-          throw new Error('Embedding model identity exceeds 10000 files');
       } else
         throw new Error(
           'Embedding model identity rejects symlinks and nonordinary files',
@@ -1929,8 +1919,6 @@ async function runWorker(
       HF_HUB_OFFLINE: '1',
       TRANSFORMERS_OFFLINE: '1',
       HF_HOME: join(cwd, 'hf-cache'),
-      OMP_NUM_THREADS: '4',
-      MKL_NUM_THREADS: '4',
       TOKENIZERS_PARALLELISM: 'false',
     },
   });
@@ -1952,18 +1940,35 @@ async function runWorker(
     );
   signal.addEventListener('abort', abort, { once: true });
   if (signal.aborted) abort();
-  const timer = setTimeout(
-    () => stop(new Error('Retrieval worker timeout')),
-    config.timeoutMs,
-  );
+  const timer =
+    config.timeoutMs > 0
+      ? setTimeout(
+          () => stop(new Error('Retrieval worker timeout')),
+          config.timeoutMs,
+        )
+      : undefined;
   child.stdout.on('data', (chunk: Buffer) => {
-    if (stdout.length + chunk.length > maxLogBytes)
-      stop(new Error('Retrieval worker output log exceeds 64 KiB'));
+    if (
+      config.maxLogBytes !== undefined &&
+      stdout.length + chunk.length > config.maxLogBytes
+    )
+      stop(
+        new Error(
+          `Retrieval worker output log exceeds maxLogBytes (${config.maxLogBytes})`,
+        ),
+      );
     else stdout = Buffer.concat([stdout, chunk]);
   });
   child.stderr.on('data', (chunk: Buffer) => {
-    if (stderr.length + chunk.length > maxLogBytes)
-      stop(new Error('Retrieval worker error log exceeds 64 KiB'));
+    if (
+      config.maxLogBytes !== undefined &&
+      stderr.length + chunk.length > config.maxLogBytes
+    )
+      stop(
+        new Error(
+          `Retrieval worker error log exceeds maxLogBytes (${config.maxLogBytes})`,
+        ),
+      );
     else stderr = Buffer.concat([stderr, chunk]);
   });
   let code: number | null = null;
@@ -1999,7 +2004,7 @@ async function runWorker(
         `Retrieval worker exited ${code}: ${stderr.toString('utf8').trim()}`,
       );
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     signal.removeEventListener('abort', abort);
   }
 }
@@ -2020,7 +2025,12 @@ async function retrieveKnowledge<Match extends MetricsKnowledgeMatch>(
     config.similarityThreshold < 0 ||
     config.similarityThreshold > 1 ||
     !Number.isSafeInteger(config.timeoutMs) ||
-    config.timeoutMs <= 0
+    config.timeoutMs < 0 ||
+    config.timeoutMs > 2147483647 ||
+    [config.maxPayloadBytes, config.maxLogBytes].some(
+      (value) =>
+        value !== undefined && (!Number.isSafeInteger(value) || value <= 0),
+    )
   )
     throw new Error('Invalid CPU retrieval configuration');
   const { identity, digest: embeddingDigest } = await readEmbeddingIdentity(
@@ -2051,8 +2061,13 @@ async function retrieveKnowledge<Match extends MetricsKnowledgeMatch>(
     const requestPath = join(directory, 'request.json');
     const responsePath = join(temporary, 'response.json');
     const body = Buffer.from(JSON.stringify(request) + '\n');
-    if (body.length > maxRetrievalBytes)
-      throw new Error('Retrieval worker request exceeds 2 MiB');
+    if (
+      config.maxPayloadBytes !== undefined &&
+      body.length > config.maxPayloadBytes
+    )
+      throw new Error(
+        `Retrieval worker request exceeds maxPayloadBytes (${config.maxPayloadBytes})`,
+      );
     await writeFile(requestPath, body, { flag: 'wx', mode: 0o600 });
     try {
       await runWorker(
@@ -2080,7 +2095,7 @@ async function retrieveKnowledge<Match extends MetricsKnowledgeMatch>(
         { cause: error },
       );
     }
-    const bytes = await readRetrievalJson(responsePath);
+    const bytes = await readRetrievalJson(responsePath, config.maxPayloadBytes);
     await writeFile(join(directory, 'response.json'), bytes, { flag: 'wx' });
     const raw = parseConfig<
       Omit<OperatorRetrievalResult<Match>, 'workerDigest'>
@@ -2152,8 +2167,7 @@ export async function retrieveMetricsKnowledge(
   config: EmbeddingConfig,
   context: RuntimeContext,
 ): Promise<MetricsRetrievalResult> {
-  if (!query.trim() || query.length > 16000)
-    throw new Error('Invalid metric retrieval query');
+  if (!query.trim()) throw new Error('Invalid metric retrieval query');
   return retrieveKnowledge<MetricsKnowledgeMatch>(
     { mode: 'metrics', query },
     metricsRetrievalSchema,

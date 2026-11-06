@@ -15,7 +15,7 @@ export interface EvidenceProjectionOptions {
   measurements: JsonObject[];
   artifacts: ArtifactStore;
   view: EvidenceView;
-  maxBytes: number;
+  maxBytes?: number;
 }
 async function trainingItems(
   measurement: JsonObject,
@@ -127,7 +127,6 @@ async function trainingItems(
 interface ScrubState {
   redacted: boolean;
   truncated: boolean;
-  nodes: number;
 }
 const size = (value: unknown): number =>
   Buffer.byteLength(JSON.stringify(value));
@@ -142,28 +141,14 @@ function scrub(
   value: JsonValue,
   secrets: string[],
   state: ScrubState,
-  depth = 0,
-  full = false,
 ): JsonValue {
-  if (depth > (full ? 64 : 16) || ++state.nodes > (full ? 200000 : 2000)) {
-    state.truncated = true;
-    return '[omitted-depth-or-size]';
-  }
   if (typeof value === 'string') {
     const text = redactText(value, secrets);
     if (text !== value) state.redacted = true;
-    if (!full && text.length > 131072) {
-      state.truncated = true;
-      return text.slice(0, 131072);
-    }
     return text;
   }
-  if (Array.isArray(value)) {
-    if (!full && value.length > 100) state.truncated = true;
-    return value
-      .slice(0, full ? value.length : 100)
-      .map((item) => scrub(item, secrets, state, depth + 1, full));
-  }
+  if (Array.isArray(value))
+    return value.map((item) => scrub(item, secrets, state));
   if (value !== null && typeof value === 'object') {
     const result: JsonObject = {};
     for (const [key, entry] of Object.entries(value)) {
@@ -171,7 +156,7 @@ function scrub(
         state.redacted = true;
         continue;
       }
-      result[key] = scrub(entry, secrets, state, depth + 1, full);
+      result[key] = scrub(entry, secrets, state);
     }
     return result;
   }
@@ -192,8 +177,8 @@ export function fullEvidenceText(
     } catch {
       return redactText(line, secrets);
     }
-    const state: ScrubState = { redacted: false, truncated: false, nodes: 0 };
-    const value = scrub(parsed, secrets, state, 0, true);
+    const state: ScrubState = { redacted: false, truncated: false };
+    const value = scrub(parsed, secrets, state);
     redacted ||= state.redacted;
     truncated ||= state.truncated;
     return typeof value === 'string' ? value : JSON.stringify(value);
@@ -226,7 +211,7 @@ function textPreview(
   secrets: string[],
   structured: boolean,
 ): JsonObject {
-  const state: ScrubState = { redacted: false, truncated: false, nodes: 0 };
+  const state: ScrubState = { redacted: false, truncated: false };
   if (!structured) {
     const redacted = redactText(text, secrets);
     const excerpt = textPrefix(redacted, Math.max(0, budget - 180));
@@ -383,7 +368,7 @@ async function projectEntry(
         );
       });
   } else {
-    const state: ScrubState = { redacted: false, truncated: false, nodes: 0 };
+    const state: ScrubState = { redacted: false, truncated: false };
     const sanitized = scrub(raw, secrets, state);
     const text =
       isObject(sanitized) && typeof sanitized.text === 'string'
@@ -428,15 +413,15 @@ async function projectEntry(
 export async function projectEvidence(
   options: EvidenceProjectionOptions,
 ): Promise<JsonValue> {
-  const { measurements, artifacts, view, maxBytes } = options;
+  const { measurements, artifacts, view } = options;
+  const maxBytes = options.maxBytes ?? Number.POSITIVE_INFINITY;
   if (!['execution', 'training-summary', 'delivery'].includes(view))
     throw new Error('Unknown evidence view');
   if (
-    !Number.isSafeInteger(maxBytes) ||
-    maxBytes < 256 ||
-    maxBytes > 2 * 1024 * 1024
+    options.maxBytes !== undefined &&
+    (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)
   )
-    throw new Error('Evidence budget must be 256..2097152 bytes');
+    throw new Error('Evidence budget must be a positive safe integer');
   for (const measurement of measurements) {
     if (
       measurement.schemaVersion !== 'rsi.measurement/v1' ||
@@ -555,5 +540,7 @@ export async function projectEvidence(
     }
     if (result.truncated === true) output.truncated = true;
   }
+  if (size(output) > maxBytes)
+    throw new Error('Evidence context exceeds byte limit');
   return output;
 }

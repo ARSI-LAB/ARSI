@@ -17,7 +17,6 @@ export const defaultModelRequestTimeoutMs = 120000;
 export const operatorEditConstraints = {
   allowedPaths: ['input.py'],
   maxChangedFiles: 1,
-  maxChangedBytes: 32768,
 };
 export const operatorEditOutputSchema = recordSchema({
   edits: {
@@ -25,10 +24,10 @@ export const operatorEditOutputSchema = recordSchema({
     maxItems: 1,
     items: recordSchema({
       path: { const: 'input.py' },
-      content: { type: 'string', maxLength: 32768 },
+      content: { type: 'string' },
     }),
   },
-  reason: { type: 'string', maxLength: 4000 },
+  reason: { type: 'string' },
 });
 
 export const staticIssueTypes = [
@@ -52,6 +51,8 @@ export type EmbeddingConfig = {
   identityFile: string;
   device: 'cpu';
   timeoutMs: number;
+  maxPayloadBytes?: number;
+  maxLogBytes?: number;
   similarityThreshold: number;
 };
 export type OperatorProposerConfig = {
@@ -132,17 +133,15 @@ export type OperatorHistory = OperatorHistoryArtifact & {
 };
 const ref: JsonObject = { type: 'string', minLength: 1 };
 const hash: JsonObject = { type: 'string', pattern: '^[a-f0-9]{64}$' };
-const text: JsonObject = { type: 'string', minLength: 1, maxLength: 4000 };
+const text: JsonObject = { type: 'string', minLength: 1 };
 const positive: JsonObject = { type: 'number', exclusiveMinimum: 0 };
-const strings = (maximum: number): JsonObject => ({
+const strings = (): JsonObject => ({
   type: 'array',
-  maxItems: maximum,
   items: text,
 });
-const refs = (minimum: number, maximum: number): JsonObject => ({
+const refs = (minimum: number): JsonObject => ({
   type: 'array',
   minItems: minimum,
-  maxItems: maximum,
   uniqueItems: true,
   items: ref,
 });
@@ -151,11 +150,11 @@ export const configSchema = recordSchema(
     agentRef: { ...ref, default: 'agent' },
     promptsDirectory: { ...ref, 'x-rsi-path': 'directory' },
     hardwareContextFile: { ...ref, 'x-rsi-path': 'file' },
-    historyWindow: { type: 'integer', minimum: 1, maximum: 10, default: 5 },
+    historyWindow: { type: 'integer', minimum: 1, default: 5 },
     modelRequestTimeoutMs: {
       type: 'integer',
-      minimum: 1,
-      maximum: 3600000,
+      minimum: 0,
+      maximum: 2147483647,
       default: defaultModelRequestTimeoutMs,
     },
     task: recordSchema({ directory: { ...ref, 'x-rsi-path': 'directory' } }),
@@ -169,9 +168,19 @@ export const configSchema = recordSchema(
         device: { const: 'cpu', default: 'cpu' },
         timeoutMs: {
           type: 'integer',
-          minimum: 1,
-          maximum: 3600000,
+          minimum: 0,
+          maximum: 2147483647,
           default: 300000,
+        },
+        maxPayloadBytes: {
+          type: 'integer',
+          minimum: 1,
+          maximum: Number.MAX_SAFE_INTEGER,
+        },
+        maxLogBytes: {
+          type: 'integer',
+          minimum: 1,
+          maximum: Number.MAX_SAFE_INTEGER,
         },
         similarityThreshold: {
           type: 'number',
@@ -193,7 +202,6 @@ export const configSchema = recordSchema(
 );
 export const staticDiagnosisSchema: JsonObject = {
   type: 'array',
-  maxItems: 16,
   uniqueItems: true,
   items: recordSchema({
     issue_type: { enum: [...staticIssueTypes] },
@@ -201,11 +209,10 @@ export const staticDiagnosisSchema: JsonObject = {
     problematic_code: {
       type: 'array',
       minItems: 1,
-      maxItems: 8,
       uniqueItems: true,
-      items: { type: 'string', minLength: 1, maxLength: 32768 },
+      items: { type: 'string', minLength: 1 },
     },
-    evidence: { ...strings(8), minItems: 1 },
+    evidence: { ...strings(), minItems: 1 },
   }),
 };
 export const diagnosisResponseSchema = recordSchema({
@@ -235,23 +242,21 @@ export const analysisSchema = recordSchema(
     issues: staticDiagnosisSchema,
     matches: {
       type: 'array',
-      maxItems: 4,
       items: recordSchema({
         techniqueId: { enum: [...staticIssueTypes] },
         score: { type: 'number', minimum: -1, maximum: 1 },
         issueIndexes: {
           type: 'array',
           minItems: 1,
-          maxItems: 16,
           uniqueItems: true,
-          items: { type: 'integer', minimum: 0, maximum: 15 },
+          items: { type: 'integer', minimum: 0 },
         },
         sourceReference: text,
         documentDigest: hash,
         exampleDigest: hash,
       }),
     },
-    knowledgeContext: { type: 'string', maxLength: 20000 },
+    knowledgeContext: { type: 'string' },
   },
   [
     'schemaVersion',
@@ -270,14 +275,14 @@ const assessmentFactProperties = {
   candidateMs: { anyOf: [positive, { type: 'null' }] },
 };
 const summaryReferenceProperties = {
-  measurementRefs: refs(0, 4),
+  measurementRefs: refs(0),
   decisionRef: { anyOf: [ref, { type: 'null' }] },
 };
 const summaryResponseProperties: JsonObject = {
-  explanation: { type: 'string', maxLength: 4000 },
-  lessons: strings(3),
-  avoidPatterns: strings(3),
-  tryPatterns: strings(3),
+  explanation: { type: 'string' },
+  lessons: strings(),
+  avoidPatterns: strings(),
+  tryPatterns: strings(),
 };
 export const summaryResponseSchema = recordSchema(summaryResponseProperties);
 export const summarySchema = recordSchema(
@@ -286,16 +291,15 @@ export const summarySchema = recordSchema(
     summaryStatus: { enum: ['available', 'unavailable'] },
     experimentId: ref,
     analysisRef: ref,
-    attempt: { type: 'integer', minimum: 1, maximum: 3 },
-    candidateRefs: refs(1, 4),
+    attempt: { type: 'integer', minimum: 1 },
+    candidateRefs: refs(1),
     ...summaryReferenceProperties,
     techniqueIds: {
       type: 'array',
-      maxItems: 4,
       uniqueItems: true,
       items: { enum: [...staticIssueTypes] },
     },
-    actionSummary: { type: 'string', maxLength: 4000 },
+    actionSummary: { type: 'string' },
     facts: recordSchema({
       ...assessmentFactProperties,
       accepted: { type: 'boolean' },
@@ -323,7 +327,7 @@ export const historySchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-history/v1' },
   experimentId: ref,
   analysisRef: ref,
-  summaryRefs: refs(0, 3),
+  summaryRefs: refs(0),
 });
 
 export type MetricsBottleneck = {
@@ -378,14 +382,13 @@ export const metricsBottleneckSchema = recordSchema({
   evidence: {
     type: 'array',
     minItems: 1,
-    maxItems: 16,
     items: recordSchema({ path: ref, value: { type: 'number' } }),
   },
 });
 export const metricsAnalysisSchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-metrics-analysis/v1' },
   experimentId: ref,
-  round: { type: 'integer', minimum: 1, maximum: 10 },
+  round: { type: 'integer', minimum: 1 },
   parentCandidateRef: ref,
   incumbentMeasurementRef: ref,
   diagnosticMeasurementRef: ref,
@@ -394,19 +397,19 @@ export const metricsAnalysisSchema = recordSchema({
   embeddingDigest: hash,
   hardwareDigest: { anyOf: [hash, { type: 'null' }] },
   bottleneck: { anyOf: [metricsBottleneckSchema, { type: 'null' }] },
-  knowledgeContext: { type: 'string', maxLength: 20000 },
+  knowledgeContext: { type: 'string' },
   retrievalRef: { anyOf: [ref, { type: 'null' }] },
   retrievalStatus: { enum: ['skipped', 'available', 'unavailable'] },
 });
 export const metricsSummarySchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-metrics-summary/v1' },
-  actionSummary: { type: 'string', maxLength: 4000 },
+  actionSummary: { type: 'string' },
   experimentId: ref,
-  round: { type: 'integer', minimum: 1, maximum: 10 },
+  round: { type: 'integer', minimum: 1 },
   analysisRef: ref,
   parentCandidateRef: ref,
   incumbentMeasurementRef: ref,
-  candidateRefs: refs(0, 4),
+  candidateRefs: refs(0),
   ...summaryReferenceProperties,
   candidateDiagnosticMeasurementRef: { anyOf: [ref, { type: 'null' }] },
   facts: recordSchema({
@@ -421,7 +424,7 @@ export const metricsSummarySchema = recordSchema({
 export const metricsHistorySchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-metrics-history/v1' },
   experimentId: ref,
-  summaryRefs: refs(0, 10),
+  summaryRefs: refs(0),
 });
 
 export type HardwareContext = { text: string; sha256: string };
@@ -478,7 +481,7 @@ export type KnowledgeResources = {
 export type KnowledgeQuery =
   | { issues: StaticIssue[] }
   | { mode: 'metrics'; query: string };
-const retrievalText = { type: 'string', minLength: 1, maxLength: 4096 };
+const retrievalText = { type: 'string', minLength: 1 };
 export const embeddingIdentitySchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-embedding-identity/v1' },
   model: recordSchema({ id: retrievalText, revision: retrievalText }),
@@ -491,7 +494,6 @@ export const embeddingIdentitySchema = recordSchema({
   files: {
     type: 'array',
     minItems: 1,
-    maxItems: 10000,
     items: recordSchema({ path: retrievalText, sha256: hash }),
   },
 });
@@ -504,7 +506,7 @@ const retrievalResult = {
   schemaVersion: { const: 'rsi.operator-retrieval/v1' },
   embeddingDigest: hash,
   resourcesDigest: hash,
-  knowledgeContext: { type: 'string', maxLength: 20000 },
+  knowledgeContext: { type: 'string' },
   model: recordSchema({ id: retrievalText, revision: retrievalText }),
   runtime: recordSchema({
     python: retrievalText,
@@ -517,7 +519,6 @@ export const staticRetrievalSchema = recordSchema({
   ...retrievalResult,
   matches: {
     type: 'array',
-    maxItems: 4,
     items: recordSchema({
       ...retrievalMatch,
       techniqueId: { enum: [...staticIssueTypes] },
@@ -525,22 +526,19 @@ export const staticRetrievalSchema = recordSchema({
       issueIndexes: {
         type: 'array',
         minItems: 1,
-        maxItems: 16,
         uniqueItems: true,
-        items: { type: 'integer', minimum: 0, maximum: 15 },
+        items: { type: 'integer', minimum: 0 },
       },
     }),
   },
   omitted: recordSchema({
     techniques: {
       type: 'array',
-      maxItems: 4,
       uniqueItems: true,
       items: { enum: [...staticIssueTypes] },
     },
     examples: {
       type: 'array',
-      maxItems: 4,
       uniqueItems: true,
       items: { enum: [...staticIssueTypes] },
     },
@@ -550,7 +548,6 @@ export const metricsRetrievalSchema = recordSchema({
   ...retrievalResult,
   matches: {
     type: 'array',
-    maxItems: 3,
     items: recordSchema({
       ...retrievalMatch,
       techniqueId: retrievalText,

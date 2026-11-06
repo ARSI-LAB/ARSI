@@ -49,15 +49,13 @@ Return exactly these fields in one JSON object matching outputSchema:
 ```json
 {
   "explanation": "An evidence-grounded explanation with remaining uncertainty",
-  "lessons": ["At most three concise lessons from this attempt"],
-  "avoidPatterns": [
-    "At most three specific transformations to avoid repeating"
-  ],
-  "tryPatterns": ["At most three concrete next transformations and invariants"]
+  "lessons": ["Concise lessons from this attempt"],
+  "avoidPatterns": ["Specific transformations to avoid repeating"],
+  "tryPatterns": ["Concrete next transformations and invariants"]
 }
 ```
 
-Each array may be empty and contains at most three entries. Do not add correctness,
+Each array may be empty. Do not add correctness,
 timings, accepted, outcome, candidate/measurement/decision references, edits or
 other program-owned fields. RSI attaches validated facts to the stored summary.
 Return JSON only, without fences or surrounding prose.

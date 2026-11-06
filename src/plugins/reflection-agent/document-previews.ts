@@ -13,11 +13,6 @@ import { parseFileTree } from '../../contracts/index.js';
 import { string } from '../../shared/json.js';
 import { fullEvidenceText } from '../../runtime/services/facts/evidence.js';
 
-const maxSourceBytes = 8 * 1024 * 1024;
-const maxPreviewBytes = 2 * 1024 * 1024;
-const maxCells = 20000;
-const maxPages = 50;
-
 interface Extracted {
   text: string;
   locations: JsonValue[];
@@ -74,7 +69,6 @@ async function excel(bytes: Buffer, signal: AbortSignal): Promise<Extracted> {
   const lines: string[] = [];
   const locations: JsonValue[] = [];
   const omissions: string[] = [];
-  let count = 0;
   for (const sheet of workbook.worksheets) {
     signal.throwIfAborted();
     lines.push(`Worksheet ${JSON.stringify(sheet.name)}`);
@@ -82,12 +76,6 @@ async function excel(bytes: Buffer, signal: AbortSignal): Promise<Extracted> {
     for (let row = 1; row <= sheet.rowCount; row++) {
       for (let column = 1; column <= sheet.columnCount; column++) {
         signal.throwIfAborted();
-        if (++count > maxCells) {
-          omissions.push(
-            `Cell extraction stopped at ${maxCells} cells; later cells and worksheets omitted.`,
-          );
-          return { text: lines.join('\n'), locations, omissions };
-        }
         const cell = sheet.getCell(row, column);
         const value = cell.value;
         let description: JsonObject;
@@ -251,11 +239,7 @@ async function pdf(bytes: Buffer, signal: AbortSignal): Promise<Extracted> {
     const lines: string[] = [];
     const locations: JsonValue[] = [];
     const omissions: string[] = [];
-    for (
-      let pageNumber = 1;
-      pageNumber <= Math.min(document.numPages, maxPages);
-      pageNumber++
-    ) {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
       signal.throwIfAborted();
       const page = await document.getPage(pageNumber);
       const content = await page.getTextContent();
@@ -271,10 +255,6 @@ async function pdf(bytes: Buffer, signal: AbortSignal): Promise<Extracted> {
       locations.push({ page: pageNumber, extractableText: !!text });
       page.cleanup();
     }
-    if (document.numPages > maxPages)
-      omissions.push(
-        `Pages ${maxPages + 1}-${document.numPages} omitted by the page bound.`,
-      );
     return { text: lines.join('\n\n'), locations, omissions };
   } finally {
     signal.removeEventListener('abort', abort);
@@ -288,10 +268,11 @@ export async function prepareDocumentPreviews(options: {
   files: JsonObject;
   artifacts: ArtifactStore;
   signal: AbortSignal;
+  maxBytes?: number;
 }): Promise<JsonObject[]> {
   const previews: JsonObject[] = [];
   let remaining =
-    32 * 1024 * 1024 -
+    (options.maxBytes ?? Number.POSITIVE_INFINITY) -
     Object.values(options.files).reduce<number>(
       (total, value) =>
         total + (typeof value === 'string' ? Buffer.byteLength(value) : 0),
@@ -379,11 +360,6 @@ export async function prepareDocumentPreviews(options: {
       );
     const bytes = Buffer.from(entry.base64, 'base64');
     record.sizeBytes = bytes.length;
-    if (bytes.length > maxSourceBytes) {
-      record.inspection = 'partial';
-      record.reason = `Source exceeds ${maxSourceBytes}-byte preview input bound; it was not parsed`;
-      continue;
-    }
     let extracted: Extracted;
     try {
       extracted = await (extension === '.xlsx'
@@ -407,11 +383,14 @@ export async function prepareDocumentPreviews(options: {
     options.signal.throwIfAborted();
     const projected = fullEvidenceText(extracted.text, 'text');
     const content = Buffer.from(projected.text);
-    const limit = Math.min(maxPreviewBytes, remaining);
+    const limit = remaining;
     const truncated = content.length > limit;
     const path = `context/reflection/previews/${previews.length - 1}.txt`;
+    let end = Math.min(content.length, limit);
+    while (end > 0 && end < content.length && (content[end]! & 0xc0) === 0x80)
+      end--;
     const previewText = truncated
-      ? content.subarray(0, limit).toString('utf8')
+      ? content.subarray(0, end).toString('utf8')
       : projected.text;
     options.files[path] = previewText;
     remaining -= Buffer.byteLength(previewText);
@@ -420,7 +399,7 @@ export async function prepareDocumentPreviews(options: {
     record.omissions = extracted.omissions.map(safe);
     if (truncated)
       (record.omissions as JsonValue[]).push(
-        `Preview text truncated at ${limit} bytes`,
+        `Preview text truncated at ${end} bytes by the configured evidence budget`,
       );
     record.redacted = projected.redacted;
     record.inspection =

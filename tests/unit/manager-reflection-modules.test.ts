@@ -102,6 +102,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
     async create() {
       return {
         async execute(input, context) {
+          assert.equal(context.scope?.limits.evidenceBytes, 4096);
           generations.push({
             binding: context.bindingId,
             goal: string(object(input).goal),
@@ -130,7 +131,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
       ref: 'scoped.generator',
       config: {},
     },
-    budget: { modelCalls: 0 },
+    budget: { modelCalls: 0, evidenceBytes: 4096 },
   });
   await writeFile(join(root, 'prompt.md'), 'current guidance');
   await writeFile(join(root, 'override-goal.md'), 'root override goal');

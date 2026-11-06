@@ -60,6 +60,8 @@ async function setup(
     failSummary?: boolean;
     initialValid?: boolean;
     noChange?: boolean;
+    outputSource?: string;
+    outputReason?: string;
     metrics?: boolean;
     hardwareText?: string;
     invalidMetrics?: boolean;
@@ -159,8 +161,14 @@ async function setup(
           return {
             edits: options.noChange
               ? []
-              : [{ path: 'input.py', content: operatorFixtureSource(marker) }],
-            reason: `Changed ${marker}`,
+              : [
+                  {
+                    path: 'input.py',
+                    content:
+                      options.outputSource ?? operatorFixtureSource(marker),
+                  },
+                ],
+            reason: options.outputReason ?? `Changed ${marker}`,
           };
         },
         async dispose() {},
@@ -289,6 +297,61 @@ async function baseline(context: RuntimeContext) {
   );
   return { entry, baselineRef: string(evaluated.measurementRef) };
 }
+
+test('static summaries deliver and reread the complete action rationale beyond four thousand characters', async (t) => {
+  const rationale =
+    'Detailed invariant evidence. '.repeat(200) + 'Final rationale detail.';
+  const fixture = await setup(
+    async (context, requests) => {
+      const { entry, baselineRef } = await baseline(context);
+      const proposal = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 1,
+          goal: 'Preserve all supported rationale',
+          analysisRef: null,
+          historyRef: null,
+        }),
+      );
+      assert.equal(proposal.status, 'no-change');
+      const summary = object(
+        await context.invoke('proposer', {
+          action: 'summarize',
+          phase: 'static',
+          entryCandidateRef: entry,
+          analysisRef: proposal.analysisRef,
+          historyRef: null,
+          attempt: 1,
+          candidateRefs: [entry],
+          measurementRefs: [],
+          decisionRef: null,
+          outcome: 'no-change',
+        }),
+      );
+      const history = await readHistory(string(summary.historyRef), context);
+      assert.equal(history.summaries[0]!.actionSummary, rationale);
+      const summaryRequest = requests.find(
+        (request) => object(request.input).stage === 'summarize',
+      )!;
+      assert.equal(object(summaryRequest.input).actionSummary, rationale);
+      return summary;
+    },
+    false,
+    { noChange: true, outputReason: rationale },
+  );
+  t.after(() => fixture.dispose());
+  assert.equal(
+    (
+      await fixture.runtime.manager.run(fixture.recipePath, {
+        id: 'complete-static-rationale',
+      })
+    ).status,
+    'succeeded',
+  );
+});
 
 test('operator generation receives configured prompts and rejects analysis after prompt changes', async (t) => {
   const promptsDirectory = await mkdtemp(join(tmpdir(), 'operator-prompts-'));
@@ -807,7 +870,7 @@ test('metric repairs use the failed candidate and deliver the complete user hard
   );
 });
 
-test('invalid metric analysis retains error evidence and fact history so later rounds can continue', async (t) => {
+test('invalid metric analysis rereads fact history through twelve rounds beyond former ceilings', async (t) => {
   const fixture = await setup(
     async (context, requests) => {
       const { entry, baselineRef } = await baseline(context);
@@ -820,7 +883,7 @@ test('invalid metric analysis retains error evidence and fact history so later r
         }),
       );
       let historyRef = null;
-      for (let round = 1; round <= 2; round++) {
+      for (let round = 1; round <= 12; round++) {
         const result = object(
           await context.invoke('proposer', {
             action: 'propose',
@@ -868,8 +931,10 @@ test('invalid metric analysis retains error evidence and fact history so later r
         requests.filter(
           (request) => object(request.input).stage === 'diagnose-metrics',
         ).length,
-        2,
+        12,
       );
+      const history = object(await context.artifacts.readJson(historyRef!));
+      assert.equal((history.summaryRefs as string[]).length, 12);
       return { historyRef };
     },
     false,
@@ -884,6 +949,68 @@ test('invalid metric analysis retains error evidence and fact history so later r
     ).status,
     'succeeded',
   );
+});
+
+test('operator source bytes follow the explicit Application Target rather than a proposer ceiling', async (t) => {
+  const outputSource =
+    operatorFixtureSource('fixture:latency=8') + `# ${'€'.repeat(12000)}\n`;
+  for (const permitted of [true, false]) {
+    const fixture = await setup(
+      async (context) => {
+        const { entry, baselineRef } = await baseline(context);
+        return object(
+          await context.invoke('proposer', {
+            action: 'propose',
+            phase: 'static',
+            entryCandidateRef: entry,
+            baselineMeasurementRef: baselineRef,
+            attempt: 1,
+            goal: 'Apply the complete authorized source',
+            analysisRef: null,
+            historyRef: null,
+          }),
+        );
+      },
+      false,
+      { initialValid: true, outputSource },
+    );
+    t.after(() => fixture.dispose());
+    if (permitted) {
+      const targetPath = join(fixture.root, 'example/target.yaml');
+      const target = object(parse(await readFile(targetPath, 'utf8')));
+      object(object((target.entries as JsonObject[])[0]).content).maxBytes =
+        65536;
+      object(target.constraints).maxChangedBytes = 65536;
+      await writeFile(targetPath, stringify(target));
+      const result = await fixture.runtime.manager.run(fixture.recipePath, {
+        id: 'large-source-permitted',
+      });
+      assert.equal(object(result.output).status, 'created');
+      const candidate = await fixture.runtime.manager.facts.read(
+        'candidates',
+        string(object(result.output).candidateRef),
+      );
+      const tree = object(
+        await fixture.runtime.manager.artifacts.readJson(
+          string(candidate.artifactRef),
+        ),
+      );
+      assert.equal(
+        Buffer.from(
+          string(object((tree.files as JsonObject[])[0]).base64),
+          'base64',
+        ).toString('utf8'),
+        outputSource,
+      );
+    } else {
+      await assert.rejects(
+        fixture.runtime.manager.run(fixture.recipePath, {
+          id: 'large-source-rejected',
+        }),
+        /content|size|bytes/i,
+      );
+    }
+  }
 });
 
 test('invalid static summary output preserves a fact-only summary with an explicit unavailable status', async (t) => {

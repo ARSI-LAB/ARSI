@@ -29,6 +29,118 @@ async function workbookFixture(): Promise<Buffer> {
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
+function pdfFixture(pageCount: number, paddingBytes: number): Buffer {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Count ${pageCount} /Kids [${Array.from({ length: pageCount }, (_, index) => `${index * 2 + 4} 0 R`).join(' ')}] >>`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  for (let index = 1; index <= pageCount; index++) {
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${index * 2 + 3} 0 R >>`,
+    );
+    const content = `BT /F1 12 Tf 72 720 Td (Page marker ${index}) Tj ET`;
+    objects.push(
+      `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+    );
+  }
+  objects.push(
+    `<< /Length ${paddingBytes} >>\nstream\n${'x'.repeat(paddingBytes)}\nendstream`,
+  );
+  let document = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(document));
+    document += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const start = Buffer.byteLength(document);
+  document += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  document += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+    .join('');
+  document += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF\n`;
+  return Buffer.from(document);
+}
+
+test('Reflection previews read large captured PDFs through every page without a hidden aggregate budget', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'rsi-large-pdf-preview-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const artifacts = new FileArtifacts(directory);
+  const artifactRef = await artifacts.putJson({
+    kind: 'file-tree',
+    files: [
+      {
+        path: 'large.pdf',
+        mode: 420,
+        base64: pdfFixture(51, 8 * 1024 * 1024).toString('base64'),
+      },
+    ],
+  });
+  const files: JsonObject = {
+    'context/prior.txt': 'x'.repeat(32 * 1024 * 1024 + 1),
+  };
+  const [preview] = await prepareDocumentPreviews({
+    sources: [{ artifactRef, path: 'large.pdf', access: 'delivery' }],
+    files,
+    artifacts,
+    signal: new AbortController().signal,
+  });
+  assert.equal(preview!.inspection, 'complete');
+  assert.match(string(files[string(preview!.path)]), /Page marker 51/);
+  assert.equal((preview!.locations as JsonObject[]).length, 51);
+});
+
+test('Reflection workbook previews retain late cells and large text while honoring an explicit evidence budget', async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), 'rsi-large-workbook-preview-'),
+  );
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Rows');
+  for (let row = 1; row <= 142; row++)
+    for (let column = 1; column <= 141; column++)
+      sheet.getCell(row, column).value = 'x'.repeat(120);
+  sheet.getCell(142, 141).value = 'LAST_CELL';
+  const artifacts = new FileArtifacts(directory);
+  const artifactRef = await artifacts.putJson({
+    kind: 'file-tree',
+    files: [
+      {
+        path: 'large.xlsx',
+        mode: 420,
+        base64: Buffer.from(await workbook.xlsx.writeBuffer()).toString(
+          'base64',
+        ),
+      },
+    ],
+  });
+  const sources = [{ artifactRef, path: 'large.xlsx', access: 'delivery' }];
+  const files: JsonObject = {};
+  const [preview] = await prepareDocumentPreviews({
+    sources,
+    files,
+    artifacts,
+    signal: new AbortController().signal,
+  });
+  const content = string(files[string(preview!.path)]);
+  assert.equal(preview!.inspection, 'complete');
+  assert.ok(Buffer.byteLength(content) > 2 * 1024 * 1024);
+  assert.match(content, /LAST_CELL/);
+  const boundedFiles: JsonObject = {};
+  const [bounded] = await prepareDocumentPreviews({
+    sources,
+    files: boundedFiles,
+    artifacts,
+    signal: new AbortController().signal,
+    maxBytes: 128,
+  });
+  assert.equal(bounded!.inspection, 'partial');
+  assert.ok(
+    Buffer.byteLength(string(boundedFiles[string(bounded!.path)])) <= 128,
+  );
+});
+
 test('Reflection previews preserve Excel cell/formula state, Word extraction order and PDF pages', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-document-preview-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -296,7 +408,7 @@ test('Reflection preserves an accepted empty workbook extraction as an empty rea
   assert.equal(files[string(previews[0]!.path)], '');
 });
 
-test('Reflection previews redact extracted values and locations and report resource bounds', async (t) => {
+test('Reflection previews redact extracted values and locations and report malformed sources', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-preview-redaction-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const prior = process.env.REFLECTION_PREVIEW_API_KEY;
@@ -320,9 +432,9 @@ test('Reflection previews redact extracted values and locations and report resou
         ),
       },
       {
-        path: 'oversized.pdf',
+        path: 'malformed.docx',
         mode: 420,
-        base64: Buffer.alloc(8 * 1024 * 1024 + 1).toString('base64'),
+        base64: Buffer.from('not a zip').toString('base64'),
       },
     ],
   });
@@ -330,7 +442,7 @@ test('Reflection previews redact extracted values and locations and report resou
   const previews = await prepareDocumentPreviews({
     sources: [
       { artifactRef, path: 'secrets.xlsx', access: 'delivery' },
-      { artifactRef, path: 'oversized.pdf', access: 'delivery' },
+      { artifactRef, path: 'malformed.docx', access: 'delivery' },
     ],
     files,
     artifacts,
@@ -341,8 +453,8 @@ test('Reflection previews redact extracted values and locations and report resou
     /SYNTHETIC_PREVIEW_SECRET_1234/,
   );
   assert.match(JSON.stringify({ files, previews }), /REDACTED/);
-  assert.equal(previews[1]!.inspection, 'partial');
-  assert.match(string(previews[1]!.reason), /input bound/);
+  assert.equal(previews[1]!.inspection, 'failed');
+  assert.match(string(previews[1]!.reason), /parser/);
 });
 
 test('Reflection supplies preview files in its workspace and rejects evidence edits and view changes', async (t) => {
@@ -391,6 +503,7 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
   };
   await facts.write('evidence-views', 'evidence-preview', snapshot);
   let editEvidence = false;
+  let previewBudget: number | undefined;
   let reads = 0;
   const context = new RuntimeContext().extend({
     experimentId: 'preview',
@@ -408,10 +521,12 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
         await readFile(join(cwd, 'context/reflection/index.json'), 'utf8'),
       );
       const preview = object(index.previews[0]);
-      assert.match(
-        await readFile(join(cwd, string(preview.path)), 'utf8'),
-        /source value/,
-      );
+      const content = await readFile(join(cwd, string(preview.path)), 'utf8');
+      if (previewBudget !== undefined) {
+        assert.equal(preview.inspection, 'partial');
+        assert.ok(Buffer.byteLength(content) <= previewBudget);
+      }
+      assert.match(content, /source value/);
       reads++;
       return {
         edits: editEvidence
@@ -436,6 +551,23 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
   editEvidence = true;
   await assert.rejects(operation.execute(input, context), /read.only/);
   assert.equal(reads, 2);
+  editEvidence = false;
+  previewBudget = 128;
+  assert.equal(
+    (
+      await operation.execute(
+        input,
+        context.extend({
+          scope: {
+            id: 'preview-budget',
+            signal: context.signal,
+            limits: { evidenceBytes: 128 },
+          },
+        }),
+      )
+    ).status,
+    'no-change',
+  );
   await facts.write('evidence-views', 'evidence-preview', {
     ...snapshot,
     evidenceView: 'training-summary',

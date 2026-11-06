@@ -57,6 +57,9 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
         python: worker,
         device: 0,
         timeoutSeconds: 15,
+        outputLimitBytes: 8 * 1024 * 1024,
+        cleanupGraceMs: 200,
+        cleanupTimeoutMs: 4000,
         profiling: { enabled: false },
       },
     },
@@ -153,6 +156,9 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   const saved = JSON.parse(await readFile(options.configPath, 'utf8'));
   assert.deepEqual(saved.reporter, { name: 'markdown', config: {} });
   assert.equal(saved.run.timeoutSeconds, 45);
+  assert.equal(saved.benchmark.config.outputLimitBytes, 8 * 1024 * 1024);
+  assert.equal(saved.benchmark.config.cleanupGraceMs, 200);
+  assert.equal(saved.benchmark.config.cleanupTimeoutMs, 4000);
   assert.deepEqual(saved.run.taskIds, ['fixed']);
   assert.deepEqual(saved.benchmark.config.seeds, [42]);
   assert.equal(saved.task, undefined);

@@ -4,7 +4,45 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
-import { projectEvidence } from '../../src/runtime/services/facts/evidence.js';
+import {
+  fullEvidenceText,
+  projectEvidence,
+} from '../../src/runtime/services/facts/evidence.js';
+import type { JsonValue } from '../../src/contracts/index.js';
+
+test('Full evidence retains deeply nested and large JSON while redacting private fields', () => {
+  let nested: JsonValue = { text: 'DEEP_END', private: 'PRIVATE_VALUE' };
+  for (let index = 0; index < 96; index++) nested = { next: nested };
+  const text = JSON.stringify({
+    nested,
+    entries: Array.from({ length: 200010 }, (_, index) => ({
+      text: `entry-${index}`,
+    })),
+    long: 'x'.repeat(150000) + 'LONG_END',
+  });
+  const projected = fullEvidenceText(text, 'json');
+  assert.match(projected.text, /DEEP_END/);
+  assert.match(projected.text, /entry-200009/);
+  assert.match(projected.text, /LONG_END/);
+  assert.doesNotMatch(projected.text, /PRIVATE_VALUE|omitted-depth-or-size/);
+  assert.equal(projected.truncated, false);
+  assert.equal(projected.redacted, true);
+});
+
+test('Evidence projection accepts explicitly configured byte budgets above 2 MiB', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-large-evidence-budget-'));
+  try {
+    const projected = await projectEvidence({
+      measurements: [],
+      artifacts: new FileArtifacts(root),
+      view: 'execution',
+      maxBytes: 4 * 1024 * 1024,
+    });
+    assert.equal(JSON.stringify(projected).includes('"truncated":false'), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('evidence projection is bounded, anonymous for delivery, and never leaks private scoring', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-evidence-'));

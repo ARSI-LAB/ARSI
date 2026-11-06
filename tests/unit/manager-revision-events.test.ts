@@ -296,7 +296,8 @@ test('Manager activates committed revisions before notifying, retains the old ch
   assert.equal(result.status, 'succeeded');
   assert.equal(object(result.output).prompt, 'revised');
   assert.equal(activations.length, 1);
-  assert.equal(workerContexts.length, 2);
+  assert.equal(workerContexts.length, 3);
+  assert.equal(workerContexts[2]!.bindingId, 'unused');
   assert.notEqual(workerContexts[0]!.callId, workerContexts[1]!.callId);
   assert.notEqual(workerContexts[0]!.directory, workerContexts[1]!.directory);
   assert.deepEqual(activations[0]!.bindingIds, ['worker', 'unused']);
@@ -307,6 +308,11 @@ test('Manager activates committed revisions before notifying, retains the old ch
     trace.indexOf('chain:old:original') < trace.indexOf('dispose:original'),
   );
   assert.ok(trace.includes('chain:new:revised'));
+  assert.ok(trace.includes('chain:new:revised-unused'));
+  assert.equal(
+    trace.filter((event) => event === 'dispose:revised-unused').length,
+    1,
+  );
   const receipts = await manager.facts.list('calls');
   const originalCall = receipts.find(
     (receipt) => receipt.path === 'steps/search/iteration-0/work',

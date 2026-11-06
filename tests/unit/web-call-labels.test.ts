@@ -15,7 +15,7 @@ const call = (
   pluginId,
   parentCallId,
   path,
-  bindingId: 'binding',
+  bindingId: pluginId.split('.')[0]!,
   status: 'succeeded',
   startedAt: null,
   finishedAt: null,
@@ -34,8 +34,9 @@ test('agent calls retain business ownership through nested agents without confus
     const labels = callLabels(nested, [parent, agent, nested]);
     assert.equal(
       labels.title,
-      `${component[0]!.toUpperCase()}${component.slice(1)} · Round 1`,
+      `${component[0]!.toUpperCase()}${component.slice(1)}`,
     );
+    assert.equal(labels.round, 'R1');
     assert.equal(labels.plugins, `${component}.agent → agent.pi`);
     assert.equal(labels.path, 'loop/0/remember');
     assert.equal(ownerCallId(nested, [parent, agent, nested]), 'parent');
@@ -47,4 +48,44 @@ test('agent calls retain business ownership through nested agents without confus
   const cycle = call('cycle', 'agent.pi', 'cycle', 'call-cycle');
   assert.equal(callLabels(cycle, [cycle]).title, 'Agent');
   assert.equal(ownerCallId(cycle, [cycle]), 'cycle');
+});
+
+test('call labels use bindings and verified evaluation stages, preserving Reflection trigger rounds', () => {
+  const proposer = {
+    ...call('p', 'proposer.agent', 'root', 'loop/1/renamed'),
+    bindingId: 'invariantProposer',
+  };
+  assert.equal(callLabels(proposer, [proposer]).title, 'Inv Proposer');
+  assert.equal(
+    callLabels({ ...proposer, bindingId: 'composer' }, []).title,
+    'Composer',
+  );
+  assert.equal(
+    callLabels({ ...proposer, bindingId: 'custom' }, []).title,
+    'custom',
+  );
+  const evaluator = call(
+    'e',
+    'evaluator.agentbench',
+    'root',
+    'loop/1/arbitrary',
+  );
+  assert.equal(
+    callLabels(
+      evaluator,
+      [],
+      new Map([['e', { round: 'Round 2', variant: 'Invariant' }]]),
+    ).title,
+    'Evaluator · Inv',
+  );
+  assert.equal(callLabels(evaluator, []).title, 'Evaluator');
+  const reflection = {
+    ...call('r', 'reflection.agent', 'root', 'reflection/id'),
+    triggerPath: 'loop/3/renamed',
+  };
+  assert.equal(callLabels(reflection, []).round, 'R4');
+  assert.equal(
+    callLabels({ ...reflection, triggerPath: null }, []).round,
+    null,
+  );
 });

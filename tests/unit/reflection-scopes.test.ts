@@ -6,7 +6,7 @@ import {
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
-import { compilePolicy } from '../../src/runtime/compiler/index.js';
+import { Policy } from '../../src/runtime/policy/index.js';
 
 test('Policy bindings cannot select registered Policies as child plugins', async (t) => {
   const registry = new Registry();
@@ -27,7 +27,7 @@ test('Policy bindings cannot select registered Policies as child plugins', async
     }),
   );
   registry.registerPolicy('policy.child', '/unread-child.yaml');
-  const policy = compilePolicy(
+  const policy = new Policy(
     {
       schemaVersion: 'rsi.policy/v1',
       id: 'policy.parent',

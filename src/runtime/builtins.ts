@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { Registry } from './registry/index.js';
-import { readPolicy } from './compiler/index.js';
+import { Policy } from './policy/index.js';
 import { agentbundleDefinition } from '../plugins/application-agentbundle/index.js';
 import { inferenceDefinition } from '../plugins/application-inference/index.js';
 import { piDefinition } from '../plugins/agent-pi/index.js';
@@ -40,7 +40,7 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     'parameter-optuna/policy.yaml',
   ]) {
     const file = fileURLToPath(new URL(`../policies/${path}`, import.meta.url));
-    const policy = await readPolicy(file, registry);
+    const policy = await Policy.load(file, registry);
     registry.registerPolicy(String(policy.id), file);
   }
 }

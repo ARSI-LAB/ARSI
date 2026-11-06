@@ -12,10 +12,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
+import { patchEditOutputSchema } from '../../src/plugins/proposer-agent/patch-edits.js';
 import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { configSchema } from '../../src/plugins/agent-codex/schema.js';
 import { parseConfig } from '../../src/shared/schema.js';
 import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { stringify } from 'yaml';
 import { object } from '../../src/shared/json.js';
 
@@ -120,6 +122,7 @@ async function fixture(
     rpcError?: boolean;
     turnFailure?: boolean;
     files?: Record<string, string>;
+    outputSchema?: JsonObject;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'codex-native-'));
@@ -236,7 +239,7 @@ async function fixture(
           prompt: 'Return a JSON answer.',
           input: { example: true },
           files: options.files ?? { 'evidence.txt': 'SNAPSHOT_CONTENT' },
-          outputSchema: schema,
+          outputSchema: options.outputSchema ?? schema,
           maxModelCalls,
         },
         context,
@@ -313,6 +316,40 @@ for (const model of [undefined, 'selected-model'])
       await f.close();
     }
   });
+test('Codex forwards the production patch schema unchanged and accepts all edit operations', async () => {
+  const reply = {
+    edits: [
+      {
+        op: 'patch',
+        path: 'existing.md',
+        changes: [{ oldText: 'old', newText: 'new' }],
+      },
+      { op: 'create', path: 'new.md', content: 'New guidance' },
+      { op: 'delete', path: 'obsolete.md' },
+    ],
+    reason: 'Update guidance',
+  };
+  const original = structuredClone(patchEditOutputSchema);
+  const f = await fixture([JSON.stringify(reply)], {
+    outputSchema: object(patchEditOutputSchema),
+  });
+  try {
+    assert.deepEqual(await f.run(), reply);
+    if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
+      const execution = JSON.parse(
+        await readFile(join(f.directory, 'execution.json'), 'utf8'),
+      );
+      assert.deepEqual(execution.turn.outputSchema, patchEditOutputSchema);
+      const items = execution.turn.outputSchema.properties.edits.items;
+      assert.equal(items.oneOf, undefined);
+      assert.equal(items.anyOf.length, 3);
+    }
+    assert.deepEqual(patchEditOutputSchema, original);
+  } finally {
+    await f.close();
+  }
+});
+
 test('Codex preserves native personal instructions, provider requests and tools', async () => {
   const f = await fixture(['{"answer":"ok"}']);
   try {
@@ -457,12 +494,9 @@ test('existing Policy accepts the native Codex binding', async () => {
     homeDirectory: false,
   });
   try {
-    const recipe = await import('../../src/runtime/loaders/index.js').then(
-      (m) =>
-        m.loadRecipe(
-          resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
-          runtime.registry,
-        ),
+    const recipe = await Recipe.load(
+      resolve('examples/harness/dsh-wikiskill/recipe.yaml'),
+      runtime.registry,
     );
     const declaration = recipe.toJSON();
     object(declaration.bindings).agent = { plugin: 'agent.codex', config: {} };

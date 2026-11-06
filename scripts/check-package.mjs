@@ -333,6 +333,8 @@ assert.equal(RuntimeContext,ContractContext);
 const context=new RuntimeContext().extend({traceId:'consumer'});
 const runtime=await createRuntime({rootDirectory:${JSON.stringify(outside)},context});
 assert.equal(runtime.context.traceId,'consumer');
+const standalonePolicy=new Policy({schemaVersion:'rsi.policy/v1',id:'consumer.policy',input_schema:{type:'object'},output_schema:{type:'object'},steps:[],output:{value:7}});
+assert.deepEqual(await standalonePolicy.execute({application:{},context:context.extend({signal:new AbortController().signal}),invoke:async()=>{throw new Error('Unexpected plugin call');},checkpoint:async()=>{}}),{value:7},'installed Policy supports direct construction and execution');
 try {
  const installed=new URL('./node_modules/ember-rsi/dist/src/',import.meta.url);
  const {prepareDocumentPreviews}=await import(new URL('plugins/reflection-agent/document-previews.js',installed));

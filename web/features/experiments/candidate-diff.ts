@@ -4,6 +4,7 @@ import {
   type ArtifactPreview,
 } from '../../api/observation-client.js';
 import { readAllObservationPages } from '../../api/read-all-pages.js';
+import { QueryCache } from '../../api/query-cache.js';
 import type { RecordedFile } from './file-browser-model.js';
 
 export interface TextChange {
@@ -18,6 +19,10 @@ export interface CandidateDiff {
   unchanged: number;
   total: number;
 }
+// Reuse shared parent snapshots across comparisons, scoped to the experiment.
+const indexes = new QueryCache<RecordedFile[]>(24);
+const previews = new QueryCache<ArtifactPreview>(128);
+
 function fileIndex(raw: unknown) {
   const value = parseArtifact(raw);
   if (value.kind !== 'file-tree' || !value.files)
@@ -40,24 +45,37 @@ async function readCandidateDiff(
   parent: string,
   current: string,
   signal: AbortSignal,
+  prefix = '',
+  force = false,
 ): Promise<CandidateDiff> {
   const base = `/${encodeURIComponent(id)}/artifacts/`;
   const [beforeIndex, afterIndex] = await Promise.all(
     [parent, current].map((ref) =>
-      readAllObservationPages(
+      indexes.read(
         base + encodeURIComponent(ref),
-        fileIndex,
+        async (requestSignal) =>
+          (
+            await readAllObservationPages(
+              base + encodeURIComponent(ref),
+              fileIndex,
+              requestSignal,
+            )
+          ).items,
         signal,
+        60000,
+        force,
       ),
     ),
   );
   const before = new Map(
-    beforeIndex!.items.map((file: RecordedFile) => [file.path, file]),
+    beforeIndex!.map((file: RecordedFile) => [file.path, file]),
   );
   const after = new Map(
-    afterIndex!.items.map((file: RecordedFile) => [file.path, file]),
+    afterIndex!.map((file: RecordedFile) => [file.path, file]),
   );
-  const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
+  const paths = [...new Set([...before.keys(), ...after.keys()])]
+    .filter((path) => path.startsWith(prefix))
+    .sort();
   if (paths.length > 128)
     throw new Error(
       'Text comparison supports up to 128 files. The complete snapshot remains available in Full files.',
@@ -75,12 +93,17 @@ async function readCandidateDiff(
           changes[index] = null;
           continue;
         }
-        const read = (ref: string) =>
-          readObservation(
-            `${base}${encodeURIComponent(ref)}?${new URLSearchParams({ path })}`,
-            parseArtifact,
+        const read = (ref: string) => {
+          const key = `${base}${encodeURIComponent(ref)}?${new URLSearchParams({ path })}`;
+          return previews.read(
+            key,
+            (requestSignal) =>
+              readObservation(key, parseArtifact, requestSignal),
             signal,
+            60000,
+            force,
           );
+        };
         const [left, right] = await Promise.all([
           before.has(path) ? read(parent) : null,
           after.has(path) ? read(current) : null,
@@ -112,6 +135,8 @@ export async function loadCandidateDiff(
   parent: string,
   current: string,
   signal: AbortSignal,
+  prefix = '',
+  force = false,
 ): Promise<CandidateDiff> {
   const controller = new AbortController();
   try {
@@ -120,6 +145,8 @@ export async function loadCandidateDiff(
       parent,
       current,
       AbortSignal.any([signal, controller.signal]),
+      prefix,
+      force,
     );
   } catch (error) {
     controller.abort();

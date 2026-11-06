@@ -99,7 +99,7 @@ test('snapshot comparison uses GET only, detects equal-size edits, and never tre
   useDigests = true;
   requestedPaths.length = 0;
   const optimized = await loadCandidateDiff(
-    'experiment',
+    'experiment-digests',
     'parent',
     'current',
     new AbortController().signal,
@@ -107,6 +107,39 @@ test('snapshot comparison uses GET only, detects equal-size edits, and never tre
   assert.deepEqual(optimized, result);
   assert.equal(requestedPaths.includes('same.txt'), false);
   assert.equal(requestedPaths.filter((path) => path === 'edit.txt').length, 2);
+  requestedPaths.length = 0;
+  const scoped = await loadCandidateDiff(
+    'experiment-digests',
+    'parent',
+    'current',
+    new AbortController().signal,
+    'edit.',
+  );
+  assert.equal(
+    requestedPaths.length,
+    0,
+    'reuse indexes and previews across scopes',
+  );
+  assert.equal(scoped.total, 1);
+  assert.deepEqual(
+    scoped.changes.map((change) => change.path),
+    ['edit.txt'],
+  );
+  assert.ok(
+    requestedPaths.every((path) => path === null || path === 'edit.txt'),
+  );
+  await loadCandidateDiff(
+    'experiment-digests',
+    'parent',
+    'current',
+    new AbortController().signal,
+    '',
+    true,
+  );
+  assert.ok(
+    requestedPaths.length > 0,
+    'explicit refresh bypasses snapshot caches',
+  );
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(

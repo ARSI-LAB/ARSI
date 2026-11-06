@@ -62,10 +62,17 @@ export function ScoreCharts({
       </CardHeader>
       <CardContent>
         <QueryNotice
-          loading={result.loading || evaluations.loading}
+          loading={
+            result.loading ||
+            evaluations.loading ||
+            candidates.loading ||
+            details.loading
+          }
           error={
             result.error ||
             evaluations.error ||
+            candidates.error ||
+            details.error ||
             (inconsistent
               ? 'Evaluation records changed while loading. Reload the chart to align the sequence.'
               : '')
@@ -73,9 +80,15 @@ export function ScoreCharts({
           refresh={() => {
             result.refresh();
             evaluations.refresh();
+            candidates.refresh();
+            details.refresh();
           }}
         />
-        {result.data && evaluations.data && !inconsistent ? (
+        {result.data &&
+        evaluations.data &&
+        candidates.data &&
+        details.data &&
+        !inconsistent ? (
           <>
             {candidate ? (
               <p className="filter-note">

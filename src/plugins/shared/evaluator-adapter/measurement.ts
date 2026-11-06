@@ -1,3 +1,4 @@
+import type { SdkEvaluatorConfig } from './configuration.js';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import type {
@@ -271,7 +272,7 @@ export async function archiveItemExecution(
 
 export async function archiveProvenance(
   context: RuntimeContext,
-  native: JsonObject,
+  native: SdkEvaluatorConfig,
   result: JsonObject,
   snapshot: JsonObject | null,
   nativeResultRef: string,

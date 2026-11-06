@@ -3,18 +3,22 @@ import { join } from 'node:path';
 import type {
   InferencebenchInput,
   InferencebenchOutput,
+  JsonObject,
   Operation,
   RuntimeContext,
 } from '../../contracts/index.js';
 import { object, string, unknownKeys } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { redact } from '../shared/evaluator-adapter/data.js';
+import { plain, redact } from '../shared/evaluator-adapter/data.js';
 import {
   sdkRunner,
   type EvaluatorRunner,
 } from '../shared/evaluator-adapter/sdk.js';
 import { evaluationStatus } from '../shared/evaluator-adapter/measurement.js';
-import { nativeConfiguration } from './configuration.js';
+import {
+  parseEvaluatorConfig,
+  type SdkEvaluatorConfig,
+} from '../shared/evaluator-adapter/configuration.js';
 import { normalizeEvaluation } from './measurement.js';
 import { configSchema, type InferencebenchConfig } from './schema.js';
 export async function createInferencebench(
@@ -34,14 +38,12 @@ export async function createInferencebench(
         async (execution) => {
           context.signal.throwIfAborted();
           await mkdir(context.directory, { recursive: true });
-          const native = nativeConfiguration(
-            config,
-            input,
+          const evaluationConfig = prepareEvaluationConfig(config, {
             execution,
-            context.directory,
-          );
+            directory: context.directory,
+          });
           const configPath = join(context.directory, 'evaluator.json');
-          await writeFile(configPath, JSON.stringify(native), {
+          await writeFile(configPath, JSON.stringify(evaluationConfig), {
             mode: 0o600,
           });
           await context.charge('evaluationRuns', 1);
@@ -68,7 +70,7 @@ export async function createInferencebench(
               }),
             );
             const measurementRef = await normalizeEvaluation(
-              native,
+              evaluationConfig,
               input,
               execution,
               partial,
@@ -87,7 +89,7 @@ export async function createInferencebench(
             );
           }
           const measurementRef = await normalizeEvaluation(
-            native,
+            evaluationConfig,
             input,
             execution,
             result,
@@ -114,4 +116,56 @@ export async function createInferencebench(
     },
     async dispose(): Promise<void> {},
   };
+}
+
+function prepareEvaluationConfig(
+  config: InferencebenchConfig,
+  {
+    execution,
+    directory,
+  }: {
+    execution: JsonObject;
+    directory: string;
+  },
+): SdkEvaluatorConfig {
+  const prepared = object(structuredClone(config));
+  const benchmark: JsonObject =
+    typeof prepared.benchmark === 'string'
+      ? { name: prepared.benchmark }
+      : object(prepared.benchmark, 'benchmark');
+  const solver: JsonObject =
+    typeof benchmark.solver === 'string'
+      ? { name: benchmark.solver }
+      : plain(benchmark.solver);
+  const serviceName = string(
+    solver.service ?? 'default',
+    'benchmark.solver.service',
+  );
+  const services = object(prepared.services, 'services');
+  const model = object(services[serviceName], `services.${serviceName}`);
+  model.model = string(execution.model, 'inference model');
+  model.base_url = string(execution.baseUrl, 'inference baseUrl');
+  if (typeof execution.credentialRef === 'string')
+    model.api_key = execution.credentialRef.startsWith('${')
+      ? execution.credentialRef
+      : `\${${execution.credentialRef}}`;
+  prepared.output = {
+    ...plain(prepared.output),
+    directory: join(directory, 'sdk'),
+  };
+  const parsed = parseEvaluatorConfig(prepared);
+  if (benchmark.name !== 'agentx')
+    throw new Error('inferencebench requires benchmark.name=agentx');
+  const environment =
+    typeof parsed.environment === 'string'
+      ? parsed.environment
+      : parsed.environment?.name;
+  if (
+    parsed.deployment !== undefined ||
+    (environment !== undefined && environment !== 'local')
+  )
+    throw new Error('Owned inference service requires local AgentX execution');
+  if (plain(config.output).directory !== undefined)
+    throw new Error('output.directory is owned by RSI');
+  return parsed;
 }

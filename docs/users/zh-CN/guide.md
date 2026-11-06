@@ -16,6 +16,10 @@ ember-rsi（Recursive Self-Improvement）是面向 Agent 和 AI 基础设施的�
 
 一个插件实现一个 [公共契约](../../../src/contracts/plugin-types/index.ts)。契约定义输入输出 Schema；插件实现定义自己的配置 Schema 和 `execute(input, context)` 方法。不同绑定可以使用相同实现和不同配置。
 
+Evaluator 插件从 SDK 配置类型派生 `EvaluatorConfig`。两个插件都先构造本次评测配置，再通过 SDK 解析，并结合原模板检查 RSI 约束。工厂返回 SDK 解析后的配置，简写形式由 SDK 统一，下游直接使用。检查在写入配置和扣除评测预算之前完成，且不修改传入的配置。RSI 在写入配置文件前拒绝明文凭据，凭据必须使用环境变量引用。默认值和插件专属规则由 SDK 在启动评测时处理。
+
+Evaluator 配置直接透传给已安装的 SDK，评测记录保存 SDK 规范化后的配置。RSI 只填入候选 Bundle 路径或推理服务、本次任务集合及调用输出目录。AgentBench 使用 `agentbundle` solver，并用 Policy 明确指定的任务 ID 替换采样、偏移及任务数量限制。InferenceBench 要求在本地执行 AgentX，允许所选服务省略模型和端点，执行时由 Application 提供；其他服务仍须配置完整。除此之外，SDK 支持的参数无需在 RSI 中补充字段映射。SDK 内部发现的错误走评测失败流程，并占用一次 `evaluationRuns` 预算。
+
 ```mermaid
 flowchart TB
   R[Recipe] --> M[Manager]

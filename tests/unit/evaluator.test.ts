@@ -13,7 +13,7 @@ import { parse } from 'yaml';
 import { normalizeEvaluation as normalizeAgentbench } from '../../src/plugins/evaluator-agentbench/measurement.js';
 import { normalizeEvaluation as normalizeInferencebench } from '../../src/plugins/evaluator-inferencebench/measurement.js';
 import { meanReward } from '../../src/plugins/evaluator-agentbench/metrics.js';
-import { object } from '../../src/shared/json.js';
+import { object, string } from '../../src/shared/json.js';
 import { agentbenchDefinition } from '../../src/plugins/evaluator-agentbench/index.js';
 import { inferencebenchDefinition } from '../../src/plugins/evaluator-inferencebench/index.js';
 import { createAgentbench } from '../../src/plugins/evaluator-agentbench/service.js';
@@ -137,7 +137,9 @@ function snapshot(kind = 'quality'): JsonObject {
     records: [
       {
         key: { runId: 'native', taskId: 'task/a', attemptId: 'attempt1' },
-        status: 'completed',
+        executionStatus: 'completed',
+        scoreStatus: kind === 'quality' ? 'valid' : 'not-applicable',
+        cleanupStatus: 'cleaned',
         solve: {
           finalText: 'answer',
           usage: { inputTokens: null, outputTokens: null, totalTokens: null },
@@ -150,6 +152,122 @@ function snapshot(kind = 'quality'): JsonObject {
     pendingTaskIds: [],
   };
 }
+for (const kind of ['agentbench', 'inferencebench'] as const) {
+  test(`${kind} maps SDK execution outcomes independently of answer correctness`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rsi-item-status-'));
+    try {
+      const { services, stored, measurements } = harness(directory);
+      const snap = snapshot(kind === 'agentbench' ? 'quality' : 'performance');
+      assert.ok(Array.isArray(snap.records));
+      const original = object(snap.records[0]);
+      const outcomes = [
+        ['completed', 'succeeded'],
+        ['agent_timeout', 'failed'],
+        ['failed', 'failed'],
+        ['cancelled', 'cancelled'],
+        ['unrecognized', 'unknown'],
+        [null, 'unknown'],
+      ] as const;
+      snap.records = outcomes.map(([executionStatus], index) => {
+        const record = structuredClone(original);
+        record.key = {
+          runId: 'native',
+          taskId: `task/${index}`,
+          attemptId: `attempt${index}`,
+        };
+        if (executionStatus === null) delete record.executionStatus;
+        else record.executionStatus = executionStatus;
+        record.scoreStatus =
+          kind === 'inferencebench'
+            ? 'not-applicable'
+            : executionStatus === 'completed' ||
+                executionStatus === 'agent_timeout'
+              ? 'valid'
+              : 'invalid';
+        record.verdict =
+          executionStatus === 'completed'
+            ? kind === 'agentbench'
+              ? { passed: false, score: 0.847, details: {} }
+              : { passed: null, details: {} }
+            : null;
+        return record;
+      });
+      const taskIds = outcomes.map((_, index) => `task/${index}`);
+      object(snap.run).taskIds = taskIds;
+      const normalize =
+        kind === 'agentbench' ? normalizeAgentbench : normalizeInferencebench;
+      const call = context(directory).extend(services);
+      const native = {
+        services: { default: { model: 'fixture', base_url: 'http://model' } },
+        benchmark: {
+          name: kind === 'agentbench' ? 'workbuddy' : 'agentx',
+          solver: {
+            name: kind === 'agentbench' ? 'agentbundle' : 'agentx-replay',
+          },
+        },
+      };
+      await normalize(
+        native,
+        { candidateRef: 'candidate:a', taskIds },
+        {},
+        { kind: 'local', exitCode: 0, snapshot: snap },
+        call,
+      );
+      const measurement = measurements[0]!;
+      const list = object(stored.get(string(measurement.itemsRef)));
+      assert.ok(Array.isArray(list.items));
+      const items = list.items.map((item) => object(item));
+      assert.deepEqual(
+        items.map((item) => item.status),
+        outcomes.map(([, expected]) => expected),
+      );
+      assert.equal(measurement.status, 'succeeded');
+      for (const [index, item] of items.entries()) {
+        const details = object(
+          stored.get(string(object(item.details).artifactRef)),
+        );
+        const selected = object(details.selected);
+        assert.equal(selected.status, outcomes[index]![0] ?? 'unknown');
+        assert.equal(selected.executionStatus, outcomes[index]![0]);
+      }
+      if (kind === 'agentbench') {
+        const first = items[0]!;
+        assert.deepEqual(object(object(first.metrics).score).value, {
+          kind: 'scalar',
+          value: 0.847,
+        });
+        const feedback = object(
+          stored.get(string(object(first.evaluation).artifactRef)),
+        );
+        assert.equal(feedback.passed, false);
+        assert.equal(feedback.scoreStatus, 'valid');
+      }
+
+      const cancellation = new AbortController();
+      cancellation.abort();
+      call.signal = cancellation.signal;
+      await normalize(
+        native,
+        { candidateRef: 'candidate:a', taskIds },
+        {},
+        { kind: 'local', exitCode: 0, snapshot: snap },
+        call,
+      );
+      const cancelled = measurements[1]!;
+      const cancelledList = object(stored.get(string(cancelled.itemsRef)));
+      assert.ok(Array.isArray(cancelledList.items));
+      assert.ok(
+        cancelledList.items.every(
+          (item) => object(item).status === 'cancelled',
+        ),
+      );
+      assert.equal(cancelled.status, 'cancelled');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
 test('agentbench retains finalized verifier timeouts as failed data and reconciles without rerunning', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-verifier-timeout-'));
   try {
@@ -778,7 +896,9 @@ test('AgentX preserves point distributions and official comparability, without a
         taskId: `agentx-256k-replay-c${n}`,
         attemptId: `a${n}`,
       },
-      status: 'completed',
+      executionStatus: 'completed',
+      scoreStatus: 'not-applicable',
+      cleanupStatus: 'cleaned',
       solve: {
         finalText: '',
         usage: { inputTokens: null, outputTokens: null, totalTokens: null },

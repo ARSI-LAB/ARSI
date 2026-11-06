@@ -16,63 +16,60 @@ limitations under the License.
 
 -->
 
-# Source-only Triton-Ascend diagnosis
+# Diagnose operator source
 
-Inspect the supplied stage-entry kernel source, fixed problem/contract and actual
-hardware observations. Diagnose source-visible opportunities only. Do not assume
-profiler counters, generated IR, device timings, bandwidth, or compiler behavior
-that are not present in the supplied evidence. Missing hardware values remain unknown.
-The source and task files are read-only for this action.
+Inspect the supplied stage-entry source, fixed task contract, authorized Target,
+and hardware observations. Infer the implementation language and execution
+backend from these inputs. Diagnose source-visible opportunities; do not assume
+an accelerator vendor, compiler feature, memory hierarchy, or programming model.
+Source and task files are read-only for this action.
 
-Diagnose only the following four issue types:
+Use only these diagnostic categories when their conditions are visible:
 
-- `core_partition`: the visible one-dimensional grid, core-count selection, or
-  per-program work assignment is too small, excessive, hard-coded, or otherwise
-  poorly balanced for the supplied hardware.
-- `pass_merge`: the same data or an unchanged pointer expression is loaded from
-  or stored to GM repeatedly across passes, for example an intermediate written
-  to a GM buffer in one pass and reloaded from the same buffer in a later pass,
-  when the passes could be fused so the value stays on chip.
-- `loop_invariant_hoisting`: a loop repeatedly loads or computes a value that
-  depends only on outer-loop values or kernel parameters, and the load can be
-  hoisted above the loop.
-- `masked_accumulator`: a loop-carried accumulator is updated with a full-width
-  tl.where select on every iteration, for example acc = tl.where(mask, acc +
-  delta, acc) seeded by tl.full(..., 0, tl.float32), while every load feeding
-  the accumulated expression uses other=0.0 so masked-out lanes already
-  contribute zero and the select only re-selects values that are already
-  present.
+- `core_partition`: the parallel work partition, launch geometry, or work assigned
+  to each execution unit is poorly matched to the supplied workload or hardware.
+- `pass_merge`: separate passes repeatedly move the same intermediate through
+  memory, and combining compatible passes could remove that traffic while
+  preserving every consumer and intermediate precision boundary.
+- `loop_invariant_hoisting`: repeated work depends only on outer-loop values or
+  fixed parameters and can move out of an inner loop without changing behavior.
+- `masked_accumulator`: a masked update repeatedly selects an unchanged
+  accumulator even though inactive inputs already contribute the neutral value.
+  Consider simplification only when masks, effective precision and numerical
+  behavior remain equivalent.
 
-Report an issue only when a concrete source range supports it. Merge duplicate
-observations, and return no issues when none of the four types applies. Do not
-force a technique onto an incompatible operator structure.
+Support each issue with a continuous verbatim range of the supplied source.
+Merge duplicate observations. Do not force a category onto an incompatible
+operator; return no issues when none applies. Static analysis cannot establish
+measured bottlenecks, generated instructions, device timings or speedups. Missing
+hardware facts remain unknown.
+
+If the bound Agent provides authorized network tools, consult official compiler,
+runtime or hardware documentation to resolve version or API uncertainty. Otherwise
+use the supplied and retrieved materials, preserve uncertainty, and do not claim
+that an online lookup occurred. External references guide hypotheses; they do
+not override the task or establish measurements.
 
 ## Output
 
-Return one JSON object matching outputSchema, with exactly the field `issues`.
-Each issue uses the following diagnostic fields:
+Return one JSON object matching outputSchema, with only `issues`:
 
 ```json
 {
   "issues": [
     {
       "issue_type": "core_partition",
-      "issue_summary": "A concise description of a source-visible issue",
+      "issue_summary": "A source-visible work-partition opportunity",
       "problematic_code": [
-        "One continuous verbatim range of the supplied source"
+        "One continuous verbatim range from the supplied source"
       ],
-      "evidence": ["A concise observation supported by that range"]
+      "evidence": ["An observation supported by that exact range"]
     }
   ]
 }
 ```
 
-Use a separate range for genuinely distant code. Never reword, trim, invent or
-replace a problematic_code excerpt; it must occur literally in the supplied
-source. A technique ID must be one of the four identifiers above. If there are no
-issues, return {"issues":[]}.
-
-Return JSON only, without a Markdown fence or surrounding prose. Do not return
-edits, code replacements, measurements, or optimization claims. The JSON object
-wrapper is required by the RSI Agent contract; the issues array is the static
-diagnosis consumed by the Proposer.
+The example illustrates the format; use actual supplied source in every excerpt.
+Do not reword, trim or invent an excerpt. Use separate ranges for distant code.
+If no supported issue exists, return {"issues":[]}.
+Return JSON only, without fences, edits, measurements or surrounding prose.

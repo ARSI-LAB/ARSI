@@ -11,7 +11,7 @@ export async function checkOperatorConsumer(consumer, example) {
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { createRuntime, agentContract } from 'ember-rsi';
 const require=createRequire(import.meta.resolve('ember-rsi'));
@@ -34,6 +34,8 @@ await chmod(embeddingPython,0o755);
 const resourcesDirectory=join(example,'external-knowledge');await mkdir(join(resourcesDirectory,'knowledge'),{recursive:true});
 await writeFile(join(resourcesDirectory,'knowledge/manifest.json'),JSON.stringify({schemaVersion:'rsi.operator-knowledge/v1',techniques:[],metrics:[],resources:[]}));
 const recipe=parse(await readFile(join(example,'recipe.search.yaml'),'utf8'));
+const examplePromptsDirectory=recipe.bindings.proposer.config.promptsDirectory;
+assert.equal(typeof examplePromptsDirectory,'string','the example explicitly selects its local prompts');
 recipe.bindings.evaluator.config.sdk.python=join(example,'sdk-fixture-worker.mjs');recipe.bindings.evaluator.config.sdk.timeoutSeconds=15;
 recipe.policy={id:'policy.operator-search',config:{goal:'Installed functional fixture',caseIds:['fixed'],maxAttempts:1,repairLimit:0,metricsEnabled:false}};
 recipe.bindings.agent={plugin:'agent.installed-operator-fixture',config:{}};
@@ -41,18 +43,31 @@ recipe.bindings.proposer={plugin:'proposer.operator',config:{agentRef:'agent',ta
 recipe.budget={operations:256,evaluationRuns:14,modelCalls:32,elapsedWallMs:2400000,cleanupReserveMs:60000};
 const path=join(example,'recipe.search.fixture.yaml');await writeFile(path,stringify(recipe));
 const runtime=await createRuntime({rootDirectory:join(example,'search-workspace')});const stages=[];
+const promptStages=['diagnose','generate','summarize'];
+const readPrompts=async directory=>Object.fromEntries(await Promise.all(promptStages.map(async stage=>[stage,await readFile(join(directory,stage+'.md'),'utf8')])));
+let expectedPrompts;
 runtime.registry.registerOperation({id:'agent.installed-operator-fixture',contract:agentContract,configSchema:{type:'object'},async create(){return{async execute(request,context){await context.charge('modelCalls',1);const stage=request.input.stage;stages.push(stage);
+assert.ok(request.prompt.startsWith(expectedPrompts[stage]),'the selected prompt reaches the Agent');
 if(stage==='diagnose')return{issues:[{issue_type:'loop_invariant_hoisting',issue_summary:'Invariant expression inside loop',problematic_code:['        y = x + 1'],evidence:['x does not change in the loop']}]};
 if(stage==='summarize')return{explanation:'Synthetic measured result',lessons:[],avoidPatterns:[],tryPatterns:[]};
 return{edits:[{path:'input.py',content:source('fixture:latency=8')}],reason:'Installed fixture change'};
 },async dispose(){}};}});
 try{
+expectedPrompts=await readPrompts(join(dirname(runtime.registry.policy('policy.operator-search')),'prompts'));
+const examplePrompts=await readPrompts(resolve(example,examplePromptsDirectory));
+assert.notEqual(expectedPrompts.generate,examplePrompts.generate,'the packaged default and Ascend example supply distinct generation guidance');
 const result=await runtime.manager.run(path,{id:'installed-static-search'});
 assert.equal(result.status,'succeeded');assert.equal(result.output.stopReason,'accepted');assert.equal(result.output.finalValidity,'valid');assert.equal(result.output.finalTimingStable,true);
 assert.equal(result.usage.evaluationRuns,3);assert.deepEqual(stages,['diagnose','generate','summarize']);
 const calls=await runtime.manager.facts.list('calls');await runtime.manager.run(path,{id:result.id,resume:true});assert.deepEqual(await runtime.manager.facts.list('calls'),calls);
 assert.ok((await runtime.manager.facts.list('instances')).every(i=>i.status==='released'));
-console.log('Installed operator Proposer: diagnosis, local worker protocol, generation, SDK fixture, summary, final assessment and completed resume passed.');
+recipe.bindings.proposer.config.promptsDirectory=examplePromptsDirectory;
+await writeFile(path,stringify(recipe));expectedPrompts=examplePrompts;stages.length=0;
+const configured=await runtime.manager.run(path,{id:'installed-ascend-search'});
+assert.equal(configured.status,'succeeded');assert.equal(configured.output.finalValidity,'valid');
+assert.equal(configured.usage.evaluationRuns,3);assert.deepEqual(stages,promptStages);
+assert.ok((await runtime.manager.facts.list('instances')).every(i=>i.status==='released'));
+console.log('Installed operator Proposer: packaged defaults and explicit example prompts reach the Agent; SDK search, final assessment, cleanup and completed resume passed.');
 }finally{await runtime.dispose();}
 `,
   );

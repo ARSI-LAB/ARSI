@@ -13,8 +13,15 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkOperatorConsumer } from './check-operator-consumer.mjs';
+import { checkSdkConsumer } from './check-sdk-consumer.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const temporary = await realpath(await mkdtemp(join(tmpdir(), 'rsi-package-')));
+const networkConfigPath = join(temporary, 'network.yaml');
+const consumerEnv = {
+  ...process.env,
+  EVALUATOR_NETWORK_CONFIG: networkConfigPath,
+};
 function run(args, cwd, stdio = 'inherit') {
   const executable = process.env.npm_execpath;
   assert.ok(
@@ -28,13 +35,14 @@ function run(args, cwd, stdio = 'inherit') {
     {
       cwd,
       stdio,
-      env: process.env,
+      env: consumerEnv,
       timeout: 600000,
       encoding: 'utf8',
     },
   );
 }
 try {
+  await writeFile(networkConfigPath, '{}\n');
   run(['pack', '--pack-destination', temporary], root, [
     'ignore',
     'ignore',
@@ -79,6 +87,7 @@ try {
     'node_modules/ember-rsi/dist/src/entries/cli/main.js',
   );
   const help = execFileSync(process.execPath, [command, '--help'], {
+    env: consumerEnv,
     cwd: outside,
     encoding: 'utf8',
     timeout: 30000,
@@ -97,6 +106,7 @@ try {
     ['reflection', 'apply', '--help'],
   ]) {
     const detail = execFileSync(process.execPath, [command, ...args], {
+      env: consumerEnv,
       cwd: outside,
       encoding: 'utf8',
       timeout: 30000,
@@ -126,6 +136,7 @@ try {
     process.platform === 'win32' ? 'ember-rsi.cmd' : 'ember-rsi',
   );
   const binHelp = execFileSync(installedBin, ['--help'], {
+    env: consumerEnv,
     cwd: outside,
     encoding: 'utf8',
     timeout: 30000,
@@ -136,6 +147,7 @@ try {
   assert.deepEqual(
     JSON.parse(
       execFileSync(process.execPath, [command, 'reflection', 'list'], {
+        env: consumerEnv,
         cwd: outside,
         encoding: 'utf8',
         timeout: 30000,
@@ -150,7 +162,13 @@ try {
         execFileSync(
           process.execPath,
           [command, 'reflection', action, 'revision-missing'],
-          { cwd: outside, encoding: 'utf8', stdio: 'pipe', timeout: 30000 },
+          {
+            env: consumerEnv,
+            cwd: outside,
+            encoding: 'utf8',
+            stdio: 'pipe',
+            timeout: 30000,
+          },
         ),
       (error) =>
         /Unknown revision ID revision-missing/.test(String(error.stderr)),
@@ -183,6 +201,7 @@ export function register(registry) {
       process.execPath,
       [command, 'catalog', '--plugin-dir', extension],
       {
+        env: consumerEnv,
         cwd: outside,
         encoding: 'utf8',
         timeout: 30000,
@@ -193,6 +212,7 @@ export function register(registry) {
   assert.ok(externalCatalog.policies.includes('external.policy'));
   const catalog = JSON.parse(
     execFileSync(process.execPath, [command, 'catalog'], {
+      env: consumerEnv,
       cwd: outside,
       encoding: 'utf8',
       timeout: 30000,
@@ -200,14 +220,22 @@ export function register(registry) {
   );
   assert.equal(
     catalog.plugins.length,
-    13,
-    'all thirteen plugin definitions ship in the archive',
+    16,
+    'all sixteen plugin definitions ship in the archive',
   );
+  for (const id of [
+    'application.kernel',
+    'evaluator.operatorbench',
+    'proposer.operator',
+  ])
+    assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
+  assert.ok(!catalog.plugins.includes('agent.scripted'));
   assert.ok(catalog.plugins.includes('agent.codex'));
   assert.deepEqual(
     [...catalog.policies].sort(),
     [
       'policy.harness2',
+      'policy.operator-search',
       'policy.parameter-grid',
       'policy.parameter-optuna',
       'policy.wikiskill',
@@ -224,6 +252,7 @@ export function register(registry) {
         process.execPath,
         [command, 'validate', join(example, 'recipe.yaml')],
         {
+          env: consumerEnv,
           cwd: outside,
           encoding: 'utf8',
           timeout: 30000,
@@ -241,6 +270,11 @@ export function register(registry) {
         'installed consumer assembles Reflection with its packaged default prompt',
       );
   }
+  checkSdkConsumer(
+    join(consumer, 'node_modules/ember-rsi'),
+    join(outside, 'dsh-harness2/baseline'),
+    true,
+  );
   for (const name of ['shared', 'parameter-grid', 'parameter-tpe']) {
     await cp(
       join(root, 'examples/artifacts/inference', name),
@@ -253,7 +287,7 @@ export function register(registry) {
       execFileSync(
         process.execPath,
         [command, 'validate', join(outside, name, 'recipe.yaml')],
-        { cwd: outside, encoding: 'utf8', timeout: 30000 },
+        { env: consumerEnv, cwd: outside, encoding: 'utf8', timeout: 30000 },
       ),
     );
     assert.equal(
@@ -274,6 +308,7 @@ export function register(registry) {
   if (process.env.RSI_OPTUNA_PYTHON) {
     const checked = JSON.parse(
       execFileSync(process.env.RSI_OPTUNA_PYTHON, [packagedWorker], {
+        env: consumerEnv,
         cwd: outside,
         input: JSON.stringify({ action: 'check' }),
         encoding: 'utf8',
@@ -283,6 +318,7 @@ export function register(registry) {
     assert.equal(checked.environment.optuna, '4.5.0');
     const sampled = JSON.parse(
       execFileSync(process.env.RSI_OPTUNA_PYTHON, [packagedWorker], {
+        env: consumerEnv,
         cwd: outside,
         input: JSON.stringify({
           action: 'suggest',
@@ -297,14 +333,30 @@ export function register(registry) {
     );
     assert.ok([1, 2, 3].includes(sampled.parameters.x));
   }
+  const operatorExample = join(outside, 'transpose-copy');
+  await cp(
+    join(root, 'examples/artifacts/kernel/transpose-copy'),
+    operatorExample,
+    { recursive: true },
+  );
+  const sdkWorker = join(operatorExample, 'sdk-fixture-worker.mjs');
+  await cp(join(root, 'tests/fixtures/operator-sdk/worker.mjs'), sdkWorker);
+  const { chmod } = await import('node:fs/promises');
+  await chmod(sdkWorker, 0o755);
   execFileSync(
     process.execPath,
     [
       '--input-type=module',
       '-e',
-      "import assert from 'node:assert/strict'; const sdk = await import('ember-evaluator'); assert.equal(typeof sdk.Evaluator, 'function'); assert.equal(typeof sdk.parseUserConfig, 'function');",
+      `import assert from 'node:assert/strict';
+       import {readFile} from 'node:fs/promises';
+       const sdk = await import('ember-evaluator');
+       for (const name of ['Evaluator','parseUserConfig','parseKernelTimingEvidence','auditKernelTimingSample']) assert.equal(typeof sdk[name], 'function');
+       const helper = await readFile(new URL('adapters/kernel/timing_evidence.py', import.meta.resolve('ember-evaluator')), 'utf8');
+       assert.match(helper, /def collect_flow_timing/);`,
     ],
     {
+      env: consumerEnv,
       cwd: join(consumer, 'node_modules/ember-rsi'),
       stdio: 'inherit',
       timeout: 30000,
@@ -323,13 +375,20 @@ export function register(registry) {
     join(consumer, 'consume.mjs'),
     `
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
-import {dirname,resolve} from 'node:path';
+import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,Policy,Binding,proposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext} from 'ember-rsi';
+import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext} from 'ember-rsi';
 import {RuntimeContext as ContractContext} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
+const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
+async function packageResource(path){
+ const location=relative(packageDirectory,await realpath(path));
+ assert.ok(location!=='..'&&!location.startsWith('..'+sep)&&!isAbsolute(location),'built-in resource resolves within the installed package');
+ return path;
+}
 const context=new RuntimeContext().extend({traceId:'consumer'});
 const runtime=await createRuntime({rootDirectory:${JSON.stringify(outside)},context});
 assert.equal(runtime.context.traceId,'consumer');
@@ -337,6 +396,17 @@ const standalonePolicy=new Policy({schemaVersion:'rsi.policy/v1',id:'consumer.po
 assert.deepEqual(await standalonePolicy.execute({application:{},context:context.extend({signal:new AbortController().signal}),invoke:async()=>{throw new Error('Unexpected plugin call');},checkpoint:async()=>{}}),{value:7},'installed Policy supports direct construction and execution');
 try {
  const installed=new URL('./node_modules/ember-rsi/dist/src/',import.meta.url);
+ const {validate}=await import(new URL('shared/schema.js',installed));
+ assert.equal(operatorProposerContract.id,'contract.proposer-operator');
+ const firstProposal={action:'propose',phase:'static',entryCandidateRef:'entry',baselineMeasurementRef:'baseline',attempt:1,goal:'Improve',analysisRef:null,historyRef:null};
+ const repairProposal={action:'repair',phase:'static',failedCandidateRef:'failed',measurementRef:'measurement',analysisRef:'analysis',historyRef:null,attempt:1,repairIndex:1,goal:'Repair'};
+ const attemptSummary={action:'summarize',phase:'static',entryCandidateRef:'entry',analysisRef:'analysis',historyRef:null,attempt:1,candidateRefs:['candidate'],measurementRefs:[],decisionRef:null,outcome:'no-change'};
+ for(const action of [firstProposal,repairProposal,attemptSummary])validate(operatorProposerContract.input_schema,action,'installed operator action');
+ assert.throws(()=>validate(operatorProposerContract.input_schema,{...firstProposal,action:'diagnose'}));
+ assert.throws(()=>validate(operatorProposerContract.input_schema,{...firstProposal,baselineMeasurementRef:undefined}));
+ const operatorDirectory=await realpath(fileURLToPath(new URL('plugins/proposer-operator/',installed)));
+ for(const directory of ['knowledge','python','prompts'])await assert.rejects(stat(resolve(operatorDirectory,directory)),{code:'ENOENT'});
+ assert.deepEqual(runtime.registry.get('proposer.operator').contract,operatorProposerContract);
  const {prepareDocumentPreviews}=await import(new URL('plugins/reflection-agent/document-previews.js',installed));
  const {validateReflection}=await import(new URL('runtime/revisions/validation.js',installed));
  const require=createRequire(await realpath(fileURLToPath(new URL('./node_modules/ember-rsi/package.json',import.meta.url))));
@@ -363,20 +433,25 @@ try {
   assert.equal(await realpath(configuration.implementation.config.prompt),await realpath(prompt),'installed generic prompt is the default');
  }
  for(const id of runtime.registry.catalog().policies){
-  const path=runtime.registry.policy(id),policy=await Policy.load(path,runtime.registry);
+  const path=await packageResource(runtime.registry.policy(id)),policy=await Policy.load(path,runtime.registry);
   assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
   const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;
-  assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?parameterSearchProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
+  assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?parameterSearchProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
   assert.deepEqual(runtime.registry.get('proposer.agent').contract,proposerContract);
   const reflection=policy.defaults.reflection;
-  if(reflection&&typeof reflection==='object'&&!Array.isArray(reflection))await readFile(resolve(dirname(path),reflection.configFile),'utf8');
+  if(reflection&&typeof reflection==='object'&&!Array.isArray(reflection))await readFile(await packageResource(resolve(dirname(path),reflection.configFile)),'utf8');
   const bindings=policy.defaults.bindings??{};
   for(const binding of Object.values(bindings)){
-   if(binding.config?.prompt)assert.ok((await readFile(resolve(dirname(path),binding.config.prompt),'utf8')).length);
+   if(binding.config?.prompt)assert.ok((await readFile(await packageResource(resolve(dirname(path),binding.config.prompt)),'utf8')).length);
    for(const skill of binding.config?.skills??[]){
-    const resource=resolve(dirname(path),skill);
-    assert.ok((await readFile((await stat(resource)).isDirectory()?resolve(resource,'SKILL.md'):resource,'utf8')).length);
+    const resource=await packageResource(resolve(dirname(path),skill));
+    assert.ok((await readFile(await packageResource((await stat(resource)).isDirectory()?resolve(resource,'SKILL.md'):resource),'utf8')).length);
    }
+  }
+  if(id==='policy.operator-search'){
+   for(const resource of ['schemas/config.yaml','schemas/result.yaml'])assert.ok((await readFile(await packageResource(resolve(dirname(path),resource)),'utf8')).length);
+   const promptsDirectory=await packageResource(resolve(dirname(path),bindings.proposer.config.promptsDirectory));
+   for(const prompt of ['diagnose.md','generate.md','diagnose-metrics.md','generate-metrics.md','repair.md','summarize.md'])assert.ok((await readFile(await packageResource(resolve(promptsDirectory,prompt)),'utf8')).trim().length);
   }
  }
  const lifecycle=[],deliveries=[],admissions=[];
@@ -432,6 +507,7 @@ console.log('Installed resources and managed ctx.event subscriptions, publishing
 `,
   );
   execFileSync(process.execPath, [join(consumer, 'consume.mjs')], {
+    env: consumerEnv,
     cwd: outside,
     stdio: 'inherit',
     timeout: 30000,
@@ -449,7 +525,7 @@ console.log('Installed resources and managed ctx.event subscriptions, publishing
     `
 import type { Context, Events } from '@deepseek-ai/cordis';
 import { Registry } from 'ember-rsi';
-import { defineContract, RuntimeContext, type JsonObject, type Operation, type OperationDefinition, type EventPipeline } from 'ember-rsi/contracts';
+import { defineContract, RuntimeContext, type JsonObject, type Operation, type OperationDefinition, type EventPipeline, type OperatorbenchInput, type OperatorbenchOutput, type OperatorProposerInput, type OperatorProposerOutput, type MetricSelectorOutput } from 'ember-rsi/contracts';
 declare module 'ember-rsi/contracts' {
  interface RuntimeContext { traceId?: string; }
 }
@@ -471,6 +547,13 @@ type Check<T extends true>=T;
 declare const pipeline:EventPipeline;
 type Notice=Parameters<typeof pipeline.on<'consumer/notice'>>[1];
 export type PublicChecks=[
+ Check<Equal<OperatorbenchInput,{action:'evaluate';candidateRef:string;caseIds:string[]}|{action:'profile';candidateRef:string;caseIds:string[];assessmentMeasurementRef:string}>>,
+ Check<Equal<OperatorbenchOutput,{action:'evaluate';measurementRef:string}|{action:'profile';measurementRef:string;collectionStatus:'completed'|'unavailable'}>>,
+ Check<Equal<OperatorProposerInput['action'],'propose'|'repair'|'summarize'>>,
+ Check<Equal<OperatorProposerOutput['action'],'propose'|'repair'|'summarize'>>,
+ Check<Equal<Extract<OperatorProposerInput,{action:'propose';phase:'static'}>['baselineMeasurementRef'],string>>,
+ Check<Equal<Extract<OperatorProposerOutput,{action:'propose';status:'created'}>['diffRef'],string>>,
+ Check<Equal<MetricSelectorOutput['candidateValue'],number|null>>,
  Check<Equal<Parameters<Notice>[0],{count:number}>>,
  Check<Equal<Parameters<Notice>[1],RuntimeContext>>,
  Check<Equal<ThisParameterType<Notice>,{tag:string}>>,
@@ -525,6 +608,7 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
 }
 `,
   );
+  await checkOperatorConsumer(consumer, operatorExample);
   const compiler = join(root, 'node_modules/typescript/bin/tsc');
   const compileArgs = [
     '--noEmit',
@@ -539,6 +623,7 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
   ];
   for (const file of ['contracts-consumer.ts', 'events-consumer.ts']) {
     execFileSync(process.execPath, [compiler, ...compileArgs, file], {
+      env: consumerEnv,
       cwd: consumer,
       stdio: 'inherit',
       timeout: 30000,
@@ -565,6 +650,7 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
     let diagnostics = '';
     try {
       execFileSync(process.execPath, [compiler, ...compileArgs, file], {
+        env: consumerEnv,
         cwd: consumer,
         encoding: 'utf8',
         stdio: 'pipe',
@@ -582,7 +668,7 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
     );
   }
   console.log(
-    'Package consumption passed: isolated tarball install, executable, catalog, Recipe validation, packaged resources and public context/event typing.',
+    'Package consumption passed: isolated tarball install, executable, catalog, Recipe validation, operator search with external retrieval resources, operator contracts and public context/event/kernel/operator typing.',
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

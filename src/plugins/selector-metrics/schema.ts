@@ -12,14 +12,21 @@ export type MetricSelectorConfig = {
   direction?: 'maximize' | 'minimize';
   itemId?: string;
   statistic?: MetricStatistic;
+  eligibility?: MetricConstraint[];
   constraints?: MetricConstraint[];
+  minRelativeImprovement?: number;
   tieBreak?: 'retain-incumbent';
 };
 export type ResolvedMetricSelectorConfig = MetricSelectorConfig &
   Required<
     Pick<
       MetricSelectorConfig,
-      'metric' | 'direction' | 'constraints' | 'tieBreak'
+      | 'metric'
+      | 'direction'
+      | 'eligibility'
+      | 'constraints'
+      | 'minRelativeImprovement'
+      | 'tieBreak'
     >
   >;
 
@@ -44,7 +51,14 @@ export const configSchema: JsonSchema = operationSchema(
     direction: { enum: ['maximize', 'minimize'], default: 'maximize' },
     itemId: refSchema,
     statistic: statisticSchema,
+    eligibility: { type: 'array', items: constraintSchema, default: [] },
     constraints: { type: 'array', items: constraintSchema, default: [] },
+    minRelativeImprovement: {
+      type: 'number',
+      minimum: 0,
+      exclusiveMaximum: 1,
+      default: 0,
+    },
     tieBreak: { const: 'retain-incumbent', default: 'retain-incumbent' },
   },
   [],

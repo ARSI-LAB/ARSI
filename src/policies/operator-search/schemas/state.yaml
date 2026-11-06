@@ -1,0 +1,157 @@
+type: object
+properties:
+  baselineMeasurement:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  bestCandidateRef:
+    type: string
+    minLength: 1
+  bestMeasurementRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  analysisRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  historyRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  attemptCount:
+    type: integer
+    minimum: 0
+  repairCount:
+    type: integer
+    minimum: 0
+  currentCandidate:
+    type: string
+    minLength: 1
+  currentMeasurement:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  attemptCandidates:
+    type: array
+    items:
+      type: string
+      minLength: 1
+  attemptMeasurements:
+    type: array
+    items:
+      type: string
+      minLength: 1
+  feasible:
+    type: boolean
+  accepted:
+    type: boolean
+  noChange:
+    type: boolean
+  decisionRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  outcome:
+    type: string
+    minLength: 1
+  attempts:
+    $ref: ./result.yaml#/properties/attempts
+  stopped:
+    type: boolean
+  stopReason:
+    type: string
+    minLength: 1
+  staticHistoryRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  metricHistoryRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  diagnosticMeasurementRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  diagnosticRefs:
+    $ref: ./result.yaml#/properties/diagnosticRefs
+  metricsRounds:
+    $ref: ./result.yaml#/properties/metricsRounds
+  roundCount:
+    type: integer
+    minimum: 0
+  noImprovementCount:
+    type: integer
+    minimum: 0
+  metricsStopped:
+    type: boolean
+  roundDiagnosticMeasurementRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  metricParent:
+    type: string
+    minLength: 1
+  metricIncumbent:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  candidateDiagnosticMeasurementRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  phase:
+    type: string
+    minLength: 1
+  metricRound:
+    anyOf:
+      - $ref: ./result.yaml#/properties/metricsRounds/items
+      - type: 'null'
+required:
+  - baselineMeasurement
+  - bestCandidateRef
+  - bestMeasurementRef
+  - analysisRef
+  - historyRef
+  - attemptCount
+  - repairCount
+  - currentCandidate
+  - currentMeasurement
+  - attemptCandidates
+  - attemptMeasurements
+  - feasible
+  - accepted
+  - noChange
+  - decisionRef
+  - outcome
+  - attempts
+  - stopped
+  - stopReason
+  - staticHistoryRef
+  - metricHistoryRef
+  - diagnosticMeasurementRef
+  - diagnosticRefs
+  - metricsRounds
+  - roundCount
+  - noImprovementCount
+  - metricsStopped
+  - roundDiagnosticMeasurementRef
+  - metricParent
+  - metricIncumbent
+  - candidateDiagnosticMeasurementRef
+  - phase
+  - metricRound
+additionalProperties: false

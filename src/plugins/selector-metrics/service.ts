@@ -15,6 +15,7 @@ import { json, object, string } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import {
   configSchema,
+  type MetricConstraint,
   type MetricSelectorConfig,
   type ResolvedMetricSelectorConfig,
 } from './schema.js';
@@ -100,6 +101,45 @@ async function comparableValues(
   };
   return { before: number(a), after: number(b), definitionRef };
 }
+type MetricCheck = JsonObject & {
+  incumbentValue: number;
+  candidateValue: number;
+  min: number | null;
+  max: number | null;
+  passed: boolean;
+};
+async function metricChecks(
+  services: RuntimeContext,
+  before: JsonObject,
+  after: JsonObject,
+  constraints: MetricConstraint[],
+): Promise<MetricCheck[]> {
+  const checks: MetricCheck[] = [];
+  for (const constraint of constraints) {
+    const values = await comparableValues(
+      services,
+      before,
+      after,
+      constraint.metric,
+      constraint.statistic,
+    );
+    const min = constraint.min ?? null,
+      max = constraint.max ?? null;
+    checks.push({
+      metric: constraint.metric,
+      statistic: constraint.statistic ?? null,
+      definitionRef: values.definitionRef,
+      min,
+      max,
+      incumbentValue: values.before,
+      candidateValue: values.after,
+      passed:
+        (min === null || values.after >= min) &&
+        (max === null || values.after <= max),
+    });
+  }
+  return checks;
+}
 export const createMetricSelector: OperationDefinition<
   MetricSelectorInput,
   MetricSelectorOutput,
@@ -111,7 +151,7 @@ export const createMetricSelector: OperationDefinition<
     'metric selector config',
   );
   const constraints = config.constraints;
-  for (const c of constraints)
+  for (const c of [...config.eligibility, ...constraints])
     if (c.min !== undefined && c.max !== undefined && c.min > c.max)
       throw new Error(`Constraint ${c.metric} min exceeds max`);
   return {
@@ -140,59 +180,105 @@ export const createMetricSelector: OperationDefinition<
         throw new Error(
           'Measurement identity or experiment ownership mismatch',
         );
-      assertComparable(before, after, 'Measurements');
+      const hasEligibility = config.eligibility.length > 0;
+      if (hasEligibility) {
+        assertComparable(before, before, 'Incumbent measurements');
+        if (
+          before.finishedAt === null ||
+          after.finishedAt === null ||
+          after.status !== 'succeeded'
+        )
+          throw new Error(
+            'Eligibility requires completed, succeeded assessments',
+          );
+      } else {
+        assertComparable(before, after, 'Measurements');
+      }
       const itemId = config.itemId;
       const [a, b] = await Promise.all([
         scope(services, before, itemId),
         scope(services, after, itemId),
       ]);
       if (itemId !== undefined) {
-        assertComparable(a, b, 'Measurement points');
+        if (hasEligibility) {
+          assertComparable(a, a, 'Incumbent measurement points');
+          if (b.status !== 'succeeded')
+            throw new Error(
+              'Eligibility requires a succeeded point assessment',
+            );
+        } else {
+          assertComparable(a, b, 'Measurement points');
+        }
         if (object(a.subject).kind !== object(b.subject).kind)
           throw new Error('Measurement point subject kinds differ');
       }
       const metric = config.metric,
         statistic = config.statistic;
-      const objective = await comparableValues(
+      const eligibilityChecks = await metricChecks(
         services,
         a,
         b,
-        metric,
-        statistic,
+        config.eligibility,
       );
-      const checks: JsonObject[] = [];
-      for (const constraint of constraints) {
-        const id = constraint.metric,
-          stat = constraint.statistic;
-        const values = await comparableValues(services, a, b, id, stat);
-        const min = constraint.min ?? null,
-          max = constraint.max ?? null;
-        checks.push({
-          metric: id,
-          statistic: stat ?? null,
-          definitionRef: values.definitionRef,
-          min,
-          max,
-          incumbentValue: values.before,
-          candidateValue: values.after,
-          passed:
-            (min === null || values.after >= min) &&
-            (max === null || values.after <= max),
-        });
+      if (
+        eligibilityChecks.some(
+          (check) =>
+            (check.min !== null && check.incumbentValue < check.min) ||
+            (check.max !== null && check.incumbentValue > check.max),
+        )
+      )
+        throw new Error('Incumbent does not satisfy metric eligibility');
+      const eligible = eligibilityChecks.every((check) => check.passed);
+      let objective: {
+        before: number;
+        after: number | null;
+        definitionRef: string;
+      };
+      if (eligible) {
+        if (hasEligibility) {
+          assertComparable(before, after, 'Measurements');
+          if (itemId !== undefined)
+            assertComparable(a, b, 'Measurement points');
+        }
+        objective = await comparableValues(services, a, b, metric, statistic);
+      } else {
+        const incumbent = await comparableValues(
+          services,
+          a,
+          a,
+          metric,
+          statistic,
+        );
+        objective = { ...incumbent, after: null };
       }
-      const feasible = checks.every((c) => c.passed === true);
+      if (config.minRelativeImprovement > 0 && objective.before <= 0)
+        throw new Error(
+          'Relative improvement requires a positive incumbent value',
+        );
+      const checks = eligible
+        ? await metricChecks(services, a, b, constraints)
+        : [];
+      const feasible = eligible && checks.every((check) => check.passed);
+      const requiredImprovement =
+        objective.before * config.minRelativeImprovement;
+      // Compare the cutoff directly to avoid subtraction noise at equal thresholds.
       const improved =
-        config.direction === 'minimize'
-          ? objective.after < objective.before
-          : objective.after > objective.before;
+        objective.after !== null &&
+        (config.direction === 'minimize'
+          ? objective.after < objective.before - requiredImprovement
+          : objective.after > objective.before + requiredImprovement);
       const accepted = feasible && improved;
-      const reason = !feasible
-        ? 'Candidate does not satisfy metric constraints'
-        : accepted
-          ? 'Candidate metric strictly improves'
-          : objective.after === objective.before
-            ? 'Metrics are equal; retain the incumbent'
-            : 'Candidate does not strictly improve; retain the incumbent';
+      const reason = !eligible
+        ? 'Candidate does not satisfy metric eligibility'
+        : !feasible
+          ? 'Candidate does not satisfy metric constraints'
+          : accepted
+            ? 'Candidate metric strictly improves'
+            : objective.after === objective.before
+              ? 'Metrics are equal; retain the incumbent'
+              : config.minRelativeImprovement > 0
+                ? 'Candidate does not exceed the relative improvement threshold; retain the incumbent'
+                : 'Candidate does not strictly improve; retain the incumbent';
       const selected = accepted ? after : before;
       const decision = {
         kind: 'metric-decision',
@@ -202,9 +288,11 @@ export const createMetricSelector: OperationDefinition<
         statistic: statistic ?? null,
         direction: config.direction,
         tieBreak: config.tieBreak,
+        minRelativeImprovement: config.minRelativeImprovement,
         definitionRef: objective.definitionRef,
         incumbentValue: objective.before,
         candidateValue: objective.after,
+        eligibility: eligibilityChecks,
         constraints: checks,
         accepted,
         reason,
@@ -221,7 +309,10 @@ export const createMetricSelector: OperationDefinition<
         metric,
         incumbentValue: objective.before,
         candidateValue: objective.after,
-        selectedValue: accepted ? objective.after : objective.before,
+        selectedValue:
+          accepted && objective.after !== null
+            ? objective.after
+            : objective.before,
       };
     },
     async dispose() {},

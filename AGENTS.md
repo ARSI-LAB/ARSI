@@ -16,10 +16,13 @@ This file defines repository-wide development workflow, engineering conventions,
 | `src/runtime/storage/`                                        | Immutable artifacts, atomic facts/receipts, and local file storage implementations                                   |
 | `src/plugins/shared/file-application/`                       | Target, editing, and sealing tools shared by file-based Applications                                                |
 | `src/plugins/application-{agentbundle,inference}/`            | initialize/commit/acquire/release application lifecycle                                                              |
+| `src/plugins/application-kernel/`                            | Triton-Ascend source candidate validation and workspace lifecycle                                                    |
 | `src/plugins/agent-pi/`                                       | Agent execution backend                                                                                              |
 | `src/plugins/{proposer-agent,memory-agent,reflection-agent}/` | Application candidate proposals, experience consolidation, and general guidance revision proposals                   |
+| `src/plugins/proposer-operator/` | Operator candidate proposals using versioned prompts and explicitly supplied external knowledge |
 | `src/plugins/evaluator-{agentbench,inferencebench}/`         | Two SDK-backed evaluation plugins                                                                                   |
 | `src/plugins/shared/evaluator-adapter/`                     | Shared Evaluator SDK execution, configuration/result mapping, metrics, and evidence adapters; not a public plugin    |
+| `src/plugins/evaluator-operatorbench/`                       | Evaluator SDK invocation and RSI Measurement/evidence mapping for operator assessments                               |
 | `src/plugins/{selector-metrics,selector-artifacts}/`          | Metric selection and anonymous artifact selection                                                                    |
 | `src/plugins/shared/agent-editing/`                           | Editing tools shared by business plugins; not registered as a separate public plugin                                 |
 | `src/policies/`                                               | Complete Policies, their Reflection rules, and shared Prompts                                                        |

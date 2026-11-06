@@ -24,11 +24,24 @@ embedding Python path, model directory, identity file, external knowledge bundle
 and external retrieval script placeholders. Keep the hardware description in
 [hardware-context.md](./hardware-context.md) consistent with the selected device.
 
-The Policy owns the six stage prompts and supplies `promptsDirectory` through its
-default Proposer binding. A Recipe can override that directory; independent uses
-of `proposer.operator` must configure their own directory containing `diagnose.md`,
+The Policy package includes generic prompts for all six stages and supplies
+`promptsDirectory` through its default Proposer binding. This Recipe explicitly
+selects the local [prompts directory](./prompts) with
+`bindings.proposer.config.promptsDirectory: ./prompts` to use the six Triton-Ascend
+templates for this example. Relative paths resolve from the Recipe directory.
+
+A custom prompts directory must contain the complete set: `diagnose.md`,
 `diagnose-metrics.md`, `generate.md`, `generate-metrics.md`, `repair.md`, and
-`summarize.md`.
+`summarize.md`. Independent uses of `proposer.operator` must also configure a
+complete directory. Keep `prompts/` alongside the Recipe when copying or
+deploying this example. The installed RSI package supplies its own defaults and
+does not depend on the repository's `examples/` directory.
+
+Backend support and network access follow the configured Application, Evaluator
+and Agent capabilities. Online research suggestions apply only when the chosen
+Agent exposes authorized network tools. Prompt contents participate in analysis
+identity; preserve the selected directory and contents when resuming a frozen
+experiment.
 
 The knowledge bundle and retrieval implementation are deployed independently.
 `embedding.resourcesDirectory` points to the bundle root, containing

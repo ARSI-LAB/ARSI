@@ -1,0 +1,92 @@
+schemaVersion: rsi.recipe/v1
+id: gepa-office-prompt
+description: >-
+  GEPA v2 reflective prompt optimization of the sole Office discipline prompt
+  using the fixed WorkBuddy office task for both feedback and selection.
+application:
+  plugin: application.agentbundle
+  config:
+    target:
+      schema: ./target.yaml
+    baseline:
+      directory: ./baseline
+policy:
+  id: policy.gepa
+  input:
+    candidateRef: ${{ application.initialCandidate }}
+  config:
+    feedbackTaskIds:
+      - workbuddy/board-material-update-timeline-excel
+    selectionTaskIds:
+      - workbuddy/board-material-update-timeline-excel
+    maxRounds: 3
+    maxRollouts: 64
+    minibatchSize: 1
+    paretoSize: 1
+    seed: 20261105
+    crossoverEvery: 3
+    modules:
+      - id: office-discipline
+        path: plugins/office-base/prompts/office-discipline.md
+    goal: >-
+      Improve the Office discipline prompt so an agent reliably completes the
+      requested board-material timeline Excel update and verifies the delivered
+      workbook.
+bindings:
+  evaluator:
+    plugin: evaluator.agentbench
+    config:
+      services:
+        default:
+          model: deepseek-v4.1-flash
+          base_url: ${MODEL_ENDPOINT}
+          api_key: ${MODEL_API_KEY}
+          api: openai-completions
+          maxTokens: 65536
+      benchmark:
+        name: workbuddy
+        scenario: office
+        solver:
+          name: agentbundle
+        config:
+          dataset: wb-bench-office-v1.0
+          cacheDir: ${GEPA_WORKBUDDY_CACHE}
+          source:
+            kind: local
+            path: ${GEPA_WORKBUDDY_SOURCE}
+          tasks:
+            root: tasks
+            id: task.name
+            expectedCount: 1
+      environment:
+        name: docker
+        platform: linux/amd64
+      scheduler:
+        name: local
+        concurrency: 1
+      run:
+        includeTaskAnswer: true
+        timeoutSeconds: 14400
+        preparation:
+          mode: pipeline
+          concurrency: 1
+          environmentTimeoutSeconds: 1800
+          roundTimeoutSeconds: 14400
+  agent:
+    plugin: agent.pi
+    config:
+      model: deepseek-v4.1-flash
+      base_url: ${MODEL_ENDPOINT}
+      api_key: ${MODEL_API_KEY}
+      maxTokens: 65536
+      contextWindow: 262144
+      thinkingLevel: low
+      retries: 1
+      retryBaseDelayMs: 1000
+      timeoutMs: 600000
+      executionTimeoutMs: 1800000
+budget:
+  operations: 256
+  evaluationRuns: 32
+  modelCalls: 128
+  elapsedWallMs: 13500000

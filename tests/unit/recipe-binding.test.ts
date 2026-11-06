@@ -9,9 +9,11 @@ import { reflectionContract } from '../../src/contracts/plugin-types/reflection.
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { readYaml } from '../../src/runtime/loaders/yaml.js';
 import { object } from '../../src/shared/json.js';
-import type {
-  JsonSchema,
-  OperationDefinition,
+import { validate } from '../../src/shared/schema.js';
+import {
+  gepaOptimizerContract,
+  type JsonSchema,
+  type OperationDefinition,
 } from '../../src/contracts/index.js';
 import { defineContract } from '../../src/contracts/contract.js';
 import { Registry } from '../../src/runtime/registry/index.js';
@@ -301,6 +303,73 @@ test('Recipe assembles registered definitions, prepares paths/defaults and prese
     policy: recipe.policy,
   });
   assert.deepEqual(restored.toJSON(), recipe.toJSON());
+});
+
+test('GEPA example loads through built-in registration with recipe-relative resources', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  assert.ok(registry.catalog().plugins.includes('gepa.optimizer'));
+  assert.ok(registry.catalog().policies.includes('policy.gepa'));
+  assert.deepEqual(
+    registry.get('gepa.optimizer').contract,
+    gepaOptimizerContract,
+  );
+  const directory = resolve('examples/harness/dsh-gepa');
+  const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
+  assert.equal(recipe.policy.id, 'policy.gepa');
+  assert.equal(recipe.bindings.optimizer!.pluginId, 'gepa.optimizer');
+  assert.deepEqual(recipe.bindings.optimizer!.config, {});
+  assert.equal(recipe.bindings.proposer!.pluginId, 'proposer.agent');
+  assert.equal(recipe.bindings.proposer!.config.agentRef, 'agent');
+  assert.equal(
+    recipe.bindings.proposer!.config.evidenceView,
+    'training-summary',
+  );
+  assert.equal(recipe.bindings.proposer!.config.maxModelCalls, 32);
+  assert.equal(recipe.bindings.proposer!.config.maxEvidenceBytes, undefined);
+  const raw = await readYaml(join(directory, 'recipe.yaml'));
+  for (const field of [
+    'evaluatorBinding',
+    'reflectorBinding',
+    'proposerBinding',
+    'reflectionMaxModelCalls',
+    'maxEvidenceBytes',
+  ]) {
+    assert.equal(Object.hasOwn(recipe.policyConfig, field), false);
+    const settings = { ...recipe.policyConfig, [field]: 'duplicate-route' };
+    await assert.rejects(
+      Recipe.fromJSON(
+        { ...raw, policy: { ...object(raw.policy), config: settings } },
+        registry,
+        { sourcePath: join(directory, 'recipe.yaml') },
+      ),
+      /additional properties/,
+    );
+    assert.throws(
+      () =>
+        validate(
+          gepaOptimizerContract.input_schema,
+          {
+            action: 'initialize',
+            candidateRef: 'initial-candidate',
+            settings,
+          },
+          'GEPA input',
+        ),
+      /additional properties/,
+    );
+  }
+  assert.equal(
+    object(recipe.application.config.target).schema,
+    join(directory, 'target.yaml'),
+  );
+  assert.equal(
+    object(recipe.application.config.baseline).directory,
+    join(directory, 'baseline'),
+  );
+  await readYaml(join(directory, 'target.yaml'));
+  await readYaml(join(directory, 'baseline/bundle.yaml'));
 });
 
 test('bundled Recipes preserve time budgets without injecting call or token limits', async (t) => {

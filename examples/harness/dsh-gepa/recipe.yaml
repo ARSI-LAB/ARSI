@@ -2,7 +2,7 @@ schemaVersion: rsi.recipe/v1
 id: gepa-office-prompt
 description: >-
   GEPA v2 reflective prompt optimization of the sole Office discipline prompt
-  using the fixed WorkBuddy office task for both feedback and selection.
+  using ten WorkBuddy Office training tasks and five disjoint validation tasks.
 application:
   plugin: application.agentbundle
   config:
@@ -16,22 +16,35 @@ policy:
     candidateRef: ${{ application.initialCandidate }}
   config:
     feedbackTaskIds:
-      - workbuddy/board-material-update-timeline-excel
+      - workbuddy/invoice-email-archive-manifest
+      - workbuddy/furniture-refinish-L3-016
+      - workbuddy/health-quote-L2-003
+      - workbuddy/portfolio-valuation-limits-L4-009
+      - workbuddy/research-factor-table-extract-L3-016
+      - workbuddy/analyst-forecast-extract-L3-018
+      - workbuddy/fund-product-table-normalize-L3-017
+      - workbuddy/calendar-dida-sync-state
+      - workbuddy/effective-sop-reconstruction-L5-034
+      - workbuddy/rank-ic-topn-L4-001
     selectionTaskIds:
-      - workbuddy/board-material-update-timeline-excel
+      - workbuddy/news-event-multifile-extract-L4-013
+      - workbuddy/cloudagent-sdk-doc-validation-report
+      - workbuddy/static-strategy-signal-report-L3-015
+      - workbuddy/xiaohongshu-psychology-note-pack
+      - workbuddy/channel-period-compare-L4-017
     maxRounds: 3
     maxRollouts: 64
     minibatchSize: 1
-    paretoSize: 1
+    paretoSize: 5
     seed: 20261105
     crossoverEvery: 3
     modules:
       - id: office-discipline
         path: plugins/office-base/prompts/office-discipline.md
     goal: >-
-      Improve the Office discipline prompt so an agent reliably completes the
-      requested board-material timeline Excel update and verifies the delivered
-      workbook.
+      Improve the Office discipline prompt so an agent reliably completes
+      mixed-format Office file and data workflows, preserves required structure
+      and evidence, and verifies the requested deliverables.
 bindings:
   evaluator:
     plugin: evaluator.agentbench
@@ -57,7 +70,6 @@ bindings:
           tasks:
             root: tasks
             id: task.name
-            expectedCount: 1
       environment:
         name: docker
         platform: linux/amd64

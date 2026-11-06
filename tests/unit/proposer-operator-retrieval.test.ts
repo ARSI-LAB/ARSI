@@ -12,6 +12,8 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext } from '../../src/contracts/index.js';
+import { object } from '../../src/shared/json.js';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   readEmbeddingIdentity,
   retrieveStaticKnowledge,
@@ -191,15 +193,181 @@ test('embedding identity rejects changed, unlisted or missing model bytes before
   }
 });
 
-test('worker failure, malformed identity and unbounded logs never become retrieval misses', async (t) => {
+test('embedding identity verifies a complete model inventory beyond ten thousand files', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const contents = 'Inventoried model bytes';
+  const extra = Array.from({ length: 10000 }, (_, index) => ({
+    path: `model-${String(index).padStart(5, '0')}.bin`,
+    sha256: digest(contents),
+  }));
+  for (let offset = 0; offset < extra.length; offset += 64)
+    await Promise.all(
+      extra
+        .slice(offset, offset + 64)
+        .map((file) =>
+          writeFile(join(f.config.modelDirectory, file.path), contents),
+        ),
+    );
+  const files = [
+    { path: 'weights.bin', sha256: digest('fixed local model bytes') },
+    ...extra,
+  ];
+  await writeFile(
+    f.config.identityFile,
+    JSON.stringify({
+      ...object(JSON.parse(await readFile(f.config.identityFile, 'utf8'))),
+      files,
+    }),
+  );
+  const result = await readEmbeddingIdentity(f.config);
+  assert.equal(result.identity.files.length, 10001);
+  assert.deepEqual(result.identity.files, files);
+});
+
+test('retrieval inherits host thread settings and confirms cleanup after cancellation without a local deadline', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const previousOmp = process.env.OMP_NUM_THREADS;
+  const previousMkl = process.env.MKL_NUM_THREADS;
+  process.env.OMP_NUM_THREADS = '7';
+  process.env.MKL_NUM_THREADS = '9';
+  t.after(() => {
+    if (previousOmp === undefined) delete process.env.OMP_NUM_THREADS;
+    else process.env.OMP_NUM_THREADS = previousOmp;
+    if (previousMkl === undefined) delete process.env.MKL_NUM_THREADS;
+    else process.env.MKL_NUM_THREADS = previousMkl;
+  });
+  await writeFile(
+    f.config.retrievalScript,
+    `#!/usr/bin/env node
+import { readFile, writeFile } from 'node:fs/promises';
+const requestPath = process.argv[process.argv.indexOf('--request') + 1];
+await readFile(requestPath, 'utf8');
+await writeFile(requestPath + '.environment.json', JSON.stringify({
+  omp: process.env.OMP_NUM_THREADS,
+  mkl: process.env.MKL_NUM_THREADS,
+}));
+setInterval(() => {}, 1000);
+`,
+  );
+  const parent = new AbortController();
+  const cancelled = new Error('Cancel inherited-thread worker');
+  const pending = retrieveStaticKnowledge(
+    [issue],
+    { ...f.config, timeoutMs: 0 },
+    f.context.extend({ signal: parent.signal }),
+  );
+  const rejected = assert.rejects(pending, (error) => error === cancelled);
+  try {
+    const environmentPath = join(
+      f.context.directory,
+      'retrieval/request.json.environment.json',
+    );
+    const deadline = Date.now() + 5000;
+    let environment: unknown;
+    while (environment === undefined) {
+      try {
+        environment = JSON.parse(await readFile(environmentPath, 'utf8'));
+      } catch (error) {
+        if (
+          !(
+            error instanceof Error &&
+            'code' in error &&
+            error.code === 'ENOENT'
+          )
+        )
+          throw error;
+        if (Date.now() >= deadline)
+          throw new Error('Retrieval worker did not report its environment');
+        await delay(10);
+      }
+    }
+    assert.deepEqual(environment, { omp: '7', mkl: '9' });
+  } finally {
+    parent.abort(cancelled);
+    await rejected;
+  }
+  const processEvidence = object(
+    JSON.parse(
+      await readFile(
+        join(f.context.directory, 'retrieval/process.json'),
+        'utf8',
+      ),
+    ),
+  );
+  assert.equal(processEvidence.cleanup, 'confirmed');
+  const pid = processEvidence.pid;
+  assert.equal(typeof pid, 'number');
+  if (typeof pid !== 'number') throw new Error('Missing retrieval process PID');
+  assert.throws(() => process.kill(pid, 0), /ESRCH/);
+});
+
+test('worker failure, malformed identity and explicitly excessive logs never become retrieval misses', async (t) => {
   for (const mode of ['exit', 'wrong-identity', 'oversize']) {
     const f = await fixture(mode);
     t.after(() => rm(f.directory, { recursive: true, force: true }));
     await assert.rejects(
-      retrieveStaticKnowledge([issue], f.config, f.context),
+      retrieveStaticKnowledge(
+        [issue],
+        { ...f.config, ...(mode === 'oversize' ? { maxLogBytes: 65536 } : {}) },
+        f.context,
+      ),
       /worker|identity|output|log/i,
     );
   }
+});
+
+test('retrieval preserves large authorized JSON and worker logs when no byte limits are configured', async (t) => {
+  const f = await fixture('large');
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  await writeFile(
+    f.config.identityFile,
+    (await readFile(f.config.identityFile, 'utf8')) +
+      ' '.repeat(2 * 1024 * 1024),
+  );
+  const worker = await readFile(f.config.retrievalScript, 'utf8');
+  await writeFile(
+    f.config.retrievalScript,
+    worker.replace(
+      "await writeFile(args[args.indexOf('--response')+1],JSON.stringify(result));",
+      "process.stdout.write('x'.repeat(100000));process.stderr.write('y'.repeat(100000));await writeFile(args[args.indexOf('--response')+1],JSON.stringify(result)+' '.repeat(2*1024*1024));",
+    ),
+  );
+  const result = await retrieveStaticKnowledge(
+    [{ ...issue, issue_summary: 'q'.repeat(2 * 1024 * 1024) }],
+    { ...f.config, timeoutMs: 0 },
+    f.context,
+  );
+  assert.deepEqual(result.matches, []);
+  const folder = join(f.context.directory, 'retrieval');
+  assert.equal((await readFile(join(folder, 'stdout.log'))).byteLength, 100000);
+  assert.equal((await readFile(join(folder, 'stderr.log'))).byteLength, 100000);
+  assert.ok(
+    (await readFile(join(folder, 'response.json'))).byteLength >
+      2 * 1024 * 1024,
+  );
+  assert.equal(
+    JSON.parse(await readFile(join(folder, 'process.json'), 'utf8')).cleanup,
+    'confirmed',
+  );
+});
+
+test('retrieval honors an explicit JSON byte ceiling before launching its worker', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  await assert.rejects(
+    retrieveStaticKnowledge(
+      [issue],
+      { ...f.config, maxPayloadBytes: 10 },
+      f.context,
+    ),
+    /maxPayloadBytes/,
+  );
+  await assert.rejects(
+    readFile(join(f.context.directory, 'retrieval/process.json')),
+    /ENOENT/,
+  );
 });
 
 test('timeout and cancellation close the worker before retrieval rejects', async (t) => {

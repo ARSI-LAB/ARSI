@@ -60,3 +60,22 @@ test('operatorbench SDK configuration accepts no fixture input', () => {
     /additional properties/,
   );
 });
+
+test('operatorbench accepts configured timing counts and SDK resource controls above former ceilings', () => {
+  validate(
+    configSchema,
+    {
+      ...sdkConfig,
+      protocol: { ...sdkConfig.protocol, warmup: 10001, repeat: 4097 },
+      sdk: {
+        ...sdkConfig.sdk,
+        runTimeoutSeconds: 60,
+        outputLimitBytes: 4 * 1024 * 1024,
+        cleanupGraceMs: 500,
+        cleanupTimeoutMs: 5000,
+        profiling: { enabled: false, cacheMaxEntries: 1024, retryDelayMs: 0 },
+      },
+    },
+    'operatorbench config',
+  );
+});

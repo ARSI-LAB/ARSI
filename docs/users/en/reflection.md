@@ -40,11 +40,11 @@ budget:
 | `implementation.contract` | Required; must be `contract.reflection`.                                                                                            |
 | `implementation.ref`      | Required registered implementation, such as `reflection.agent`.                                                                     |
 | `implementation.config`   | Configuration checked by the selected implementation's schema. `reflection.agent` requires an explicit Agent binding in `agentRef`. |
-| `budget`                  | Optional per-invocation model-call and timeout limits, also constrained by the experiment's remaining budget.                       |
+| `budget`                  | Optional per-invocation model-call, timeout and evidence-content limits, also constrained by the experiment's remaining budget.     |
 
 For `reflection.agent`, omit `prompt` to use the bundled Reflection prompt, or supply your own file. Relative resource paths in this implementation configuration resolve against the selected Reflection file. Do not configure `maxContextBytes` or `maxModelCalls` here: context handling is internal, and model calls belong in `budget.modelCalls`.
 
-Set `budget.modelCalls` to a nonnegative integer to limit model calls per invocation. Setting it to `0` prevents new model calls. Set `budget.timeoutSeconds` to a positive integer within the timer range to limit invocation time. Each omitted field leaves that dimension unrestricted by Reflection. Configured experiment and Agent limits also apply.
+Set `budget.modelCalls` to a nonnegative integer to limit model calls per invocation. Setting it to `0` prevents new model calls. Set `budget.timeoutSeconds` to a positive integer within the timer range to limit invocation time. Set `budget.evidenceBytes` to a positive safe integer to limit collected virtual-file content and extracted document-preview text. It does not cap index/provenance metadata or total serialized Agent-request bytes. Each omitted field leaves that dimension unrestricted by Reflection. Configured experiment and Agent limits also apply.
 
 The example above and packaged Harness² Reflection file set a 60-minute local timeout without a model-call ceiling. An Agent's configured `executionTimeoutMs` also applies when Reflection invokes `agent.pi`. Omit `budget.timeoutSeconds` when no separate Reflection deadline is needed.
 

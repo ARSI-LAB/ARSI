@@ -93,6 +93,36 @@ test('Evidence summaries count toward structured and file output byte limits', a
   }
 });
 
+test('Explicit JSON evidence budgets above the summary default remain usable and respect scope limits', async () => {
+  const fixture = await managerFixture(async (context) => {
+    await context.facts.write('evidence-views', 'evidence-large-summary', {
+      experimentId: context.experimentId,
+      measurementRefs: [],
+      summary: { text: 's'.repeat(100000) + 'SUMMARY_END' },
+    });
+    const refs = ['evidence-large-summary'];
+    const expanded = await context.readEvidence(refs, { maxBytes: 200000 });
+    assert.match(JSON.stringify(expanded), /SUMMARY_END/);
+    const scoped = await context
+      .extend({
+        scope: {
+          id: 'bounded-summary',
+          signal: context.signal,
+          limits: { evidenceBytes: 1000 },
+        },
+      })
+      .readEvidence(refs, { maxBytes: 200000 });
+    assert.doesNotMatch(JSON.stringify(scoped), /SUMMARY_END/);
+    assert.ok(Buffer.byteLength(JSON.stringify(scoped)) <= 1000);
+    return {};
+  });
+  try {
+    await fixture.run();
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test('Manager rejects invalid explicit evidence limits before reading resources', async () => {
   const fixture = await managerFixture(async (context) => {
     for (const maxBytes of [

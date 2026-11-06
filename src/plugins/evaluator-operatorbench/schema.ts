@@ -20,14 +20,20 @@ export type SdkOperatorbenchConfig = {
     python: string;
     device: number;
     timeoutSeconds: number;
+    runTimeoutSeconds?: number;
+    outputLimitBytes?: number;
+    cleanupGraceMs?: number;
+    cleanupTimeoutMs?: number;
     profiling: {
       enabled: boolean;
       warmup?: number;
       collection?: 'Default' | 'PipeTimeline,Default';
       maxAttempts?: number;
       attemptTimeoutSeconds?: number;
+      retryDelayMs?: number;
       cacheEnabled?: boolean;
       cacheDir?: string;
+      cacheMaxEntries?: number;
       roundNum?: number;
       msprofBin?: string;
       deviceName?: string;
@@ -39,34 +45,47 @@ export const configSchema = recordSchema({
   mode: { const: 'sdk' },
   task: recordSchema({ directory: { ...text, 'x-rsi-path': 'directory' } }),
   protocol: recordSchema({
-    warmup: { type: 'integer', minimum: 1, maximum: 10000 },
-    repeat: { type: 'integer', minimum: 1, maximum: 4096 },
+    warmup: { type: 'integer', minimum: 1 },
+    repeat: { type: 'integer', minimum: 1 },
     rtol: { type: 'number', minimum: 0 },
     atol: { type: 'number', minimum: 0 },
     timingScope: { const: 'all-device-kernels' },
   }),
-  sdk: recordSchema({
-    python: text,
-    device: { type: 'integer', minimum: 0 },
-    timeoutSeconds: { type: 'integer', minimum: 1 },
-    profiling: {
-      type: 'object',
-      properties: {
-        enabled: { type: 'boolean' },
-        warmup: { type: 'integer', minimum: 1 },
-        collection: { enum: ['Default', 'PipeTimeline,Default'] },
-        maxAttempts: { type: 'integer', minimum: 1 },
-        attemptTimeoutSeconds: { type: 'integer', minimum: 1 },
-        cacheEnabled: { type: 'boolean' },
-        cacheDir: text,
-        roundNum: { type: 'integer', minimum: 1 },
-        msprofBin: text,
-        deviceName: text,
+  sdk: recordSchema(
+    {
+      python: text,
+      device: { type: 'integer', minimum: 0 },
+      timeoutSeconds: { type: 'integer', minimum: 1 },
+      runTimeoutSeconds: { type: 'integer', minimum: 1 },
+      outputLimitBytes: { type: 'integer', minimum: 1 },
+      cleanupGraceMs: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      cleanupTimeoutMs: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      profiling: {
+        type: 'object',
+        properties: {
+          enabled: { type: 'boolean' },
+          warmup: { type: 'integer', minimum: 1 },
+          collection: { enum: ['Default', 'PipeTimeline,Default'] },
+          maxAttempts: { type: 'integer', minimum: 1 },
+          attemptTimeoutSeconds: { type: 'integer', minimum: 1 },
+          retryDelayMs: {
+            type: 'integer',
+            minimum: 0,
+            maximum: Number.MAX_SAFE_INTEGER,
+          },
+          cacheEnabled: { type: 'boolean' },
+          cacheDir: text,
+          cacheMaxEntries: { type: 'integer', minimum: 1 },
+          roundNum: { type: 'integer', minimum: 1 },
+          msprofBin: text,
+          deviceName: text,
+        },
+        required: ['enabled'],
+        additionalProperties: false,
       },
-      required: ['enabled'],
-      additionalProperties: false,
     },
-  }),
+    ['python', 'device', 'timeoutSeconds', 'profiling'],
+  ),
 });
 export const sdkConditionsSchema = recordSchema({
   mode: { const: 'sdk' },

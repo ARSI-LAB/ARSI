@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { operatorProposerContract } from '../../src/contracts/plugin-types/proposer-operator.js';
 import { validate } from '../../src/shared/schema.js';
 
-test('metrics proposal contract supports a current parent and diagnostic through round ten', () => {
+test('metrics proposal contract requires current evidence and a positive round', () => {
   const input = {
     action: 'propose',
     phase: 'metrics',
     parentCandidateRef: 'parent',
     incumbentMeasurementRef: 'assessment',
     diagnosticMeasurementRef: 'profile',
-    round: 10,
+    round: 11,
     historyRef: 'history',
     staticHistoryRef: null,
     goal: 'Optimize the measured bottleneck',
@@ -19,7 +19,7 @@ test('metrics proposal contract supports a current parent and diagnostic through
     validate(operatorProposerContract.input_schema, input),
   );
   assert.throws(() =>
-    validate(operatorProposerContract.input_schema, { ...input, round: 11 }),
+    validate(operatorProposerContract.input_schema, { ...input, round: 0 }),
   );
   assert.throws(() =>
     validate(operatorProposerContract.input_schema, {
@@ -90,7 +90,7 @@ test('metric analysis requires measured numeric evidence and keeps model inferen
   );
 });
 
-test('operator edits reject unauthorized paths and oversized UTF-8 output as model data', async () => {
+test('operator edits preserve the authorized path without an implicit UTF-8 byte ceiling', async () => {
   const loaded: unknown = await import(
     new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
       .href
@@ -113,12 +113,10 @@ test('operator edits reject unauthorized paths and oversized UTF-8 output as mod
       }),
     /operator.*edit|path/i,
   );
-  assert.throws(
-    () =>
-      parse({
-        edits: [{ path: 'input.py', content: '\u20ac'.repeat(12000) }],
-        reason: 'Too many bytes',
-      }),
-    /byte/i,
+  assert.doesNotThrow(() =>
+    parse({
+      edits: [{ path: 'input.py', content: '\u20ac'.repeat(12000) }],
+      reason: 'Complete source subject to the Application Target',
+    }),
   );
 });

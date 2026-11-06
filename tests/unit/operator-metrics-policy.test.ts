@@ -15,6 +15,7 @@ async function run(
   options: {
     values?: Array<number | null>;
     maxRounds?: number;
+    maxNoImprovement?: number;
     profileFailure?: number;
     infrastructureFailure?: boolean;
   } = {},
@@ -150,7 +151,7 @@ async function run(
     repairLimit: 3,
     metricsEnabled: true,
     maxRounds: options.maxRounds ?? 10,
-    maxNoImprovement: 5,
+    maxNoImprovement: options.maxNoImprovement ?? 5,
   };
   try {
     const output = object(
@@ -217,6 +218,13 @@ test('invalid proposals consume rounds without incrementing or resetting the no-
   const { output } = await run({ values: [10, null, 10, 10, 10, 10] });
   assert.equal(output.stopReason, 'no-improvement');
   assert.equal((output.metricsRounds as JsonValue[]).length, 6);
+});
+
+test('configured metrics search completes eleven rounds and restores its recorded output', async () => {
+  const { output } = await run({ maxRounds: 11, maxNoImprovement: 11 });
+  assert.equal(output.stopReason, 'no-improvement');
+  assert.equal((output.metricsRounds as JsonValue[]).length, 11);
+  assert.equal(output.noImprovementCount, 11);
 });
 
 test('failed verification exhausts three repairs and proceeds to another round', async () => {

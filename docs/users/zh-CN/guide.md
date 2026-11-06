@@ -170,26 +170,46 @@ Harness² 的 `policy.config` 接受 `k`、`concurrency`、`dataset.taskIds` 和
 
 未配置字段仍遵循后端及模型服务的默认行为。省略 `timeoutMs` 时，Pi 底层 HTTP 客户端使用 10 分钟超时；省略 `run.timeoutSeconds` 时，Evaluator SDK 使用所选配置档或兜底任务超时。模型调用次数限制依赖能准确计数的后端，例如 `agent.pi`；原生 `agent.codex` 将调用次数标记为不可得。
 
-| 位置 | 字段 | 原框架默认值 | 限制范围 |
-| --- | --- | --- | --- |
-| Recipe | `budget.elapsedWallMs`、`budget.cleanupReserveMs` | `86400000`、`60000` | 实验墙钟时间和独立的清理时限，单位为毫秒。 |
-| Recipe | `budget.modelCalls` | 原本就需显式设置 | 具有计数能力的后端记入实验的总模型调用次数。Pi 包含其子代理和纠错调用。原生 Codex 将此计数标记为不可得。 |
-| Recipe | `bindings.agent.config.maxTokens`（`agent.pi`） | `32768` | 每次模型请求的输出 token 上限。值须在 `contextWindow` 范围内。 |
-| Recipe | `bindings.agent.config.timeoutMs` | Pi 原先为 `600000`，原生 Codex 仅应用显式超时 | `agent.pi` 的单次请求时限，或 `agent.codex` 的整次调用时限。 |
-| Recipe | `bindings.agent.config.executionTimeoutMs`（`agent.pi`） | 无隐式上限 | 整次 Agent 调用，包含工具、纠错、压缩、重试等待和等待子代理的用时。父代理截止时间也会取消后代代理。 |
-| Recipe | `bindings.<binding>.config.maxModelCalls`（`proposer.agent`、`memory.agent`、`selector.artifact`） | 经正常 Recipe 加载后为 `24` | `agent.pi` 等能准确计数的后端在单次 Agent 调用内的模型请求次数。Policy 步骤直接调用 `contract.agent` 时，设置 `steps[].with.maxModelCalls`。Pi 子代理继承显式值作为各自会话的上限。 |
-| Recipe | `bindings.evaluator.config.services.<service>.maxTokens`（`evaluator.agentbench`） | `65536` | 所选评测模型服务每轮的输出 token 上限。 |
-| Recipe | `application.config.remote.timeoutMs`、`application.config.healthcheck.timeoutMs` | 远程命令和远程就绪均为 `600000`，本地就绪为 `120000` | 远程就绪等待继承显式设置的远程超时，单独设置健康检查超时可覆盖。 |
-| Recipe | `bindings.proposer.config.python.timeoutMs`、`bindings.proposer.config.maxSamplingAttempts`（`proposer.optuna`） | `30000`、`1000` | 单次 Python 调用时限（毫秒）和总采样次数（含重复尝试）。Policy 的 `maxTrials` 单独限制评测次数。 |
-| `reflection.configFile` 指向的 Reflection 文件 | `budget.modelCalls`、`budget.timeoutSeconds` | 模型调用为 `50`，时间原本就需显式设置 | 单次 Reflection 的局部预算。正数调用上限依赖后端准确计数。显式设置 `modelCalls: 0` 会阻止内置模型生成器启动。 |
-| `application.config.target.schema` 指向的 Target 文件 | `entries[].content.maxBytes`、`constraints.maxChangedFiles`、`constraints.maxChangedBytes` | `1048576`、`32`、`1048576` | 文件大小、修改文件数和修改总字节数。 |
-| Policy 调用步骤 | `steps[].with.editConstraints.maxChangedFiles`、`steps[].with.editConstraints.maxChangedBytes`、`steps[].with.editConstraints.maxChangedSubtrees` | 编辑器默认 32 个文件和 `1048576` 字节。Target 原先按条目数设置子树上限。 | 在被调用契约支持时限制本次编辑。`maxChangedSubtrees` 适用于 Target 校验。 |
+| 位置                                                  | 字段                                                                                                                                              | 原框架默认值                                                             | 限制范围                                                                                                                                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recipe                                                | `budget.elapsedWallMs`、`budget.cleanupReserveMs`                                                                                                 | `86400000`、`60000`                                                      | 实验墙钟时间和独立的清理时限，单位为毫秒。                                                                                                                                          |
+| Recipe                                                | `budget.modelCalls`                                                                                                                               | 原本就需显式设置                                                         | 具有计数能力的后端记入实验的总模型调用次数。Pi 包含其子代理和纠错调用。原生 Codex 将此计数标记为不可得。                                                                            |
+| Recipe                                                | `bindings.agent.config.maxTokens`（`agent.pi`）                                                                                                   | `32768`                                                                  | 每次模型请求的输出 token 上限。值须在 `contextWindow` 范围内。                                                                                                                      |
+| Recipe                                                | `bindings.agent.config.timeoutMs`                                                                                                                 | Pi 原先为 `600000`，原生 Codex 仅应用显式超时                            | `agent.pi` 的单次请求时限，或 `agent.codex` 的整次调用时限。                                                                                                                        |
+| Recipe                                                | `bindings.agent.config.executionTimeoutMs`（`agent.pi`）                                                                                          | 无隐式上限                                                               | 整次 Agent 调用，包含工具、纠错、压缩、重试等待和等待子代理的用时。父代理截止时间也会取消后代代理。                                                                                 |
+| Recipe                                                | `bindings.<binding>.config.maxModelCalls`（`proposer.agent`、`memory.agent`、`selector.artifact`）                                                | 经正常 Recipe 加载后为 `24`                                              | `agent.pi` 等能准确计数的后端在单次 Agent 调用内的模型请求次数。Policy 步骤直接调用 `contract.agent` 时，设置 `steps[].with.maxModelCalls`。Pi 子代理继承显式值作为各自会话的上限。 |
+| Recipe                                                | `bindings.evaluator.config.services.<service>.maxTokens`（`evaluator.agentbench`）                                                                | `65536`                                                                  | 所选评测模型服务每轮的输出 token 上限。                                                                                                                                             |
+| Recipe                                                | `application.config.remote.timeoutMs`、`application.config.healthcheck.timeoutMs`                                                                 | 远程命令和远程就绪均为 `600000`，本地就绪为 `120000`                     | 远程就绪等待继承显式设置的远程超时，单独设置健康检查超时可覆盖。                                                                                                                    |
+| Recipe                                                | `bindings.proposer.config.python.timeoutMs`、`bindings.proposer.config.maxSamplingAttempts`（`proposer.optuna`）                                  | `30000`、`1000`                                                          | 单次 Python 调用时限（毫秒）和总采样次数（含重复尝试）。Policy 的 `maxTrials` 单独限制评测次数。                                                                                    |
+| `reflection.configFile` 指向的 Reflection 文件        | `budget.modelCalls`、`budget.timeoutSeconds`、`budget.evidenceBytes`                                                                              | 模型调用为 `50`，时间原本就需显式设置                                    | 单次 Reflection 的局部预算。正数调用上限依赖后端准确计数。显式设置 `modelCalls: 0` 会阻止内置模型生成器启动。                                                                       |
+| `application.config.target.schema` 指向的 Target 文件 | `entries[].content.maxBytes`、`constraints.maxChangedFiles`、`constraints.maxChangedBytes`                                                        | `1048576`、`32`、`1048576`                                               | 文件大小、修改文件数和修改总字节数。                                                                                                                                                |
+| Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedFiles`、`steps[].with.editConstraints.maxChangedBytes`、`steps[].with.editConstraints.maxChangedSubtrees` | 编辑器默认 32 个文件和 `1048576` 字节。Target 原先按条目数设置子树上限。 | 在被调用契约支持时限制本次编辑。`maxChangedSubtrees` 适用于 Target 校验。                                                                                                           |
 
 其余移除的上限属于框架内部。可用的控制方式取决于执行范围。
 
-- **Policy 和搜索规模。** `foreach` 与 `range` 移除了 10,000 项上限。`foreach` 的 `steps[].concurrency` 接受正安全整数，默认仍为 `1`，内置 Policy 仍可限制自己的配置范围。`loop.maxIterations` 的最大值仍为 100,000。Grid 原有的 1,000,000 点空间上限没有对应配置项。可通过 `bindings.proposer.config.searchSpace` 控制空间，通过 `policy.config.maxCandidates` 控制评测次数。远程校准范围通过 `application.config.remote.calibration.start`、`min` 和 `step` 调整，原有的 1,000 步跨度检查没有独立开关。
-- **证据与编辑。** 插件代码可用 `RuntimeContext.readEvidence` 的 `maxBytes` 选项为完整文件证据读取恢复原有的 32 MiB 上限。Memory 对比原有的 32 MiB、16 个探测组及每组 100 项上限，共享编辑器原有的 2 MiB 可编辑快照、32 条编辑及单条 128 KiB 上限，以及 Reflection 修订原有的 16 个文件、单资源 64 KiB 和单次修订 128 KiB 上限，都没有直接对应的 YAML 配置项。支持的文件编辑仍受上表中的 Target 和单次编辑约束限制。Reflection 仍控制证据预览大小并校验授权资源路径。
+- **Policy 和搜索规模。** `foreach` 与 `range` 移除了 10,000 项上限。`foreach` 的 `steps[].concurrency` 接受正安全整数，默认仍为 `1`，内置 Policy 仍可限制自己的配置范围。`loop.maxIterations` 接受非负安全整数，由配置值控制循环次数。Grid 原有的 1,000,000 点空间上限没有对应配置项。可通过 `bindings.proposer.config.searchSpace` 控制空间，通过 `policy.config.maxCandidates` 控制评测次数。远程校准范围通过 `application.config.remote.calibration.start`、`min` 和 `step` 调整，原有的 1,000 步跨度检查没有独立开关。
+- **证据与编辑。** 插件代码可用 `RuntimeContext.readEvidence` 的 `maxBytes` 选项为完整文件证据读取恢复原有的 32 MiB 上限。Memory 对比原有的 32 MiB、16 个探测组及每组 100 项上限，共享编辑器原有的 2 MiB 可编辑快照、32 条编辑及单条 128 KiB 上限，以及 Reflection 修订原有的 16 个文件、单资源 64 KiB 和单次修订 128 KiB 上限，都没有直接对应的 YAML 配置项。支持的文件编辑仍受上表中的 Target 和单次编辑约束限制。Reflection 仅在 `budget.evidenceBytes` 或调用作用域显式配置时限制证据内容字节，仍校验授权资源路径。
 - **传输、采样与清理。** Pi 原有的 128 KiB 结构化输出上限，以及 Optuna 原有的 8 MiB worker 输入输出、每次建议 32 次采样和 1,000 条历史记录上限，都没有直接配置项。上表的 Pi token 数、调用次数和 Optuna 采样次数按各自范围限制执行。原生 Codex 由本机 CLI 负责模型执行和恢复，RSI 提供上文所述的整次调用超时及分页虚拟文件读取。Inference 恢复释放使用 Runtime 清理预算，替代原先固定的 10 秒计时。Application 的停止宽限期可通过 `application.config.shutdown.gracePeriodMs` 单独设置。
+
+### 算子执行控制
+
+算子 Policy 默认执行 3 次静态尝试、每个候选最多修复 3 次、10 轮指标优化，并在连续 5 轮无改进后停止。这些是可配置默认值，不是 Schema 上限。通过 `policy.config` 中的 `maxAttempts`、`repairLimit`、`maxRounds`、`maxNoImprovement` 调整；契约和持久化历史支持配置后的搜索规模。Proposer 不额外设置阶段模型调用上限，显式 Recipe 模型调用预算仍统计委派请求和工具续接。
+
+| 配置                                                               | 含义                                                                                               |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `bindings.proposer.config.modelRequestTimeoutMs`                   | 完整 Proposer Agent 阶段超时，单位毫秒；默认 `120000`，`0` 关闭该局部截止时间，父级取消仍会传播。  |
+| `bindings.proposer.config.embedding.timeoutMs`                     | 检索 worker 超时，单位毫秒；默认 `300000`，`0` 关闭该局部截止时间。CPU 线程设置继承环境。          |
+| `bindings.proposer.config.embedding.maxPayloadBytes`               | 可选的单个检索请求、响应、身份或知识 JSON 文件字节上限。省略时 Proposer 不设字节上限。             |
+| `bindings.proposer.config.embedding.maxLogBytes`                   | 可选的每条检索 stdout/stderr 流字节上限。省略时 Proposer 不设日志上限。                            |
+| `bindings.proposer.config.historyWindow`                           | 向生成阶段交付的最近摘要数，默认 `5`，不再受原有 10 条上限约束。                                   |
+| `bindings.evaluator.config.protocol.warmup`、`repeat`              | 正整数迭代次数，不再受原有 10,000/4,096 上限约束。                                                 |
+| `bindings.evaluator.config.sdk.runTimeoutSeconds`                  | 可选的 SDK 外层运行超时；省略时保留 `sdk.timeoutSeconds + 30` 的默认值，内部 worker 超时独立配置。 |
+| `bindings.evaluator.config.sdk.outputLimitBytes`                   | 可选的完整 kernel 进程输出上限；省略时不限制协议输出，超出显式上限时运行失败。                     |
+| `bindings.evaluator.config.sdk.cleanupGraceMs`、`cleanupTimeoutMs` | 可选的进程停止宽限和清理确认时间，单位毫秒，均为正整数；仍必须确认清理完成。                       |
+| `bindings.evaluator.config.sdk.profiling.cacheMaxEntries`          | 可选的 profile 缓存容量；省略时不按条目数量淘汰。                                                  |
+| `bindings.evaluator.config.sdk.profiling.retryDelayMs`             | 可选的 profiling 重试间隔，单位毫秒；`0` 表示不等待，省略时保留指数退避。                          |
+
+以上 SDK 配置需要匹配的 kernel Evaluator 实现。直接创建 Node 计时器的超时和清理参数必须在其可表示的范围内（`2147483647` 毫秒）；profiling 重试等待由 SDK 分段执行。这些是平台语义，不是优化预算。文件和编辑字节限制由 Target 拥有，Proposer 不再额外施加 32 KiB 源码上限。JSON 证据读取默认返回 60,000 字节的摘要，调用方可提供更大的 `maxBytes`，同时遵守显式作用域限制。文件投影在没有显式字节限制时保留完整授权来源；摘要仍属于派生视图。类型、路径、归属、评分区间和单 case 协议校验继续生效。
 
 ### CLI
 
@@ -311,7 +331,7 @@ Policy 使用 `rsi.policy/v1`，Recipe 使用 `rsi.recipe/v1`。Policy 声明输
 | `control`    | 执行 `break`、`continue`，或附带原因的 `fail`。                      |
 | `reflection` | 串行调用已声明的 Reflection 模块。                                   |
 
-`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。`maxIterations` 为必填项，求值结果须为 0 到 100,000 之间的整数。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
+`${{ input.candidateRef }}`、`${{ steps.propose.output.candidateRef }}` 等表达式通过有界纯表达式连接数据。`steps` 按词法作用域读取已完成步骤，`loop.index` 表示最近一层循环的索引。`maxIterations` 为必填项，求值结果须为非负安全整数。if/foreach 的输出在局部块内求值，loop 的输出在循环外求值；后续需要的逐轮结果应保存在已声明状态中，并覆盖零轮循环。状态更新的右侧表达式读取更新前的状态。
 
 典型搜索先评测基线，再循环提案、评测和选择，保存被接受的状态，最后通过普通后续步骤评测独立测试集。并行 foreach 分支返回输出，交给后续串行步骤汇总。Reflection 使用 `type: reflection`，不能在并行分支执行。绑定只选择插件，不支持子 Policy、固定的 `init`/`finish` 作用域或 Runtime 报告阶段标签。成功、失败和取消时的资源清理由 Runtime 负责。
 

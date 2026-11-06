@@ -7,14 +7,15 @@ import { object } from '../../src/shared/json.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
 import { requestOperatorAgent } from '../../src/plugins/proposer-operator/service.js';
 
-test('operator stages derive separate scopes, preserve cancellation and reject an existing scope', async () => {
+test('operator stages retain separate accounting scopes without imposing a model-call cap', async () => {
   const scopes: string[] = [];
   const context = new RuntimeContext().extend({
     experimentId: 'experiment',
     callId: 'parent',
     signal: new AbortController().signal,
     async invokeAgent(this: RuntimeContext, request) {
-      assert.equal(request.maxModelCalls, this.scope?.limits.modelCalls);
+      assert.equal(request.maxModelCalls, undefined);
+      assert.equal(this.scope?.limits.modelCalls, undefined);
       assert.deepEqual(request.input, {
         sourceFiles: { 'input.py': 'authorized source' },
       });
@@ -48,6 +49,71 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
     ),
     /scope/i,
   );
+});
+
+test('operator stages forward authorized snapshots above 2 MiB without an implicit evidence cap', async () => {
+  const source = 'x'.repeat(2 * 1024 * 1024 + 1);
+  const context = new RuntimeContext().extend({
+    experimentId: 'large-snapshot',
+    callId: 'generate',
+    signal: new AbortController().signal,
+    async invokeAgent(this: RuntimeContext, request) {
+      assert.equal(object(request.files)['input.py'], source);
+      assert.equal(
+        object(object(request.input).sourceFiles)['input.py'],
+        source,
+      );
+      assert.equal(this.scope?.limits.evidenceBytes, undefined);
+      return { accepted: true };
+    },
+  });
+  assert.deepEqual(
+    await requestOperatorAgent(
+      'generate',
+      {
+        goal: 'Inspect the complete authorized source',
+        prompt: 'Return JSON',
+        files: { 'input.py': source },
+        outputSchema: { type: 'object' },
+      },
+      context,
+    ),
+    { accepted: true },
+  );
+});
+
+test('operator stage timeout can be disabled while parent cancellation still propagates', async () => {
+  const parent = new AbortController();
+  const cancelled = new Error('Explicit parent cancellation');
+  const context = new RuntimeContext().extend({
+    experimentId: 'no-local-deadline',
+    callId: 'generate',
+    signal: parent.signal,
+    async invokeAgent(this: RuntimeContext) {
+      assert.equal(this.scope?.limits.elapsedWallMs, undefined);
+      return new Promise<never>((_resolve, reject) => {
+        this.signal.addEventListener(
+          'abort',
+          () => reject(this.signal.reason),
+          {
+            once: true,
+          },
+        );
+      });
+    },
+  });
+  const pending = requestOperatorAgent(
+    'generate',
+    {
+      goal: 'Test cancellation',
+      prompt: 'Return JSON',
+      outputSchema: { type: 'object' },
+    },
+    context,
+    0,
+  );
+  parent.abort(cancelled);
+  await assert.rejects(pending, (error) => error === cancelled);
 });
 
 type Reply = { read: true } | { delegate: true } | { result: JsonObject };
@@ -172,18 +238,23 @@ const continuedProposal: Reply[] = [
   { result: { accepted: true } },
 ];
 
-test('operator stage completes tool continuations and delegated review beyond two model calls', async (t) => {
-  const fixture = await modelFixture(continuedProposal);
+test('operator stage completes tool continuations and delegated review beyond 24 model calls', async (t) => {
+  const fixture = await modelFixture([
+    { delegate: true },
+    ...Array.from({ length: 24 }, (): Reply => ({ read: true })),
+    { result: { finding: 'reviewed source' } },
+    { result: { accepted: true } },
+  ]);
   t.after(() => fixture.close());
   const result = await fixture.run();
   assert.equal(result.status, 'succeeded');
   assert.deepEqual(result.output, { accepted: true });
-  assert.equal(fixture.requestCount(), 6);
+  assert.equal(fixture.requestCount(), 27);
   const budget = await fixture.manager.facts.read('budgets', 'test');
-  assert.equal(budget.modelCalls, 6);
+  assert.equal(budget.modelCalls, 27);
   const scopes = object(budget.scopes);
   assert.equal(Object.keys(scopes).length, 1);
-  assert.equal(object(Object.values(scopes)[0]).modelCalls, 6);
+  assert.equal(object(Object.values(scopes)[0]).modelCalls, 27);
   const calls = (await fixture.manager.facts.list('calls')).filter(
     (call) => call.bindingId === 'agent',
   );
@@ -194,20 +265,6 @@ test('operator stage completes tool continuations and delegated review beyond tw
       (call) => object(call.input).goal === 'Review the authorized source',
     ),
   );
-});
-
-test('operator stage stops delegated model effects at its shared 24-call limit', async (t) => {
-  const fixture = await modelFixture([
-    { delegate: true },
-    ...Array.from({ length: 23 }, (): Reply => ({ read: true })),
-    { result: { finding: 'would exceed the shared stage limit' } },
-  ]);
-  t.after(() => fixture.close());
-  await assert.rejects(fixture.run(), /Reflection modelCalls budget exceeded/);
-  assert.equal(fixture.requestCount(), 24);
-  const budget = await fixture.manager.facts.read('budgets', 'test');
-  assert.equal(budget.modelCalls, 24);
-  assert.equal(object(Object.values(object(budget.scopes))[0]).modelCalls, 24);
 });
 
 test('lower Manager model budget stops an operator stage before its next external request', async (t) => {

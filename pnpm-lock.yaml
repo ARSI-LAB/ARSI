@@ -188,8 +188,8 @@ importers:
         specifier: 15.0.0
         version: 15.0.0
       ember-evaluator:
-        specifier: git+https://github.com/evolving-foundry/ember-evaluator.git#0.0.2
-        version: git+https://github.com/evolving-foundry/ember-evaluator.git#99392461cfdac9edb4ad2b49fa7c52a954125f1b(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
+        specifier: git+https://github.com/evolving-foundry/ember-evaluator.git#cf3d80acd3622d21e114bf57622ee46d4265fea5
+        version: https://codeload.github.com/evolving-foundry/ember-evaluator/tar.gz/cf3d80acd3622d21e114bf57622ee46d4265fea5(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
       exceljs:
         specifier: 4.4.0
         version: 4.4.0
@@ -1753,8 +1753,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  ember-evaluator@git+https://github.com/evolving-foundry/ember-evaluator.git#99392461cfdac9edb4ad2b49fa7c52a954125f1b:
-    resolution: {commit: 99392461cfdac9edb4ad2b49fa7c52a954125f1b, repo: https://github.com/evolving-foundry/ember-evaluator.git, type: git}
+  ember-evaluator@https://codeload.github.com/evolving-foundry/ember-evaluator/tar.gz/cf3d80acd3622d21e114bf57622ee46d4265fea5:
+    resolution: {gitHosted: true, integrity: sha512-viRnbRZcim/0xu8U3dluYd3pNezFodU7MQBuCk6pUATtnwyTsdOvNhuUx8dNSp+KiXxI5FuVz/C/RF8us2fcqQ==, tarball: https://codeload.github.com/evolving-foundry/ember-evaluator/tar.gz/cf3d80acd3622d21e114bf57622ee46d4265fea5}
     version: 0.1.0
     engines: {node: '>=24.19.0'}
     hasBin: true
@@ -4788,7 +4788,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  ember-evaluator@git+https://github.com/evolving-foundry/ember-evaluator.git#99392461cfdac9edb4ad2b49fa7c52a954125f1b(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7):
+  ember-evaluator@https://codeload.github.com/evolving-foundry/ember-evaluator/tar.gz/cf3d80acd3622d21e114bf57622ee46d4265fea5(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7):
     dependencies:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@earendil-works/chord': 1.1.0

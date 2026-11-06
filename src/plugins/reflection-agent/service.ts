@@ -47,6 +47,7 @@ export const createReflectionAgent: OperationDefinition<
         files,
         artifacts: context.artifacts,
         signal: context.signal,
+        maxBytes: context.scope?.limits.evidenceBytes,
       });
       const indexPath = 'context/reflection/index.json';
       files[indexPath] = JSON.stringify({ indexes, previews }, null, 2);

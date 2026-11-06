@@ -40,11 +40,11 @@ budget:
 | `implementation.contract` | 必填，必须为 `contract.reflection`。                                                 |
 | `implementation.ref`      | 必填的已注册实现，例如 `reflection.agent`；                                          |
 | `implementation.config`   | 由所选实现的 Schema 校验；`reflection.agent` 要求用 `agentRef` 显式指定 Agent 绑定。 |
-| `budget`                  | 可选的单次模型调用和超时限制，同时受实验剩余总预算约束。                             |
+| `budget`                  | 可选的单次模型调用、超时和证据内容限制，同时受实验剩余总预算约束。                   |
 
 对于 `reflection.agent`，省略 `prompt` 时使用随包提供的 Reflection 提示词，也可以提供自己的文件。实现配置中的相对资源路径以选中的 Reflection 文件为基准。不要在这里配置 `maxContextBytes` 或 `maxModelCalls`：上下文处理由框架负责，模型调用限制应放在 `budget.modelCalls`。
 
-将 `budget.modelCalls` 设为非负整数可限制单次 Reflection 的模型调用次数，设为 `0` 会阻止新增模型调用。将 `budget.timeoutSeconds` 设为计时器范围内的正整数可限制单次执行时间。省略哪个字段，Reflection 就不施加对应的局部上限。已配置的实验和 Agent 限制也会生效。
+将 `budget.modelCalls` 设为非负整数可限制单次 Reflection 的模型调用次数，设为 `0` 会阻止新增模型调用。将 `budget.timeoutSeconds` 设为计时器范围内的正整数可限制单次执行时间。将 `budget.evidenceBytes` 设为正安全整数可限制收集的虚拟文件内容及提取的文档预览文本字节；它不限制索引、来源元数据或完整 Agent 请求的序列化字节。省略哪个字段，Reflection 就不施加对应的局部上限。已配置的实验和 Agent 限制也会生效。
 
 上面的示例和随包提供的 Harness² Reflection 文件均设置 60 分钟局部超时，不设置模型调用次数上限。Reflection 调用 `agent.pi` 时，Agent 中显式配置的 `executionTimeoutMs` 也会生效。不需要独立的 Reflection 截止时间时，可省略 `budget.timeoutSeconds`。
 

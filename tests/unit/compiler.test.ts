@@ -211,7 +211,14 @@ test('only typed new DSL fields and explicit declared state are accepted', () =>
     assert.throws(() => new Policy(definition));
 });
 test('constant resource limits reject invalid values while zero loops and dynamic concurrency remain valid', () => {
-  for (const maxIterations of [undefined, -1, 1.5, 'no', null, 100001])
+  for (const maxIterations of [
+    undefined,
+    -1,
+    1.5,
+    'no',
+    null,
+    Number.MAX_SAFE_INTEGER + 1,
+  ])
     assert.throws(
       () =>
         new Policy({

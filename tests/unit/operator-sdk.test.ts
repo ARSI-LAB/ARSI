@@ -55,6 +55,10 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
       python: worker,
       device: 0,
       timeoutSeconds: 15,
+      runTimeoutSeconds: 65,
+      outputLimitBytes: 8 * 1024 * 1024,
+      cleanupGraceMs: 200,
+      cleanupTimeoutMs: 4000,
       profiling: { enabled: false },
     },
   };
@@ -78,6 +82,11 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     },
     join(directory, 'call'),
   );
+  const generated = JSON.parse(await readFile(prepared.configPath, 'utf8'));
+  assert.equal(generated.run.timeoutSeconds, 65);
+  assert.equal(generated.benchmark.config.outputLimitBytes, 8 * 1024 * 1024);
+  assert.equal(generated.benchmark.config.cleanupGraceMs, 200);
+  assert.equal(generated.benchmark.config.cleanupTimeoutMs, 4000);
   const result = await new Evaluator().run({
     configPath: prepared.configPath,
     env: { ...process.env, ...prepared.env },

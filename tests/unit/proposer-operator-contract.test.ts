@@ -85,18 +85,38 @@ test('operator Proposer rejects unknown actions, extra fields and missing action
     assert.throws(() => validate(schema, input));
 });
 
-test('operator Proposer bounds attempts, repairs and ordered unique candidate chains', () => {
+test('operator Proposer accepts configured search counts beyond former ceilings', () => {
   const schema = contract().input_schema;
-  for (const attempt of [0, 4, 1.5])
+  validate(schema, { ...propose, attempt: 4 });
+  validate(schema, { ...repair, attempt: 4, repairIndex: 4 });
+  validate(schema, {
+    ...summarize,
+    attempt: 4,
+    candidateRefs: ['c1', 'c2', 'c3', 'c4', 'c5'],
+    measurementRefs: ['m1', 'm2', 'm3', 'm4', 'm5'],
+  });
+  validate(schema, {
+    action: 'propose',
+    phase: 'metrics',
+    parentCandidateRef: 'candidate:parent',
+    incumbentMeasurementRef: 'measurement:incumbent',
+    diagnosticMeasurementRef: 'measurement:diagnostic',
+    round: 11,
+    historyRef: null,
+    staticHistoryRef: null,
+    goal: 'Continue the configured search',
+  });
+});
+
+test('operator Proposer requires positive integer counts and unique candidate chains', () => {
+  const schema = contract().input_schema;
+  for (const attempt of [0, 1.5])
     assert.throws(() => validate(schema, { ...propose, attempt }));
-  for (const repairIndex of [0, 4, 1.5])
+  for (const repairIndex of [0, 1.5])
     assert.throws(() => validate(schema, { ...repair, repairIndex }));
-  for (const candidateRefs of [[], ['c', 'c'], ['c1', 'c2', 'c3', 'c4', 'c5']])
+  for (const candidateRefs of [[], ['c', 'c']])
     assert.throws(() => validate(schema, { ...summarize, candidateRefs }));
-  for (const measurementRefs of [
-    ['m', 'm'],
-    ['m1', 'm2', 'm3', 'm4', 'm5'],
-  ])
+  for (const measurementRefs of [['m', 'm']])
     assert.throws(() => validate(schema, { ...summarize, measurementRefs }));
 });
 

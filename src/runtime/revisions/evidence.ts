@@ -27,7 +27,7 @@ export interface EvidenceOptions {
   names: string[];
   identity: string;
   capturedAt: string;
-  maxBytes: number;
+  maxBytes?: number;
   priorRef?: string;
   policyScopeId?: string;
   moduleKey?: string;
@@ -55,8 +55,7 @@ export async function collectReflectionEvidence(
   const { context } = options;
   const diagnostics: JsonObject[] = [];
   const note = (code: string, callId?: JsonValue): void => {
-    if (diagnostics.length < 128)
-      diagnostics.push({ code, callId: callId ?? null });
+    diagnostics.push({ code, callId: callId ?? null });
   };
   const window = await selectEvidenceWindow(options, note);
   if (window.kind === 'saved') return window.evidence;
@@ -78,15 +77,17 @@ export async function collectReflectionEvidence(
   const seenMeasurements = new Set<string>();
   const measurements: JsonObject[] = [];
   let bytes = 0;
-  const limit = options.maxBytes;
+  const limit = options.maxBytes ?? Number.POSITIVE_INFINITY;
   const store = (path: string, content: string): void => {
     const available = Math.max(0, limit - bytes);
     const data = Buffer.from(content);
     if (data.length > available) {
-      files[path] =
-        data.subarray(0, available).toString('utf8') +
-        '\n[truncated: Reflection evidence byte limit]';
-      bytes = limit;
+      const marker = '\n[truncated: Reflection evidence byte limit]';
+      const suffix = Buffer.byteLength(marker) <= available ? marker : '';
+      let end = Math.max(0, available - Buffer.byteLength(suffix));
+      while (end > 0 && (data[end]! & 0xc0) === 0x80) end--;
+      files[path] = data.subarray(0, end).toString('utf8') + suffix;
+      bytes += Buffer.byteLength(files[path]);
       note('virtual-file-truncated');
     } else {
       files[path] = content;
@@ -247,7 +248,7 @@ export async function collectReflectionEvidence(
             ? call.output.measurementRef
             : null,
         sources: Array.isArray(call.input.sources)
-          ? call.input.sources.slice(0, 128).map((raw) => {
+          ? call.input.sources.map((raw) => {
               const source = asObject(raw);
               return {
                 candidate:
@@ -261,9 +262,7 @@ export async function collectReflectionEvidence(
               };
             })
           : [],
-        sourcesOmitted: Array.isArray(call.input.sources)
-          ? Math.max(0, call.input.sources.length - 128)
-          : 0,
+        sourcesOmitted: 0,
       },
       role,
       path,
@@ -667,7 +666,7 @@ export async function collectReflectionEvidence(
         measurements,
         artifacts: context.artifacts,
         view: 'training-summary',
-        maxBytes: Math.min(limit, 1024 * 1024),
+        maxBytes: options.maxBytes,
       });
       // This projection alone allows normalized scores and diagnostics; ordinary records stay execution-filtered.
       store('context/reflection/training-summary.json', canonical(feedback));
@@ -727,22 +726,18 @@ function safeText(
   value: JsonValue,
   format: 'json' | 'text' | 'jsonl' = 'json',
 ): string {
-  let projectedNodes = 0;
-  const project = (raw: JsonValue, depth = 0): JsonValue => {
-    if (depth > 64 || ++projectedNodes > 200000)
-      return '[omitted-depth-or-size]';
+  const project = (raw: JsonValue): JsonValue => {
     if (typeof raw === 'string' && /^[\s]*[\[{]/.test(raw)) {
       try {
         const parsed: unknown = JSON.parse(raw);
         json(parsed);
         if (parsed !== null && typeof parsed === 'object')
-          return canonical(project(parsed, depth + 1));
+          return canonical(project(parsed));
       } catch {
         /* Ordinary non-JSON evidence remains text. */
       }
     }
-    if (Array.isArray(raw))
-      return raw.map((entry) => project(entry, depth + 1));
+    if (Array.isArray(raw)) return raw.map((entry) => project(entry));
     if (raw !== null && typeof raw === 'object') {
       if (
         raw.view === 'training-summary' ||
@@ -757,7 +752,7 @@ function safeText(
                 key,
               ),
           )
-          .map(([key, entry]) => [key, project(entry, depth + 1)]),
+          .map(([key, entry]) => [key, project(entry)]),
       );
     }
     return raw;

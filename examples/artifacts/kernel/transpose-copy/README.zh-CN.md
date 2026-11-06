@@ -97,22 +97,30 @@ Manager 执行 Recipe 的操作数、模型调用数、评测次数和时间预�
 没有接受改进时，复用未改变候选的诊断证据。
 Profiling 不可用时停止指标阶段。两种模式都在结束时独立复测选中的源码。
 
-| Recipe 设置                                              | 示例值     | 含义                                                    |
-| -------------------------------------------------------- | ---------- | ------------------------------------------------------- |
-| `policy.config.maxAttempts`                              | `3`        | 静态尝试次数；Schema 允许 1–3。                         |
-| `policy.config.repairLimit`                              | `3`        | 每条无效候选链的修复次数；Schema 允许 0–3。             |
-| `policy.config.maxRounds`                                | `10`       | 指标阶段轮数；Schema 允许 1–10。                        |
-| `policy.config.maxNoImprovement`                         | `5`        | 上次接受改进后，未被接受的有效候选数；Schema 允许 1–5。 |
-| `bindings.proposer.config.modelRequestTimeoutMs`         | `120000`   | 一个完整模型阶段的时间上限，单位 ms。                   |
-| `bindings.proposer.config.embedding.similarityThreshold` | `0.6`      | 检索匹配分数下限。                                      |
-| `bindings.evaluator.config.protocol.warmup` / `repeat`   | `5` / `20` | 评测预热次数与计时重复次数。                            |
-| `bindings.selector.config.minRelativeImprovement`        | `0.02`     | 合格候选平均延迟所需的相对降低比例。                    |
+| Recipe 设置                                              | 示例值     | 含义                                                      |
+| -------------------------------------------------------- | ---------- | --------------------------------------------------------- |
+| `policy.config.maxAttempts`                              | `3`        | 静态尝试次数上限，取正整数。                              |
+| `policy.config.repairLimit`                              | `3`        | 每条无效候选链的修复次数上限，取非负整数。                |
+| `policy.config.maxRounds`                                | `10`       | 指标阶段轮数上限，取正整数。                              |
+| `policy.config.maxNoImprovement`                         | `5`        | 上次接受改进后，未被接受的有效候选数上限，取正整数。      |
+| `bindings.proposer.config.historyWindow`                 | `5`        | 提供给生成阶段的最近总结数量，默认 5。                    |
+| `bindings.proposer.config.modelRequestTimeoutMs`         | `120000`   | 一个完整模型阶段的时间上限，单位 ms；`0` 关闭此本地期限。 |
+| `bindings.proposer.config.embedding.timeoutMs`           | `300000`   | 检索 worker 的时间上限，单位 ms；`0` 关闭此期限。         |
+| `bindings.proposer.config.embedding.maxPayloadBytes`     | 省略       | 可选的单份外部检索 JSON 数据字节上限。                    |
+| `bindings.proposer.config.embedding.maxLogBytes`         | 省略       | 可选的检索 worker 单个输出流的字节上限。                  |
+| `bindings.proposer.config.embedding.similarityThreshold` | `0.6`      | 检索匹配分数下限。                                        |
+| `bindings.evaluator.config.protocol.warmup` / `repeat`   | `5` / `20` | 评测预热次数与计时重复次数。                              |
+| `bindings.selector.config.minRelativeImprovement`        | `0.02`     | 合格候选平均延迟所需的相对降低比例。                      |
 
 本例 Manager 上限为 1,024 次操作、65 次评测、152 次模型调用、
 7,200,000 ms 总时长，以及 60,000 ms 清理预留时间。
 评测次数同时包含 `evaluate` 和 `profile`；模型调用同时包含工具后续调用与委派。
-单个 Agent 请求和执行范围还可以施加更低上限。提高总预算不会绕过这些限制
-或 Policy Schema 的最大值，也不保证所有配置的轮次都能执行。
+单个 Agent 请求和执行范围还可以配置更低上限。提高总预算不会绕过这些限制，
+也不保证所有配置的轮次都能执行。Proposer 的两个超时字段接受
+`0` 到 `2147483647` 的整数毫秒数，并保留上表中的默认值。
+省略检索字节上限时，不限制对应维度。
+Application 的 [Target](./target.yaml) 控制源码大小与修改字节数上限；
+本例将两者显式设为 32,768 字节。授权更大源码时，提高或省略这些 Target 限制。
 
 ## Ascend 性能采集配置
 

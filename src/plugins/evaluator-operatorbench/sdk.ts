@@ -82,6 +82,15 @@ export async function prepareSdkConfiguration(
             warmup: config.protocol.warmup,
             repeat: config.protocol.repeat,
             timeoutSeconds: config.sdk.timeoutSeconds,
+            ...(config.sdk.outputLimitBytes === undefined
+              ? {}
+              : { outputLimitBytes: config.sdk.outputLimitBytes }),
+            ...(config.sdk.cleanupGraceMs === undefined
+              ? {}
+              : { cleanupGraceMs: config.sdk.cleanupGraceMs }),
+            ...(config.sdk.cleanupTimeoutMs === undefined
+              ? {}
+              : { cleanupTimeoutMs: config.sdk.cleanupTimeoutMs }),
             profiling:
               operation === 'profile'
                 ? {
@@ -101,7 +110,8 @@ export async function prepareSdkConfiguration(
         },
         run: {
           taskIds: [selected.id],
-          timeoutSeconds: config.sdk.timeoutSeconds + 30,
+          timeoutSeconds:
+            config.sdk.runTimeoutSeconds ?? config.sdk.timeoutSeconds + 30,
           onError: 'abort',
         },
         output: { directory: join(directory, 'sdk-output') },

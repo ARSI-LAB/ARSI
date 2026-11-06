@@ -134,7 +134,7 @@ Policy 的显式 `profile` 操作仍会启用采集，并强制关闭磁盘缓�
 将时间线证据标为不可用，不能据此得出 PipeTimeline、流水重叠、气泡或 Double Buffer 结论。
 需要可用 trace 证据时，显式选择 `PipeTimeline,Default`。
 采集、清理、指标单位和证据校验由 SDK 负责；见锁定版本的
-[NPU kernel 指南](https://github.com/evolving-foundry/ember-evaluator/blob/aacedfdb606ffd7ce7ca932ab15d4dcd82f95813/docs/users/benchmarks/kernel-npu.zh-CN.md)。
+[NPU kernel 指南](https://github.com/evolving-foundry/ember-evaluator/blob/99392461cfdac9edb4ad2b49fa7c52a954125f1b/docs/users/benchmarks/kernel-npu.zh-CN.md)。
 
 ## 结果与验证
 

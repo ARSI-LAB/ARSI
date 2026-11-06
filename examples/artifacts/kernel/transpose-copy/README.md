@@ -157,7 +157,7 @@ It marks timeline evidence as unavailable; it does not establish PipeTimeline,
 overlap, bubble, or Double Buffer results. Choose `PipeTimeline,Default` explicitly
 when usable trace evidence is required. The SDK owns collection, cleanup,
 metric units, and evidence validation; see its pinned
-[NPU kernel guide](https://github.com/evolving-foundry/ember-evaluator/blob/aacedfdb606ffd7ce7ca932ab15d4dcd82f95813/docs/users/benchmarks/kernel-npu.md).
+[NPU kernel guide](https://github.com/evolving-foundry/ember-evaluator/blob/99392461cfdac9edb4ad2b49fa7c52a954125f1b/docs/users/benchmarks/kernel-npu.md).
 
 ## Results and verification
 

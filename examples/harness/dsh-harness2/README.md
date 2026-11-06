@@ -1,5 +1,7 @@
 # DSH Harness²
 
+The baseline Bundle starts with an empty prompt and no skills.
+
 For each task, this example starts from a fixed baseline, executes Base once, proposes and evaluates INV and DOM improvements separately, composes a candidate from the baseline and evaluates it, then anonymously compares the final deliveries. The default selects ten distinct WorkBuddy Office tasks; configure the task list and exploration width in recipe.yaml.
 
 At k=1, ten tasks require 40 evaluation runs. The Recipe retains its 4,500-second evaluator task timeout and 72-hour experiment wall budget. Pi uses a 30-minute request timeout and 60-minute execution timeout. Model-call and output-token ceilings are omitted. Benchmark phase limits and model-service defaults may also apply. To request an output-token limit, explicitly configure the Agent or evaluator service; native judging uses the selected service's setting. Declare an evaluator output limit in either the service or solver configuration: the Evaluator SDK rejects duplicate limits.

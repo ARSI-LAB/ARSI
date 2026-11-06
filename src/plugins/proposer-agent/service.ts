@@ -26,6 +26,15 @@ export const createProposerAgent: OperationDefinition<
   AgentEditingConfig
 >['create'] = async (config, services) => {
   return {
+    async canRetry(_input, receipt, context) {
+      // Agent replay is checked by its own operation. A candidate commit must
+      // be reconciled separately because its workspace is specific to the attempt.
+      return !(await context.facts.list('calls')).some(
+        (call) =>
+          call.parentCallId === receipt.callId &&
+          call.bindingId === '_application',
+      );
+    },
     async execute(input, context) {
       json(input);
       const parent = await context.readCandidate(string(input.parent));

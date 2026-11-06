@@ -888,6 +888,43 @@ test('a controlled business failure launched from an ordinary notification still
   }
 });
 
+test('an uncaught child failure also marks its enclosing call failed', async () => {
+  const broken: OperationDefinition = {
+    id: 'test.event-broken',
+    contract: observerContract,
+    configSchema: { type: 'object' },
+    async create() {
+      return {
+        async execute() {
+          throw new Error('broken listener business call');
+        },
+        async dispose() {},
+      };
+    },
+  };
+  const fixture = await managerFixture(
+    (context) => context.invoke('broken', {}),
+    {
+      plugins: [broken],
+      bindings: { broken: { plugin: broken.id, config: {} } },
+    },
+  );
+  try {
+    await assert.rejects(fixture.run(), /broken listener business call/);
+    const receipts = await fixture.manager.facts.list('calls');
+    assert.equal(
+      receipts.find((call) => call.bindingId === 'broken')?.status,
+      'failed',
+    );
+    assert.equal(
+      receipts.find((call) => call.bindingId === 'driver')?.status,
+      'failed',
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test('experiment cancellation immediately reaches active listener contexts', async () => {
   let serviceSignal: AbortSignal | undefined;
   let abortObserved = false;

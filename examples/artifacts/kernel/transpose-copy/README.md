@@ -79,6 +79,94 @@ Repeated real-device measurements are required to establish reliable speedups.
 Manager enforces the Recipe's operation, model-call, evaluation, and time budgets.
 Budget exhaustion stops execution through the standard failure/recovery path.
 
+## Search modes and limits
+
+One `policy.operator-search` handles both modes. Set `policy.config.metricsEnabled`
+to `false` for static search only, or keep this example's `true` to follow static
+search with measured bottleneck analysis.
+
+Static search first assesses the baseline, then diagnoses the frozen source and
+retrieves external guidance. Each new attempt starts from the entry candidate;
+repairs start from the failed candidate. A valid but slower candidate is
+summarized without promotion. An accepted improvement ends static search; an
+empty static diagnosis skips candidate generation. Both paths can proceed to
+the optional metrics stage.
+
+The metrics stage profiles the current best candidate, analyzes its measured
+bottlenecks, retrieves guidance, and generates a candidate from that incumbent.
+It profiles each accepted improvement before the next round; without promotion,
+the unchanged incumbent's diagnostic evidence is reused. Unavailable profiling
+stops the metrics stage. Both modes independently reassess the selected source
+at the end.
+
+| Recipe setting                                           | Example value | Meaning                                                                         |
+| -------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------- |
+| `policy.config.maxAttempts`                              | `3`           | Static attempts; Schema allows 1–3.                                             |
+| `policy.config.repairLimit`                              | `3`           | Repairs per invalid candidate chain; Schema allows 0–3.                         |
+| `policy.config.maxRounds`                                | `10`          | Metrics rounds; Schema allows 1–10.                                             |
+| `policy.config.maxNoImprovement`                         | `5`           | Valid candidates without promotion since the last promotion; Schema allows 1–5. |
+| `bindings.proposer.config.modelRequestTimeoutMs`         | `120000`      | One complete model stage's time limit, in ms.                                   |
+| `bindings.proposer.config.embedding.similarityThreshold` | `0.6`         | Minimum retrieval match score.                                                  |
+| `bindings.evaluator.config.protocol.warmup` / `repeat`   | `5` / `20`    | Evaluation warmup and timed repetitions.                                        |
+| `bindings.selector.config.minRelativeImprovement`        | `0.02`        | Required relative reduction in eligible candidate mean latency.                 |
+
+This example's Manager limits are 1,024 operations, 65 evaluation runs, 152 model
+calls, 7,200,000 ms elapsed time, and a 60,000 ms cleanup reserve. Evaluation runs
+include both `evaluate` and `profile`; model calls include tool continuations and
+delegates. Individual Agent requests and execution scopes can impose lower
+limits. Raising the overall budget does not bypass those limits or the Policy
+Schema maxima, and does not guarantee that every configured round will run.
+
+## Ascend profiling setup
+
+Use separate SDK and CPU embedding Python environments so installing embedding
+dependencies does not replace the selected torch_npu/CANN environment. Deploy the
+external retrieval worker's dependencies and model weights separately; the RSI
+package does not install a knowledge provider or download weights during search.
+
+The Recipe selects `sdk.profiling.collection: Default`, with 25 warmup calls,
+at most two collection attempts, and a 300-second limit per attempt. Its
+`sdk.profiling.enabled: false` disables automatic diagnostics during ordinary
+evaluations. The Policy's explicit `profile` action still enables collection and
+forces disk caching off.
+
+Detailed collection requires working `msprof` and a compatible `mstx` module in
+the selected SDK Python environment. Load the matching CANN environment first;
+when selecting an isolated profiler installation, configure
+`bindings.evaluator.config.sdk.profiling.msprofBin` explicitly. Keep the interpreter,
+device, collection mode, and actual tool versions with the run evidence. Do not
+substitute the editable hardware-context template for observed device facts.
+
+`Default` collects PipeUtilization, L2Cache, and ResourceConflictRatio CSV tables.
+It marks timeline evidence as unavailable; it does not establish PipeTimeline,
+overlap, bubble, or Double Buffer results. Choose `PipeTimeline,Default` explicitly
+when usable trace evidence is required. The SDK owns collection, cleanup,
+metric units, and evidence validation; see its pinned
+[NPU kernel guide](https://github.com/evolving-foundry/ember-evaluator/blob/7f40ed57f881c8ce511ae604a6c36ce87ab19bab/docs/users/benchmarks/kernel-npu.md).
+
+## Results and verification
+
+Inspect `bestCandidateRef`, `bestMeasurementRef`, `finalMeasurementRef`,
+`finalValidity`, `finalTimingStable`, and `stopReason` in the Policy output.
+`attempts`, `metricsRounds`, `diagnosticRefs`, and history references retain the
+search decisions and their evidence. A completed experiment can retain the
+baseline when no candidate improves it.
+
+`candidateValid` describes correctness, `latencyMeanMs` is candidate mean device
+latency, and `speedupVsReference` compares that candidate with the mathematical
+PyTorch reference. To claim optimization of the original kernel, compare the
+original and selected kernels under the same task, protocol, and environment;
+the PyTorch ratio alone does not establish that gain.
+
+For offline software checks, run `pnpm check` and `pnpm check:package`. These use
+controlled workers and do not establish real NPU correctness or performance.
+`validate` checks configuration; a real run must establish device readiness,
+strict correctness, timing evidence, and confirmed cleanup. Preserve the
+Manager facts and referenced immutable artifacts under `.rsi/`, including SDK
+run IDs and raw evidence, when exporting an experiment. A summary or selected
+source alone is insufficient for recovery or audit. Keep credentials outside
+shared examples and exported records.
+
 ## Task provenance
 
 The task copies were prepared from `../../kernel-tasks/qianchuan_top3_kernel`,

@@ -13,8 +13,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Source: ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_agent/triton_kernel_agent/templates/kernel_refinement.j2
-Adaptation: Adapted error-driven refinement to the last failed RSI candidate and fixed task contract; removed Fuser-specific rename/backfill, blanket fusion and Markdown generation rules, and changed output to JSON edits.
 -->
 
 # Repair the last failed Triton-Ascend candidate

@@ -14,8 +14,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Source: ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_agent/triton_kernel_agent/templates/static_code_diagnosis_prompt.j2
-Adaptation: Replaced Jinja interpolation with supplied RSI context and wrapped the upstream issues array in a strict JSON object; invalid responses do not become empty diagnoses.
 -->
 
 # Source-only Triton-Ascend diagnosis
@@ -52,7 +50,7 @@ force a technique onto an incompatible operator structure.
 ## Output
 
 Return one JSON object matching outputSchema, with exactly the field `issues`.
-Each issue preserves the upstream diagnostic fields:
+Each issue uses the following diagnostic fields:
 
 ```json
 {

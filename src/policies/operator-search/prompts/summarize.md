@@ -14,8 +14,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Source: ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_agent/triton_kernel_agent/templates/static_reflexion_prompt.j2
-Adaptation: Preserved source-level causal lessons and operational avoid/try guidance; correctness, timing, outcome and acceptance are supplied facts, so output is limited to explanation and bounded lesson lists.
 -->
 
 # Summarize one completed static optimization attempt

@@ -188,7 +188,7 @@ importers:
         specifier: 15.0.0
         version: 15.0.0
       ember-evaluator:
-        specifier: git+https://github.com/evolving-foundry/ember-evaluator.git#99392461cfdac9edb4ad2b49fa7c52a954125f1b
+        specifier: git+https://github.com/evolving-foundry/ember-evaluator.git#0.0.2
         version: git+https://github.com/evolving-foundry/ember-evaluator.git#99392461cfdac9edb4ad2b49fa7c52a954125f1b(@aws-sdk/credential-provider-node@3.972.86)(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
       exceljs:
         specifier: 4.4.0

@@ -1,4 +1,4 @@
-import { RoundLabels } from './round-labels';
+import { RoundLabels, PresentationReady } from './round-labels';
 import React, { lazy, Suspense } from 'react';
 import { ChartBoundary } from '../../components/chart-boundary';
 import { parseOverview } from '../../api/observation-client';
@@ -12,6 +12,7 @@ import {
 } from '../../components/observation-feedback';
 import { Recipe } from './recipe';
 import { Results } from './results';
+import { Learning } from './learning';
 import { Calls } from './calls';
 import { Candidates } from './candidates';
 import { Measurements } from './measurements';
@@ -28,6 +29,7 @@ const views = [
   'calls',
   'candidates',
   'measurements',
+  'learning',
   'recipe',
   'results',
 ] as const;
@@ -89,16 +91,22 @@ export function Experiment({
               }
               aria-current={selected === item ? 'page' : undefined}
             >
-              {item === 'calls'
-                ? 'Call history'
-                : item[0]!.toUpperCase() + item.slice(1)}
+              {item === 'learning'
+                ? 'Reflection & Memory'
+                : item === 'calls'
+                  ? 'Call history'
+                  : item[0]!.toUpperCase() + item.slice(1)}
             </a>
           ))}
         </nav>
         <Feedback {...result} />
         {result.data ? (
-          <>
-            {selected === 'recipe' ? (
+          <PresentationReady
+            required={selected !== 'learning' && selected !== 'recipe'}
+          >
+            {selected === 'learning' ? (
+              <Learning id={id} finished={!!result.data.finishedAt} />
+            ) : selected === 'recipe' ? (
               <Recipe id={id} />
             ) : selected === 'results' ? (
               <Results id={id} />
@@ -135,7 +143,7 @@ export function Experiment({
                 />
               </>
             )}
-          </>
+          </PresentationReady>
         ) : null}
       </div>
     </RoundLabels>

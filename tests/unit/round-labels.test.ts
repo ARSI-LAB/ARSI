@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildRoundLabels,
-  harnessStage,
   roundLabel,
 } from '../../web/features/experiments/round-label-model.js';
 import type {
@@ -111,35 +110,6 @@ test('round labels decode current and historical iterations without interpreting
   }
 });
 
-test('Harness2 labels recognize the current policy branches and keep unrelated paths generic', () => {
-  for (const [branch, step, variant] of [
-    ['base', 'execute_base', 'Base'],
-    ['invariant', 'propose_inv', 'Invariant'],
-    ['invariant', 'execute_inv', 'Invariant'],
-    ['domain', 'propose_dom', 'Domain'],
-    ['domain', 'execute_dom', 'Domain'],
-    ['compose', 'compose_candidate', 'Composed'],
-    ['compose', 'execute_composed', 'Composed'],
-  ] as const) {
-    assert.deepEqual(
-      harnessStage(`steps/search/iteration-2/${branch}/key-a/${step}`),
-      { round: 'Round 3', variant },
-    );
-    assert.deepEqual(harnessStage(`loop/2/${branch}/key-a/${step}`), {
-      round: 'Round 3',
-      variant,
-    });
-  }
-  assert.equal(
-    harnessStage('steps/search/iteration-0/custom/key-a/execute_base'),
-    null,
-  );
-  assert.equal(
-    harnessStage('steps/search/iteration-0/base/key-a/unrelated'),
-    null,
-  );
-});
-
 test('Harness2 distinguishes task rounds, branch variants, repeated attempts and reused baselines', () => {
   const variants = ['base', 'invariant', 'domain', 'compose'];
   const steps = [
@@ -193,6 +163,27 @@ test('Harness2 distinguishes task rounds, branch variants, repeated attempts and
       parametersRef: null,
     },
   }));
+  const proposerCalls = calls
+    .filter((call) => !call.path!.includes('/base/'))
+    .map((call) => {
+      const branch = call.path!.includes('/invariant/')
+        ? ['invariantProposer', 'propose_inv']
+        : call.path!.includes('/domain/')
+          ? ['domainProposer', 'propose_dom']
+          : ['composer', 'compose_candidate'];
+      return {
+        ...call,
+        callId: `proposal-${call.callId}`,
+        bindingId: branch[0]!,
+        pluginId: 'proposer.agent',
+        path: call.path!.replace(/[^/]+$/, branch[1]!),
+      };
+    });
+  calls.push(...proposerCalls);
+  assert.equal(
+    buildRoundLabels([], calls, measurements, records).isHarness,
+    false,
+  );
   const labels = buildRoundLabels(
     [
       { ref: 'base', parentRef: null, artifactRef: 'a' },
@@ -218,6 +209,7 @@ test('Harness2 distinguishes task rounds, branch variants, repeated attempts and
     calls,
     measurements,
     records,
+    { taskIds: ['workbuddy/task-one', 'workbuddy/task-two'] },
   );
   assert.equal(labels.isHarness, true);
   assert.equal(labels.candidate('base'), 'Baseline');
@@ -244,4 +236,144 @@ test('Harness2 distinguishes task rounds, branch variants, repeated attempts and
     },
   ]);
   assert.equal(ambiguous.task('m0'), null);
+});
+
+test('comparison policy identity is explicit and invalid or truncated configuration falls back', async () => {
+  const { comparisonPolicy } = await import(
+    '../../web/features/experiments/policy-presentation.js'
+  );
+  const preview = (ref: string) => ({
+    text: JSON.stringify({
+      policy: { ref, config: { dataset: { taskIds: ['task'] } } },
+    }),
+    truncated: false,
+  });
+  assert.deepEqual(comparisonPolicy(preview('policy.harness2')), {
+    taskIds: ['task'],
+  });
+  assert.equal(comparisonPolicy(preview('policy.custom-harness2')), null);
+  assert.equal(
+    comparisonPolicy({ ...preview('policy.harness2'), truncated: true }),
+    null,
+  );
+  assert.equal(comparisonPolicy({ text: '{', truncated: false }), null);
+});
+
+test('comparison mapping ignores step names and falls back for missing or ambiguous associations', async () => {
+  const { comparisonStages } = await import(
+    '../../web/features/experiments/policy-presentation.js'
+  );
+  const call = (
+    callId: string,
+    bindingId: string,
+    pluginId: string,
+    path: string,
+  ): CallSummary => ({
+    callId,
+    bindingId,
+    pluginId,
+    path,
+    parentCallId: 'root',
+    status: 'succeeded',
+    startedAt: null,
+    finishedAt: null,
+    error: null,
+  });
+  const calls = [
+    call(
+      'p',
+      'invariantProposer',
+      'proposer.agent',
+      'renamed/nested/slot/edit',
+    ),
+    call('e', 'evaluator', 'evaluator.agentbench', 'renamed/nested/slot/score'),
+  ];
+  const candidates = [
+    { ref: 'base', parentRef: null, artifactRef: 'a' },
+    {
+      ref: 'new',
+      parentRef: 'base',
+      artifactRef: 'b',
+      originPath: calls[0]!.path,
+    },
+  ];
+  const measurement: MeasurementSummary = {
+    ref: 'm',
+    callId: 'e',
+    candidateRef: 'new',
+    status: 'succeeded',
+    coverage: 'complete',
+    comparisonKey: null,
+    startedAt: null,
+    finishedAt: null,
+    metrics: [],
+  };
+  const records = [
+    {
+      ...measurement,
+      item: {
+        id: 'i',
+        subjectKind: 'task',
+        subjectId: 'task',
+        parametersRef: null,
+      },
+    },
+  ];
+  const policy = { taskIds: ['task'] };
+  assert.equal(
+    comparisonStages(
+      policy,
+      candidates,
+      calls,
+      [measurement],
+      records,
+    )?.evaluations.get('m')?.variant,
+    'Invariant',
+  );
+  assert.equal(
+    comparisonStages(
+      policy,
+      candidates,
+      calls,
+      [measurement],
+      records,
+    )?.candidates.get('new')?.round,
+    'Round 1',
+  );
+  assert.equal(
+    comparisonStages(null, candidates, calls, [measurement], records),
+    null,
+  );
+  assert.equal(
+    comparisonStages(policy, candidates, calls, [measurement], []),
+    null,
+  );
+  assert.equal(
+    comparisonStages(
+      policy,
+      candidates,
+      [...calls, { ...calls[0]!, callId: 'duplicate' }],
+      [measurement],
+      records,
+    ),
+    null,
+  );
+  assert.equal(
+    comparisonStages(
+      policy,
+      candidates,
+      [{ ...calls[0]!, bindingId: 'unknown' }, calls[1]!],
+      [measurement],
+      records,
+    ),
+    null,
+  );
+  const reused = comparisonStages(
+    policy,
+    [candidates[0]!],
+    calls,
+    [{ ...measurement, candidateRef: 'base' }],
+    records,
+  );
+  assert.equal(reused?.evaluations.get('m')?.variant, 'Invariant');
 });

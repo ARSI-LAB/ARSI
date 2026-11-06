@@ -181,15 +181,120 @@ export class ObservationQueries {
     };
     const experiment = await this.experiment(id);
     if (experiment.output !== undefined) collect(experiment.output);
-    for (const kind of ['candidates', 'measurements', 'calls'] as const)
+    for (const kind of [
+      'candidates',
+      'measurements',
+      'calls',
+      'revisions',
+    ] as const)
       for await (const entry of this.scanOwned(kind, id)) {
-        if (kind === 'candidates') collect(entry.artifactRef!);
+        if (kind === 'revisions') {
+          if (entry.resourceRef) collect(entry.resourceRef);
+        } else if (kind === 'candidates') collect(entry.artifactRef!);
         else if (kind === 'calls') {
           if (entry.output !== undefined) collect(entry.output);
+          if (
+            entry.pluginId === 'memory.agent' &&
+            entry.input &&
+            typeof entry.input === 'object' &&
+            !Array.isArray(entry.input) &&
+            entry.input.memoryRef
+          )
+            collect(entry.input.memoryRef);
           if (entry.evidenceRef !== undefined) collect(entry.evidenceRef);
         } else collect(entry);
       }
     return refs;
+  }
+
+  /** Compact learning records; file contents use the existing bounded artifact projection. */
+  private async reflectionPaths(id: string): Promise<Map<string, string>> {
+    const paths = new Map<string, string>();
+    for await (const record of this.scanOwned('reflection', id)) {
+      if (
+        typeof record.reflectionId === 'string' &&
+        typeof record.stepPath === 'string'
+      )
+        paths.set(record.reflectionId, record.stepPath);
+    }
+    return paths;
+  }
+
+  async learning(
+    id: string,
+    kind: 'revisions' | 'memories',
+  ): Promise<JsonObject[]> {
+    const secrets = await this.secrets(id);
+    const paths =
+      kind === 'revisions'
+        ? await this.reflectionPaths(id)
+        : new Map<string, string>();
+    const records: JsonObject[] = [];
+    for await (const entry of this.scanOwned(
+      kind === 'revisions' ? 'revisions' : 'calls',
+      id,
+    )) {
+      if (kind === 'revisions') {
+        records.push({
+          id: entry.ref ?? null,
+          path: paths.get(String(entry.reflectionId)) ?? null,
+          binding: entry.binding ?? null,
+          kind: entry.kind ?? 'legacy',
+          parentRef: entry.parentRef ?? null,
+          resourceRef: entry.resourceRef ?? null,
+          reason: entry.reason ?? null,
+          status: entry.status ?? 'unknown',
+        });
+      } else if (entry.pluginId === 'memory.agent') {
+        const input =
+          entry.input &&
+          typeof entry.input === 'object' &&
+          !Array.isArray(entry.input)
+            ? entry.input
+            : {};
+        const output =
+          entry.output &&
+          typeof entry.output === 'object' &&
+          !Array.isArray(entry.output)
+            ? entry.output
+            : {};
+        records.push({
+          id: entry.callId ?? null,
+          binding: entry.bindingId ?? null,
+          kind: 'memory',
+          parentRef: input.memoryRef ?? null,
+          resourceRef: output.memoryRef ?? null,
+          reason: output.reason ?? entry.error ?? null,
+          status: output.status ?? entry.status ?? 'unknown',
+          path: entry.path ?? null,
+          startedAt: entry.startedAt ?? null,
+        });
+      }
+    }
+    return records.map((record) => object(this.clean(record, secrets)));
+  }
+
+  async assertRevision(id: string, ref: string): Promise<void> {
+    await this.experiment(id);
+    const revision = await this.facts.read('revisions', safeId(ref));
+    if (revision.experimentId !== id)
+      throw Object.assign(new Error('Revision not found in experiment'), {
+        statusCode: 404,
+      });
+  }
+
+  /** Project application metadata without sending raw file bytes to the browser. */
+  async applicationPreview(id: string, value: JsonObject): Promise<JsonObject> {
+    return object(
+      this.clean(
+        {
+          applicationAllowed: value.applicationAllowed ?? false,
+          restrictions: value.restrictions ?? [],
+          changes: value.changes ?? [],
+        },
+        await this.secrets(id),
+      ),
+    );
   }
 
   async details(id: string): Promise<ExperimentDetails> {
@@ -446,13 +551,22 @@ export class ObservationQueries {
     for await (const entry of this.scanOwned(kind, id)) records.push(entry);
     return records;
   }
-  private call(record: JsonObject, secrets: string[]): CallSummary {
+  private call(
+    record: JsonObject,
+    secrets: string[],
+    paths = new Map<string, string>(),
+  ): CallSummary {
     return {
       callId: string(record.callId),
       parentCallId: optionalText(record.parentCallId),
       bindingId: string(record.bindingId),
       pluginId: string(record.pluginId),
       path: optionalText(record.path),
+      triggerPath:
+        record.pluginId === 'reflection.agent'
+          ? (paths.get(String(record.path).replace(/^reflection\//, '')) ??
+            null)
+          : null,
       status: string(record.status),
       startedAt: optionalText(record.startedAt),
       finishedAt: optionalText(record.finishedAt),
@@ -463,6 +577,7 @@ export class ObservationQueries {
     };
   }
   async calls(id: string, offset = 0, limit = 50): Promise<Page<CallSummary>> {
+    const paths = await this.reflectionPaths(id);
     const entries = await this.owned('calls', id),
       secrets = await this.secrets(id);
     entries.sort(
@@ -473,7 +588,7 @@ export class ObservationQueries {
     const selected = page(entries, offset, limit);
     return {
       ...selected,
-      items: selected.items.map((entry) => this.call(entry, secrets)),
+      items: selected.items.map((entry) => this.call(entry, secrets, paths)),
     };
   }
   async callTrace(
@@ -587,7 +702,7 @@ export class ObservationQueries {
     const secrets = await this.secrets(id),
       record = await this.ownedCall(id, callId);
     return {
-      ...this.call(record, secrets),
+      ...this.call(record, secrets, await this.reflectionPaths(id)),
       input: this.preview(record.input, secrets),
       output: this.preview(record.output, secrets),
     };

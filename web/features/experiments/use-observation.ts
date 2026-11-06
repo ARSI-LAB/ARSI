@@ -1,3 +1,4 @@
+import { QueryCache } from '../../api/query-cache';
 import { subscribeRetry } from '../../api/connection-state';
 import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { readObservation, type Page } from '../../api/observation-client';
@@ -9,13 +10,23 @@ export interface QueryState<T> {
   loading: boolean;
   refresh: () => void;
 }
-const completedQueries = new WeakMap<object, Map<string, unknown>>();
+const queryCaches = new WeakMap<object, unknown>();
+function parserCache<T>(parse: (raw: unknown) => T): QueryCache<T> {
+  let cache = queryCaches.get(parse);
+  if (!cache) {
+    cache = new QueryCache<T>();
+    queryCaches.set(parse, cache);
+  }
+  // A parser's identity owns exactly its return type.
+  return cache as QueryCache<T>;
+}
 /** Sequential polling prevents overlap; navigation aborts and discards stale responses. */
 function usePolling<T>(
   path: string | null,
   load: (signal: AbortSignal) => Promise<T>,
   interval: number | null,
-  cache?: { read(): T | undefined; write(data: T): void },
+  cache: QueryCache<T> | null,
+  maxAge: number,
 ): QueryState<T> {
   const previousInterval = useRef(interval);
   const [state, setState] = useState<{
@@ -33,10 +44,15 @@ function usePolling<T>(
     let timer: ReturnType<typeof setTimeout>;
     async function update(): Promise<void> {
       try {
-        const data =
-          (revision === 0 && !stopped ? cache?.read() : undefined) ??
-          (await load(controller.signal));
-        if (!controller.signal.aborted) cache?.write(data);
+        const data = cache
+          ? await cache.read(
+              path!,
+              load,
+              controller.signal,
+              maxAge,
+              revision > 0 || stopped,
+            )
+          : await load(controller.signal);
         if (!controller.signal.aborted) setState({ path, data, error: '' });
       } catch (error) {
         if (!controller.signal.aborted)
@@ -57,12 +73,13 @@ function usePolling<T>(
       controller.abort();
       clearTimeout(timer);
     };
-  }, [path, load, revision, cache, interval]);
+  }, [path, load, revision, cache, interval, maxAge]);
   const current = state.path === path ? state : undefined;
+  const data = current?.data ?? (path ? cache?.peek(path) : undefined);
   return {
-    data: current?.data,
+    data,
     error: current?.error ?? '',
-    loading: path !== null && !current?.data && !current?.error,
+    loading: path !== null && data === undefined && !current?.error,
     refresh: () => setRevision((value) => value + 1),
   };
 }
@@ -71,29 +88,21 @@ export function useObservation<T>(
   parse: (raw: unknown) => T,
   interval: number | null = 4000,
   cacheCompleted = false,
+  options?: { cache: false },
 ): QueryState<T> {
   const load = useCallback(
     (signal: AbortSignal) => readObservation(path ?? '', parse, signal),
     [path, parse],
   );
-  const cache = useMemo(() => {
-    if (!cacheCompleted || !path) return undefined;
-    let entries = completedQueries.get(parse);
-    if (!entries) {
-      entries = new Map();
-      completedQueries.set(parse, entries);
-    }
-    const store = entries;
-    return {
-      read: () => (store.has(path) ? parse(store.get(path)) : undefined),
-      write: (data: T) => {
-        store.delete(path);
-        store.set(path, data);
-        if (store.size > 40) store.delete(store.keys().next().value!);
-      },
-    };
-  }, [cacheCompleted, path, parse]);
-  return usePolling(path, load, interval, cache);
+  const cache = useMemo(() => parserCache(parse), [parse]);
+  // A response fetched while running must never be promoted to permanent reuse.
+  return usePolling(
+    path === null ? null : cacheCompleted ? `completed:${path}` : path,
+    load,
+    interval,
+    options?.cache === false ? null : cache,
+    cacheCompleted ? Infinity : (interval ?? 15000),
+  );
 }
 export function useAllObservations<T>(
   path: string | null,
@@ -104,5 +113,12 @@ export function useAllObservations<T>(
     (signal: AbortSignal) => readAllObservationPages(path ?? '', parse, signal),
     [path, parse],
   );
-  return usePolling(path, load, interval);
+  const cache = useMemo(() => parserCache(parse), [parse]);
+  return usePolling(
+    path ? `all:${path}` : null,
+    load,
+    interval,
+    cache,
+    interval ?? 15000,
+  );
 }

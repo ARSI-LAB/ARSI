@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RuntimeContext, type AgentInput } from '../../src/contracts/index.js';
+import { createServer } from 'node:http';
+import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
+import { piDefinition } from '../../src/plugins/agent-pi/index.js';
+import { object } from '../../src/shared/json.js';
+import { managerFixture } from '../helpers/manager-fixture.js';
 import { requestOperatorAgent } from '../../src/plugins/proposer-operator/service.js';
 
 test('operator stages derive separate scopes, preserve cancellation and reject an existing scope', async () => {
@@ -10,21 +14,18 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
     callId: 'parent',
     signal: new AbortController().signal,
     async invokeAgent(this: RuntimeContext, request) {
-      assert.equal(request.maxModelCalls, 2);
+      assert.equal(request.maxModelCalls, this.scope?.limits.modelCalls);
       assert.deepEqual(request.input, {
         sourceFiles: { 'input.py': 'authorized source' },
       });
       assert.ok(typeof request.prompt === 'string');
-      assert.match(request.prompt, /two total model calls/);
-      assert.match(request.prompt, /do not delegate/i);
-      assert.equal(this.scope?.limits.modelCalls, 2);
       assert.equal(this.scope?.signal, this.signal);
       const id = this.scope!.id;
       scopes.push(id);
       return {};
     },
   });
-  const request: AgentInput = {
+  const request = {
     goal: 'Test',
     prompt: 'test',
     files: { 'input.py': 'authorized source' },
@@ -49,117 +50,177 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
   );
 });
 
-test('operator request uses the real Manager scope to stop recursive model effects before a third call', async (t) => {
-  const { prepareOperatorFixture } = await import(
-    '../fixtures/operator-sdk/setup.js'
-  );
-  const { createRuntime } = await import('../../src/runtime/context.js');
-  const { agentContract, defineContract } = await import(
-    '../../src/contracts/index.js'
-  );
-  const { object } = await import('../../src/shared/json.js');
-  const { readFile, writeFile, rm } = await import('node:fs/promises');
-  const { join } = await import('node:path');
-  const { parse, stringify } = await import('yaml');
-  const fixture = await prepareOperatorFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const runtime = await createRuntime({ rootDirectory: fixture.root });
-  t.after(() => runtime.dispose());
-  let effects = 0;
-  runtime.registry.registerOperation({
-    id: 'agent.scope-test',
-    contract: agentContract,
-    configSchema: { type: 'object' },
-    async create() {
-      return {
-        async execute(request: AgentInput, context: RuntimeContext) {
-          await context.charge('modelCalls', 1);
-          effects++;
-          const depth = Number(object(request.input ?? {}).depth ?? 0);
-          if (depth < 2)
-            return context.invokeAgent({
-              ...request,
-              input: { depth: depth + 1 },
-            });
-          return {};
-        },
-        async dispose() {},
-      };
-    },
-  });
-  const contract = defineContract({
-    id: 'contract.scope-driver',
-    input_schema: { type: 'object' },
-    output_schema: { type: 'object' },
-  });
-  runtime.registry.registerOperation({
-    id: 'scope.driver',
-    contract,
-    configSchema: { type: 'object' },
-    async create() {
-      return {
-        async execute(_input, context) {
-          return requestOperatorAgent(
-            'generate',
+type Reply = { read: true } | { delegate: true } | { result: JsonObject };
+
+async function modelFixture(replies: Reply[], modelCalls = 64) {
+  let requests = 0;
+  const server = createServer(async (request, response) => {
+    for await (const _chunk of request) {
+      // Drain the local model request without retaining its prompt.
+    }
+    const reply = replies[requests++];
+    if (!reply) {
+      response.writeHead(500, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({ error: { message: 'Unexpected model call' } }),
+      );
+      return;
+    }
+    const tool = 'read' in reply || 'delegate' in reply;
+    const delta = tool
+      ? {
+          role: 'assistant',
+          tool_calls: [
             {
-              agentRef: 'agent',
-              goal: 'Bounded request',
-              prompt: 'Test recursive model effects',
-              input: { depth: 0 },
-              outputSchema: { type: 'object' },
+              index: 0,
+              id: `tool-${requests}`,
+              type: 'function',
+              function:
+                'read' in reply
+                  ? {
+                      name: 'read_file',
+                      arguments: JSON.stringify({ path: 'input.py' }),
+                    }
+                  : {
+                      name: 'run_subagent',
+                      arguments: JSON.stringify({
+                        goal: 'Review the authorized source',
+                        prompt: 'Read input.py and return JSON.',
+                        filePaths: ['input.py'],
+                        outputSchema: { type: 'object', required: ['finding'] },
+                      }),
+                    },
             },
-            context,
-          );
-        },
-        async dispose() {},
-      };
-    },
+          ],
+        }
+      : { role: 'assistant', content: JSON.stringify(reply.result) };
+    const chunk = (value: object, reason: string | null): string =>
+      `data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, delta: value, finish_reason: reason }] })}\n\n`;
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end(
+      chunk(delta, null) +
+        chunk({}, tool ? 'tool_calls' : 'stop') +
+        'data: [DONE]\n\n',
+    );
   });
-  const path = join(fixture.root, 'scope.yaml');
-  await writeFile(
-    path,
-    stringify({
-      schemaVersion: 'rsi.policy/v1',
-      id: 'scope.policy',
-      input_schema: { type: 'object' },
-      output_schema: { type: 'object' },
-      require: {
-        agent: { contract: 'contract.agent' },
-        driver: { contract: 'contract.scope-driver' },
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const previous = process.env.RSI_OPERATOR_BUDGET_KEY;
+  process.env.RSI_OPERATOR_BUDGET_KEY = 'local-fixture-key';
+  const closeServer = async (): Promise<void> => {
+    server.closeAllConnections();
+    await new Promise<void>((done) => server.close(() => done()));
+    if (previous === undefined) delete process.env.RSI_OPERATOR_BUDGET_KEY;
+    else process.env.RSI_OPERATOR_BUDGET_KEY = previous;
+  };
+  let manager: Awaited<ReturnType<typeof managerFixture>>;
+  try {
+    manager = await managerFixture(
+      (context) =>
+        requestOperatorAgent(
+          'generate',
+          {
+            agentRef: 'agent',
+            goal: 'Review and propose a valid edit',
+            prompt: 'Return JSON after inspecting authorized evidence.',
+            files: { 'input.py': 'authorized source' },
+            outputSchema: { type: 'object' },
+          },
+          context,
+          30000,
+        ),
+      {
+        budget: { modelCalls, elapsedWallMs: 30000 },
+        plugins: [piDefinition],
+        bindings: {
+          agent: {
+            plugin: 'agent.pi',
+            config: {
+              model: 'fixture',
+              base_url: `http://127.0.0.1:${address.port}/v1`,
+              api_key: '${RSI_OPERATOR_BUDGET_KEY}',
+              timeoutMs: 3000,
+            },
+          },
+        },
       },
-      state_schema: { type: 'object', additionalProperties: false },
-      state: {},
-      steps: [{ id: 'request', type: 'invoke', use: 'driver', with: {} }],
-      output: '${{ steps.request.output }}',
-    }),
-  );
-  runtime.registry.registerPolicy('scope.policy', path);
-  const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
-  recipe.policy = { id: 'scope.policy' };
-  recipe.bindings = {
-    agent: { plugin: 'agent.scope-test', config: {} },
-    driver: { plugin: 'scope.driver', config: {} },
+    );
+  } catch (error) {
+    await closeServer();
+    throw error;
+  }
+  return {
+    ...manager,
+    requestCount: () => requests,
+    async close() {
+      try {
+        await manager.dispose();
+      } finally {
+        await closeServer();
+      }
+    },
   };
-  recipe.budget = {
-    operations: 20,
-    modelCalls: 32,
-    elapsedWallMs: 30000,
-    cleanupReserveMs: 5000,
-  };
-  await writeFile(fixture.recipePath, stringify(recipe));
-  await assert.rejects(
-    runtime.manager.run(fixture.recipePath, { id: 'scope-cap' }),
-    /modelCalls budget exceeded/i,
-  );
-  assert.equal(effects, 2);
-  const budget = await runtime.manager.facts.read('budgets', 'scope-cap');
-  assert.equal(budget.modelCalls, 2);
+}
+
+const continuedProposal: Reply[] = [
+  { read: true },
+  { read: true },
+  { delegate: true },
+  { read: true },
+  { result: { finding: 'reviewed source' } },
+  { result: { accepted: true } },
+];
+
+test('operator stage completes tool continuations and delegated review beyond two model calls', async (t) => {
+  const fixture = await modelFixture(continuedProposal);
+  t.after(() => fixture.close());
+  const result = await fixture.run();
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(result.output, { accepted: true });
+  assert.equal(fixture.requestCount(), 6);
+  const budget = await fixture.manager.facts.read('budgets', 'test');
+  assert.equal(budget.modelCalls, 6);
   const scopes = object(budget.scopes);
   assert.equal(Object.keys(scopes).length, 1);
-  assert.equal(object(Object.values(scopes)[0]).modelCalls, 2);
+  assert.equal(object(Object.values(scopes)[0]).modelCalls, 6);
+  const calls = (await fixture.manager.facts.list('calls')).filter(
+    (call) => call.bindingId === 'agent',
+  );
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((call) => call.status === 'succeeded'));
+  assert.ok(
+    calls.some(
+      (call) => object(call.input).goal === 'Review the authorized source',
+    ),
+  );
 });
 
-test('operator model stage bounds both calls with one propagated timeout without cancelling its parent', async () => {
+test('operator stage stops delegated model effects at its shared 24-call limit', async (t) => {
+  const fixture = await modelFixture([
+    { delegate: true },
+    ...Array.from({ length: 23 }, (): Reply => ({ read: true })),
+    { result: { finding: 'would exceed the shared stage limit' } },
+  ]);
+  t.after(() => fixture.close());
+  await assert.rejects(fixture.run(), /Reflection modelCalls budget exceeded/);
+  assert.equal(fixture.requestCount(), 24);
+  const budget = await fixture.manager.facts.read('budgets', 'test');
+  assert.equal(budget.modelCalls, 24);
+  assert.equal(object(Object.values(object(budget.scopes))[0]).modelCalls, 24);
+});
+
+test('lower Manager model budget stops an operator stage before its next external request', async (t) => {
+  const fixture = await modelFixture(continuedProposal, 4);
+  t.after(() => fixture.close());
+  await assert.rejects(fixture.run(), /Budget exceeded: modelCalls/);
+  assert.equal(fixture.requestCount(), 4);
+  const budget = await fixture.manager.facts.read('budgets', 'test');
+  assert.equal(budget.modelCalls, 4);
+  assert.equal(object(Object.values(object(budget.scopes))[0]).modelCalls, 4);
+});
+
+test('operator model stage bounds all calls with one propagated timeout without cancelling its parent', async () => {
   const parent = new AbortController();
   const context = new RuntimeContext().extend({
     experimentId: 'bounded-experiment',

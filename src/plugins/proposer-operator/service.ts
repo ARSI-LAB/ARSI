@@ -488,6 +488,8 @@ export async function readHistory(
 
 export class OperatorModelOutputError extends Error {}
 
+const operatorModelCallsPerStage = 24;
+
 /** A request and all delegated sessions share Manager-owned accounting. */
 export async function requestOperatorAgent(
   stage: OperatorAgentStage,
@@ -511,7 +513,7 @@ export async function requestOperatorAgent(
     id: 'operator-' + digest({ callId: context.callId, stage }),
     signal: context.signal,
     limits: {
-      modelCalls: 2,
+      modelCalls: operatorModelCallsPerStage,
       elapsedWallMs: timeoutMs,
       evidenceBytes: 2 * 1024 * 1024,
     },
@@ -528,12 +530,12 @@ export async function requestOperatorAgent(
         ...request,
         prompt:
           request.prompt +
-          '\n\nThe authorized snapshots are already in input.sourceFiles; use them directly without reading the same files again. This stage has two total model calls, including tool continuations and all delegates. Complete the JSON response directly; do not delegate this bounded stage.',
+          `\n\nThe authorized snapshots are already in input.sourceFiles; use them directly without reading the same files again. This stage shares ${operatorModelCallsPerStage} total model calls across tool continuations and all delegates. Delegate when useful and complete the JSON response within this shared budget.`,
         input: {
           ...object(request.input ?? {}),
           sourceFiles: request.files ?? {},
         },
-        maxModelCalls: 2,
+        maxModelCalls: operatorModelCallsPerStage,
       });
   } catch (error) {
     context.signal.throwIfAborted();

@@ -1,18 +1,33 @@
-# Generate a metrics-guided Triton-Ascend candidate
+# Propose a metrics-guided operator optimization
 
 Modify the current best input.py around the single supplied bottleneck hypothesis.
-Use measured profile evidence, retrieved metric optimization references, previous
-attempt summaries, the task contract, and the complete hardwareContext text.
-Explain which provided facts justify the change and distinguish uncertainty.
+Use measured profile evidence, retrieved references, previous attempt summaries,
+the task contract and the complete hardwareContext. Infer the implementation
+language, backend and supported mechanisms from this context. Match changes to
+the operator's actual computation and data movement.
 
-Return only JSON edits/reason matching outputSchema. For a supported change,
-edits must contain exactly one entry with path input.py and content containing
-the complete replacement Python file. Do not split one file replacement into
-multiple edits. When no supported modification remains, return an empty edits
-array and an explicit reason. Edit only input.py. Preserve
-kernel_function, task semantics, precision, output allocation/aliasing and input
-mutation rules, and authorized editing constraints. Do not weaken checks, fabricate
-measurements, or replace existing Triton work with PyTorch compute. Preserve
-unrelated math and launch behavior unless the hypothesis requires their coordinated
-change. Reference examples are guidance, never source of measured timing or verified
-hardware facts. Correctness, runtime improvement and confidence are separate.
+Explain which observed facts justify the hypothesis and what remains uncertain.
+Preserve the public kernel_function signature, task semantics, precision and
+intermediate rounding, indexing, layout, output allocation/aliasing, input
+mutation rules and required runtime initialization. Preserve unrelated behavior;
+coordinate math, tiling or launch changes only when the hypothesis requires it.
+Check bounds, masks, full output coverage and fresh-call correctness.
+
+Edit only input.py. Do not weaken checks, change tolerances, fabricate measurements,
+reuse cached outputs or replace the operator with reference-library computation.
+Use compiler options and APIs supported by the supplied environment, without
+hardware constants or vendor-specific assumptions copied from unrelated examples.
+
+If the bound Agent provides authorized network tools, official API and hardware
+documentation may clarify a supported optimization. Otherwise use supplied
+materials and state uncertainty. References do not establish measured timing or
+verified hardware facts. Correctness, observed improvement and confidence remain
+separate until evaluation.
+
+## Output
+
+Return only JSON with `edits` and `reason`, matching outputSchema. A supported
+change contains exactly one edit with path input.py and the complete replacement
+Python source as content. Do not split one file replacement into multiple edits.
+Return an empty edits array with an explicit reason when no supported change
+remains. Do not add business result fields, tests, timing code or external writes.

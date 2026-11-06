@@ -31,6 +31,7 @@ bindings:
   proposer:
     plugin: proposer.operator
     config:
+      promptsDirectory: ./prompts
       hardwareContextFile: ./hardware-context.md
       modelRequestTimeoutMs: 120000
       agentRef: agent

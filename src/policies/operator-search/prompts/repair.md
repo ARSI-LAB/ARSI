@@ -15,37 +15,37 @@ limitations under the License.
 
 -->
 
-# Repair the last failed Triton-Ascend candidate
+# Repair the last failed operator candidate
 
-Fix the supplied failed candidate using its corresponding Evaluator diagnostics.
-The editable input.py is the latest failed candidate, not the stage-entry source.
-The task, current analysis, previous summaries and comparison sources are read-only.
-Use the supplied Triton-Ascend guidelines and preserve the fixed task contract.
+Use the latest failed input.py and its corresponding Evaluator feedback. The task,
+analysis, comparison sources and previous summaries are read-only. Infer the
+implementation language, backend and API constraints from the supplied source
+and environment.
 
-First identify the specific compile, entry/interface or numerical check failure.
-Correct that defect with the smallest coherent change. Preserve the optimization
-hypothesis and other behavior where possible; do not add unrelated performance
-changes while correctness is unresolved. If the failure cannot be attributed to
-the candidate, do not invent a repair or claim that a timeout/unknown cleanup is
-an operator defect. Device execution belongs to the Evaluator and Policy.
+Identify the specific compilation, entry/interface, contract or numerical
+failure. Make the smallest coherent correction and preserve the optimization
+hypothesis where possible. Do not add unrelated performance changes while
+correctness is unresolved. If the feedback identifies an infrastructure failure,
+timeout or unknown cleanup, do not invent a candidate defect or a successful
+repair. Device execution belongs to the Evaluator and Policy.
 
-Preserve kernel_function's public signature, output shape/dtype/layout/device,
-aliasing and input-mutation rules. Keep required wrapper operations, allocation
-ownership and NPU initialization guards. Preserve the exact clone/transpose/view
-index mapping. Do not reconstruct ranks or exchange equal-sized axes by guesswork.
-Do not replace existing Triton computation with newly introduced PyTorch compute,
-weaken the task/tests, change tolerances, manufacture measurements or bypass checks.
+Preserve kernel_function's public signature, shapes, dtypes, device, layout,
+aliasing and input mutation rules. Keep allocation and initialization ownership,
+exact index mapping, effective intermediate precision and required synchronization.
+Check load/store bounds, masks, tails and complete output coverage on a fresh
+call. Match launch arguments to entry parameters and supported compiler options
+without duplicate ownership.
 
-Use @triton.jit for kernels and helpers. No CUDA assumptions, host tl.\* calls,
-unsupported language APIs or placeholder implementations. Ensure each load/store
-is in bounds or correctly masked, every output is written on a fresh call, and
-launch arguments correspond to the current entry parameters or supported compiler
-options exactly once. Generic fusion/GEMM examples do not authorize changing the
-existing public caller or replacing the selected operator's implementation.
+Do not replace the operator with reference-library computation, weaken tests,
+change tolerances, manufacture measurements or bypass checks. Examples do not
+authorize changing the public caller or execution model. If the bound Agent has
+authorized network tools, consult official documentation for version-sensitive
+compiler errors or API support; otherwise use supplied feedback and retain
+uncertainty.
 
 ## Output
 
-Return the complete JSON object required by outputSchema:
+Return exactly one JSON object matching outputSchema:
 
 ```json
 {
@@ -55,15 +55,12 @@ Return the complete JSON object required by outputSchema:
       "content": "The complete repaired Python source, JSON-escaped"
     }
   ],
-  "reason": "Identify the reported failure, explain the repair and the invariant preserved"
+  "reason": "The reported defect, the minimal repair and the invariant preserved"
 }
 ```
 
-For a supported repair, edits must contain exactly one entry with path input.py
-and content containing the complete repaired Python file. Do not split one
-file replacement into multiple edits.
-
-Edit only input.py. Return JSON only, without a Markdown fence or prose, and do
-not return a Python code block. A remaining uncertainty is not a successful
-repair. When no supported modification exists, return an empty edits array and
-an explicit reason; the Policy decides whether to end the repair attempt.
+A supported repair replaces input.py completely in one edit. Do not edit task or
+comparison files, introduce tests, timing code or external writes, or emit
+placeholders. When no supported repair exists, return an empty edits array and
+an explicit reason. Uncertainty is not a successful repair. Return JSON only,
+without fences or surrounding prose; the Policy decides whether to continue.

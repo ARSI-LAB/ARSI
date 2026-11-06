@@ -1,5 +1,6 @@
 import type { JsonObject } from '../../../../contracts/index.js';
 import { recordSchema } from '../../../../contracts/models/measurement.js';
+import { configSchema } from '../configuration.js';
 export const text: JsonObject = { type: 'string' };
 export const nullable = (schema: JsonObject): JsonObject => ({
   anyOf: [schema, { type: 'null' }],
@@ -25,59 +26,6 @@ const identitySchema = recordSchema({
   evaluator: recordSchema({ name: text, version: text }),
   runtime: recordSchema({ node: text, platform: text, arch: text }),
 });
-export const nativeConfigSchema = recordSchema(
-  {
-    services: {
-      type: 'object',
-      additionalProperties: recordSchema(
-        {
-          model: text,
-          base_url: text,
-          api_key: text,
-          api: text,
-          provider: text,
-          maxTokens: integer,
-          retry: recordSchema({ maxAttempts: integer }),
-        },
-        ['model', 'base_url'],
-      ),
-    },
-    benchmark: recordSchema(
-      {
-        name: text,
-        version: text,
-        scenario: text,
-        config: jsonData,
-        solver: {
-          anyOf: [
-            text,
-            recordSchema({ name: text, service: text, config: jsonData }, [
-              'name',
-            ]),
-          ],
-        },
-        verifier: {
-          anyOf: [
-            text,
-            recordSchema({ name: text, service: text, config: jsonData }, [
-              'name',
-            ]),
-          ],
-        },
-      },
-      ['name'],
-    ),
-    environment: { type: ['string', 'object'] },
-    scheduler: { type: ['string', 'object'] },
-    store: { type: ['string', 'object'] },
-    reporter: { type: ['string', 'object'] },
-    metrics: { type: 'array' },
-    run: jsonData,
-    deployment: jsonData,
-    output: recordSchema({ directory: text }),
-  },
-  ['services', 'benchmark'],
-);
 const runtimeCondition = recordSchema({
   kind: nullable(text),
   platform: nullable(text),
@@ -89,15 +37,14 @@ const runtimeCondition = recordSchema({
   },
   resources: jsonData,
 });
-// Preserve the stored v1 conditions schema and its digest. New evaluators can
-// declare their own conditions schema without extending this historical enum.
+// SDK configuration is stored as JSON; its fields and validation belong to the SDK.
 export const conditionsSchema = recordSchema({
   protocol: { const: 1 },
   kind: { enum: ['agentbench', 'inferencebench'] },
   known: { type: 'boolean' },
   reasons: texts,
   fixed: recordSchema({
-    config: nativeConfigSchema,
+    config: configSchema,
     source: nullable(sourceSchema),
     identity: nullable(identitySchema),
     solver: nullable(stringMap),
@@ -125,7 +72,7 @@ export const provenanceSchema = recordSchema({
   runIdentity: nullable(identitySchema),
   solverProvenance: nullable(stringMap),
   source: nullable(sourceSchema),
-  configuration: nativeConfigSchema,
+  configuration: configSchema,
   collectedAt: text,
   metricsRevision: nullable(integer),
   usageKnown: { type: 'boolean' },

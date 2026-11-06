@@ -1,3 +1,4 @@
+import { QueryCache } from '../../api/query-cache';
 import { subscribeRetry } from '../../api/connection-state';
 import React, { useEffect, useState } from 'react';
 import { useRoute, replaceRouteSelection } from '../../app/use-route';
@@ -8,16 +9,22 @@ import {
   type CandidateDiff,
 } from './candidate-diff';
 
+const diffCache = new QueryCache<CandidateDiff>(8);
+
 export function CandidateTextDiff({
   id,
   parent,
   current,
+  prefix,
 }: {
   id: string;
   parent: string;
   current: string;
+  prefix?: string;
 }): React.JSX.Element {
+  const cacheKey = JSON.stringify([id, parent, current, prefix ?? '']);
   const [state, setState] = useState<{ data?: CandidateDiff; error: string }>({
+    data: diffCache.peek(cacheKey),
     error: '',
   });
   const [revision, setRevision] = useState(0);
@@ -27,20 +34,29 @@ export function CandidateTextDiff({
     replaceRouteSelection({ diffFile });
   useEffect(() => {
     const controller = new AbortController();
-    setState({ error: '' });
-    loadCandidateDiff(id, parent, current, controller.signal).then(
-      (data) => {
-        if (!controller.signal.aborted) setState({ data, error: '' });
-      },
-      (error: unknown) => {
-        if (!controller.signal.aborted)
-          setState({
-            error: error instanceof Error ? error.message : String(error),
-          });
-      },
-    );
+    setState({ data: diffCache.peek(cacheKey), error: '' });
+    diffCache
+      .read(
+        cacheKey,
+        (signal) =>
+          loadCandidateDiff(id, parent, current, signal, prefix, revision > 0),
+        controller.signal,
+        60000,
+        revision > 0,
+      )
+      .then(
+        (data) => {
+          if (!controller.signal.aborted) setState({ data, error: '' });
+        },
+        (error: unknown) => {
+          if (!controller.signal.aborted)
+            setState({
+              error: error instanceof Error ? error.message : String(error),
+            });
+        },
+      );
     return () => controller.abort();
-  }, [id, parent, current, revision]);
+  }, [id, parent, current, revision, prefix, cacheKey]);
   const currentFile = selected
     ? state.data?.changes.find((change) => change.path === selected)
     : state.data?.changes[0];
@@ -75,19 +91,19 @@ export function CandidateTextDiff({
                 {state.data.changes.map((change) => (
                   <button
                     key={change.path}
-                    className="quiet-button"
+                    className="diff-file-option"
                     aria-pressed={change.path === currentFile?.path}
                     onClick={() => setSelected(change.path)}
                   >
-                    <span>{change.kind}</span>
-                    <code>{change.path}</code>
+                    <span className="diff-file-kind">{change.kind}</span>
+                    <code>{change.path.slice(prefix?.length ?? 0)}</code>
                   </button>
                 ))}
               </nav>
               <section className="section-stack" aria-label="File changes">
                 {selected && !currentFile ? (
                   <p className="filter-note">
-                    The selected file is not among this candidate's recorded
+                    The selected file is not among this version's recorded
                     changes.{' '}
                     <button
                       className="quiet-button"
@@ -99,15 +115,17 @@ export function CandidateTextDiff({
                     </button>
                   </p>
                 ) : null}
-                <h3>{currentFile?.path}</h3>
+                <h3 className="diff-file-heading">
+                  {currentFile?.path.slice(prefix?.length ?? 0)}
+                </h3>
                 {currentFile?.reason ? (
                   <p className="filter-note">{currentFile.reason}</p>
                 ) : currentFile ? (
                   <>
                     {lines.length > 400 ? (
                       <p className="filter-note">
-                        Showing the first 400 comparison lines. Use Full files
-                        to read the saved previews.
+                        Showing the first 400 comparison lines. Use the full
+                        file view to read the saved previews.
                       </p>
                     ) : null}
                     <div
@@ -124,14 +142,14 @@ export function CandidateTextDiff({
                         >
                           <span>{line.before ?? ''}</span>
                           <span>{line.after ?? ''}</span>
-                          <code>
+                          <span className="diff-sign" aria-hidden="true">
                             {line.kind === 'removed'
                               ? '-'
                               : line.kind === 'added'
                                 ? '+'
-                                : ' '}{' '}
-                            {line.text || ' '}
-                          </code>
+                                : ' '}
+                          </span>
+                          <code>{line.text || ' '}</code>
                         </div>
                       ))}
                     </div>
@@ -141,7 +159,7 @@ export function CandidateTextDiff({
             </div>
           ) : (
             <p className="empty-state">
-              No readable text changes from the parent version.
+              No readable text changes from the previous version.
             </p>
           )}
         </>

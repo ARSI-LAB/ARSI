@@ -1,5 +1,5 @@
 import { HarnessCandidates } from './harness-candidates';
-import { useRoundLabels } from './round-labels';
+import { useCallRecords, useRoundLabels } from './round-labels';
 import React from 'react';
 import { parseCandidates } from '../../api/observation-client';
 import { route } from '../../app/routing';
@@ -33,11 +33,26 @@ export function Candidates({
   directory?: string;
 }): React.JSX.Element {
   const labels = useRoundLabels();
+  const { labelsLoading, labelsError, refreshLabels, measurements } =
+    useCallRecords();
   const result = useAllObservations(
     `/${encodeURIComponent(id)}/candidates`,
     parseCandidates,
   );
   const location = useRoute();
+  const detailPanel = React.useRef<HTMLElement>(null);
+  const listPanel = React.useRef<HTMLDivElement>(null);
+  const lastCell = React.useRef(location.candidateCell ?? selected);
+  React.useEffect(() => {
+    if (
+      lastCell.current !== (location.candidateCell ?? selected) &&
+      (location.candidateCell ?? selected) &&
+      window.matchMedia('(max-width: 1199px)').matches
+    ) {
+      detailPanel.current?.scrollIntoView({ block: 'start' });
+    }
+    lastCell.current = location.candidateCell ?? selected;
+  }, [location.candidateCell, selected]);
   const fullFiles =
     location.content === 'files' || (!!file && location.content !== 'changes');
   const search = location.search ?? '',
@@ -52,6 +67,39 @@ export function Candidates({
   const parent = current?.parentRef
     ? candidates.find((item) => item.ref === current.parentRef)
     : undefined;
+  const ancestry: typeof candidates = [];
+  const seen = new Set<string>();
+  let ancestor = current;
+  while (ancestor && !seen.has(ancestor.ref)) {
+    seen.add(ancestor.ref);
+    ancestry.unshift(ancestor);
+    ancestor = candidates.find((item) => item.ref === ancestor?.parentRef);
+  }
+  const selectedCell = location.candidateCell?.endsWith(`:${current?.ref}`)
+    ? location.candidateCell.split(':')
+    : undefined;
+  const baseRefs = new Set(
+    (measurements.data?.items ?? [])
+      .filter((item) => {
+        const stage = labels.harness(item.ref);
+        return stage?.round === selectedCell?.[0] && stage?.variant === 'Base';
+      })
+      .map((item) => item.candidateRef),
+  );
+  const matchesBase =
+    !!current &&
+    candidates.some(
+      (item) =>
+        baseRefs.has(item.ref) && item.artifactRef === current.artifactRef,
+    );
+  const versionDescription =
+    selectedCell?.[1] === 'Base' || (!selectedCell && !parent)
+      ? 'Original — the baseline candidate.'
+      : matchesBase
+        ? 'No change — contents match this round’s Base.'
+        : parent
+          ? `Compared with ${labels.candidate(parent.ref)}`
+          : 'Original — the baseline candidate.';
   const matching = candidates.filter((item) =>
     `${labels.candidate(item.ref)} ${item.ref} ${item.parentRef ?? ''} ${item.artifactRef}`
       .toLowerCase()
@@ -72,12 +120,35 @@ export function Candidates({
           </div>
         </CardHeader>
         <CardContent>
-          <Feedback {...result} />
-          {result.data ? (
+          <Feedback {...result} loading={false} />
+          <Feedback
+            loading={false}
+            error={labelsError}
+            refresh={refreshLabels}
+          />
+          {result.loading || labelsLoading ? (
+            <div
+              className="candidate-loading"
+              role="status"
+              aria-label="Loading candidates and comparisons"
+            >
+              <span>Loading candidates and comparisons…</span>
+              <div className="candidate-loading-panes" aria-hidden="true">
+                <div>
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <div className="candidate-loading-row" key={index} />
+                  ))}
+                </div>
+                <div className="candidate-loading-detail" />
+              </div>
+            </div>
+          ) : result.data && !labelsError ? (
             candidates.length ? (
-              <>
-                {candidates.length > 1 ? (
-                  labels.isHarness ? (
+              <div
+                className={`candidate-split${labels.isHarness ? '' : ' candidate-split-compact'}`}
+              >
+                <div className="candidate-list-pane" ref={listPanel}>
+                  {labels.isHarness ? (
                     <HarnessCandidates
                       id={id}
                       candidates={candidates}
@@ -89,18 +160,57 @@ export function Candidates({
                       candidates={candidates}
                       selected={current?.ref}
                     />
-                  )
-                ) : null}
+                  )}
+                </div>
                 {current ? (
                   <section
+                    ref={detailPanel}
                     className="candidate-detail-panel"
                     aria-labelledby="candidate-detail-title"
                   >
                     <div className="section-heading">
                       <h3 id="candidate-detail-title">
-                        {labels.candidate(current.ref)}
+                        {location.candidateCell?.endsWith(`:${current.ref}`)
+                          ? location.candidateCell
+                              .split(':')
+                              .slice(0, 2)
+                              .join(' · ')
+                          : labels.candidate(current.ref)}
                       </h3>
                     </div>
+                    <button
+                      className="quiet-button candidate-back"
+                      onClick={() =>
+                        listPanel.current?.scrollIntoView({ block: 'start' })
+                      }
+                    >
+                      Back to candidates
+                    </button>
+                    {!labels.isHarness && ancestry.length > 1 ? (
+                      <nav
+                        className="candidate-ancestry"
+                        aria-label="Version ancestry"
+                      >
+                        {ancestry.map((item, index) => (
+                          <React.Fragment key={item.ref}>
+                            {index > 0 ? (
+                              <span aria-hidden="true">›</span>
+                            ) : null}
+                            <a
+                              href={candidateLink(item.ref)}
+                              aria-current={
+                                item.ref === current.ref ? 'page' : undefined
+                              }
+                            >
+                              {labels
+                                .candidate(item.ref)
+                                .replace(/Round /g, 'R')}
+                            </a>
+                          </React.Fragment>
+                        ))}
+                      </nav>
+                    ) : null}
+                    <p className="muted">{versionDescription}</p>
                     {result.data && current ? (
                       artifact && artifact !== current.artifactRef ? (
                         <p className="error-notice" role="status">
@@ -116,7 +226,7 @@ export function Candidates({
                         </p>
                       ) : (
                         <>
-                          {parent ? (
+                          {current ? (
                             <div
                               className="actions"
                               role="group"
@@ -156,7 +266,12 @@ export function Candidates({
                               </a>
                             </div>
                           ) : null}
-                          {parent && !fullFiles ? (
+                          {!parent && !fullFiles ? (
+                            <p className="empty-state">
+                              Select Full files to inspect the original
+                              contents.
+                            </p>
+                          ) : parent && !fullFiles ? (
                             <CandidateTextDiff
                               key={current.ref}
                               id={id}
@@ -186,14 +301,16 @@ export function Candidates({
                     </a>
                   </p>
                 )}
-              </>
+              </div>
             ) : (
               <p className="empty-state">No candidates recorded.</p>
             )
           ) : null}
         </CardContent>
       </Card>
-      {result.data && (candidates.length > 150 || search) ? (
+      {labels.isHarness &&
+      result.data &&
+      (candidates.length > 150 || search) ? (
         <div>
           <Card>
             <CardHeader>

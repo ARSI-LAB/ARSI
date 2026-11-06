@@ -1,6 +1,7 @@
 export * from './agent.js';
 export * from './agentbench.js';
 export * from './application.js';
+export * from './gepa.js';
 export * from './inferencebench.js';
 export * from './memory.js';
 export * from './operatorbench.js';

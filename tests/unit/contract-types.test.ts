@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Context, Events } from '@deepseek-ai/cordis';
+import type { SdkEvaluatorConfig } from '../../src/plugins/shared/evaluator-adapter/configuration.js';
 import type {
   AgentInput,
   AgentOutput,
@@ -113,12 +114,15 @@ export type ConcreteConfigChecks = [
     >
   >,
   Check<
-    Equal<Config<typeof agentbenchDefinition>['benchmark'], string | JsonObject>
+    Equal<
+      Config<typeof agentbenchDefinition>['benchmark'],
+      SdkEvaluatorConfig['benchmark'] & JsonValue
+    >
   >,
   Check<
     Equal<
       Config<typeof inferencebenchDefinition>['benchmark'],
-      string | JsonObject
+      SdkEvaluatorConfig['benchmark'] & JsonValue
     >
   >,
   Check<Equal<Config<typeof proposerDefinition>['prompt'], string>>,

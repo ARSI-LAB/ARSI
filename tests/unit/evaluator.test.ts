@@ -651,6 +651,7 @@ test('agentbench injects native path/taskIds while preserving solver config, sto
             model: 'model',
             base_url: '${MODEL_ENDPOINT}',
             api_key: '${MODEL_API_KEY}',
+            contextWindow: 8192,
           },
         },
         benchmark: {
@@ -658,7 +659,8 @@ test('agentbench injects native path/taskIds while preserving solver config, sto
           scenario: 'office',
           solver: { name: 'agentbundle', config: { maxTokens: 123 } },
         },
-        run: { sampling: { count: 2 }, maxTasks: 2 },
+        hardware: 'gpu',
+        run: { sampling: { strategy: 'random', seed: 2 }, maxTasks: 2 },
       },
       services,
     );
@@ -672,15 +674,21 @@ test('agentbench injects native path/taskIds while preserving solver config, sto
     assert.deepEqual((native.run as JsonObject).taskIds, ['task/b', 'task/a']);
     assert.equal((native.run as JsonObject).maxTasks, null);
     assert.equal((native.run as JsonObject).sampling, undefined);
-    assert.deepEqual((native.run as JsonObject).preparation, {
-      mode: 'pipeline',
-      concurrency: 1,
-    });
+    assert.equal((native.run as JsonObject).preparation, undefined);
     const solver = (native.benchmark as JsonObject).solver as JsonObject;
     assert.equal((solver.config as JsonObject).maxTokens, 123);
     assert.equal((solver.config as JsonObject).path, join(directory, 'bundle'));
     assert.equal(measurements[0].status, 'succeeded');
     assert.equal(measurements[0].coverage, 'complete');
+    const provenance = object(
+      stored.get(object(measurements[0].provenance).artifactRef as string),
+    );
+    const savedConfig = object(provenance.configuration);
+    assert.equal(savedConfig.hardware, 'gpu');
+    assert.equal(
+      object(object(savedConfig.services).default).contextWindow,
+      8192,
+    );
     const metric = (measurements[0].metrics as JsonObject)
       .successRate as JsonObject;
     assert.deepEqual(metric.value, { kind: 'scalar', value: 0 });
@@ -999,7 +1007,7 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
             services: {
               default: { model: 'fixture', base_url: 'http://model' },
             },
-            benchmark: { name: kind === 'agentbench' ? 'workbuddy' : 'agentx' },
+            benchmark: kind === 'agentbench' ? { name: 'workbuddy' } : 'agentx',
           },
           services,
         );

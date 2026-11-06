@@ -15,16 +15,19 @@ import {
   unknownKeys,
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { redact } from '../shared/evaluator-adapter/data.js';
+import { plain, redact } from '../shared/evaluator-adapter/data.js';
 import {
   sdkRunner,
   type EvaluatorRunner,
 } from '../shared/evaluator-adapter/sdk.js';
 import { evaluationStatus } from '../shared/evaluator-adapter/measurement.js';
-import { nativeConfiguration } from './configuration.js';
 import { normalizeEvaluation } from './measurement.js';
 import { canRestartPreparation } from './preparation-recovery.js';
 import { configSchema, type AgentbenchConfig } from './schema.js';
+import {
+  parseEvaluatorConfig,
+  type SdkEvaluatorConfig,
+} from '../shared/evaluator-adapter/configuration.js';
 import {
   isFinalizedVerifierTimeout,
   reconciledVerifierTimeout,
@@ -64,8 +67,8 @@ export async function createAgentbench(
       object(input);
       unknownKeys(input, ['candidateRef', 'taskIds'], 'evaluator input');
       string(input.candidateRef);
-      const ids = strings('taskIds' in input ? input.taskIds : undefined);
-      if (!ids.length || new Set(ids).size !== ids.length)
+      const taskIds = strings('taskIds' in input ? input.taskIds : undefined);
+      if (!taskIds.length || new Set(taskIds).size !== taskIds.length)
         throw new Error('taskIds must be nonempty and unique');
       context.signal.throwIfAborted();
       const key = `${context.experimentId}/${context.callId}`;
@@ -113,14 +116,13 @@ export async function createAgentbench(
         async (execution) => {
           context.signal.throwIfAborted();
           await mkdir(context.directory, { recursive: true });
-          const native = nativeConfiguration(
-            config,
-            input,
+          const evaluationConfig = prepareEvaluationConfig(config, {
+            taskIds,
             execution,
-            context.directory,
-          );
+            directory: context.directory,
+          });
           const configPath = join(context.directory, 'evaluator.json');
-          await writeFile(configPath, JSON.stringify(native), {
+          await writeFile(configPath, JSON.stringify(evaluationConfig), {
             mode: 0o600,
           });
           await context.charge('evaluationRuns', 1);
@@ -147,7 +149,7 @@ export async function createAgentbench(
               }),
             );
             const measurementRef = await normalizeEvaluation(
-              native,
+              evaluationConfig,
               input,
               execution,
               partial,
@@ -166,7 +168,7 @@ export async function createAgentbench(
             );
           }
           const measurementRef = await normalizeEvaluation(
-            native,
+            evaluationConfig,
             input,
             execution,
             result,
@@ -179,7 +181,7 @@ export async function createAgentbench(
               { measurementRef, status: 'unknown' },
             );
           context.signal.throwIfAborted();
-          if (raw.exitCode !== 0 && !isFinalizedVerifierTimeout(raw, ids))
+          if (raw.exitCode !== 0 && !isFinalizedVerifierTimeout(raw, taskIds))
             throw Object.assign(
               new Error('Evaluator completed with nonzero exitCode'),
               {
@@ -194,4 +196,53 @@ export async function createAgentbench(
     },
     async dispose(): Promise<void> {},
   };
+}
+
+function prepareEvaluationConfig(
+  config: AgentbenchConfig,
+  {
+    taskIds,
+    execution,
+    directory,
+  }: {
+    taskIds: string[];
+    execution: JsonObject;
+    directory: string;
+  },
+): SdkEvaluatorConfig {
+  const prepared = object(structuredClone(config));
+  const benchmark: JsonObject =
+    typeof prepared.benchmark === 'string'
+      ? { name: prepared.benchmark }
+      : object(prepared.benchmark, 'benchmark');
+  const solver: JsonObject =
+    typeof benchmark.solver === 'string'
+      ? { name: benchmark.solver }
+      : plain(benchmark.solver);
+  benchmark.solver = {
+    ...solver,
+    name: 'agentbundle',
+    config: {
+      ...plain(solver.config),
+      path: string(execution.directory, 'Bundle directory'),
+    },
+  };
+  prepared.benchmark = benchmark;
+  const run = plain(prepared.run);
+  delete run.sampling;
+  delete run.offset;
+  prepared.run = { ...run, maxTasks: null, taskIds };
+  prepared.output = {
+    ...plain(prepared.output),
+    directory: join(directory, 'sdk'),
+  };
+  const parsed = parseEvaluatorConfig(prepared);
+  // The original solver and template still expose conflicts overwritten above.
+  if (solver.name !== undefined && solver.name !== 'agentbundle')
+    throw new Error('benchmark.solver must be agentbundle');
+  if (plain(solver.config).path !== undefined)
+    throw new Error('benchmark.solver.config.path is owned by RSI');
+  if (plain(config.output).directory !== undefined)
+    throw new Error('output.directory is owned by RSI');
+  return parsed;
 }

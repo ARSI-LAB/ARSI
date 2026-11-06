@@ -16,6 +16,10 @@ ember-rsi (Recursive Self-Improvement) is a pluggable framework for self-improve
 
 A plugin implements one [public contract](../../../src/contracts/plugin-types/index.ts). The contract owns input/output schemas; each implementation owns its configuration schema and an `execute(input, context)` method. Separate bindings can use the same implementation with different configurations.
 
+Evaluator plugins derive `EvaluatorConfig` from the SDK configuration type. Each plugin constructs the per-call configuration first, then parses it through the SDK and checks RSI constraints against the original template. The factory returns the SDK-parsed configuration, with shortcuts normalized for downstream consumers. Checks complete before writing the configuration or charging the evaluation budget, without mutating the supplied configuration. RSI rejects literal credentials before writing configuration files; use environment references. The SDK applies defaults and validates plugin-specific rules when evaluation starts.
+
+Evaluator configuration passes through to the installed SDK, and the SDK-normalized configuration is saved in the evaluation record. RSI only fills in the candidate Bundle path or inference service, the requested task set, and the per-call output directory. AgentBench uses the `agentbundle` solver and replaces sampling, offset, and task-count limits with the Policy's explicit task IDs. InferenceBench requires local AgentX execution and permits the routed service's model and endpoint to be omitted until the Application supplies them; other services remain fully configured. SDK-supported parameters otherwise need no RSI field mapping. Errors detected inside the SDK follow the evaluation failure path and consume one `evaluationRuns` charge.
+
 ```mermaid
 flowchart TB
   R[Recipe] --> M[Manager]

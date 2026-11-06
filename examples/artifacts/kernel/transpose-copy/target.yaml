@@ -1,0 +1,20 @@
+schemaVersion: rsi.target/v1
+id: target.transpose-copy
+entries:
+  - path: input.py
+    kind: file
+    description: Complete Triton Ascend source with the fixed kernel_function entry point.
+    changes:
+      - modify
+    content:
+      encoding: utf-8
+      minBytes: 1
+      maxBytes: 32768
+protected:
+  - problem.py
+  - test.py
+  - task.json
+  - task/**
+constraints:
+  maxChangedFiles: 1
+  maxChangedBytes: 32768

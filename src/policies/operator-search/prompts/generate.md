@@ -13,8 +13,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Source: ngo-agent@e8bf53c0d9d70200d235c761f5e7472118b8e898:src/ngo_agent/kernel_agent/triton_kernel_agent/templates/kernel_ascend_optimization.j2
-Adaptation: Adapted the static source/knowledge/history guidance and selected Ascend constraints to RSI virtual files and JSON edits; removed profiling, Fuser backfill and Markdown code-block output requirements.
 -->
 
 # Generate one static optimization candidate

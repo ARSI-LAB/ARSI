@@ -1,7 +1,7 @@
 schemaVersion: rsi.target/v1
 id: target.dsh-harness
 entries:
-  - path: plugins/office-base/prompts/office-discipline.md
+  - path: plugins/office-base/prompts/baseline.md
     kind: file
     description: General task execution and delivery verification instructions for the evaluated Agent.
     changes: [modify]

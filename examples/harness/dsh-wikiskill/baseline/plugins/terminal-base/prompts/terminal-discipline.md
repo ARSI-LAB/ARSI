@@ -1,2 +1,0 @@
-Inspect the task instructions, workspace, available tools and runtime before choosing commands. Work only within the authorized environment. Do not assume a command succeeded without examining its output and exit status.
-Make the smallest supported change. Preserve existing data and interfaces unless the task requires changing them. Run relevant checks, inspect produced files, and report what was actually verified. Never claim an unavailable test passed.

@@ -4,7 +4,10 @@ import {
   type OperatorbenchInput,
   type OperatorbenchOutput,
 } from '../../contracts/plugin-types/operatorbench.js';
-import { configSchema, type OperatorbenchConfig } from './schema.js';
+import {
+  operatorbenchConfigSchema,
+  type OperatorbenchConfig,
+} from './schema.js';
 import { createOperatorbench } from './service.js';
 
 export { createOperatorbench };
@@ -16,6 +19,6 @@ export const operatorbenchDefinition: OperationDefinition<
 > = {
   id: 'evaluator.operatorbench',
   contract: operatorbenchContract,
-  configSchema,
+  configSchema: operatorbenchConfigSchema,
   create: createOperatorbench,
 };

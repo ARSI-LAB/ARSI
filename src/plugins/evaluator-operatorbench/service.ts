@@ -33,7 +33,10 @@ import { plain } from '../shared/evaluator-adapter/data.js';
 import { adaptSdkResult, type SdkOperatorResult } from './result.js';
 import { profileConditions, readProfileAssessment } from './conditions.js';
 import { recordSdkMeasurement } from './measurement.js';
-import { configSchema, type OperatorbenchConfig } from './schema.js';
+import {
+  operatorbenchConfigSchema,
+  type OperatorbenchConfig,
+} from './schema.js';
 
 export async function createOperatorbench(
   rawConfig: unknown,
@@ -41,7 +44,7 @@ export async function createOperatorbench(
   runner: EvaluatorRunner = sdkRunner,
 ): Promise<Operation<OperatorbenchInput, OperatorbenchOutput>> {
   const config = parseConfig<OperatorbenchConfig>(
-    configSchema,
+    operatorbenchConfigSchema,
     rawConfig,
     'operatorbench config',
   );

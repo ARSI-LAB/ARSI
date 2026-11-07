@@ -107,7 +107,7 @@ This section defines reusable engineering conventions. Check the current public 
 
 ### Git commits
 
-Before each code commit, review the relevant [user guides](docs/users/guides/) for changes to behavior, configuration, contracts, commands, or workflows. Include required documentation updates in the same commit and keep the English (`<topic>.md`) and Chinese (`<topic>_zh.md`) pages synchronized, including descriptions, examples, and links.
+Before each code commit, review the relevant [user guides](docs/users/guides/) for changes to behavior, configuration, contracts, commands, or workflows. Include required documentation updates in the same commit and keep the English (`<topic>.md`) and Chinese (`<topic>_zh.md`) pages synchronized, including descriptions, examples, and links. Keep guide content logically connected and use clear, concise language.
 
 Authorization for commits, pushes, and publication follows [collaboration and delivery](#collaboration-and-delivery) above. Use a single-line commit title in the form `[type] Brief English description`:
 

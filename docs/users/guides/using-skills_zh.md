@@ -2,18 +2,45 @@
 
 [English](using-skills.md) | 简体中文 · [快速入门](../getting-started_zh.md)
 
-本指南介绍如何为编程助手、被评测的 Agent 和优化器分别接入 Skill。
+本指南按使用对象，介绍编程助手、被评测的 Agent 和优化插件的三种接入方式。
 
-## 为编程助手接入 RSI Skill
+## 为 编程Agent 接入 RSI Skill
 
-通过助手的 Skill 发现机制提供完整的 [`skills/ember-rsi/` 目录](../../../skills/ember-rsi/SKILL.md)，也可以在任务中直接给出当前检出下的 `SKILL.md` 路径。将 `references/` 和 `assets/` 与入口文件放在一起，让助手能读到引用说明和示例。Skill 标明了对应的 RSI 版本。让助手先核对当前构建注册的 ID 和 Schema，再复用示例。
+RSI Skill 用来指导编程助手编写 Recipe、校验配置和排查实验。
 
-例如，可以让助手编写一份只运行一轮的 WikiSkill Recipe，使用互不重叠的训练、验证与测试任务，并执行静态校验。诊断已有实验时，可提供实验 ID，让助手追踪候选、测量和选择收据。
+1. 将完整的 [RSI Skill 目录](../../../skills/ember-rsi/SKILL.md)放到 Agent 支持的 Skill 目录中，保留 `SKILL.md` 及同级的 `references/`、`assets/`。
+2. 让 Agent 读取该 Skill，再提出具体任务，例如“为当前项目编写 Recipe 并执行校验”。也可以直接向助手提供 `SKILL.md` 的路径。
 
-## 为被评测的 Bundle 添加 Skill
+## 为被评测的 Agent 添加 Skill
 
-WikiSkill 基线初始没有 Skill。若要提供初始 Skill，可以创建 `baseline/plugins/terminal-base/skills/<name>/SKILL.md`，基线的终端插件会将它加入被评测 Agent 的系统提示词。如果希望优化循环创建或编辑 Skill，需把路径纳入 Application 的 Target。文件应有 YAML frontmatter，其中 `name` 和 `description` 为字符串，且 Markdown 正文非空。参见 [WikiSkill 示例](../../../examples/harness/dsh-wikiskill/README.md) 和[基线加载代码](../../../examples/harness/dsh-wikiskill/baseline/plugins/terminal-base/index.js)。
+这类 Skill 随 Baseline Agent Bundle 提供，由 Bundle 中的 Agent 插件读取，指导被评测的 Agent 完成任务。
 
-## 为优化器配置 Skill
+1. 准备一个包含 `SKILL.md` 的目录。文件中的 `name` 是名称，`description` 是用途，正文写执行指导，例如：
 
-基于模型的 Proposer 可通过绑定的 `config.skills` 加载独立的 Skill。每项指向含有 `SKILL.md` 的目录。Harness² 就通过 Policy 默认绑定向多个 Proposer 提供 [harness-edit Skill](../../../src/policies/harness2/skills/harness-edit/SKILL.md)。若要覆盖单个绑定的列表，在 Recipe 的该绑定配置中设置 `skills`，并列出它需要的全部目录。这里声明的路径相对于 Recipe。该配置指导优化器如何编辑候选，被评测 Agent 的 Skill 仍由其 Bundle 加载。
+   ```markdown
+   ---
+   name: output-checks
+   description: Check task outputs before finishing.
+   ---
+
+   Before finishing, verify that the requested files exist and report any missing outputs.
+   ```
+
+2. 将该目录放入 Baseline 中 Agent 插件约定的位置。由插件读取文件，并把内容加入 Agent 的提示词或上下文；自定义 Agent 插件需要实现这部分逻辑。
+3. 如果希望优化流程创建或修改这些 Skill，将对应路径纳入 [Target](../getting-started_zh.md#target) 允许修改的范围。
+
+## 为优化插件配置 Skill
+
+支持 `config.skills` 的插件（如 `proposer.agent`）会读取 Skill，将内容作为上下文传给执行优化任务的 Agent。
+
+1. 准备 Skill 目录，例如 `my-experiment/skills/code-editing/SKILL.md`。
+2. 在 Recipe 中，向已有插件绑定的配置添加 `skills`：
+
+   ```yaml
+   # Recipe excerpt
+   bindings:
+     proposer:
+       config:
+         skills:
+           - ./skills/code-editing
+   ```

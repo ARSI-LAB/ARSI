@@ -227,7 +227,7 @@ Inspect the saved experiment status, Measurement status and coverage, and scores
 - [Choose a built-in Policy and its components](guides/built-in-components.md) for your optimization target and evaluation setup.
 - [Configure experiments](guides/configuration.md), including Recipe fields, plugin bindings, Agents, environment variables, and budgets.
 - [Run, observe, and recover experiments](guides/running-experiments.md) with the CLI and dashboard.
-- [Use Skills](guides/using-skills.md) with a coding assistant, the evaluated Agent, or the optimizer.
+- [Use Skills](guides/using-skills.md) with your personal coding Agent, the evaluated Agent, or the optimizer.
 - [Configure Memory](guides/memory.md) to consolidate execution experience and pass it to later optimization calls.
 - [Configure Reflection](guides/reflection.md) to improve plugins using execution evidence and use plugin revisions in the current or future experiments.
 - Tune inference service parameters with the [grid](../../examples/artifacts/inference/parameter-grid/README.md) or [Optuna](../../examples/artifacts/inference/parameter-tpe/README.md) example.

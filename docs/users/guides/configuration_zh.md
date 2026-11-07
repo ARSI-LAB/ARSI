@@ -68,10 +68,6 @@ bindings:
 
 `services.default` 中的 `model`、`base_url` 和 `api_key` 分别指定模型名称、服务地址和凭据环境变量引用。
 
-使用 `evaluator.inferencebench` 评测推理服务时，待测服务地址和模型名称由 `application.inference` 提供，具体配置见[推理服务示例](../../../examples/artifacts/inference/parameter-grid/README.md#configuration)。
-
-使用 `evaluator.operatorbench` 评测算子时，`task.directory` 指定任务目录，`protocol` 设置预热次数、重复次数和正确性误差范围，`sdk` 指定 Python、NPU 设备、超时和性能分析选项。该插件需要可用的 Triton-Ascend / NPU 环境；优化 Agent 仍通过 `agent` 绑定单独配置。准备步骤和完整配置见[算子优化示例](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md)。
-
 ### Pi 后端
 
 `agent.pi` 通过 Pi 执行优化流程中的 Agent 任务，适合直接指定模型服务地址、模型名称和凭据。
@@ -124,55 +120,37 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 - 目前该后端无法执行 `maxModelCalls` 或实验 `modelCalls` 预算。
 
-## 指标选择
-
-`selector.metric` 按指定指标比较当前最优候选与新候选。若 Policy 使用名为 `selector` 的绑定，可在 Recipe 中这样配置：
-
-```yaml
-bindings:
-  selector:
-    plugin: selector.metric
-    config:
-      metric: latencyMeanMs
-      direction: minimize
-      eligibility:
-        - metric: candidateValid
-          min: 1
-      minRelativeImprovement: 0.02
-```
-
-这个例子先检查新候选是否正确，再比较延迟；只有延迟降低**超过 2%** 才替换当前最优候选。正确性不达标时直接拒绝，无需该候选提供延迟值，选择结果中的 `candidateValue` 为 `null`。
-
-| 配置项                   | 填写方式与作用                                                                                                                               |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `metric`、`direction`    | 指定比较指标和方向：`maximize` 越大越好，`minimize` 越小越好；默认比较 `successRate`，方向为 `maximize`。                                    |
-| `eligibility`            | 比较目标指标前先检查的条件列表，如正确性。每项填 `metric`，并至少填写 `min` 或 `max`；边界值包含在允许范围内。当前最优候选必须满足这些条件。 |
-| `constraints`            | 候选还必须满足的额外指标限制，填写方式与 `eligibility` 相同。                                                                                |
-| `minRelativeImprovement` | 改进比例下限，取值大于等于 0、小于 1，默认 0。设为正数时，当前最优候选的目标指标值必须大于 0；新候选的改进比例须严格超过此值。               |
-| `itemId`、`statistic`    | 按需选择任务项及分布指标的统计量；分布指标必须指定 `mean`、`p50`、`p95` 或 `p99`。                                                           |
-| `tieBreak`               | 当前仅支持 `retain-incumbent`，即相同数值保留当前最优候选。                                                                                  |
-
-完整配置见 [Selector Schema](../../../src/plugins/selector-metrics/schema.ts)，算子示例中的搭配见[示例 Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml)。
-
 ## 限制与预算
 
-省略的 Runtime 预算维度没有 Runtime 上限，插件、模型服务、基准和显式继承的 Policy 限制仍可能生效。
+Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺省时”指对应配置最终仍未设置该项的情况；其他层的限制仍可能生效。
 
-| 位置                                                  | 配置项                                                                                     | 范围                                                                                               |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Recipe                                                | `budget.operations`、`budget.evaluationRuns`                                               | Runtime 调用（包含嵌套调用）；每次 Evaluator 调用可包含多个任务。                                  |
-| Recipe                                                | `budget.modelCalls`                                                                        | 支持计量的后端记账的请求，包括 Pi 输出纠正和子 Agent；不限制基准 Solver 或原生 Codex 请求。        |
-| Recipe                                                | `budget.elapsedWallMs`、`budget.cleanupReserveMs`                                          | 实验执行时长和独立的清理期限，单位毫秒；恢复沿用从最初开始计算的经过时间。                         |
-| Pi                                                    | `maxTokens`、`contextWindow`                                                               | 每次请求的模型输出和上下文大小。                                                                   |
-| Pi                                                    | `timeoutMs`、`executionTimeoutMs`                                                          | 单次请求与完整调用时长，单位毫秒。                                                                 |
-| Codex                                                 | `timeoutMs`                                                                                | 完整调用时长，单位毫秒。                                                                           |
-| Operator Proposer                                     | `modelRequestTimeoutMs`                                                                    | 一整个生成、诊断或总结阶段的共享时长上限，单位毫秒，包含工具续调与子 Agent。                       |
-| `proposer.agent`、`memory.agent`、`selector.artifact` | `maxModelCalls`                                                                            | 后端支持时，限制每次 Agent 调用的请求数；直接调用 Agent 时设置 `steps[].with.maxModelCalls`。      |
-| AgentBench Evaluator                                  | `services.<service>.maxTokens`                                                             | 该评测模型服务每轮输出上限；注意不要同时重复设置 Solver 输出上限。                                 |
-| AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                                                                       | 基准任务超时；省略时仍应用 SDK profile 或回退值。                                                  |
-| OperatorBench Evaluator                               | `sdk.timeoutSeconds`、`sdk.profiling.attemptTimeoutSeconds`                                | SDK 调用与单次性能分析尝试的时长上限，单位秒；评测与性能分析调用均计入 `budget.evaluationRuns`。   |
-| Inference Application                                 | `remote.timeoutMs`、`healthcheck.timeoutMs`                                                | 远端命令和就绪等待；未覆盖时，远端就绪等待继承显式远端超时。                                       |
-| Optuna Proposer                                       | `python.timeoutMs`、`maxSamplingAttempts`                                                  | 每次 worker 时长和包含重复值的总采样次数；`policy.config.maxTrials` 另行限制评测次数。             |
-| Reflection 文件                                       | `budget.modelCalls`、`budget.timeoutSeconds`                                               | 每次 Reflection 调用的局部限制；`modelCalls: 0` 阻止内置模型生成器启动，正数调用上限需要后端计量。 |
-| Target                                                | `entries[].content.maxBytes`、`constraints.maxChangedFiles`、`constraints.maxChangedBytes` | 文件大小及整次提交大小；这些限制需要显式配置。                                                     |
-| Policy                                                | `steps[].with.editConstraints`                                                             | 契约支持时，限制单次编辑的文件数、字节数和子树数。                                                 |
+| 位置                                                  | 配置项                                            | 含义                                                                                                      | 缺省时                                                                            |
+| ----------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Recipe                                                | `budget.operations`                               | Runtime 操作调用总数上限，包含嵌套调用。                                                                  | 无实验级次数上限。                                                                |
+| Recipe                                                | `budget.evaluationRuns`                           | 评测调用总数上限；一次调用可包含多个任务，OperatorBench 的评测和性能分析调用均计入。                      | 无实验级评测次数上限。                                                            |
+| Recipe                                                | `budget.modelCalls`                               | 支持计量的后端实际模型请求总数上限，包含重试、输出纠正和子 Agent；不限制基准 Solver 或原生 Codex 请求。   | 无实验级模型调用次数上限。                                                        |
+| Recipe                                                | `budget.elapsedWallMs`                            | 整个实验的经过时间上限，单位毫秒；恢复时包含中断期间，不会重新计时。                                      | 无实验级运行时长上限。                                                            |
+| Recipe                                                | `budget.cleanupReserveMs`                         | 释放实例、关闭插件等清理工作的时长上限，单位毫秒，单独计时。                                              | 无 Runtime 清理期限。                                                             |
+| Pi                                                    | `maxTokens`                                       | 单次模型请求的最大输出 Token 数。                                                                         | 不发送输出 Token 上限，由模型服务决定。                                           |
+| Pi                                                    | `contextWindow`                                   | Pi 用于上下文管理的窗口大小，单位 Token，应与模型能力匹配。                                               | 262144 Token。                                                                    |
+| Pi                                                    | `timeoutMs`                                       | 单次模型请求的时长上限，单位毫秒。                                                                        | 底层 HTTP 客户端使用 600000 毫秒（10 分钟）。                                     |
+| Pi                                                    | `executionTimeoutMs`                              | 完整 Agent 调用的时长上限，单位毫秒，包含请求、工具、压缩、重试等待和子 Agent。                           | 无整次调用的独立时长上限。                                                        |
+| Codex                                                 | `timeoutMs`                                       | 完整 Agent 调用的时长上限，单位毫秒。                                                                     | RSI 不为该调用设置独立超时。                                                      |
+| Operator Proposer                                     | `modelRequestTimeoutMs`                           | 一个完整模型阶段的共享时长上限，单位毫秒，包含工具续调与子 Agent。                                        | 120000 毫秒（2 分钟）。                                                           |
+| `proposer.agent`、`memory.agent`、`selector.artifact` | `maxModelCalls`                                   | 每次 Agent 调用的请求数上限，仅支持计量的后端可执行；直接调用 Agent 时填在 `steps[].with.maxModelCalls`。 | 不增加本次 Agent 调用的请求数上限。                                               |
+| AgentBench Evaluator                                  | `services.<service>.maxTokens`                    | 被测 Agent 所用模型服务的每轮输出 Token 上限。                                                            | 由 Solver 或模型服务的默认设置决定。                                              |
+| AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                              | 单个基准任务一次执行的时长上限，单位秒。                                                                  | 使用 SDK 基准 profile 的值；profile 未指定时为 7200 秒（2 小时）。                |
+| OperatorBench Evaluator                               | `sdk.timeoutSeconds`                              | 单次算子评测或性能分析的时长上限，单位秒。                                                                | 必填，无默认值。                                                                  |
+| OperatorBench Evaluator                               | `sdk.profiling.attemptTimeoutSeconds`             | 一次性能分析尝试的时长上限，单位秒。                                                                      | SDK 默认 300 秒（5 分钟）。                                                       |
+| Inference Application                                 | `remote.timeoutMs`                                | 一次远端脚本调用的时长上限，单位毫秒。                                                                    | 无远端调用的独立时长上限。                                                        |
+| Inference Application                                 | `healthcheck.timeoutMs`                           | 等待推理服务就绪的时长上限，单位毫秒。                                                                    | 远端模式继承 `remote.timeoutMs`；该值也未设置或使用本地模式时，不设就绪等待上限。 |
+| Optuna Proposer                                       | `python.timeoutMs`                                | 单次 Python worker 调用的时长上限，单位毫秒。                                                             | 无单次 worker 调用的独立时长上限。                                                |
+| Optuna Proposer                                       | `maxSamplingAttempts`                             | 整个搜索的采样尝试次数上限，包含不进入评测的重复参数组合；评测次数另由 `policy.config.maxTrials` 限制。   | 不额外限制采样尝试次数。                                                          |
+| Reflection 文件                                       | `budget.modelCalls`                               | 单次 Reflection 的模型请求数上限；设为 0 时不启动内置生成器，正数上限需要后端支持计量。                   | 无单次 Reflection 的模型调用次数上限。                                            |
+| Reflection 文件                                       | `budget.timeoutSeconds`                           | 单次 Reflection 的时长上限，单位秒。                                                                      | 无单次 Reflection 的独立时长上限。                                                |
+| Target                                                | `entries[].content.maxBytes`                      | Target 条目内单个文件的内容大小上限，单位字节。                                                           | Target 不设置单文件大小上限。                                                     |
+| Target                                                | `constraints.maxChangedFiles`                     | 一次候选提交最多允许修改的文件数。                                                                        | Target 不限制变更文件数。                                                         |
+| Target                                                | `constraints.maxChangedBytes`                     | 一次候选提交中，变更文件的内容总大小上限，单位字节。                                                      | Target 不限制变更文件的内容总大小。                                               |
+| Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedFiles`    | 契约支持时，限制这次编辑最多修改多少个文件。                                                              | 不增加这次编辑的文件数上限；Target 等已有约束仍生效。                             |
+| Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedBytes`    | 契约支持时，限制这次编辑的变更文件内容总大小，单位字节。                                                  | 不增加这次编辑的字节数上限；Target 等已有约束仍生效。                             |
+| Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedSubtrees` | 候选编辑最多涉及多少个 Target 条目对应的文件或目录范围。                                                  | 不限制这次编辑涉及的 Target 条目数量。                                            |

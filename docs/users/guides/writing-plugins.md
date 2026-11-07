@@ -2,217 +2,116 @@
 
 English | [简体中文](writing-plugins_zh.md) · [Getting started](../getting-started.md)
 
-This guide explains how to choose plugin contracts, understand their fields, implement and register plugins, and connect them to Runtime through Recipes and Policies.
+This guide explains how to choose a plugin contract, define configuration, implement business logic, register the plugin, and use it in Policies and Recipes.
 
-Plugins provide business capabilities, Policies decide when to call them, and Recipes select implementations and supply configuration. For flow fields, see [Write a Policy](writing-policies.md); for built-in implementation settings, see [Configuration](configuration.md) and [Built-in components](built-in-components.md).
-
-## Choose the extension boundary
-
-| Need                                                                               | Extension                                                                                                           |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Change tasks, limits, model, or existing prompt paths                              | Override the corresponding Recipe configuration or binding.                                                         |
-| Replace inference/tool execution while reusing Proposer evidence and edit handling | Implement `contract.agent` and replace the Agent binding being called.                                              |
-| Replace the complete proposal workflow                                             | Implement `contract.proposer`.                                                                                      |
-| Manage a new optimization target, candidate commits, or execution instances        | Implement `contract.application`.                                                                                   |
-| Add an evaluation method                                                           | Implement `contract.agentbench`, `contract.inferencebench`, or `contract.operatorbench`, as required by the caller. |
-| Change candidate selection, experience consolidation, or plugin self-evolution     | Implement the corresponding Selector, Memory, or Reflection contract.                                               |
-| Add a parameter search algorithm                                                   | Implement `contract.proposer-grid` or `contract.proposer-parameter-search`.                                         |
-| Change orchestration, state, or stopping rules                                     | Register a custom Policy.                                                                                           |
-
-### Distinguish contracts, implementations, bindings, and steps
-
-| Name                     | Example                | Where it belongs                                                   |
-| ------------------------ | ---------------------- | ------------------------------------------------------------------ |
-| Contract ID              | `contract.proposer`    | Policy `require.proposer.contract`; defines input and output.      |
-| Plugin implementation ID | `proposer.keep-parent` | Plugin definition `id` and binding declaration `plugin`.           |
-| Binding name             | `proposer`             | `require`, `defaults.bindings`, Recipe `bindings`, and step `use`. |
-| Step ID                  | `propose`              | Step `id`; read its result through `steps.propose.output`.         |
-| Policy ID                | `policy.my-search`     | Policy `id`, registration ID, and Recipe `policy.id`.              |
-
-Binding names are declared by the Policy, not drawn from a fixed role enum. For example, `domainProposer` and `skillProposer` can both require `contract.proposer` and bind different implementations. A regular plugin implements one public contract; multiple lifecycle actions share one `execute` with an `action` union. A Policy is a separate flow definition, not a plugin binding, and there are no child Policy bindings.
+**Plugins provide concrete capabilities, Policies decide when to call them, and Recipes select implementations and supply configuration.** For changes to models, tasks, or prompts, start with [Configuration](configuration.md); for changes to execution steps, see [Write a Policy](writing-policies.md). Consider writing a custom plugin when those options do not meet your needs.
 
 ## Choose a public contract
 
-Choose the contract required by the caller and reuse its exported object and types. The contract owns `id`, `input_schema`, and `output_schema`; the plugin owns its configuration Schema. Even when TypeScript types appear compatible, Runtime checks the contract ID and Schema identity.
+Choose a contract based on the work your plugin will do. The contract defines the call's input and output; the plugin supplies the implementation and its configuration. When an existing contract meets your needs, reuse its object and types:
 
-| Contract and field definitions                                                                         | Exported contract object          | Input / output types                               |
-| ------------------------------------------------------------------------------------------------------ | --------------------------------- | -------------------------------------------------- |
-| [contract.application](../../../src/contracts/plugin-types/application.ts)                             | `applicationContract`             | `ApplicationInput` / `ApplicationOutput`           |
-| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                                         | `agentContract`                   | `AgentInput` / `AgentOutput`                       |
-| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                                   | `proposerContract`                | `ProposerInput` / `ProposerOutput`                 |
-| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)                 | `operatorProposerContract`        | `OperatorProposerInput` / `OperatorProposerOutput` |
-| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                               | `agentbenchContract`              | `AgentbenchInput` / `AgentbenchOutput`             |
-| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)                       | `inferencebenchContract`          | `InferencebenchInput` / `InferencebenchOutput`     |
-| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)                         | `operatorbenchContract`           | `OperatorbenchInput` / `OperatorbenchOutput`       |
-| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)                   | `metricSelectorContract`          | `MetricSelectorInput` / `MetricSelectorOutput`     |
-| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts)               | `artifactSelectorContract`        | `ArtifactSelectorInput` / `ArtifactSelectorOutput` |
-| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                                       | `memoryContract`                  | `MemoryInput` / `MemoryOutput`                     |
-| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                               | `reflectionContract`              | `ReflectionInput` / `ReflectionOutput`             |
-| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)                         | `gridProposerContract`            | `GridProposerInput` / `GridProposerOutput`         |
-| [contract.proposer-parameter-search](../../../src/contracts/plugin-types/proposer-parameter-search.ts) | `parameterSearchProposerContract` | `ParameterSearchInput` / `ParameterSearchOutput`   |
+| Contract and field definitions                                                                         | Purpose                                                                                      | Contract object to import         |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | --------------------------------- |
+| [contract.application](../../../src/contracts/plugin-types/application.ts)                             | Manage optimization targets, commit candidates, and acquire and release execution instances. | `applicationContract`             |
+| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                                         | Run model requests and tool calls.                                                           | `agentContract`                   |
+| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                                   | Generate candidates from goals and evidence.                                                 | `proposerContract`                |
+| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)                 | Modify and repair operators and summarize optimization history.                              | `operatorProposerContract`        |
+| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                               | Evaluate candidates against a task list.                                                     | `agentbenchContract`              |
+| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)                       | Evaluate inference application candidates.                                                   | `inferencebenchContract`          |
+| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)                         | Check operator correctness, measure performance, or collect profiling data.                  | `operatorbenchContract`           |
+| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)                   | Compare measurement metrics and select a candidate.                                          | `metricSelectorContract`          |
+| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts)               | Compare candidate content against supplied criteria and select a candidate.                  | `artifactSelectorContract`        |
+| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                                       | Consolidate evidence and observations into reusable experience.                              | `memoryContract`                  |
+| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                               | Propose plugin revisions based on execution evidence.                                        | `reflectionContract`              |
+| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)                         | Generate parameter candidates in grid-search order.                                          | `gridProposerContract`            |
+| [contract.proposer-parameter-search](../../../src/contracts/plugin-types/proposer-parameter-search.ts) | Manage search state, suggest parameters, and receive evaluation feedback.                    | `parameterSearchProposerContract` |
 
-The fields below follow the current public contracts. Fields are required unless marked optional; optional does not imply nullable. Use Runtime-returned values for references such as `candidateRef` and `measurementRef`, not local file paths.
+Each regular plugin implements one public contract. Contracts such as Application include multiple actions, handled by the same `execute` according to `input.action`.
 
-### Application: targets and instance lifecycles
+- The linked definition files contain input/output types and Schemas. The plugin only declares its own configuration Schema.
 
-Input and output carry the same `action`. A `capability` is a name advertised by the Application, such as `agentbundle`, not a plugin ID. The Application and consuming Evaluator agree on the concrete `execution` object.
+The Policy's `require` specifies the contract, and the binding selects a plugin that satisfies it. This lets the same Policy use different implementations; see [Contract, Schema, and Binding](../concepts/architecture.md#contract-schema-and-binding) for the concepts.
 
-| `action`     | Other input fields                                                  | Other output fields                                                               |
-| ------------ | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `initialize` | None.                                                               | `initialCandidateRef`, `target` object, and `capabilities` string array.          |
-| `commit`     | `parentCandidateRef`, `editRef`; optional `editConstraints` object. | `status: created \| no-change`, `candidateRef`, and `diffRef` (string or `null`). |
-| `acquire`    | `candidateRef`, `instanceId`, `capability`.                         | `instanceId`, `execution` object.                                                 |
-| `release`    | `instanceId`.                                                       | `instanceId`, `status: released`.                                                 |
+## What a plugin definition contains
 
-The Application validates target scope, seals candidates, and acquires/releases instances. Evaluators consume instances through `context.withInstance()`. Initialization's `initialCandidateRef` maps to `application.initialCandidate` in Policy expressions; `context.applicationMetadata()` retains the `initialCandidateRef` name.
+`OperationDefinition<I, O, C>` describes a plugin definition. Its three type parameters are input, output, and configuration; see the [interface definition](../../../src/contracts/operation.ts).
 
-### Agent: inference and tool execution
+| Field                  | Meaning                                                             | How to fill it in                                                                                   |
+| ---------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `id`                   | Unique plugin implementation ID used by bindings.                   | Required, for example `proposer.keep-parent`; must not duplicate a registered plugin or Policy ID.  |
+| `description`          | Describe the plugin's purpose.                                      | Optional short description.                                                                         |
+| `contract`             | Declare the public contract the plugin follows.                     | Required imported contract object, such as `proposerContract`.                                      |
+| `configSchema`         | Validate this implementation's configuration.                       | Required JSON Schema; declare an object Schema even when there are no settings.                     |
+| `create`               | Create a plugin instance from configuration.                        | Required async function `create(config, context)` returning an object with `execute` and `dispose`. |
+| `implementationDigest` | Identify the implementation version so recovery can detect changes. | Optional digest covering the actual implementation code; update it when the code changes.           |
 
-| Input field     | Required | Type and meaning                                                                              |
-| --------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `goal`          | Yes      | String describing this call's goal.                                                           |
-| `prompt`        | Yes      | String containing the prompt for this call.                                                   |
-| `outputSchema`  | Yes      | Object describing the Schema the returned JSON object must satisfy.                           |
-| `input`         | No       | Any JSON value containing additional business input.                                          |
-| `files`         | No       | Map of filenames to string content, representing virtual files.                               |
-| `agentRef`      | No       | Agent binding name. `invokeAgent()` defaults to `agent.default`.                              |
-| `maxModelCalls` | No       | Integer of at least 1 limiting actual model request attempts when supported by the transport. |
+- Without `implementationDigest`, Registry generates a digest from the `create` function text, contract, and configuration Schema.
 
-The return value is a JSON object. The public contract's `output_schema` only checks that it is an object; a custom backend must also validate the requested `input.outputSchema`. Document the backend's tools and execution permissions, propagate cancellation, and release processes, sessions, and other resources. `files` does not itself grant host filesystem access.
+### configSchema
 
-Backends that own the model transport charge actual request attempts with `context.charge('modelCalls', 1)`, including retries and output corrections. A backend without an authoritative attempt counter, such as native Codex, must declare that usage unavailable, must not record missing counts as zero, and cannot claim to enforce model-call budgets. Built-in backend configuration fields are covered in [Agent configuration](configuration.md#agent-and-environment-variables).
+**`configSchema` defines the settings a plugin accepts and the rules for supplying them.** Plugin authors specify field names, types, required fields, and defaults; users supply actual values in the Policy or Recipe's `config`.
 
-### Proposer: producing candidates
+- For example, the plugin below requires `reason` to be a nonempty string. A user can supply `config: { reason: 'Keep the parent candidate.' }`. If `reason` is missing or is a number, Runtime reports a configuration error when loading the Recipe. After validation, the plugin reads `config.reason` through `create(config, context)`.
 
-| Input field       | Required | Type and meaning                                                                                                 |
-| ----------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
-| `parent`          | Yes      | Parent candidate reference.                                                                                      |
-| `goal`            | Yes      | Nonempty string describing the editing goal.                                                                     |
-| `evidenceRefs`    | Yes      | Array of nonempty reference strings; the array may be empty.                                                     |
-| `sources`         | No       | Array of `{ candidateRef, measurementRef? }` providing reference candidates and measurements.                    |
-| `memoryRef`       | No       | Memory reference or `null`.                                                                                      |
-| `editConstraints` | No       | Object containing per-call editing limits, interpreted and enforced by the implementation at the write boundary. |
+The table lists common rule fields used when writing `configSchema`:
 
-Output must have one of these two shapes, both including a `rationale` string:
+| Schema field                         | Meaning                                                                          | Example syntax                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `type`                               | Specify the value's type.                                                        | `type: 'object'`; use `type: ['string', 'null']` to allow null.                    |
+| `properties`                         | Define an object's fields and their types.                                       | `properties: { reason: { type: 'string' } }`.                                      |
+| `required`                           | Specify fields that must be supplied.                                            | `required: ['reason']`; listing a field in `properties` does not make it required. |
+| `additionalProperties`               | Control whether undeclared fields are allowed.                                   | Usually `false`, so misspelled or unknown fields fail validation.                  |
+| `default`                            | Fill in an omitted field.                                                        | `default: 1`; the value must match the field's type.                               |
+| `enum` / `const`                     | Restrict values to a set or one fixed value.                                     | `enum: ['maximize', 'minimize']` / `const: 'retain-incumbent'`.                    |
+| `minimum` / `maximum`                | Set numeric bounds.                                                              | `type: 'integer', minimum: 1`.                                                     |
+| `minLength` / `pattern`              | Restrict string length or format.                                                | `type: 'string', minLength: 1`.                                                    |
+| `items` / `minItems` / `uniqueItems` | Specify array element types, minimum length, and whether duplicates are allowed. | `items: { type: 'string' }, minItems: 1, uniqueItems: true`.                       |
+| `oneOf`                              | Define structures where exactly one must match.                                  | An array of Schemas, often used to distinguish inputs and outputs by `action`.     |
+| `x-rsi-path`                         | Mark a configuration field as a file or directory path.                          | Set `'x-rsi-path': 'file'` or `'directory'` on a string field.                     |
 
-| `status`    | Other output fields                              |
-| ----------- | ------------------------------------------------ |
-| `created`   | `candidateRef`, nonempty `diffRef`, `rationale`. |
-| `no-change` | `candidateRef`, `diffRef: null`, `rationale`.    |
+Runtime merges Policy and Recipe configuration, fills defaults, validates it, and passes the result to `create`.
 
-For file edits, modify a workspace, submit the candidate through the Application's `commit`, and release the workspace in `finally`. See the [skill's deterministic Proposer](../../../skills/ember-rsi/assets/minimal/extension/operations.mjs). The built-in Agent Proposer's model editing protocol is defined in [shared editing code](../../../src/plugins/shared/agent-editing/index.ts); a replacement Agent must still satisfy the caller's requested output Schema.
+- Relative paths marked with `x-rsi-path` are resolved against the file declaring the configuration.
 
-### Evaluation, selection, Memory, and Reflection
+- Plugins can also support reading configuration from environment variables. For example, `agent.pi` accepts the following `api_key` setting:
 
-| Contract                      | Input fields                                                                                                                                                                     | Output fields                                                                                                                                                                                                                                                                                                                              |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `contract.agentbench`         | `candidateRef`, `taskIds` (nonempty array of unique nonempty strings).                                                                                                           | `measurementRef`.                                                                                                                                                                                                                                                                                                                          |
-| `contract.inferencebench`     | `candidateRef`.                                                                                                                                                                  | `measurementRef`.                                                                                                                                                                                                                                                                                                                          |
-| `contract.selector-metrics`   | `incumbentMeasurementRef`, `candidateMeasurementRef`.                                                                                                                            | `accepted`, `candidateFeasible`, `selectedCandidateRef`, `measurementRef`, `decisionRef`, `reason`, `metric`, `incumbentValue`, `candidateValue`, `selectedValue`. The first two are booleans; `incumbentValue` and `selectedValue` are numbers, while `candidateValue` is a number or `null` when the candidate fails eligibility checks. |
-| `contract.selector-artifacts` | Nonempty `candidates` array of `{ candidateRef, measurementRef }`; nonempty `rubric` string.                                                                                     | `candidateRef`, `measurementRef`, `decisionRef`.                                                                                                                                                                                                                                                                                           |
-| `contract.memory`             | `memoryRef` (reference or `null`), `goal`, `evidenceRefs`; optional `editConstraints`, `comparison`, `observations` (object or `null`), `sources` (array of `{ candidateRef }`). | For `status: updated`, nonempty references `memoryRef` and `changeRef`, plus a `reason` string; for `status: no-change \| failed`, `memoryRef` (reference or `null`), `changeRef: null`, and `reason`.                                                                                                                                     |
-| `contract.reflection`         | `parentRevisionRefs` (nonempty map of binding names to revision references), `resourceRef`, `goal`, `evidenceRefs`, `editConstraints`.                                           | For `status: proposed`, `proposal: { parentRevisionRefs, resourceRef, changeRef }` and `reason`; for `status: no-change`, `proposal: null` and `reason`.                                                                                                                                                                                   |
+  ```yaml
+  # agent.pi config excerpt
+  api_key: ${MODEL_API_KEY}
+  ```
 
-Memory's optional `comparison` contains `baselineCandidateRef`, `probes`, and `selection`. `probes` is a nonempty map whose groups are nonempty arrays of `{ candidateRef, measurementRef, slot? }`, with a nonnegative integer `slot`; `selection` contains `candidateRef`, `measurementRef`, and `decisionRef`.
+  Set `export MODEL_API_KEY='your-api-key'` before starting the CLI, and `agent.pi` reads that variable as the key at runtime. Custom plugins must implement environment-variable reading to support this syntax; declaring `type: 'string'` in the Schema only checks the field's type.
 
-Evaluators record measurements following the [public Measurement protocol](../../../src/contracts/models/measurement.ts), then return references. Measurement `status` accepts `succeeded / failed / cancelled / unknown`; `coverage` accepts `complete / partial / none / unknown`. Metric `status` accepts `available / unavailable`, and available value `kind` accepts `scalar / distribution`; unavailable metrics use `value: null` and supply a `reason`. The built-in metric selector checks configured `eligibility` conditions first, rejecting an ineligible new candidate without reading its objective metric. Measurements entering metric comparison must be successful, complete, comparable, and have matching metric definitions; distribution metrics also require an explicit statistic. See [Metric selection](configuration.md#metric-selection) for eligibility, extra constraints, and minimum improvement thresholds.
+### The object returned by create
 
-Reflection plugins use execution evidence to propose revisions to target plugins. Runtime owns evidence, structural validation, persistence, and activation; plugin `proposed` does not mean a revision is active. The step's `activated / no-change / skipped / rejected` values are Runtime outcomes. See [Reflection](reflection.md).
+The `create(config, context)` function in the table initializes the plugin with validated configuration and returns an object called a **plugin instance**.
 
-### Operator optimization
+Runtime executes this object's `execute(input, context)` for each plugin call. It can reuse the same object and calls `dispose()` to release resources when the instance is no longer needed. The methods have the following responsibilities:
 
-`policy.operator-search` uses dedicated Proposer and Evaluator contracts to orchestrate kernel changes and assessment:
+| Method                              | Purpose                                                                                   | How to write it                                                                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `execute(input, context)`           | Perform one business call.                                                                | Required; asynchronously return output matching the public contract. `input` contains the data for this call.                             |
+| `dispose()`                         | Release instance-owned processes, connections, listeners, and other long-lived resources. | Required; complete cleanup asynchronously. May be empty when there are no resources.                                                      |
+| `canRetry(input, receipt, context)` | Confirm whether a failed or cancelled call can be replayed safely.                        | Optional; return `true` only after read-only checks confirm replay cannot duplicate effects. Does not replay calls with unknown outcomes. |
 
-| Contract and action                               | Input purpose                                                                                                                                                                          | Output                                                                                                                                                        |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contract.proposer-operator`, `action: propose`   | `phase: static` analyzes source using the entry candidate and baseline measurement; `phase: metrics` improves performance using the incumbent, assessment, and profiling measurements. | `status`, `candidateRef`, `diffRef`, `analysisRef`, `rationale`, and `reasonCode`; status is `created`, `no-change`, or `failed`, with `errorRef` on failure. |
-| `contract.proposer-operator`, `action: repair`    | Supply the failed candidate, its measurement, and analysis references to repair that candidate.                                                                                        | The same result structure as `propose`.                                                                                                                       |
-| `contract.proposer-operator`, `action: summarize` | Summarize the current phase's candidates, measurements, and selection to update history for later calls.                                                                               | `historyRef`, `summaryRef`.                                                                                                                                   |
-| `contract.operatorbench`, `action: evaluate`      | `candidateRef` and `caseIds` select the candidate and cases for correctness checks and latency measurement.                                                                            | `measurementRef`.                                                                                                                                             |
-| `contract.operatorbench`, `action: profile`       | Supply `assessmentMeasurementRef` alongside `candidateRef` and `caseIds` to reference the candidate's existing assessment.                                                             | `measurementRef`, `collectionStatus: completed \| unavailable`.                                                                                               |
+## Example: Write and use a minimal Proposer
 
-Outputs also carry the matching `action`. The table summarizes each action's purpose; actual calls must supply goal, iteration, analysis, history, and other fields required by the corresponding `phase` / `action` branch in the [Proposer contract](../../../src/contracts/plugin-types/proposer-operator.ts). See the [Operator Search Policy](../../../src/policies/operator-search/policy.yaml) for the complete flow and the [operator optimization example](../../../examples/artifacts/kernel/transpose-copy/README.md) for run configuration.
+This plugin always keeps the parent candidate to verify registration and calls. It does not need a model.
 
-### Parameter search
+- It uses the three required inputs of `contract.proposer`: `parent` is the parent candidate reference, `goal` is the current goal, and `evidenceRefs` is an array of evidence references that may be empty. It returns `status: no-change` and explains why in `rationale`.
 
-`contract.proposer-grid` accepts `parent` and a nonnegative integer `cursor`. A `status: candidate` result includes `candidateRef`, `parameters` object, `nextCursor`, and `totalCandidates`; `status: exhausted` includes only `nextCursor` and `totalCandidates`. `nextCursor` is a nonnegative integer; `totalCandidates` is a positive integer.
+### Step 1: Write the plugin
 
-`contract.proposer-parameter-search` uses `action` to distinguish three actions:
+In a TypeScript ESM project with `ember-rsi` installed, place the three files in `src/proposer-keep-parent/` and compile them to `dist/proposer-keep-parent/`.
 
-| `action`     | Other input fields                                      | Other output fields                                                                                                                                               |
-| ------------ | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `initialize` | `parent`.                                               | `stateRef`.                                                                                                                                                       |
-| `suggest`    | `stateRef`.                                             | For `status: candidate`, `stateRef`, `trialId`, `candidateRef`, `parameters`; for `status: stopped`, `stateRef` and `reason: search-exhausted \| sampling-limit`. |
-| `observe`    | `stateRef`, `trialId`, `measurementRef`, `decisionRef`. | New `stateRef`.                                                                                                                                                   |
+#### 1. Define configuration
 
-Output must also carry the matching `action`. Search state is saved through references; the Policy orchestrates loops and stopping conditions. See the [Optuna Policy](../../../src/policies/parameter-optuna/policy.yaml) for a complete call sequence.
-
-## Implement the plugin lifecycle
-
-Organize a plugin around `schema.ts` (configuration), `service.ts` (business behavior and cleanup), and `index.ts` (definition assembly). Input/output Schemas belong only to the public contract and are not redeclared by implementations. Repository plugins import local contracts; external packages use `ember-rsi` or `ember-rsi/contracts`, not private `src/*` imports.
-
-### Plugin definition fields
-
-The three parameters of `OperationDefinition<I, O, C>` are contract input, contract output, and plugin configuration. Definitions accept only the following fields; see the [operation contract](../../../src/contracts/operation.ts):
-
-| Field                  | Required | Meaning                                                                                                                                                           |
-| ---------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                   | Yes      | Unique implementation ID, such as `proposer.keep-parent`. Must not collide with a registered plugin or Policy.                                                    |
-| `description`          | No       | Description of the implementation.                                                                                                                                |
-| `contract`             | Yes      | An imported public contract object from the table above, not a contract ID string.                                                                                |
-| `configSchema`         | Yes      | This implementation's configuration Schema; declare an object Schema even when there is no configuration.                                                         |
-| `create`               | Yes      | Async `create(config, context)` factory returning a plugin instance.                                                                                              |
-| `implementationDigest` | No       | Implementation fingerprint for locking and recovery identity checks. A release can supply a build-content digest; update it when behavior-affecting code changes. |
-
-Without `implementationDigest`, Registry fingerprints the factory function text, contract, and configuration Schema. This does not automatically cover imported helper modules; supply a digest covering the actual implementation when those changes must be identified reliably.
-
-### Instance methods and call order
-
-| Method                                                | Required | Responsibility                                                                                                   |
-| ----------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
-| `execute(input, context): Promise<O>`                 | Yes      | Perform business work and return JSON data matching the contract.                                                |
-| `dispose(): Promise<void>`                            | Yes      | Release instance-owned processes, connections, listeners, and other resources; may be empty when there are none. |
-| `canRetry(input, receipt, context): Promise<boolean>` | No       | Use read-only checks to confirm that a settled failed or cancelled call can be replayed safely.                  |
-
-Loading a Recipe only assembles definitions; it does not call `create` or `execute`. Runtime calls the factory when an instance is needed, then validates input/output, records receipts, and charges usage at call boundaries. An instance can serve multiple calls; parallel branches may call the same binding concurrently, so keep per-call data and temporary resources local to each call. Configuration revisions can create new instances, with versions and disposal managed by Runtime.
-
-Use the factory context for instance resources and the current `execute` context for each call. Do not retain the first call's `callId`, cancellation signal, or other call-specific values for later calls. If the factory fails before returning an instance, it must release resources already created. `dispose` has no arguments; retain its instance resources in the closure.
-
-Return `true` from `canRetry` only when replay cannot duplicate effects, for settled failed or cancelled calls. Runtime archives the original receipt and charges the retry normally. This hook does not introduce a retry loop during ordinary execution or automatically replay calls with unknown or still-running outcomes.
-
-## Define the configuration Schema
-
-Configuration is a JSON object. `create` receives it after merging, validation, default filling, and path resolution. The following Schema fields are useful; each plugin chooses its configuration field names and allowed values.
-
-| Schema field                         | Values or syntax                                                                           | Purpose                                                                                          |
-| ------------------------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `type`                               | `object`, `array`, `string`, `integer`, `number`, `boolean`, `null`, or an array of types. | Declare a type, such as `{ type: ['string', 'null'] }`.                                          |
-| `properties`                         | Map of field names to Schemas.                                                             | Describe object fields; listing a field here does not make it required.                          |
-| `required`                           | Array of field names.                                                                      | Declare required fields.                                                                         |
-| `additionalProperties`               | Usually `false`; may also be a Schema.                                                     | Reject misspelled or unknown fields, or constrain map values.                                    |
-| `enum` / `const`                     | For example, `enum: ['maximize', 'minimize']` / `const: 'retain-incumbent'`.               | Restrict choices or require one fixed value.                                                     |
-| `default`                            | JSON value matching the field type.                                                        | Fill an omitted value after configuration merging; TypeScript does not provide it automatically. |
-| `minimum` / `maximum`                | Numbers.                                                                                   | Set numeric bounds; counts usually also need `type: integer`.                                    |
-| `minLength` / `pattern`              | Length / regular expression string.                                                        | Constrain strings.                                                                               |
-| `items` / `minItems` / `uniqueItems` | Item Schema / minimum count / boolean.                                                     | Constrain array contents, size, and uniqueness.                                                  |
-| `oneOf`                              | Array of Schemas.                                                                          | Declare mutually exclusive shapes discriminated by fields such as `action`.                      |
-| `x-rsi-path`                         | `file` or `directory`, on a path string's Schema.                                          | Mark file or directory paths to resolve against their declaration origins.                       |
-
-Only explicitly marked paths are resolved. Inherited values resolve relative to the Policy file; Recipe overrides resolve relative to the Recipe file, including paths inside nested objects and arrays. A path marker does not replace existence or write-permission checks. Ordinary strings, resource references, and `${NAME}` environment references do not undergo universal path or environment substitution; each owning plugin interprets its environment references. `${{ ... }}` is used in Policy/Recipe dataflow templates.
-
-For a concrete example, the [metric selector configuration Schema](../../../src/plugins/selector-metrics/schema.ts) accepts `maximize / minimize` for `direction`, `mean / p50 / p95 / p99` for `statistic`, and only `retain-incumbent` for `tieBreak`. These are `selector.metric` configuration fields, not public inputs shared by all Selectors.
-
-## Write a minimal plugin
-
-The following Proposer always retains the parent candidate. All three files are complete, and it makes no model calls. Use it to verify registration and dataflow before adding real edits using the deterministic Proposer linked above.
-
-In a TypeScript ESM project with `ember-rsi` installed, place the files under `src/proposer-keep-parent/` and compile them to `dist/proposer-keep-parent/`. Relative imports use the built `.js` extensions.
-
-`schema.ts`:
+Define the configuration type and validation rules in `schema.ts`. This example requires a nonempty `reason`:
 
 ```ts
 import type { JsonSchema } from 'ember-rsi/contracts';
 
+// Plugin configuration and its validation rules.
 export type KeepParentConfig = { reason: string };
 
 export const configSchema: JsonSchema = {
@@ -225,7 +124,9 @@ export const configSchema: JsonSchema = {
 };
 ```
 
-`service.ts`:
+#### 2. Implement business logic
+
+Return a plugin instance from `service.ts`. `execute` receives the current call's input and RuntimeContext; `dispose` handles instance cleanup:
 
 ```ts
 import type {
@@ -241,6 +142,7 @@ export async function createKeepParent(
   _context: RuntimeContext,
 ): Promise<Operation<ProposerInput, ProposerOutput>> {
   return {
+    // Check cancellation and the parent candidate, then return it unchanged.
     async execute(input, context): Promise<ProposerOutput> {
       context.signal.throwIfAborted();
       await context.readCandidate(input.parent);
@@ -251,12 +153,15 @@ export async function createKeepParent(
         rationale: config.reason,
       };
     },
+    // This example owns no long-lived resources.
     async dispose(): Promise<void> {},
   };
 }
 ```
 
-`index.ts`:
+#### 3. Assemble the plugin definition
+
+In `index.ts`, specify the implementation ID and combine the contract, configuration Schema, and `create` function into a definition:
 
 ```ts
 import {
@@ -281,63 +186,68 @@ export const keepParentDefinition: OperationDefinition<
 };
 ```
 
-## Use RuntimeContext
+### Step 2: Register the plugin
 
-Public fields and methods are defined in the [execution context](../../../src/contracts/runtime/execution.ts) and [service interfaces](../../../src/contracts/runtime/services.ts). Manager owns candidates, measurements, budgets, and call receipts; plugins access them through the following capabilities.
+Runtime finds plugins by registered ID. Creating a file or adding an ID to a Recipe does not load code automatically. Choose one of these registration methods:
 
-### Context fields
+| Method               | When to use it                                                           |
+| -------------------- | ------------------------------------------------------------------------ |
+| Modify the source    | Modify RSI source to build and provide the plugin with the framework.    |
+| Load through the CLI | Develop in your own extension project and load it with an installed CLI. |
 
-| Field                                | Meaning                                                                                                                                   |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `experimentId`                       | Current experiment ID.                                                                                                                    |
-| `callId` / `bindingId`               | Current controlled call ID / binding name.                                                                                                |
-| `idempotencyKey`                     | Current call's idempotency key, which can be passed to an external service supporting idempotent writes.                                  |
-| `signal`                             | Business call cancellation signal; propagate it to external requests, child processes, and long-running work.                             |
-| `cleanup`                            | Separate cleanup cancellation signal for resource release after business cancellation.                                                    |
-| `scope`                              | Optional local budget scope containing `id`, `signal`, and `limits`; limit fields are `modelCalls`, `elapsedWallMs`, and `evidenceBytes`. |
-| `directory`                          | Current call's data directory.                                                                                                            |
-| `rootDirectory` / `dataDirectory`    | Host working root / Runtime data root, which defaults to `.rsi/` under the working root.                                                  |
-| `artifacts` / `facts` / `workspaces` | Immutable artifact, fact storage, and temporary workspace services.                                                                       |
-| `event`                              | Instance-scoped event pipeline; subscriptions and returned unsubscribe functions are covered in [Runtime events](runtime-events.md).      |
+#### Method 1: Modify the source
 
-The current context has no `phase` field and does not infer report stages from step IDs. Reports use ordinary steps and explicit inputs.
+1. Place the three example files in `src/plugins/proposer-keep-parent/` and replace their `ember-rsi/contracts` imports with `../../contracts/index.js`.
+2. Import `keepParentDefinition` in the [built-in registration file](../../../src/runtime/builtins.ts) and add it to the `definitions` array in `registerBuiltins`.
+3. Run `pnpm build` from the repository root. Then validate and run through the repository's `pnpm ember-rsi` command, as shown in the shared steps below.
 
-### Reads, writes, and controlled calls
+#### Method 2: Register an external extension for the CLI
 
-| Method                                                    | Result and use                                                                                                                                                                                                                                                                        |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `readCandidate(ref)`                                      | Return a Candidate containing `ref`, `artifactRef`, `parentRef`, and `experimentId`.                                                                                                                                                                                                  |
-| `recordCandidate(artifactRef, parentRef)`                 | Return a candidate reference; normally used by the Application after target validation.                                                                                                                                                                                               |
-| `readMeasurement(ref)` / `recordMeasurement(measurement)` | Read a measurement / validate and save a measurement, returning a reference. Identical submissions return a stable reference; storage owns a copy of the input.                                                                                                                       |
-| `application(input)`                                      | Make a controlled call to the current Application using its `action` protocol.                                                                                                                                                                                                        |
-| `applicationMetadata()`                                   | Return initialization metadata: `target`, `capabilities`, `initialCandidateRef`.                                                                                                                                                                                                      |
-| `invoke(bindingName, input)`                              | Call an experiment binding through contract validation, budgets, receipts, and current revision selection.                                                                                                                                                                            |
-| `invokeAgent(input)`                                      | Call the Agent binding named by `input.agentRef`, defaulting to `agent.default`; it does not automatically choose a binding named `agent`.                                                                                                                                            |
-| `withInstance(candidateRef, capability, use)`             | Acquire an execution instance, call async `use(execution)`, and coordinate release on success, failure, and cancellation.                                                                                                                                                             |
-| `readEvidence(refs, options?)`                            | Read evidence. Omit `format` for a JSON projection, or use `files` to read files; `view` accepts `execution / training-summary / delivery`, defaulting to `execution`; `maxBytes` is a positive safe integer requesting a byte limit, which scopes or projections may reduce further. |
-| `charge(metric, amount)`                                  | Record usage and enforce budget checks; must be awaited.                                                                                                                                                                                                                              |
-| `extend(properties)`                                      | Create a child scope inheriting this context and shadow only the supplied fields; nested objects remain shared, so create new values before changing them.                                                                                                                            |
+1. Use `my-extension/` as the project containing the three example files. Run the project's build command to generate `dist/proposer-keep-parent/` and ensure runtime dependencies are installed.
+2. Create `index.mjs` in the `my-extension/` root, exporting `register(registry)`. The CLI calls it when loading the extension:
 
-`artifacts` supports `putJson`, `readJson`, `capture`, and `materialize`. `workspaces` supports `create(artifactRef?, parentCandidateRef?)`, `read(ref)`, and `release(ref)`; a workspace contains `ref`, `directory`, and `parentCandidateRef`. `facts` provides low-level `read / write / list` and optional `scan`; use the corresponding public management interfaces for candidates, measurements, and receipts.
+   ```js
+   import { keepParentDefinition } from './dist/proposer-keep-parent/index.js';
 
-Nested business calls use `invoke`, `invokeAgent`, or `application` to pass through Runtime controls. Do not instantiate another plugin directly to bypass these boundaries. Evaluators charge actual evaluation runs with `charge('evaluationRuns', 1)`; model backends charge actual request attempts to `modelCalls`. Runtime counts `operations`, so plugins must not charge them again.
+   export function register(registry) {
+     registry.registerOperation(keepParentDefinition);
+   }
+   ```
 
-Release call-owned workspaces, files, and temporary processes in `finally`; release long-lived instance resources in `dispose`. Propagate failure and cancellation. Return business statuses such as `no-change` or `failed` only where the contract defines them, rather than treating exceptions as successful output.
+3. Pass `--plugin-dir ./my-extension` when validating, running, or resuming to load the extension. One entrypoint can register multiple plugins; if one already exists, add the code to its existing `register` function.
+   - Alternatively, place the extension in `~/.ember-rsi/plugins/<name>/` so the CLI loads its `index.mjs` automatically. User-level extensions load in directory-name order, followed by directories passed through `--plugin-dir`; the option can be repeated.
 
-## Connect the plugin to a Policy and Recipe
+#### When you need a new contract
 
-The following Policy excerpt shows the plugin-related fields. A complete Policy still needs input/output Schemas and other required fields; see [Write a Policy](writing-policies.md). `with` is the input for each call, while `config` configures the binding; they are validated separately.
+If no existing contract fits, use `defineContract({ id, input_schema, output_schema })` to define one, set the plugin's `contract` to that object, and use the new contract ID in your custom Policy's `require`.
+
+`registerOperation(definition)` registers both the plugin and its contract. You can also register a contract separately with `registerContract(contract)`.
+
+- Complete registration before loading the Policy. Schemas sharing a contract ID must agree. For Policy registration, see [Write a Policy](writing-policies.md#register-a-policy).
+
+### Step 3: Use it in a Policy and Recipe
+
+#### 1. Declare the binding and call in the Policy
+
+The Policy declares binding names, and steps select a binding through `use`. Here, `proposer` is the binding name and `propose` is the step ID; read the result through `steps.propose.output`.
+
+This is a Policy excerpt. Add it to a [complete Policy](writing-policies.md) and register it. If an existing Policy already declares a binding with the corresponding contract, select the plugin directly in the Recipe:
 
 ```yaml
+# Declare the public contract required by the proposer binding.
 require:
   proposer:
     contract: contract.proposer
+
+# Supply a default plugin and configuration that the Recipe can override.
 defaults:
   bindings:
     proposer:
       plugin: proposer.keep-parent
       config:
         reason: Keep the baseline for this demonstration.
+
+# Call the plugin with the parent candidate, goal, and evidence references.
 steps:
   - id: propose
     type: invoke
@@ -348,72 +258,77 @@ steps:
       evidenceRefs: []
 ```
 
-A Recipe can override only configuration and retain the default implementation:
+#### 2. Select the plugin and configuration in the Recipe
+
+Recipe `bindings` use the names declared by the Policy. Select the implementation and supply configuration for `proposer`:
 
 ```yaml
 bindings:
   proposer:
+    plugin: proposer.keep-parent
     config:
       reason: Keep the parent in this experiment.
 ```
 
-### Binding fields and merge rules
+Omit `plugin` to keep the Policy's default implementation. A replacement must satisfy the binding's contract. Supply `config` according to the selected plugin's Schema; missing required fields fail validation. See [Configuration](configuration.md#recipe-fields-and-binding-overrides) for merge and override rules.
 
-`defaults.bindings.<name>` and `bindings.<name>` accept only `plugin` and `config`. `plugin` is an implementation ID and may be omitted in overrides; `config` must be an object, and omitting it means no configuration override. The Application belongs in Recipe `application` and must explicitly specify `plugin`.
+#### 3. Validate and run
 
-| Situation                                                                                            | Assembly behavior                                                                                                      |
-| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Recipe omits an entry                                                                                | Inherit the Policy's default declaration.                                                                              |
-| Same implementation, both field values are plain objects                                             | Merge recursively.                                                                                                     |
-| Override value is an array, scalar, or `null`                                                        | Replace the whole value; `null` does not delete a field and must satisfy the Schema. `config` itself cannot be `null`. |
-| Explicitly switch to a different `plugin`                                                            | Discard the old implementation's configuration and assemble from the new configuration and its Schema defaults.        |
-| No implementation after merging, a required binding is missing, or an undeclared binding is supplied | Fail loading and identify the binding.                                                                                 |
-| Implementation does not satisfy the required contract                                                | Fail loading.                                                                                                          |
+Once the complete Recipe is ready, run commands for your registration method.
 
-Validate the final merged configuration and fill defaults, preserving path origins for each field. When replacing an Agent binding, also ensure the business plugin's `agentRef` points to it. Declaring an ID does not import code, and a file's existence does not enable a plugin. See the [binding loader](../../../src/runtime/loaders/binding.ts).
-
-## Register an external extension for the CLI
-
-Default extensions load from `~/.ember-rsi/plugins/<name>/index.mjs` in name order, before extra `--plugin-dir` directories. A missing home is allowed; invalid discovered extensions fail startup. Experiment data remains in the working directory's `.rsi/`. Embedded hosts can set `homeDirectory: false` for isolation.
-
-Every CLI command accepts repeatable `--plugin-dir <directory>` options. Each directory contains an ESM `index.mjs` exporting `register(registry)`, which may be async. The extension and its dependencies must be built/resolvable before loading. For the three-file example above, use this entrypoint:
-
-```js
-// my-extension/index.mjs
-import { keepParentDefinition } from './dist/proposer-keep-parent/index.js';
-
-export function register(registry) {
-  registry.registerOperation(keepParentDefinition);
-}
-```
-
-| Registration API                   | Purpose                                                                                                                             |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `registerOperation(definition)`    | Register a plugin and its contract. Returns an unregister function; an implementation cannot be unregistered while in use.          |
-| `registerContract(contract)`       | Register a contract separately so a Policy can resolve it before an implementation is bound. Declarations sharing an ID must agree. |
-| `registerPolicy(id, absolutePath)` | Associate a Policy ID with a complete Policy YAML file; the file's top-level `id` must match.                                       |
-| `catalog()`                        | Return arrays of registered `plugins` and `policies` IDs.                                                                           |
-
-When built-in contracts cannot describe a new capability, declare one with `defineContract({ id, input_schema, output_schema })`, implement it in a plugin, and reference it in your custom Policy's `require`. Register the contract or implementation before reading that Policy. Reuse internal shared tools as ordinary modules rather than registering them as public plugins.
-
-For a Policy declaring `proposer`, select this implementation through defaults or Recipe `bindings.proposer.plugin: proposer.keep-parent`, and supply the required `config.reason`. Pass the extension on each command that needs it:
+**After modifying the source**, use the newly built CLI from the repository root:
 
 ```sh
-ember-rsi validate ./my-recipe/recipe.yaml --plugin-dir ./my-extension
-ember-rsi run ./my-recipe/recipe.yaml --id custom-run --plugin-dir ./my-extension
+pnpm ember-rsi validate my-experiment/recipe.yaml
+pnpm ember-rsi run my-experiment/recipe.yaml --id custom-run
 ```
 
-For a built-in repository extension, add its definition to [registerBuiltins](../../../src/runtime/builtins.ts) and rebuild. Creating a source file alone does not register it.
+**When loading through the CLI**, run from the working directory containing `my-extension/` and `my-experiment/`, loading the same extension in both commands:
 
-## Embed the Runtime
+```sh
+ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
+ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
+```
 
-An external host can register definitions directly. This example assumes a complete `policy.my-search` file and a Recipe referencing it; validation and execution use the same Runtime:
+`validate` checks contracts, bindings, and configuration without executing plugin business logic. After running, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
+
+## Use RuntimeContext
+
+Runtime passes `context` to `create` and every `execute` call. Plugins use it to read candidates, save results, call other plugins, and respond to cancellation. See [execution context fields](../../../src/contracts/runtime/execution.ts) and [service interfaces](../../../src/contracts/runtime/services.ts) for the complete interfaces.
+
+| Task                                 | Field or method                                          | Purpose                                                                                                                                  |
+| ------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Identify the current call            | `experimentId`, `callId`, `bindingId`, `idempotencyKey`  | Read experiment, call, binding, and idempotency identifiers; pass the idempotency key to external services supporting idempotent writes. |
+| Respond to cancellation              | `signal`, `cleanup`                                      | Use `signal` for business operations and the separate `cleanup` signal for resource release after cancellation.                          |
+| Read a candidate                     | `readCandidate(ref)`                                     | Return the candidate record, including the `artifactRef` that holds its content.                                                         |
+| Record a candidate                   | `recordCandidate(artifactRef, parentRef)`                | Return a candidate reference, typically called by the Application after checking the modification scope.                                 |
+| Read or save a measurement           | `readMeasurement(ref)`, `recordMeasurement(measurement)` | Read a measurement record, or validate it against the public protocol and save it to obtain a reference.                                 |
+| Save or read content                 | `artifacts.putJson/readJson`, `capture/materialize`      | Save and read JSON, or save directory contents and restore them to a local directory.                                                    |
+| Edit in a temporary directory        | `workspaces.create/read/release`                         | Create or read a workspace, edit files in its `directory`, and release it when finished.                                                 |
+| Call the Application                 | `application(input)`, `applicationMetadata()`            | Execute lifecycle actions or read metadata such as the target, capabilities, and initial candidate.                                      |
+| Use a candidate's execution instance | `withInstance(candidateRef, capability, use)`            | Acquire an instance, execute `use(execution)`, and coordinate its release.                                                               |
+| Call another binding                 | `invoke(bindingName, input)`                             | Apply Runtime contract validation, budget checks, call recording, and revision selection.                                                |
+| Call an Agent                        | `invokeAgent(input)`                                     | Select the Agent binding through `input.agentRef`, defaulting to `agent.default` when omitted.                                           |
+| Read evidence                        | `readEvidence(refs, options?)`                           | Select `view`, file or JSON format, and `maxBytes` to read the evidence available to this call.                                          |
+| Record usage                         | `charge(metric, amount)`                                 | Record usage and check budgets; call with `await`.                                                                                       |
+| Subscribe to events                  | `event`                                                  | Listen for runtime events and unsubscribe when finished; see [Runtime events](runtime-events.md).                                        |
+
+### Calls and resource cleanup
+
+- Loading a Recipe only assembles definitions. Execution calls `create` to create instances and `execute` to perform business work. Runtime validates input/output and records calls.
+- One instance can serve multiple calls, including concurrent ones. Keep each call's data and temporary resources local to that call, using the context received by the current `execute`; the `create` context is for instance resources.
+- Pass cancellation signals to external requests and long-running operations. Release call-owned workspaces, files, and temporary processes in `finally`, and long-lived resources in `dispose`. If `create` fails before returning, clean up any resources it has already created.
+
+## Use in a host application
+
+Besides the CLI, your own program can create a Runtime and register plugins. This example assumes a complete `policy.my-search` file and a Recipe referencing it:
 
 ```ts
 import { resolve } from 'node:path';
 import { createRuntime, validateRecipe } from 'ember-rsi';
 import { keepParentDefinition } from './my-extension/dist/proposer-keep-parent/index.js';
 
+// Create Runtime, disable user-level extension loading, and register definitions directly.
 const runtime = await createRuntime({
   rootDirectory: process.cwd(),
   homeDirectory: false,
@@ -424,7 +339,9 @@ try {
     'policy.my-search',
     resolve('./my-extension/policy.yaml'),
   );
-  const recipePath = resolve('./my-recipe/recipe.yaml');
+
+  // Validate and run the complete Recipe with the same Runtime.
+  const recipePath = resolve('./my-experiment/recipe.yaml');
   const check = await validateRecipe(runtime, recipePath);
   console.log(check);
   const result = await runtime.manager.run(recipePath, { id: 'custom-run' });
@@ -434,47 +351,13 @@ try {
 }
 ```
 
-### createRuntime options
+Common `createRuntime` options are listed below; see the [Runtime entrypoint](../../../src/runtime/context.ts) for all options. These are host API parameters.
 
-All options may be omitted; see the [Runtime entrypoint](../../../src/runtime/context.ts). These are host API arguments, not a new Runtime YAML configuration file.
+| Option              | Meaning                                                                      | When omitted                     |
+| ------------------- | ---------------------------------------------------------------------------- | -------------------------------- |
+| `rootDirectory`     | Host working root directory.                                                 | Current process directory.       |
+| `directory`         | Directory for Runtime data.                                                  | `.rsi/` under the working root.  |
+| `homeDirectory`     | User-level extension home; set `false` to disable automatic loading.         | `~/.ember-rsi`.                  |
+| `pluginDirectories` | Additional extension directories, relative to the current process directory. | No extra directories are loaded. |
 
-| Option                               | Default and use                                                                                                      |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `rootDirectory`                      | Current process directory; sets the host working root.                                                               |
-| `directory`                          | `.rsi/` under the working root; stores Runtime data.                                                                 |
-| `homeDirectory`                      | Defaults to `~/.ember-rsi`; a string changes the extension home, and `false` disables user-wide extension loading.   |
-| `pluginDirectories`                  | Additional extension directory array, relative to the current process directory; loaded after user-wide extensions.  |
-| `context`                            | Supply a host `RuntimeContext` for Runtime to extend.                                                                |
-| `registry`                           | Supply a Registry; Runtime still registers built-in plugins and Policies, so avoid registering those IDs beforehand. |
-| `artifacts` / `facts` / `workspaces` | Replace default local storage and workspace services.                                                                |
-
-### Inspect assembled objects
-
-Import the `Recipe`, `Policy`, and `Binding` runtime classes from `ember-rsi`. `Recipe.load(recipePath, registry)` returns an assembled definition without initializing the Application, creating execution instances, or calling a model.
-
-| Object  | Readable definition fields                                                                                                                                                                                                                                                 |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Recipe  | `schemaVersion`, `id`, `description`, `sourcePath`, `application`, `policy`, `policyConfig`, `policyInput`, `bindings`, `budget`, `reflection`. `policy` is a Policy object; `policyInput` is evaluated after Application initialization.                                  |
-| Binding | `name`, `definition`, `config`, `pluginId`. `pluginId` comes from `definition.id`; `config` is the final configuration.                                                                                                                                                    |
-| Policy  | `id`, `description`, `sourcePath`, `directory`, `inputSchema`, `configSchema`, `stateSchema`, `outputSchema`, `inputDefaults`, `stateInitial`, `requirements`, `defaults`, `steps`, `output`, `digest`. Shared state belongs to each execution, not the definition object. |
-
-`Binding.resolve({ name, required, registry, defaults?, override? })` assembles a binding; `defaults` and `override` each contain a `declaration` and its source `directory`. `binding.withConfig(config)` accepts a complete configuration with prepared paths and returns a new validated binding; it neither merges old configuration nor activates a revision. Runtime owns activation.
-
-`recipe.toJSON()` exports persistable declarations with `id/config/input` under `policy` and `plugin/config` for bindings. `binding.toJSON()` and `policy.toJSON()` also return declarations; definition fields are treated as read-only snapshots. Never persist live `RuntimeContext` objects or factory functions as JSON.
-
-## Handle recovery and cleanup
-
-Runtime locks an experiment's Recipe, Policy, configuration, and declared resources. Recovery of unfinished experiments reads locked content and confirmed revisions, then checks registered implementation fingerprints; changed fingerprints prevent recovery. The host must still load the corresponding extensions. External writes need idempotency conditions or effects that can be reconciled.
-
-| Confirmed state at interruption                          | Recovery behavior                                                     |
-| -------------------------------------------------------- | --------------------------------------------------------------------- |
-| Step result saved                                        | Restore result and state without repeating that step's effects.       |
-| Successful call receipt saved, step result not yet saved | Reuse the receipt and complete the step record.                       |
-| Call started but effects cannot be confirmed             | Stop automatic recovery and inspect the receipt and external effects. |
-| Call not yet started                                     | Execute normally.                                                     |
-
-Cleanup failures are separate from the experiment result. `runtime.dispose()` reports failed or still-pending cleanup; Runtime retains ownership until cleanup settles. After independently confirming that failed external resources have been released, a host can call `runtime.manager.reconcileCleanup(experimentId)` and then dispose again. Reconciliation does not repeat plugin disposal and refuses pending cleanup.
-
-Direct registration in a host process does not modify a separately started CLI process. Use that host for management calls, or load the same extension through `--plugin-dir`. See [Run and resume experiments](running-experiments.md) for more operations.
-
-After implementation, check necessary boundaries such as invalid configuration, contract mismatches, and cancellation cleanup, then run `validate` and a local deterministic experiment with the same extension. Repository engineering checks use the existing `pnpm check`; run `pnpm build` after changing repository source. Real model or benchmark evaluations require separate explicit runs; configuration validation and component tests do not establish that optimization took effect.
+Registrations in a host only apply to that Runtime. A separately started CLI still needs source registration or `--plugin-dir` to load the plugin.

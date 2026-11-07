@@ -1,19 +1,19 @@
 import type {
   OperationDefinition,
-  ParameterSearchInput,
-  ParameterSearchOutput,
+  SearchInput,
+  SearchOutput,
 } from '../../contracts/index.js';
-import { parameterSearchProposerContract } from '../../contracts/plugin-types/proposer-parameter-search.js';
+import { searchContract } from '../../contracts/plugin-types/search.js';
 import { configSchema, type OptunaConfig } from './schema.js';
 import { createOptunaProposer } from './service.js';
 export const optunaProposerDefinition: OperationDefinition<
-  ParameterSearchInput,
-  ParameterSearchOutput,
+  SearchInput,
+  SearchOutput,
   OptunaConfig
 > = {
   id: 'proposer.optuna',
   description: 'Propose parameter candidates using Optuna optimization.',
-  contract: parameterSearchProposerContract,
+  contract: searchContract,
   configSchema,
   create: createOptunaProposer,
 };

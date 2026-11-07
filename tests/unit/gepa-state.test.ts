@@ -82,16 +82,31 @@ test('GEPA state references restore into a fresh implementation and retain earli
   const context = await scope(t);
   const search = await createGepaSearch(settings, context);
   const initial = await search.execute(
-    { action: 'initialize', candidateRef: 'baseline', ...taskPools },
+    { action: 'initialize', parent: 'baseline', ...taskPools },
     context,
   );
   const saved = await context.artifacts.readJson(initial.stateRef);
   const restored = await createGepaSearch(settings, context);
   const input = {
-    action: 'observe-initial' as const,
+    action: 'observe' as const,
     stateRef: initial.stateRef,
-    measurementRef: null,
+    workId: 'initial',
+    feedback: { kind: 'evaluation' as const, measurementRefs: [] },
   };
+  await assert.rejects(
+    restored.execute({ ...input, workId: 'other' }, context),
+    /pending evaluation work/,
+  );
+  await assert.rejects(
+    restored.execute(
+      {
+        ...input,
+        feedback: { kind: 'evaluation', measurementRefs: ['unexpected'] },
+      },
+      context,
+    ),
+    /one measurement per requested evaluation/,
+  );
   const observed = await restored.execute(input, context);
   assert.equal(observed.done, true);
   assert.notEqual(observed.stateRef, initial.stateRef);
@@ -103,10 +118,10 @@ test('GEPA rejects state references from another configuration or execution scop
   const context = await scope(t);
   const search = await createGepaSearch(settings, context);
   const initial = await search.execute(
-    { action: 'initialize', candidateRef: 'baseline', ...taskPools },
+    { action: 'initialize', parent: 'baseline', ...taskPools },
     context,
   );
-  const input = { action: 'prepare' as const, stateRef: initial.stateRef };
+  const input = { action: 'suggest' as const, stateRef: initial.stateRef };
   const changed = await createGepaSearch({ ...settings, seed: 12 }, context);
   await assert.rejects(
     changed.execute(input, context),
@@ -152,7 +167,7 @@ test('GEPA retries an unconfirmed snapshot write with the same immutable state i
   const search = await createGepaSearch(settings, interrupted);
   const input = {
     action: 'initialize' as const,
-    candidateRef: 'baseline',
+    parent: 'baseline',
     ...taskPools,
   };
   await assert.rejects(

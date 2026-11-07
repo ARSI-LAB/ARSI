@@ -24,13 +24,23 @@ Choose a contract based on the work your plugin will do. The contract defines th
 | [contract.memory](../../../src/contracts/plugin-types/memory.ts)                                       | Consolidate evidence and observations into reusable experience.                              | `memoryContract`                  |
 | [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                               | Propose plugin revisions based on execution evidence.                                        | `reflectionContract`              |
 | [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)                         | Generate parameter candidates in grid-search order.                                          | `gridProposerContract`            |
-| [contract.proposer-parameter-search](../../../src/contracts/plugin-types/proposer-parameter-search.ts) | Manage search state, suggest parameters, and receive evaluation feedback.                    | `parameterSearchProposerContract` |
+| [contract.search](../../../src/contracts/plugin-types/search.ts) | Manage stateful search, request work, and receive feedback. | `searchContract` |
 
 Each regular plugin implements one public contract. Contracts such as Application include multiple actions, handled by the same `execute` according to `input.action`.
 
 - The linked definition files contain input/output types and Schemas. The plugin only declares its own configuration Schema.
 
 The Policy's `require` specifies the contract, and the binding selects a plugin that satisfies it. This lets the same Policy use different implementations; see [Contract, Schema, and Binding](../concepts/architecture.md#contract-schema-and-binding) for the concepts.
+
+### Stateful search
+
+Optuna and GEPA share `contract.search` and its `initialize`, `suggest`, and `observe` actions. Implementations return an opaque `stateRef` and evaluation or proposal work with an opaque work ID. The Policy calls its Evaluator, Proposer, and, when needed, Selector, then returns the work ID and feedback through `observe`. An observation can request further work for the same attempt.
+
+Task splits remain in the Policy configuration. Searches that sample tasks receive `feedbackTaskIds` and `selectionTaskIds` during initialization and return the selected task IDs in their work requests. Algorithms, candidate populations, RNG state, rollout accounting, and pending-work details stay inside each implementation's immutable state artifacts. Policy checkpoints retain the latest `stateRef`.
+
+Optuna reconstructs its Study from saved worker history. It keeps one trial pending at a time, reuses pending suggestions, and treats identical feedback as idempotent. Implementations validate configuration and execution scope before restoring state; Optuna also checks worker, environment, objective, and comparison identities.
+
+The shared contract replaces `contract.proposer-parameter-search` and `contract.population-search`. Internal snapshot formats are unchanged, but older locked Policy definitions are not migrated automatically. Resume those experiments with their original code version.
 
 ## What a plugin definition contains
 

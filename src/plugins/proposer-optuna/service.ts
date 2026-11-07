@@ -2,13 +2,13 @@ import { readFile } from 'node:fs/promises';
 import type {
   JsonObject,
   Operation,
-  ParameterSearchInput,
-  ParameterSearchOutput,
+  SearchInput,
+  SearchOutput,
   RuntimeContext,
 } from '../../contracts/index.js';
 import { canonical, digest, object } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { parameterSearchProposerContract } from '../../contracts/plugin-types/proposer-parameter-search.js';
+import { searchContract } from '../../contracts/plugin-types/search.js';
 import { commitParameters } from '../shared/parameter-editing/index.js';
 import { readDecisionFeedback } from '../shared/metric-decision/index.js';
 import {
@@ -36,20 +36,31 @@ function cardinality(config: ResolvedOptunaConfig): number | null {
   }
   return count;
 }
-function pendingOutput(
-  stateRef: string,
-  history: SearchTrial[],
-): ParameterSearchOutput {
+function pendingOutput(stateRef: string, history: SearchTrial[]): SearchOutput {
   const trial = history[history.length - 1]!;
   if (!trial.candidateRef)
     throw new Error('Pending trial is missing candidate');
   return {
-    action: 'suggest',
-    status: 'candidate',
     stateRef,
-    trialId: String(history.length - 1),
-    candidateRef: trial.candidateRef,
-    parameters: trial.parameters,
+    done: false,
+    iterationLimit: null,
+    work: {
+      kind: 'evaluation',
+      id: String(history.length - 1),
+      evaluations: [{ candidateRef: trial.candidateRef }],
+      parameters: trial.parameters,
+    },
+    result: null,
+  };
+}
+
+function idleOutput(stateRef: string): SearchOutput {
+  return {
+    stateRef,
+    done: false,
+    iterationLimit: null,
+    work: null,
+    result: null,
   };
 }
 
@@ -57,7 +68,7 @@ export async function createOptunaProposer(
   raw: OptunaConfig,
   _services: RuntimeContext,
   worker: OptunaWorker = runOptunaWorker,
-): Promise<Operation<ParameterSearchInput, ParameterSearchOutput>> {
+): Promise<Operation<SearchInput, SearchOutput>> {
   const config = parseOptunaConfig(raw);
   const workerDigest = digest(await readFile(workerPath, 'utf8'));
   const settings = object(config);
@@ -116,12 +127,8 @@ export async function createOptunaProposer(
     return response;
   };
   return {
-    async execute(input, context): Promise<ParameterSearchOutput> {
-      validate(
-        parameterSearchProposerContract.input_schema,
-        input,
-        'Parameter search input',
-      );
+    async execute(input, context): Promise<SearchOutput> {
+      validate(searchContract.input_schema, input, 'Parameter search input');
       context.signal.throwIfAborted();
       if (input.action === 'initialize') {
         await context.readCandidate(input.parent);
@@ -139,10 +146,7 @@ export async function createOptunaProposer(
           comparisonKey: null,
           history: [],
         };
-        return {
-          action: 'initialize',
-          stateRef: await context.artifacts.putJson(state),
-        };
+        return idleOutput(await context.artifacts.putJson(state));
       }
       const state = parseSearchState(
         await context.artifacts.readJson(input.stateRef),
@@ -160,10 +164,20 @@ export async function createOptunaProposer(
       state.settings = settings;
       const history = state.history;
       if (input.action === 'observe') {
-        const index = Number(input.trialId);
+        if (
+          input.feedback.kind !== 'evaluation' ||
+          input.feedback.measurementRefs.length !== 1 ||
+          !input.feedback.decisionRef
+        )
+          throw new Error(
+            'Optuna feedback requires one measurement and a decision',
+          );
+        const measurementRef = input.feedback.measurementRefs[0]!;
+        const decisionRef = input.feedback.decisionRef;
+        const index = Number(input.workId);
         if (
           !Number.isInteger(index) ||
-          String(index) !== input.trialId ||
+          String(index) !== input.workId ||
           index < 0 ||
           index >= history.length
         )
@@ -171,11 +185,11 @@ export async function createOptunaProposer(
         const trial = history[index]!;
         if (trial.status === 'complete') {
           if (
-            trial.measurementRef !== input.measurementRef ||
-            trial.decisionRef !== input.decisionRef
+            trial.measurementRef !== measurementRef ||
+            trial.decisionRef !== decisionRef
           )
             throw new Error('Conflicting trial feedback');
-          return { action: 'observe', stateRef: input.stateRef };
+          return idleOutput(input.stateRef);
         }
         if (
           trial.status !== 'pending' ||
@@ -184,8 +198,8 @@ export async function createOptunaProposer(
         )
           throw new Error('Feedback requires the pending trial');
         const feedback = await readDecisionFeedback(
-          input.measurementRef,
-          input.decisionRef,
+          measurementRef,
+          decisionRef,
           trial.candidateRef,
           context,
         );
@@ -200,26 +214,24 @@ export async function createOptunaProposer(
         state.comparisonKey = feedback.comparisonKey;
         Object.assign(trial, {
           status: 'complete',
-          measurementRef: input.measurementRef,
-          decisionRef: input.decisionRef,
+          measurementRef,
+          decisionRef,
           loss: feedback.loss,
           constraints: feedback.constraints,
         });
-        return {
-          action: 'observe',
-          stateRef: await context.artifacts.putJson(state),
-        };
+        return idleOutput(await context.artifacts.putJson(state));
       }
       if (history.at(-1)?.status === 'pending')
         return pendingOutput(input.stateRef, history);
       const seen = new Set(history.map((t) => canonical(t.parameters)));
       const stopped = async (
         reason: 'search-exhausted' | 'sampling-limit',
-      ): Promise<ParameterSearchOutput> => ({
-        action: 'suggest',
-        status: 'stopped',
+      ): Promise<SearchOutput> => ({
         stateRef: await context.artifacts.putJson(state),
-        reason,
+        done: true,
+        iterationLimit: null,
+        work: null,
+        result: { reason },
       });
       if (total !== null && seen.size >= total)
         return stopped('search-exhausted');

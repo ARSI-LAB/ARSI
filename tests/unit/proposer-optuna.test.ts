@@ -198,12 +198,13 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
       { action: 'initialize', parent: 'baseline' },
       context,
     );
-    assert.equal(initialized.action, 'initialize');
+    assert.equal(initialized.work, null);
+    assert.equal(initialized.done, false);
     const suggestion = await proposer.execute(
       { action: 'suggest', stateRef: initialized.stateRef },
       context,
     );
-    if (suggestion.action !== 'suggest' || suggestion.status !== 'candidate')
+    if (suggestion.work?.kind !== 'evaluation')
       throw new Error('Expected candidate');
     const callCount = calls;
     assert.deepEqual(
@@ -220,7 +221,9 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
       object(state.settings).sampler,
       parseOptunaConfig(config).sampler,
     );
-    const candidate = candidates.get(suggestion.candidateRef)!;
+    const candidate = candidates.get(
+      suggestion.work.evaluations[0]!.candidateRef,
+    )!;
     const snapshot = join(root, 'snapshot');
     await artifacts.materialize(candidate.artifactRef, snapshot);
     assert.deepEqual(
@@ -275,11 +278,22 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
     const feedback = {
       action: 'observe' as const,
       stateRef: suggestion.stateRef,
-      trialId: suggestion.trialId,
-      measurementRef: 'm',
-      decisionRef,
+      workId: suggestion.work.id,
+      feedback: {
+        kind: 'evaluation' as const,
+        measurementRefs: ['m'],
+        decisionRef,
+      },
     };
     const observed = await proposer.execute(feedback, context);
+    for (const invalid of [
+      { kind: 'evaluation' as const, measurementRefs: ['m'] },
+      { ...feedback.feedback, measurementRefs: ['m', 'm'] },
+    ])
+      await assert.rejects(
+        proposer.execute({ ...feedback, feedback: invalid }, context),
+        /one measurement and a decision/,
+      );
     assert.deepEqual(
       await proposer.execute(
         { ...feedback, stateRef: observed.stateRef },
@@ -288,12 +302,18 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
       observed,
     );
     await assert.rejects(
-      proposer.execute({ ...feedback, trialId: 'wrong' }, context),
+      proposer.execute({ ...feedback, workId: 'wrong' }, context),
       /trial/i,
     );
     await assert.rejects(
       proposer.execute(
-        { ...feedback, decisionRef: await artifacts.putJson({}) },
+        {
+          ...feedback,
+          feedback: {
+            ...feedback.feedback,
+            decisionRef: await artifacts.putJson({}),
+          },
+        },
         context,
       ),
       /decision/i,
@@ -310,9 +330,9 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
       { action: 'suggest', stateRef: observed.stateRef },
       context,
     );
-    assert.equal(next.action, 'suggest');
-    if (next.action === 'suggest' && next.status === 'candidate')
-      assert.deepEqual(next.parameters, { x: 2 });
+    assert.equal(next.work?.kind, 'evaluation');
+    if (next.work?.kind === 'evaluation')
+      assert.deepEqual(next.work.parameters, { x: 2 });
     let samples = 0;
     const repeated = await createOptunaProposer(config, context, async () => ({
       environment,
@@ -323,9 +343,9 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
       context,
     );
     assert.equal(samples, 33);
-    assert.equal(afterDuplicates.action, 'suggest');
-    assert.equal(afterDuplicates.status, 'candidate');
-    assert.deepEqual(afterDuplicates.parameters, { x: 2 });
+    assert.equal(afterDuplicates.work?.kind, 'evaluation');
+    if (afterDuplicates.work?.kind === 'evaluation')
+      assert.deepEqual(afterDuplicates.work.parameters, { x: 2 });
     const drifted = await createOptunaProposer(config, context, async () => ({
       environment: { ...environment, python: '3.12' },
       parameters: { x: 2 },
@@ -350,6 +370,65 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
       ),
       /identity|configuration/i,
     );
+    for (const limit of [
+      {
+        settings: { maxSamplingAttempts: 2 },
+        reason: 'sampling-limit',
+        suggestions: 2,
+      },
+      {
+        settings: {
+          searchSpace: [
+            { name: 'x', distribution: 'int' as const, low: 1, high: 1 },
+          ],
+        },
+        reason: 'search-exhausted',
+        suggestions: 1,
+      },
+    ]) {
+      let suggestions = 0;
+      const bounded = await createOptunaProposer(
+        { ...config, ...limit.settings },
+        context,
+        async (_config, request) => {
+          if (request.action === 'suggest') suggestions++;
+          return { environment, parameters: { x: 1 } };
+        },
+      );
+      const initial = await bounded.execute(
+        { action: 'initialize', parent: 'baseline' },
+        context,
+      );
+      const first = await bounded.execute(
+        { action: 'suggest', stateRef: initial.stateRef },
+        context,
+      );
+      if (first.work?.kind !== 'evaluation')
+        throw new Error('Expected bounded candidate');
+      const count = candidates.size;
+      measurements.set('m', {
+        ...measurements.get('m')!,
+        candidateRef: first.work.evaluations[0]!.candidateRef,
+      });
+      const complete = await bounded.execute(
+        { ...feedback, stateRef: first.stateRef, workId: first.work.id },
+        context,
+      );
+      const stopped = await bounded.execute(
+        { action: 'suggest', stateRef: complete.stateRef },
+        context,
+      );
+      assert.equal(stopped.done, true);
+      assert.equal(stopped.work, null);
+      assert.deepEqual(stopped.result, { reason: limit.reason });
+      assert.equal(suggestions, limit.suggestions);
+      assert.equal(
+        candidates.size,
+        count,
+        'duplicates and exhaustion do not commit another candidate',
+      );
+      await bounded.dispose();
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

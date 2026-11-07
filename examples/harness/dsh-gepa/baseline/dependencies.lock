@@ -1,5 +1,5 @@
 # Dependency identity for the local plugin implementation; prompts and skills are candidate content, not locked external dependencies.
-bundle: dsh-harness2-baseline
+bundle: dsh-gepa-baseline
 plugins:
   - name: '@agentbundle/dsh-office-base'
     version: 0.1.0

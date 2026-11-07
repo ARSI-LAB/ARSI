@@ -56,7 +56,7 @@
 
 ## 📦 安装与部署
 
-### Agent Instruction
+### Agent 指令
 
 将下面这段指令复制给你的编程 Agent：
 
@@ -67,7 +67,7 @@
 运行 ember-rsi --help，并确认当前 Agent 能发现和读取该 skill。本次只完成安装，不启动实验或调用模型。
 ```
 
-### Manual Installation
+### 手动安装
 
 #### 1. 安装 CLI
 
@@ -173,7 +173,7 @@ ember-rsi show my-harness2-task
 ```
 
 - 候选版本、评测指标、调用收据与证据默认保存在当前目录的 `.rsi/` 下，请结合评测状态、得分和交付物判断实验结果。
-- 详细用法见 `docs/users` 下的 [用户指南](docs/users/zh-CN/guide.md)、[Reflection 指南](docs/users/zh-CN/reflection.md) 和 [运行时事件说明](docs/users/zh-CN/runtime-events.md)。
+- 详细用法见 `docs/users` 下的 [快速入门](docs/users/getting-started_zh.md)、[Reflection 指南](docs/users/guides/reflection_zh.md) 和 [运行时事件说明](docs/users/guides/runtime-events_zh.md)。
 
 若实验中断，可在同一工作目录下使用相同实验 ID 断点续跑：
 
@@ -199,7 +199,7 @@ ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --
 
 #### 面向人类开发者
 
-`ember-rsi` 支持从零代码调参到自定义契约插件的渐进式扩展，完整开发示例见 [用户指南：编写 Policy 与自定义插件](docs/users/zh-CN/guide.md#3-定制绑定与插件)：
+`ember-rsi` 支持从零代码调参到自定义契约插件的渐进式扩展，开发示例见 [编写 Policy](docs/users/guides/writing-policies_zh.md) 和 [编写插件](docs/users/guides/writing-plugins_zh.md)：
 
 | 定制需求                                        | 扩展方式                                                                              |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -307,10 +307,10 @@ ember-rsi dashboard
 
 ## 📖 使用指南
 
-- **概念与全流程配置**：[用户指南](docs/users/zh-CN/guide.md)
-- **组件级自演进指导**：[Reflection 使用指南](docs/users/zh-CN/reflection.md)
-- **推理服务参数调优**：[推理参数搜索指南](docs/users/zh-CN/parameter-search.md)
-- **事件订阅与二次开发**：[事件系统开发指南](docs/users/zh-CN/runtime-events.md)
+- [快速入门](docs/users/getting-started_zh.md)，编写第一个 Recipe 并查找后续指南
+- [架构与核心概念](docs/users/concepts/architecture_zh.md)，了解 Application、Policy、插件与 Runtime 如何协作
+- **组件级自演进指导**：[Reflection 使用指南](docs/users/guides/reflection_zh.md)
+- **事件订阅与二次开发**：[事件系统开发指南](docs/users/guides/runtime-events_zh.md)
 - **完整实验配方示例**：[DSH Harness²](examples/harness/dsh-harness2/README.md) · [DSH WikiSkill (Terminal-Bench 4.0)](examples/harness/dsh-wikiskill/README.md) · [vLLM 参数网格搜索](examples/artifacts/inference/parameter-grid/README.md) · [vLLM 参数 TPE 搜索](examples/artifacts/inference/parameter-tpe/README.md)
 
 ## 🙏 致谢

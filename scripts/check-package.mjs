@@ -614,8 +614,8 @@ const context=new RuntimeContext().extend({contractsOnlyTrace:'consumer'});
 const signal:AbortSignal=context.signal;
 const result:Promise<import('ember-rsi/contracts').JsonValue>=context.invoke('worker',{});
 void signal;void result;
-export function checkPopulationSearchInput(stateRef:string):PopulationSearchInput {
- const input:ContractPopulationSearchInput={action:'prepare',stateRef};
+export function checkPopulationSearchInput(candidateRef:string,feedbackTaskIds:string[],selectionTaskIds:string[]):PopulationSearchInput {
+ const input:ContractPopulationSearchInput={action:'initialize',candidateRef,feedbackTaskIds,selectionTaskIds};
  return input;
 }
 export function checkPopulationSearchOutput(output:PopulationSearchOutput):ContractPopulationSearchOutput {

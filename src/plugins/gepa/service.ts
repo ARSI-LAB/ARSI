@@ -708,8 +708,8 @@ async function advanceSearch(
   if (input.action === 'initialize') {
     const initialization = {
       ...settings,
-      feedbackTaskIds: input.dataset.trainTaskIds,
-      selectionTaskIds: input.dataset.validationTaskIds,
+      feedbackTaskIds: input.feedbackTaskIds,
+      selectionTaskIds: input.selectionTaskIds,
     };
     const rng = new Rng(settings.seed);
     const sampled = sampleWithoutReplacement(

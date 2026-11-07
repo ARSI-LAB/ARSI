@@ -1,12 +1,6 @@
 import type { JsonObject } from '../json.js';
 import { defineContract } from '../contract.js';
 import { proposerContract, type ProposerOutput } from './proposer.js';
-import datasetSchema from '../models/train-validation-dataset.json' with { type: 'json' };
-
-export type PopulationSearchDataset = {
-  trainTaskIds: string[];
-  validationTaskIds: string[];
-};
 
 /** Work the Policy performs while the search implementation owns its population. */
 export type PopulationSearchPlan = {
@@ -31,7 +25,10 @@ export type PopulationSearchInput =
   | {
       action: 'initialize';
       candidateRef: string;
-      dataset: PopulationSearchDataset;
+      /** Tasks used to compare proposals with their parents. */
+      feedbackTaskIds: string[];
+      /** Tasks used to score and select the retained population. */
+      selectionTaskIds: string[];
     }
   | {
       action: 'observe-initial';
@@ -95,7 +92,8 @@ export const populationSearchContract = defineContract({
       shape({
         action: { const: 'initialize' },
         candidateRef: ref,
-        dataset: datasetSchema,
+        feedbackTaskIds: refs(1),
+        selectionTaskIds: refs(1),
       }),
       shape({
         action: { const: 'observe-initial' },

@@ -367,7 +367,8 @@ test('GEPA example loads through built-in registration with recipe-relative reso
           {
             action: 'initialize',
             candidateRef: 'initial-candidate',
-            dataset,
+            feedbackTaskIds: dataset.trainTaskIds,
+            selectionTaskIds: dataset.validationTaskIds,
             settings,
           },
           'population search input',

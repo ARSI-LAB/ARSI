@@ -26,14 +26,19 @@ pnpm ember-rsi validate examples/harness/dsh-gepa/recipe.yaml
 pnpm ember-rsi run examples/harness/dsh-gepa/recipe.yaml --id gepa-office
 ```
 
-The built-in startup entrypoint provides `gepa.optimizer` and `policy.gepa`.
+The built-in startup entrypoint provides `search.gepa` and `policy.gepa`.
 Run facts, candidates, measurements and receipts are stored in `.rsi/`.
 
-The Policy invokes `evaluator` and `proposer` explicitly. The optimizer owns
+The Policy invokes `evaluator` and `proposer` explicitly. The search plugin owns
 GEPA's selection, comparison, and population bookkeeping; it does not route
 calls to those plugins. Mutation uses `proposer.agent`, which invokes `agent`,
 validates edits, and commits through the Application. The Recipe configures the
-Evaluator and Agent and keeps algorithm parameters in `policy.config`.
+Evaluator and Agent and keeps algorithm parameters in `bindings.search.config`.
+The task split lives in `policy.config.dataset`, matching the other harness
+examples. The search plugin owns its algorithm configuration Schema. Its public
+`contract.population-search` interface exchanges immutable state references,
+evaluation requests and proposal plans; GEPA's population, lineage, RNG and
+pending-round details stay inside the implementation's state artifacts.
 
 ## Algorithm shape
 
@@ -43,9 +48,10 @@ Evaluator and Agent and keeps algorithm parameters in `policy.config`.
 - Each Policy loop iteration is one logical attempt. `completedRounds` counts
   only attempts where a proposal was committed as a candidate and evaluated;
   no-change attempts are recorded in `rounds` without inflating that count.
-  The loop's `maxRounds` and the plugin's round-limit check both stop before a
-  further proposal or evaluation. The Policy checkpoints the selected plan and
-  RNG state before invoking the Evaluator or Proposer.
+  The configured `maxRounds` bounds both the Policy loop and the plugin's
+  round-limit check before a further proposal or evaluation. The Policy
+  checkpoints the selected plan and RNG state reference before invoking the
+  Evaluator or Proposer.
 - Mutation samples a parent from the instance-wise Pareto frontier after
   pruning redundant instance leaders in ascending aggregate-score order,
   weighted by surviving instance-leading frequency. It
@@ -89,7 +95,8 @@ candidate and schedules merges after accepted mutations. These orchestration
 choices are not intended to reproduce the reference implementation's exact
 candidate sequence.
 
-The seeded sampler (mulberry32) and its state are stored in the Policy state.
+The seeded sampler (mulberry32) and its state are stored in immutable search
+artifacts. The Policy checkpoints their references alongside the requested work.
 Identical inputs and seed reproduce the random choices; reproducing the complete
 candidate sequence also requires identical Agent and Evaluator results, including
 the same receipt-replay behavior. A seed does not make live model output
@@ -99,8 +106,9 @@ deterministic.
 
 The Recipe uses ten training tasks and five disjoint validation tasks from the
 [WorkBuddy Bench Office subset](https://github.com/Tencent/workbuddy-bench#overview).
-The ordered task lists live in `policy.config`: `feedbackTaskIds` is the training
-pool and `selectionTaskIds` is the validation pool. `paretoSize: 5` keeps all five
+The ordered task lists live in `policy.config.dataset`: `trainTaskIds` is the
+training pool and `validationTaskIds` is the validation pool. The Policy passes
+this dataset to the search plugin during initialization. `paretoSize: 5` keeps all five
 validation tasks for candidate selection. There is no independent test set or
 test evaluation stage; GEPA does not need an extra `testTaskIds` setting.
 `datasetDegenerate` is `false` for this split.

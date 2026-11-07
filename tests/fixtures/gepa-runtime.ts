@@ -25,8 +25,8 @@ import {
 import { object, string } from '../../src/shared/json.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
-import { readYaml } from '../../src/runtime/loaders/yaml.js';
-import { gepaOptimizerDefinition } from '../../src/plugins/gepa/index.js';
+import { readPolicyDocument } from '../../src/runtime/compiler/document.js';
+import { gepaSearchDefinition } from '../../src/plugins/gepa/index.js';
 import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
 import {
   checkTarget,
@@ -533,6 +533,7 @@ export async function runGepa(options: {
   bindingNames?: { evaluator: string; proposer: string; agent: string };
   realAgentEndpoint?: string;
   resumeAfterEvaluation?: number;
+  restartOnResume?: boolean;
   signal?: AbortSignal;
   onFailure?: (
     snapshot: JsonObject,
@@ -552,7 +553,7 @@ export async function runGepa(options: {
   const agentCalls: AgentCall[] = [];
   const interruption =
     options.resumeAfterEvaluation === undefined ? null : new AbortController();
-  const manager = new Manager({ registry, rootDirectory: root });
+  let manager = new Manager({ registry, rootDirectory: root });
   const baselineFiles = options.baselineFiles ?? { 'a.md': 'A0', 'b.md': 'B0' };
   const modules = options.modules ?? [
     { id: 'a', path: 'a.md' },
@@ -587,7 +588,7 @@ export async function runGepa(options: {
         options.agentOutput,
       ),
     );
-  registry.registerOperation(gepaOptimizerDefinition);
+  registry.registerOperation(gepaSearchDefinition);
   registry.registerOperation(proposerDefinition);
   const bindingNames = options.bindingNames ?? {
     evaluator: 'evaluator',
@@ -597,7 +598,7 @@ export async function runGepa(options: {
   let policyId = 'policy.gepa';
   let policyPath = resolve('src/policies/gepa/policy.yaml');
   if (options.bindingNames) {
-    const policy = await readYaml(policyPath);
+    const policy = object(await readPolicyDocument(policyPath));
     const requirements = object(policy.require);
     const defaultProposer = object(
       object(object(policy.defaults).bindings).proposer,
@@ -606,15 +607,15 @@ export async function runGepa(options: {
     policyId = 'policy.gepa-custom-routes';
     policy.id = policyId;
     policy.require = {
-      optimizer: requirements.optimizer!,
+      search: requirements.search!,
       [bindingNames.evaluator]: requirements.evaluator!,
       [bindingNames.proposer]: requirements.proposer!,
       [bindingNames.agent]: requirements.agent!,
     };
     policy.defaults = {
       bindings: {
-        optimizer: {
-          plugin: gepaOptimizerDefinition.id,
+        search: {
+          plugin: gepaSearchDefinition.id,
           config: {},
         },
         [bindingNames.proposer]: {
@@ -638,12 +639,6 @@ export async function runGepa(options: {
       }
     };
     renameUses(policy.steps);
-    policy.config_schema = await readYaml(
-      resolve('src/policies/gepa/schemas/config.yaml'),
-    );
-    policy.output_schema = await readYaml(
-      resolve('src/policies/gepa/schemas/output.yaml'),
-    );
     policyPath = join(root, 'custom-policy.yaml');
     await writeFile(policyPath, stringify(policy));
   }
@@ -662,22 +657,28 @@ export async function runGepa(options: {
         id: policyId,
         input: { candidateRef: '${{ application.initialCandidate }}' },
         config: {
-          feedbackTaskIds: options.feedbackTasks,
-          selectionTaskIds: options.selectionTasks,
-          maxRounds: options.maxRounds,
-          maxRollouts: options.maxRollouts,
-          minibatchSize: 2,
-          paretoSize: 2,
-          seed: options.seed,
-          crossoverEvery: 3,
-          modules,
-          goal: 'Improve both modules.',
-          ...(options.editConstraints
-            ? { editConstraints: options.editConstraints }
-            : {}),
+          dataset: {
+            trainTaskIds: options.feedbackTasks,
+            validationTaskIds: options.selectionTasks,
+          },
         },
       },
       bindings: {
+        search: {
+          config: {
+            maxRounds: options.maxRounds,
+            maxRollouts: options.maxRollouts,
+            minibatchSize: 2,
+            paretoSize: 2,
+            seed: options.seed,
+            crossoverEvery: 3,
+            modules,
+            goal: 'Improve both modules.',
+            ...(options.editConstraints
+              ? { editConstraints: options.editConstraints }
+              : {}),
+          },
+        },
         [bindingNames.evaluator]: { plugin: 'test.gepa-evaluator', config: {} },
         [bindingNames.proposer]: {
           config: { maxModelCalls: options.maxModelCalls ?? 12 },
@@ -721,6 +722,10 @@ export async function runGepa(options: {
     } catch (error) {
       if (!interruption?.signal.aborted) throw error;
       interrupted = await manager.get('gepa-runtime');
+      if (options.restartOnResume) {
+        await manager.dispose();
+        manager = new Manager({ registry, rootDirectory: root });
+      }
       record = await manager.run(recipePath, {
         id: 'gepa-runtime',
         resume: true,

@@ -231,7 +231,7 @@ export function register(registry) {
     assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
   assert.ok(!catalog.plugins.includes('agent.scripted'));
   assert.ok(catalog.plugins.includes('agent.codex'));
-  assert.ok(catalog.plugins.includes('gepa.optimizer'));
+  assert.ok(catalog.plugins.includes('search.gepa'));
   assert.deepEqual(
     [...catalog.policies].sort(),
     [
@@ -274,7 +274,7 @@ export function register(registry) {
     if (name === 'dsh-gepa') {
       assert.equal(validation.policyId, 'policy.gepa');
       assert.ok(
-        validation.plugins.includes('gepa.optimizer'),
+        validation.plugins.includes('search.gepa'),
         'installed consumer assembles built-in GEPA without an extension directory',
       );
     }
@@ -389,10 +389,10 @@ import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,gepaOptimizerContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
-import {RuntimeContext as ContractContext,gepaOptimizerContract as ContractsGepaOptimizerContract} from 'ember-rsi/contracts';
+import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,populationSearchContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
+import {RuntimeContext as ContractContext,populationSearchContract as ContractsPopulationSearchContract} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
-assert.equal(gepaOptimizerContract,ContractsGepaOptimizerContract);
+assert.equal(populationSearchContract,ContractsPopulationSearchContract);
 const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
 async function packageResource(path){
  const location=relative(packageDirectory,await realpath(path));
@@ -450,8 +450,8 @@ try {
   const path=await packageResource(runtime.registry.policy(id)),policy=await Policy.load(path,runtime.registry);
   assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
   if(id==='policy.gepa'){
-   assert.deepEqual(policy.requirements.optimizer,gepaOptimizerContract,'installed GEPA Policy uses the public optimizer contract');
-   assert.deepEqual(runtime.registry.get('gepa.optimizer').contract,gepaOptimizerContract,'installed GEPA implementation uses the public optimizer contract');
+   assert.deepEqual(policy.requirements.search,populationSearchContract,'installed GEPA Policy uses the public population search contract');
+   assert.deepEqual(runtime.registry.get('search.gepa').contract,populationSearchContract,'installed GEPA implementation uses the public population search contract');
   }else{
    const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;
    assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?parameterSearchProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
@@ -605,8 +605,8 @@ new Registry().registerOperation(definition);
     join(consumer, 'contracts-consumer.ts'),
     `
 import { RuntimeContext, type OperationDefinition } from 'ember-rsi/contracts';
-import type { GepaSettings, GepaOptimizerInput, GepaOptimizerOutput } from 'ember-rsi';
-import type { GepaSettings as ContractGepaSettings, GepaOptimizerInput as ContractGepaInput, GepaOptimizerOutput as ContractGepaOutput, JsonObject } from 'ember-rsi/contracts';
+import type { PopulationSearchInput, PopulationSearchOutput } from 'ember-rsi';
+import type { PopulationSearchInput as ContractPopulationSearchInput, PopulationSearchOutput as ContractPopulationSearchOutput } from 'ember-rsi/contracts';
 declare module 'ember-rsi/contracts' {
  interface RuntimeContext { contractsOnlyTrace?: string; }
 }
@@ -614,12 +614,11 @@ const context=new RuntimeContext().extend({contractsOnlyTrace:'consumer'});
 const signal:AbortSignal=context.signal;
 const result:Promise<import('ember-rsi/contracts').JsonValue>=context.invoke('worker',{});
 void signal;void result;
-export function checkGepaInput(settings:GepaSettings,state:JsonObject):GepaOptimizerInput {
- const publicSettings:ContractGepaSettings=settings;
- const input:ContractGepaInput={action:'prepare',settings:publicSettings,state};
+export function checkPopulationSearchInput(stateRef:string):PopulationSearchInput {
+ const input:ContractPopulationSearchInput={action:'prepare',stateRef};
  return input;
 }
-export function checkGepaOutput(output:GepaOptimizerOutput):ContractGepaOutput {
+export function checkPopulationSearchOutput(output:PopulationSearchOutput):ContractPopulationSearchOutput {
  return output;
 }
 export function checkOperation(definition:OperationDefinition):void {

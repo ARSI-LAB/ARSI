@@ -11,7 +11,7 @@ import { readYaml } from '../../src/runtime/loaders/yaml.js';
 import { object } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 import {
-  gepaOptimizerContract,
+  populationSearchContract,
   type JsonSchema,
   type OperationDefinition,
 } from '../../src/contracts/index.js';
@@ -309,17 +309,22 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   const registry = new Registry();
   t.after(() => registry.dispose());
   await registerBuiltins(registry);
-  assert.ok(registry.catalog().plugins.includes('gepa.optimizer'));
+  assert.ok(registry.catalog().plugins.includes('search.gepa'));
   assert.ok(registry.catalog().policies.includes('policy.gepa'));
   assert.deepEqual(
-    registry.get('gepa.optimizer').contract,
-    gepaOptimizerContract,
+    registry.get('search.gepa').contract,
+    populationSearchContract,
   );
   const directory = resolve('examples/harness/dsh-gepa');
   const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
   assert.equal(recipe.policy.id, 'policy.gepa');
-  assert.equal(recipe.bindings.optimizer!.pluginId, 'gepa.optimizer');
-  assert.deepEqual(recipe.bindings.optimizer!.config, {});
+  assert.equal(recipe.bindings.search!.pluginId, 'search.gepa');
+  const dataset = object(recipe.policyConfig.dataset);
+  const searchConfig = recipe.bindings.search!.config;
+  assert.equal(searchConfig.maxRounds, 3);
+  assert.equal(searchConfig.maxRollouts, 64);
+  assert.equal((dataset.trainTaskIds as string[]).length, 10);
+  assert.equal((dataset.validationTaskIds as string[]).length, 5);
   assert.equal(recipe.bindings.proposer!.pluginId, 'proposer.agent');
   assert.equal(recipe.bindings.proposer!.config.agentRef, 'agent');
   assert.equal(
@@ -335,12 +340,21 @@ test('GEPA example loads through built-in registration with recipe-relative reso
     'proposerBinding',
     'reflectionMaxModelCalls',
     'maxEvidenceBytes',
+    'dataset',
+    'feedbackTaskIds',
+    'selectionTaskIds',
   ]) {
-    assert.equal(Object.hasOwn(recipe.policyConfig, field), false);
-    const settings = { ...recipe.policyConfig, [field]: 'duplicate-route' };
+    assert.equal(Object.hasOwn(searchConfig, field), false);
+    const settings = { ...searchConfig, [field]: 'duplicate-route' };
     await assert.rejects(
       Recipe.fromJSON(
-        { ...raw, policy: { ...object(raw.policy), config: settings } },
+        {
+          ...raw,
+          bindings: {
+            ...object(raw.bindings),
+            search: { plugin: 'search.gepa', config: settings },
+          },
+        },
         registry,
         { sourcePath: join(directory, 'recipe.yaml') },
       ),
@@ -349,17 +363,46 @@ test('GEPA example loads through built-in registration with recipe-relative reso
     assert.throws(
       () =>
         validate(
-          gepaOptimizerContract.input_schema,
+          populationSearchContract.input_schema,
           {
             action: 'initialize',
             candidateRef: 'initial-candidate',
+            dataset,
             settings,
           },
-          'GEPA input',
+          'population search input',
         ),
       /additional properties/,
     );
   }
+  await assert.rejects(
+    Recipe.fromJSON(
+      {
+        ...raw,
+        policy: {
+          ...object(raw.policy),
+          config: { ...recipe.policyConfig, ...searchConfig },
+        },
+      },
+      registry,
+      { sourcePath: join(directory, 'recipe.yaml') },
+    ),
+    /additional properties/,
+  );
+  await assert.rejects(
+    Recipe.fromJSON(
+      {
+        ...raw,
+        policy: {
+          ...object(raw.policy),
+          config: { dataset: { ...dataset, trainTaskIds: [] } },
+        },
+      },
+      registry,
+      { sourcePath: join(directory, 'recipe.yaml') },
+    ),
+    /fewer than 1 items/,
+  );
   assert.equal(
     object(recipe.application.config.target).schema,
     join(directory, 'target.yaml'),

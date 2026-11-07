@@ -24,13 +24,23 @@
 | [contract.memory](../../../src/contracts/plugin-types/memory.ts)                                       | 将证据和观察整理成可复用的经验。             | `memoryContract`                  |
 | [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                               | 根据执行证据提出插件修订。                   | `reflectionContract`              |
 | [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)                         | 按网格搜索顺序生成参数候选。                 | `gridProposerContract`            |
-| [contract.proposer-parameter-search](../../../src/contracts/plugin-types/proposer-parameter-search.ts) | 管理参数搜索状态、提出参数并接收评测反馈。   | `parameterSearchProposerContract` |
+| [contract.search](../../../src/contracts/plugin-types/search.ts) | 管理有状态搜索、请求工作并接收反馈。 | `searchContract` |
 
 每个普通插件只实现一个公共契约。Application 等契约包含多种动作，由同一个 `execute` 按 `input.action` 区分。
 
 - 输入、输出类型及 Schema 见表中的定义文件，插件只需声明自己的配置 Schema。
 
 Policy 的 `require` 指定所需契约，绑定时需要选择满足该契约的插件。这样可以为同一 Policy 更换实现；概念说明见[Contract、Schema 与 Binding](../concepts/architecture_zh.md#contractschema-与-binding)。
+
+### 有状态搜索
+
+Optuna 和 GEPA 共用 `contract.search`，通过 `initialize`、`suggest` 和 `observe` 交互。实现返回不透明的 `stateRef`，以及带有不透明工作 ID 的评测或提案请求。Policy 调用 Evaluator、Proposer，以及需要时的 Selector，再通过 `observe` 返回工作 ID 和反馈。一次观察可以为同一轮尝试请求后续工作。
+
+任务划分仍由 Policy 配置定义。需要采样任务的搜索在初始化时接收 `feedbackTaskIds` 和 `selectionTaskIds`，并在工作请求中返回选中的任务 ID。算法、候选种群、随机数状态、rollout 计数和待处理工作细节保存在各自实现的不可变状态制品中，Policy 检查点只需保留最新的 `stateRef`。
+
+Optuna 通过保存的 worker 历史重建 Study，同时只保留一个待评测 trial，复用待处理建议，并对相同反馈进行幂等处理。实现恢复状态前会检查配置和执行作用域；Optuna 还会检查 worker、环境、目标及比较条件的身份。
+
+共用契约替代了 `contract.proposer-parameter-search` 和 `contract.population-search`。内部快照格式保持不变，但本次不自动迁移旧版锁定的 Policy 定义；此类实验仍需使用创建它们时的代码版本恢复。
 
 ## 插件定义包含什么
 

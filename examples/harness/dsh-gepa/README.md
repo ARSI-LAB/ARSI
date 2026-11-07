@@ -37,8 +37,9 @@ Evaluator and Agent and keeps algorithm parameters in `bindings.search.config`.
 The task split and its Schema belong to the Policy, with the task IDs configured
 in `policy.config.dataset`. The search plugin owns its algorithm configuration
 Schema. Its public
-`contract.population-search` interface exchanges immutable state references,
-evaluation requests and proposal plans; GEPA's population, lineage, RNG and
+`contract.search` interface is shared with Optuna. Its `initialize`, `suggest`,
+and `observe` lifecycle exchanges immutable state references, evaluation and
+proposal work requests, and feedback; GEPA's population, lineage, RNG and
 pending-round details stay inside the implementation's state artifacts.
 
 ## Algorithm shape

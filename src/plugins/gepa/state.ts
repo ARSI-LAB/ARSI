@@ -1,17 +1,20 @@
 import type { JsonObject, RuntimeContext } from '../../contracts/index.js';
-import { proposerContract } from '../../contracts/plugin-types/proposer.js';
 import {
-  populationProposalInputSchema,
-  type PopulationSearchPlan,
-} from '../../contracts/plugin-types/population-search.js';
+  proposerContract,
+  type ProposerInput,
+  type ProposerOutput,
+} from '../../contracts/plugin-types/proposer.js';
+import { object } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { stringArray } from './schema.js';
 import type { CandidateRecord, GepaState, RoundReport } from './engine.js';
 
 export interface RoundPlan extends JsonObject {
   report: RoundReport;
-  proposalInput: PopulationSearchPlan['proposalInput'];
-  proposalResult: PopulationSearchPlan['proposalResult'];
+  proposalInput:
+    | (Pick<ProposerInput, 'parent' | 'goal'> & { editConstraints: JsonObject })
+    | null;
+  proposalResult: ProposerOutput | null;
   candidate: CandidateRecord | null;
 }
 
@@ -33,6 +36,19 @@ interface GepaSnapshot extends JsonObject {
 const nullableString = { type: ['string', 'null'] };
 const nullableNumber = { type: ['number', 'null'] };
 const nonnegativeInteger = { type: 'integer', minimum: 0 };
+const proposerProperties = object(
+  object(proposerContract.input_schema).properties,
+);
+const proposalInputSchema: JsonObject = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['parent', 'goal', 'editConstraints'],
+  properties: {
+    parent: proposerProperties.parent!,
+    goal: proposerProperties.goal!,
+    editConstraints: proposerProperties.editConstraints!,
+  },
+};
 
 const candidateSchema: JsonObject = {
   type: 'object',
@@ -164,7 +180,7 @@ export const gepaPlanSchema: JsonObject = {
   properties: {
     report: roundReportSchema,
     proposalInput: {
-      anyOf: [{ type: 'null' }, populationProposalInputSchema],
+      anyOf: [{ type: 'null' }, proposalInputSchema],
     },
     proposalResult: {
       anyOf: [{ type: 'null' }, proposerContract.output_schema],

@@ -879,7 +879,7 @@ function requestedWork(
   return { ...work, proposalInput: null, proposalResult: plan.proposalResult };
 }
 
-export const createGepaSearch: OperationDefinition<
+export const createPromptEvolutionSearch: OperationDefinition<
   SearchInput,
   SearchOutput,
   GepaConfig

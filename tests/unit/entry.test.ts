@@ -31,7 +31,7 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
       'proposer.operator',
       'proposer.optuna',
       'reflection.agent',
-      'search.gepa',
+      'search.prompt-evolution',
       'selector.artifact',
       'selector.metric',
     ]);

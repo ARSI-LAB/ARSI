@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext } from '../../src/contracts/index.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
-import { gepaPlanSchema } from '../../src/plugins/gepa/state.js';
-import { createGepaSearch } from '../../src/plugins/gepa/service.js';
-import type { GepaConfig } from '../../src/plugins/gepa/schema.js';
+import { gepaPlanSchema } from '../../src/plugins/search-prompt-evolution/state.js';
+import { createPromptEvolutionSearch } from '../../src/plugins/search-prompt-evolution/service.js';
+import type { GepaConfig } from '../../src/plugins/search-prompt-evolution/schema.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
 
@@ -80,13 +80,13 @@ test('GEPA round plans reject incomplete reports and candidate records', () => {
 
 test('GEPA state references restore into a fresh implementation and retain earlier snapshots', async (t) => {
   const context = await scope(t);
-  const search = await createGepaSearch(settings, context);
+  const search = await createPromptEvolutionSearch(settings, context);
   const initial = await search.execute(
     { action: 'initialize', parent: 'baseline', ...taskPools },
     context,
   );
   const saved = await context.artifacts.readJson(initial.stateRef);
-  const restored = await createGepaSearch(settings, context);
+  const restored = await createPromptEvolutionSearch(settings, context);
   const input = {
     action: 'observe' as const,
     stateRef: initial.stateRef,
@@ -116,13 +116,16 @@ test('GEPA state references restore into a fresh implementation and retain earli
 
 test('GEPA rejects state references from another configuration or execution scope and malformed snapshots', async (t) => {
   const context = await scope(t);
-  const search = await createGepaSearch(settings, context);
+  const search = await createPromptEvolutionSearch(settings, context);
   const initial = await search.execute(
     { action: 'initialize', parent: 'baseline', ...taskPools },
     context,
   );
   const input = { action: 'suggest' as const, stateRef: initial.stateRef };
-  const changed = await createGepaSearch({ ...settings, seed: 12 }, context);
+  const changed = await createPromptEvolutionSearch(
+    { ...settings, seed: 12 },
+    context,
+  );
   await assert.rejects(
     changed.execute(input, context),
     /configuration or execution scope mismatch/,
@@ -164,7 +167,7 @@ test('GEPA retries an unconfirmed snapshot write with the same immutable state i
       materialize: context.artifacts.materialize.bind(context.artifacts),
     },
   });
-  const search = await createGepaSearch(settings, interrupted);
+  const search = await createPromptEvolutionSearch(settings, interrupted);
   const input = {
     action: 'initialize' as const,
     parent: 'baseline',

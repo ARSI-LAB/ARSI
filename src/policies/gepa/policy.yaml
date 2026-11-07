@@ -39,7 +39,7 @@ require:
 defaults:
   bindings:
     search:
-      plugin: search.gepa
+      plugin: search.prompt-evolution
     proposer:
       plugin: proposer.agent
       config:

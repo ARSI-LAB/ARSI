@@ -309,13 +309,16 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   const registry = new Registry();
   t.after(() => registry.dispose());
   await registerBuiltins(registry);
-  assert.ok(registry.catalog().plugins.includes('search.gepa'));
+  assert.ok(registry.catalog().plugins.includes('search.prompt-evolution'));
   assert.ok(registry.catalog().policies.includes('policy.gepa'));
-  assert.deepEqual(registry.get('search.gepa').contract, searchContract);
+  assert.deepEqual(
+    registry.get('search.prompt-evolution').contract,
+    searchContract,
+  );
   const directory = resolve('examples/harness/dsh-gepa');
   const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
   assert.equal(recipe.policy.id, 'policy.gepa');
-  assert.equal(recipe.bindings.search!.pluginId, 'search.gepa');
+  assert.equal(recipe.bindings.search!.pluginId, 'search.prompt-evolution');
   const dataset = object(recipe.policyConfig.dataset);
   const searchConfig = recipe.bindings.search!.config;
   assert.equal(searchConfig.maxRounds, 10);
@@ -355,7 +358,7 @@ test('GEPA example loads through built-in registration with recipe-relative reso
           ...raw,
           bindings: {
             ...object(raw.bindings),
-            search: { plugin: 'search.gepa', config: settings },
+            search: { plugin: 'search.prompt-evolution', config: settings },
           },
         },
         registry,

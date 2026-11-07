@@ -3,7 +3,6 @@ import type { JsonObject } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import { validateSnapshot } from '../shared/evaluator-adapter/measurement.js';
 import type { PreparedSdkRun } from './sdk.js';
-import type { SdkOperatorbenchConfig } from './schema.js';
 
 export type SdkOperatorResult = {
   status: 'completed' | 'failed' | 'cancelled' | 'unknown';
@@ -30,7 +29,6 @@ export type SdkOperatorResult = {
 export function adaptSdkResult(
   value: unknown,
   prepared: PreparedSdkRun,
-  _config: SdkOperatorbenchConfig,
   seed: number,
 ): SdkOperatorResult {
   const native = object(value, 'SDK result');

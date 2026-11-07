@@ -213,16 +213,14 @@ async function setup(
       msprof,
     );
     await chmod(msprof, 0o755);
-    object(object(bindings.evaluator).config).sdk = {
-      ...object(object(object(bindings.evaluator).config).sdk),
-      profiling: {
-        enabled: false,
-        cacheEnabled: false,
-        warmup: 25,
-        msprofBin: msprof,
-        maxAttempts: 1,
-        attemptTimeoutSeconds: 10,
-      },
+    const evaluator = object(object(bindings.evaluator).config);
+    object(object(evaluator.benchmark).config).profiling = {
+      enabled: false,
+      cacheEnabled: false,
+      warmup: 25,
+      msprofBin: msprof,
+      maxAttempts: 1,
+      attemptTimeoutSeconds: 10,
     };
   }
   if (options.hardwareText !== undefined) {

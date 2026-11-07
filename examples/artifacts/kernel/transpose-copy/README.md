@@ -114,16 +114,16 @@ the unchanged incumbent's diagnostic evidence is reused. Unavailable profiling
 stops the metrics stage. Both modes independently reassess the selected source
 at the end.
 
-| Recipe setting                                           | Example value | Meaning                                                                         |
-| -------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------- |
-| `policy.config.maxAttempts`                              | `3`           | Static attempts; Schema allows 1–3.                                             |
-| `policy.config.repairLimit`                              | `3`           | Repairs per invalid candidate chain; Schema allows 0–3.                         |
-| `policy.config.maxRounds`                                | `10`          | Metrics rounds; Schema allows 1–10.                                             |
-| `policy.config.maxNoImprovement`                         | `5`           | Valid candidates without promotion since the last promotion; Schema allows 1–5. |
-| `bindings.proposer.config.modelRequestTimeoutMs`         | `120000`      | One complete model stage's time limit, in ms.                                   |
-| `bindings.proposer.config.embedding.similarityThreshold` | `0.6`         | Minimum retrieval match score.                                                  |
-| `bindings.evaluator.config.protocol.warmup` / `repeat`   | `5` / `20`    | Evaluation warmup and timed repetitions.                                        |
-| `bindings.selector.config.minRelativeImprovement`        | `0.02`        | Required relative reduction in eligible candidate mean latency.                 |
+| Recipe setting                                                 | Example value | Meaning                                                                         |
+| -------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------- |
+| `policy.config.maxAttempts`                                    | `3`           | Static attempts; Schema allows 1–3.                                             |
+| `policy.config.repairLimit`                                    | `3`           | Repairs per invalid candidate chain; Schema allows 0–3.                         |
+| `policy.config.maxRounds`                                      | `10`          | Metrics rounds; Schema allows 1–10.                                             |
+| `policy.config.maxNoImprovement`                               | `5`           | Valid candidates without promotion since the last promotion; Schema allows 1–5. |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms.                                   |
+| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`         | Minimum retrieval match score.                                                  |
+| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                        |
+| `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                 |
 
 This example's Manager limits are 1,024 operations, 65 evaluation runs, 152 model
 calls, 7,200,000 ms elapsed time, and a 60,000 ms cleanup reserve. Evaluation runs
@@ -139,16 +139,16 @@ dependencies does not replace the selected torch_npu/CANN environment. Deploy th
 external retrieval worker's dependencies and model weights separately; the RSI
 package does not install a knowledge provider or download weights during search.
 
-The Recipe selects `sdk.profiling.collection: Default`, with 25 warmup calls,
+The Recipe selects `benchmark.config.profiling.collection: Default`, with 25 warmup calls,
 at most two collection attempts, and a 300-second limit per attempt. Its
-`sdk.profiling.enabled: false` disables automatic diagnostics during ordinary
+`benchmark.config.profiling.enabled: false` disables automatic diagnostics during ordinary
 evaluations. The Policy's explicit `profile` action still enables collection and
 forces disk caching off.
 
 Detailed collection requires working `msprof` and a compatible `mstx` module in
 the selected SDK Python environment. Load the matching CANN environment first;
 when selecting an isolated profiler installation, configure
-`bindings.evaluator.config.sdk.profiling.msprofBin` explicitly. Keep the interpreter,
+`bindings.evaluator.config.benchmark.config.profiling.msprofBin` explicitly. Keep the interpreter,
 device, collection mode, and actual tool versions with the run evidence. Do not
 substitute the editable hardware-context template for observed device facts.
 

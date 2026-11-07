@@ -16,9 +16,11 @@ ember-rsi（Recursive Self-Improvement）是面向 Agent 和 AI 基础设施的�
 
 一个插件实现一个 [公共契约](../../../src/contracts/plugin-types/index.ts)。契约定义输入输出 Schema；插件实现定义自己的配置 Schema 和 `execute(input, context)` 方法。不同绑定可以使用相同实现和不同配置。
 
-Evaluator 插件从 SDK 配置类型派生 `EvaluatorConfig`。两个插件都先构造本次评测配置，再通过 SDK 解析，并结合原模板检查 RSI 约束。工厂返回 SDK 解析后的配置，简写形式由 SDK 统一，下游直接使用。检查在写入配置和扣除评测预算之前完成，且不修改传入的配置。RSI 在写入配置文件前拒绝明文凭据，凭据必须使用环境变量引用。默认值和插件专属规则由 SDK 在启动评测时处理。
+Evaluator 插件使用已安装的 Evaluator SDK 的配置类型和解析器。RSI 绑定候选实例、选定任务和本次调用的输出目录，将 SDK 解析后的配置写入文件，再扣除评测预算。凭据使用环境变量引用。SDK 在评测启动时应用默认值并校验 benchmark 专属参数，此时出错会消耗一次 `evaluationRuns` 预算。
 
-Evaluator 配置直接透传给已安装的 SDK，评测记录保存 SDK 规范化后的配置。RSI 只填入候选 Bundle 路径或推理服务、本次任务集合及调用输出目录。AgentBench 使用 `agentbundle` solver，并用 Policy 明确指定的任务 ID 替换采样、偏移及任务数量限制。InferenceBench 要求在本地执行 AgentX，允许所选服务省略模型和端点，执行时由 Application 提供；其他服务仍须配置完整。除此之外，SDK 支持的参数无需在 RSI 中补充字段映射。SDK 内部发现的错误走评测失败流程，并占用一次 `evaluationRuns` 预算。
+AgentBench 将候选 Bundle 绑定到 `agentbundle` solver，并用 Policy 指定的任务 ID 替换采样、偏移及任务数量限制。InferenceBench 在本地执行 AgentX，所选服务的模型和端点由 Application 在运行时提供。
+
+OperatorBench 使用 SDK 的 `kernel` benchmark 和 RSI 的 `task.directory`。`repeat`、`python`、`profiling` 等算子参数直接写在 `benchmark.config` 下。RSI 用候选源码和参考实现生成清单，绑定选定的 case 和 seed，并在调用目录内保存索引和结果。执行 `profile` 时会开启采集并禁用缓存。迁移已有 Recipe 时，将 `protocol` 和 `sdk` 中的算子参数移到 `benchmark.config`，删除 `mode` 和 `protocol.timingScope`。要保留原有运行设置，请配置 `run.onError: abort`，并将 `run.timeoutSeconds` 设为原算子超时加 30 秒。参见[算子 Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml)。
 
 ```mermaid
 flowchart TB

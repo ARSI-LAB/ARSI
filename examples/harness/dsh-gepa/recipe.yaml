@@ -37,7 +37,7 @@ bindings:
   search:
     plugin: search.gepa
     config:
-      maxRounds: 3
+      maxRounds: 10
       maxRollouts: 64
       minibatchSize: 1
       paretoSize: 5
@@ -101,7 +101,4 @@ bindings:
       timeoutMs: 600000
       executionTimeoutMs: 1800000
 budget:
-  operations: 256
-  evaluationRuns: 32
-  modelCalls: 128
-  elapsedWallMs: 13500000
+  elapsedWallMs: 86400000

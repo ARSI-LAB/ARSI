@@ -121,10 +121,11 @@ task environments in pipeline mode. A validation evaluation submits the same
 five task IDs in one Evaluator call; the one-task feedback minibatch uses one
 execution slot. GEPA rounds retain their existing Policy order.
 
-The existing run limits remain `maxRounds: 3`, `maxRollouts: 64`, and
-`minibatchSize: 1`. These allow at most three optimization attempts, each sampling
-one training task, and do not guarantee coverage of all ten training tasks.
-Review these limits and the Recipe-wide budgets before a longer experiment.
+The search allows up to `maxRounds: 10` optimization attempts, with
+`maxRollouts: 64` and `minibatchSize: 1`. Each attempt samples one training task;
+the rollout allowance can stop the search before ten attempts, and sampling
+does not guarantee coverage of all ten training tasks. The Recipe-wide budget
+limits only elapsed wall time to `86400000` ms (24 hours).
 
 ## Evidence and limits
 
@@ -140,9 +141,9 @@ from Runtime Reflection, which revises plugin guidance.
 The example opts into the SDK's `includeTaskAnswer` recording option to retain
 the public task prompt. The evaluator adapter publishes only that prompt as an
 initial execution event; any reference answer remains in private native records.
-The Policy's Proposer defaults set `maxModelCalls: 32` per Agent session,
-separately from the Recipe-wide `modelCalls: 128` budget, which also counts
-delegated sessions. Evidence uses the existing Runtime summary limits.
+The Policy's Proposer defaults set `maxModelCalls: 32` per Agent session. The
+Recipe-wide budget limits only elapsed wall time. Evidence uses the existing
+Runtime summary limits.
 The session allowance accommodates evidence reads and file editing; it is not
 an instruction to use every call. The Office target edits
 only `plugins/office-base/prompts/office-discipline.md`; model weights and all

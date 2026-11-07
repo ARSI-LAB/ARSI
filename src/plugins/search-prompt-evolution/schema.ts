@@ -13,6 +13,7 @@ export type GepaSettings = {
   maxRounds: number;
   maxRollouts: number;
   minibatchSize: number;
+  feedbackSampling?: 'random' | 'coverage-first';
   paretoSize: number;
   seed: number;
   crossoverEvery: number;
@@ -50,6 +51,7 @@ export const configSchema: JsonObject = {
     maxRounds: { type: 'integer', minimum: 0, maximum: 100000 },
     maxRollouts: { type: 'integer', minimum: 0, maximum: 1000000000 },
     minibatchSize: { type: 'integer', minimum: 1, maximum: 100000 },
+    feedbackSampling: { enum: ['random', 'coverage-first'] },
     paretoSize: { type: 'integer', minimum: 1, maximum: 100000 },
     seed: { type: 'integer', minimum: 0, maximum: 2147483647 },
     crossoverEvery: { type: 'integer', minimum: 0, maximum: 100000 },

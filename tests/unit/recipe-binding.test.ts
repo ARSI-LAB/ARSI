@@ -321,8 +321,12 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   assert.equal(recipe.bindings.search!.pluginId, 'search.prompt-evolution');
   const dataset = object(recipe.policyConfig.dataset);
   const searchConfig = recipe.bindings.search!.config;
-  assert.equal(searchConfig.maxRounds, 10);
-  assert.equal(searchConfig.maxRollouts, 64);
+  assert.equal(searchConfig.maxRounds, 15);
+  assert.equal(searchConfig.maxRollouts, 120);
+  assert.equal(searchConfig.minibatchSize, 1);
+  assert.equal(searchConfig.feedbackSampling, 'coverage-first');
+  assert.equal(searchConfig.paretoSize, 5);
+  assert.equal(searchConfig.crossoverEvery, 0);
   assert.equal((dataset.trainTaskIds as string[]).length, 10);
   assert.equal((dataset.validationTaskIds as string[]).length, 5);
   assert.equal(recipe.bindings.proposer!.pluginId, 'proposer.agent');

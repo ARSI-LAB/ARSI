@@ -1,52 +1,30 @@
-<h1 align="center">
-  <img src="docs/users/assets/ember-rsi-logo.png" alt="ember-rsi" width="520">
-</h1>
+# ![ember-rsi](docs/users/assets/ember-rsi-logo.png)
 
-<h3 align="center">多种自演进策略，一个框架统一承载 · Make Everything RSI-able.</h3>
+### 多种自演进策略，一个框架统一承载 · Make Everything RSI-able.
 
-<p align="center">
-  从 Agent Harness 到 AI 基础设施，用同一套框架生成候选方案、评测效果并持续迭代。
-</p>
+从 Agent Harness 到 AI 基础设施，用同一套框架生成候选方案、评测效果并持续迭代。
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&amp;logoColor=white" alt="Node.js 24.x">
-  <img src="https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&amp;logoColor=white" alt="pnpm 11.22.0">
-  <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License: Apache-2.0">
-</p>
+![Node.js 24.x](https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&logoColor=white)![pnpm 11.22.0](https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&logoColor=white)![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)
 
-<p align="center">
-  <a href="./README.md">English</a> | 中文
-</p>
+[English](./README.md) | 中文
 
-<p align="center">
-  <a href="#overview">简介</a> ·
-  <a href="#architecture">工作原理</a> ·
-  <a href="#installation">安装与部署</a> ·
-  <a href="#usage">使用 ember-rsi</a> ·
-  <a href="#web-workspace">查看实验进度</a> ·
-  <a href="#experiment-results">实验效果</a> ·
-  <a href="#user-guide">使用指南</a>
-</p>
+[简介](#overview) · [工作原理](#architecture) · [安装与部署](#installation) · [使用 ember-rsi](#usage) · [内置 RSI 策略](#built-in-rsi-strategies) · [一切皆插件](#extensions) · [使用指南](#user-guide)
 
 <a id="overview"></a>
 
 ## ℹ️ 简介
 
-`ember-rsi`（Recursive Self-Improvement）是面向 Agent 与 AI 基础设施的插件化自演进实验框架，致力于 **Make Everything RSI-able**（让一切可自演进）。
+`ember-rsi` 是面向 Agent 和 AI 基础设施的插件化递归自改进（RSI）实验框架。
 
-- **配置文件驱动自演进**。通过一份声明式实验配方（`recipe.yaml`）绑定优化目标（`Application`）、演化策略（`Policy`）与评测器（`Evaluator`），`ember-rsi` 即可驱动目标对象在受控修改边界与固定预算下持续迭代演进。
-- **内置"开箱即用"的策略并提供扩展能力**。当前已经内置用于优化 Agent Harness 和 搜索推理服务参数的策略。我们致力于"让一切可自演进"，让更多能够定义修改边界、生成候选版本并度量效果的对象接入同一套实验框架。
-- **人类与 AI 都能发起实验**。开发者可通过 CLI 配置和运行实验，并在可视化观察台查看结果。AI 编程助手可借助仓库提供的 RSI Skill 操作同一套工具。我们希望 AI 能在开发者授权的目标、修改范围和预算内，自主编写配方、校验并运行实验，跟踪进度、诊断失败，并根据评测结果决定下一轮怎么做。
+- **由 Recipe 驱动自演进**。声明式 Recipe（`recipe.yaml`）连接优化目标（Application）、策略（Policy）和评测器（Evaluator）。每次实验都有明确的修改范围和固定预算。
+- **内置策略与扩展能力**。框架内置 Agent Harness 优化和推理参数搜索策略。为其他目标定义允许的修改、生成候选方案并衡量效果，即可将其接入同一框架。
+- **面向开发者和编程 Agent**。开发者可通过 CLI 配置和运行实验，并在网页中查看结果。编程 Agent 可通过 RSI Skill 使用同一套工具。我们希望它们能在开发者授权的范围和预算内规划、校验、运行实验，诊断失败，并根据评测结果决定下一步。
 
 <a id="architecture"></a>
 
 ## 🔄 工作原理
 
-<p align="center">
-  <a href="docs/users/assets/rsi-architecture-handdrawn.svg">
-    <img src="docs/users/assets/rsi-architecture-handdrawn.png" alt="ember-rsi 架构：Recipe 与 Policy 配置、RSI Core、围绕 Application 的插件循环，以及 Memory 与 Reflection 自进化" width="1200">
-  </a>
-</p>
+![ember-rsi 架构：Recipe 与 Policy 配置、RSI Core、围绕 Application 的插件循环，以及 Memory 与 Reflection 自进化](docs/users/assets/rsi-architecture-handdrawn.gif)
 
 1. **配置实验**。在 Recipe(实验配置) 中选定优化目标和 Policy，配置数据集、插件和预算。Policy(优化策略) 定义每轮执行哪些步骤，以及何时停止。
 2. **运行 RSI 实验**。Runtime 按 Policy 执行迭代。典型流程是从基线出发，提出并校验修改、评测候选版本，再根据结果选择下一轮的起点。
@@ -56,7 +34,9 @@
 
 ## 📦 安装与部署
 
-### Agent 指令
+
+
+### 编程 Agent 安装指令
 
 将下面这段指令复制给你的编程 Agent：
 
@@ -67,7 +47,11 @@
 运行 ember-rsi --help，并确认当前 Agent 能发现和读取该 skill。本次只完成安装，不启动实验或调用模型。
 ```
 
+
+
 ### 手动安装
+
+
 
 #### 1. 安装 CLI
 
@@ -89,6 +73,8 @@ pnpm add -g .
 ember-rsi --help
 ```
 
+
+
 #### 2. 安装 skill
 
 在目标项目目录执行以下命令，并选择要安装到的编程 Agent：
@@ -98,6 +84,10 @@ npx skills add evolving-foundry/ember-rsi --skill ember-rsi
 ```
 
 如需用户级安装，添加 `-g`。按 Agent 的要求重新加载或重启，然后确认能发现和读取 `ember-rsi` skill。
+
+将 RSI Skill 加载到支持 Skill 的编程助手后，可以直接交代优化目标、允许修改的范围和预算，让助手选择或编写 Recipe、校验配置，并在授权后运行实验、检查结果和诊断失败。
+
+- **RSI Skill** 的入口是 [`SKILL.md`](skills/ember-rsi/SKILL.md)。加载时请保留整个 `skills/ember-rsi/` 目录，以便助手访问参考文档和模板。可先用[最小示例](skills/ember-rsi/references/quickstart.md)验证配方和插件能否正常协作。
 
 后续命令均在 `ember-rsi` 仓库根目录执行，使用已安装的 `ember-rsi` CLI。
 
@@ -109,15 +99,11 @@ npx skills add evolving-foundry/ember-rsi --skill ember-rsi
 
 ### 快速开始
 
+
+
 #### 1. 配置模型与评测环境
 
 下面以 [Harness² 示例](examples/harness/dsh-harness2/README.md)（WorkBuddy Office 场景）为例。请先按 Evaluator 的 [WorkBuddy 配置说明](https://gitcode.com/Ascend/AscendAgent-Evaluator/blob/master/docs/users/benchmarks/workbuddy.md) 准备 **Docker**、题库与容器镜像，并确保宿主机与评测容器均可访问模型服务地址。
-
-展开对应的系统选项，将示例值替换成实际配置。
-
-<details>
-
-<summary>Linux / macOS / WSL（Bash）</summary>
 
 ```bash
 # 在运行 ember-rsi 的同一个终端中显式设置变量，ember-rsi 不会自动读取 .env 文件。
@@ -125,8 +111,8 @@ npx skills add evolving-foundry/ember-rsi --skill ember-rsi
 # 优化器模型，用于生成候选修改。
 export MODEL_NAME="your-optimizer-model"
 
-# 示例中被测 Agent 使用的评测模型，无固定默认值，必须显式设置。
-# 请填写模型服务实际支持的模型名称
+# 被测 Agent 使用的模型，无固定默认值。
+# 请填写模型服务支持的模型名称。
 export EVALUATOR_MODEL_NAME="your-evaluation-model"
 
 # 优化器和评测模型默认共用的服务地址与 API 密钥。
@@ -134,28 +120,7 @@ export MODEL_ENDPOINT="https://your-model-service.example/v1"
 export MODEL_API_KEY="your-api-key"
 ```
 
-</details>
 
-<details>
-
-<summary>Windows（PowerShell）</summary>
-
-```powershell
-# 在运行 ember-rsi 的同一个终端中显式设置变量，ember-rsi 不会自动读取 .env 文件。
-
-# 优化器模型，用于生成候选修改。
-$env:MODEL_NAME = 'your-optimizer-model'
-
-# 示例中被测 Agent 使用的评测模型，无固定默认值，必须显式设置。
-# 请填写模型服务实际支持的模型名称
-$env:EVALUATOR_MODEL_NAME = 'your-evaluation-model'
-
-# 优化器和评测模型默认共用的服务地址与 API 密钥。
-$env:MODEL_ENDPOINT = 'https://your-model-service.example/v1'
-$env:MODEL_API_KEY = 'your-api-key'
-```
-
-</details>
 
 #### 2. 校验、运行与续跑实验
 
@@ -167,56 +132,21 @@ ember-rsi validate examples/harness/dsh-harness2/recipe.yaml
 
 # 以 my-harness2-task 为实验 ID 启动实验，会发起真实模型调用。
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task
-
-# 按实验 ID 查看已记录的运行状态和结果。
-ember-rsi show my-harness2-task
 ```
 
 - 候选版本、评测指标、调用收据与证据默认保存在当前目录的 `.rsi/` 下，请结合评测状态、得分和交付物判断实验结果。
 - 详细用法见 `docs/users` 下的 [快速入门](docs/users/getting-started_zh.md)、[Reflection 指南](docs/users/guides/reflection_zh.md) 和 [运行时事件说明](docs/users/guides/runtime-events_zh.md)。
 
-若实验中断，可在同一工作目录下使用相同实验 ID 断点续跑：
+若实验中断，可在原工作目录使用相同的 Recipe 和实验 ID 断点续跑。
 
 ```sh
-# 在原工作目录使用同一配方和实验 ID，从已有断点续跑。
+# 从已保存的检查点续跑。
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --resume
 ```
 
-##### 当前内置的 RSI 策略
-
-开发者可以根据优化目标，从下表选择一项内置策略并打开对应示例，按示例说明准备环境和配方，再校验和运行实验。
-
-| 内置策略 ID               | 演化机制概述                                                                                   | 示例入口                                                                                               |
-| ------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `policy.harness2`         | 分别提出并评测通用改进（INV）、领域改进（DOM）与合成（Compose），匿名比较交付产物              | [`examples/harness/dsh-harness2`](examples/harness/dsh-harness2/README.md)                             |
-| `policy.wikiskill`        | 在训练集上执行并沉淀 Wiki 经验记忆，生成技能修改提案，经验证集严格改善门控后进入独立测试集评测 | [`examples/harness/dsh-wikiskill`](examples/harness/dsh-wikiskill/README.md)                           |
-| `policy.parameter-grid`   | 按声明顺序惰性枚举 JSON 参数空间，在延迟等 SLO 约束下搜索最优吞吐配置                          | [`examples/artifacts/inference/parameter-grid`](examples/artifacts/inference/parameter-grid/README.md) |
-| `policy.parameter-optuna` | 基于 Optuna TPE 或随机采样自适应探索推理引擎参数空间，支持约束感知采样与历史重放恢复           | [`examples/artifacts/inference/parameter-tpe`](examples/artifacts/inference/parameter-tpe/README.md)   |
-
-<a id="extensions"></a>
-
-### 拓展开发
-
-#### 面向人类开发者
-
-`ember-rsi` 支持从零代码调参到自定义契约插件的渐进式扩展，开发示例见 [编写 Policy](docs/users/guides/writing-policies_zh.md) 和 [编写插件](docs/users/guides/writing-plugins_zh.md)：
-
-| 定制需求                                        | 扩展方式                                                                              |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 更换数据集、模型、预算上限或参与循环的具体插件  | 直接修改或覆盖 `recipe.yaml` 配置与 `bindings`                                        |
-| 编排新的搜索闭环、分支并发或停止条件            | 编写 `rsi.policy/v1`的 YAML 策略并注册                                                |
-| 接入新的优化目标、提案算法、评测器或 Agent 后端 | 实现 `ember-rsi/contracts` 公共契约，通过 `--plugin-dir <dir>` 挂载或直接改写源码注册 |
-| 在自有平台或服务中托管实验生命周期              | 通过 Node.js API 调用 `createRuntime` 与 `validateRecipe` 嵌入运行                    |
-
-#### 面向 AI 编程助手
-
-将 RSI Skill 加载到支持 Skill 的编程助手后，可以直接交代优化目标、允许修改的范围和预算，让助手选择或编写 Recipe、校验配置，并在授权后运行实验、检查结果和诊断失败。
-
-- **RSI Skill** 的入口是 [`skills/ember-rsi/SKILL.md`](skills/ember-rsi/SKILL.md)。加载时请保留整个 `skills/ember-rsi/` 目录，以便助手访问参考文档和模板。可先用[最小示例](skills/ember-rsi/references/quickstart.md)验证配方和插件能否正常协作。
-
 <a id="web-workspace"></a>
 
-## 🖥️ 查看实验进度
+### 查看实验进度
 
 下面两个命令都要在执行 `ember-rsi run` 的同一个目录下运行。它们从该目录下的 `.rsi/` 读取实验数据。
 
@@ -232,86 +162,55 @@ ember-rsi show my-harness2-task
 ember-rsi dashboard
 ```
 
-<a id="experiment-results"></a>
+<a id="built-in-rsi-strategies"></a>
 
-## 📊 实验效果
+## 内置 RSI 策略
 
-<table>
-  <thead>
-    <tr>
-      <th>基准</th>
-      <th>Target Agent</th>
-      <th>方法</th>
-      <th>基准分数</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th rowspan="3"><a href="https://github.com/Tencent/workbuddy-bench#overview">WorkBuddy Bench</a><br>Code Subset</th>
-      <td rowspan="3" align="center"><a href="https://github.com/deepseek-ai/deepseek-harness">DSH</a></td>
-      <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a><br><sub>训练 10 个任务 / 验证 5 个任务</sub></td>
-      <td align="center">92.9% → 96.0% <img src="docs/users/assets/score-delta-plus-3-1.svg" alt="+3.1 pp" width="62" height="20"></td>
-    </tr>
-    <tr>
-      <td><a href="https://github.com/google-research/harness2">Harness²</a><br><sub>验证 10 个任务</sub></td>
-      <td align="center">78.5% → 71.8% <img src="docs/users/assets/score-delta-minus-6-7.svg" alt="−6.7 pp" width="62" height="20"></td>
-    </tr>
-    <tr>
-      <td><a href="https://arxiv.org/abs/2507.19457">GEPA</a></td>
-      <td align="center">-</td>
-    </tr>
-    <tr>
-      <th rowspan="3"><a href="https://github.com/Tencent/workbuddy-bench#overview">WorkBuddy Bench</a><br>Office Subset</th>
-      <td rowspan="3" align="center"><a href="https://github.com/deepseek-ai/deepseek-harness">DSH</a></td>
-      <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a><br><sub>训练 10 个任务 / 验证 5 个任务</sub></td>
-      <td align="center">72.3% → 91.4% <img src="docs/users/assets/score-delta-plus-19-1.svg" alt="+19.1 pp" width="62" height="20"></td>
-    </tr>
-    <tr>
-      <td><a href="https://github.com/google-research/harness2">Harness²</a><br><sub>验证 10 个任务</sub></td>
-      <td align="center">76.1% → 79.8% <img src="docs/users/assets/score-delta-plus-3-7.svg" alt="+3.7 pp" width="62" height="20"></td>
-    </tr>
-    <tr>
-      <td><a href="https://arxiv.org/abs/2507.19457">GEPA</a></td>
-      <td align="center">-</td>
-    </tr>
-    <tr>
-      <th rowspan="3"><a href="https://www.tbench.ai/news/terminal-bench-4-0">Terminal-Bench 4.0</a></th>
-      <td rowspan="3" align="center"><a href="https://github.com/deepseek-ai/deepseek-harness">DSH</a></td>
-      <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a></td>
-      <td align="center">-</td>
-    </tr>
-    <tr>
-      <td><a href="https://github.com/google-research/harness2">Harness²</a></td>
-      <td align="center">-</td>
-    </tr>
-    <tr>
-      <td><a href="https://arxiv.org/abs/2507.19457">GEPA</a></td>
-      <td align="center">-</td>
-    </tr>
-    <tr>
-      <th rowspan="2"><a href="https://github.com/SWE-bench/SWE-bench">SWE-bench Verified</a></th>
-      <td rowspan="2" align="center"><a href="https://github.com/deepseek-ai/deepseek-harness">DSH</a></td>
-      <td><a href="https://github.com/google-research/harness2">Harness²</a><br><sub>训练 20 个任务</sub></td>
-      <td align="center">-</td>
-    </tr>
-    <tr>
-      <td><a href="https://arxiv.org/abs/2608.27454">WikiSkill</a><br><sub>训练 20 个任务 / 验证 10 个任务</sub></td>
-      <td align="center">-</td>
-    </tr>
-  </tbody>
-</table>
 
-- 分数按「基线 → 演化后」展示，变化量以百分点（pp）计。
+| Policy                    | 如何优化目标                                    | 示例Recipe                                                                        | 可替换插件                                                                                                                                                                                                                                              |
+| ------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `policy.harness2`         | 评测通用、领域和组合改进，再匿名比较交付物。                    | [DSH Harness²](examples/harness/dsh-harness2/README.md)                         | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench)†, [`selector.artifact`](src/plugins/selector-artifacts), [`memory.agent`](src/plugins/memory-agent) |
+| `policy.wikiskill`        | 将训练经验汇总到 Wiki，在验证集上有所改善的 Skill 修改才进入独立测试。 | [DSH WikiSkill](examples/harness/dsh-wikiskill/README.md)                       | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`memory.agent`](src/plugins/memory-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench)†, [`selector.metric`](src/plugins/selector-metrics)     |
+| `policy.parameter-grid`   | 在参数网格中寻找满足延迟 SLO 等约束的最高吞吐配置。              | [推理参数网格搜索](examples/artifacts/inference/parameter-grid/README.md)               | [`proposer.grid`](src/plugins/proposer-grid), [`evaluator.inferencebench`](src/plugins/evaluator-inferencebench)†, [`selector.metric`](src/plugins/selector-metrics)                                                                               |
+| `policy.parameter-optuna` | 用 Optuna TPE 或随机采样搜索推理参数。                 | [推理参数 TPE 搜索](examples/artifacts/inference/parameter-tpe/README.md)             | [`proposer.optuna`](src/plugins/proposer-optuna), [`evaluator.inferencebench`](src/plugins/evaluator-inferencebench)†, [`selector.metric`](src/plugins/selector-metrics)                                                                           |
+| `policy.operator-search`  | 搜索 Triton-Ascend 算子改进方案，并独立复评选中的候选方案。     | [Transpose-copy 算子优化](examples/artifacts/kernel/transpose-copy/README.zh-CN.md) | [`agent.pi`](src/plugins/agent-pi)†, [`proposer.operator`](src/plugins/proposer-operator), [`evaluator.operatorbench`](src/plugins/evaluator-operatorbench)†, [`selector.metric`](src/plugins/selector-metrics)†                                   |
+
+
+† 表示插件由示例 Recipe 指定。
+
+<a id="extensions"></a>
+
+## 一切皆插件
+
+![展示 Recipe、Policy、契约和插件如何连接的动画](docs/users/assets/rsi-plugin-mechanism.gif)
+
+*Harness² 示例 · 将 Agent 后端从 `agent.pi` 切换为 `agent.codex`。*
+
+- **Policy（优化策略）** 用 YAML 描述 RSI 循环，决定每轮执行哪些步骤、如何根据结果继续迭代，以及何时停止。Policy 为每个插件绑定声明所需的契约，并在流程中通过绑定名调用插件。
+- **Plugin（插件）** 由契约（Contract）和具体实现组成。契约定义插件的输入和输出 Schema，实现负责完成实际工作。只要新实现满足该绑定所需的契约，就可以在同一个 Policy 中替换原来的插件。
+- **Recipe（实验配方）** 是启动实验的 YAML 入口。它选定优化目标和 Policy，为各个绑定选择具体插件，并提供实验所需的配置和预算。
+
+**框架没有为所有插件规定统一的输入和输出格式。** 每种契约可以按任务需要定义自己的 Schema。例如，按数值指标筛选候选和按交付物质量评审候选，可以各自接收不同的信息。这样，新任务可以定义适合自己的接口，已有流程也可以通过 Recipe 切换同一契约下的实现。
+
+- [编写 Policy](docs/users/guides/writing-policies_zh.md) · 定义 RSI 循环和所需契约
+- [编写插件](docs/users/guides/writing-plugins_zh.md) · 选择或定义契约，编写并注册实现
+- [用 Recipe 组装实验](docs/users/guides/configuration_zh.md#recipe-字段与绑定覆盖) · 选择 Policy、绑定插件并填写配置
 
 <a id="user-guide"></a>
 
 ## 📖 使用指南
 
-- [快速入门](docs/users/getting-started_zh.md)，编写第一个 Recipe 并查找后续指南
-- [架构与核心概念](docs/users/concepts/architecture_zh.md)，了解 Application、Policy、插件与 Runtime 如何协作
-- **组件级自演进指导**：[Reflection 使用指南](docs/users/guides/reflection_zh.md)
-- **事件订阅与二次开发**：[事件系统开发指南](docs/users/guides/runtime-events_zh.md)
-- **完整实验配方示例**：[DSH Harness²](examples/harness/dsh-harness2/README.md) · [DSH WikiSkill (Terminal-Bench 4.0)](examples/harness/dsh-wikiskill/README.md) · [vLLM 参数网格搜索](examples/artifacts/inference/parameter-grid/README.md) · [vLLM 参数 TPE 搜索](examples/artifacts/inference/parameter-tpe/README.md)
+- [快速入门](docs/users/getting-started_zh.md)
+- [架构与核心概念](docs/users/concepts/architecture_zh.md)
+- [内置组件](docs/users/guides/built-in-components_zh.md)
+- [配置实验](docs/users/guides/configuration_zh.md)
+- [运行与检查实验](docs/users/guides/running-experiments_zh.md)
+- [使用 Skill](docs/users/guides/using-skills_zh.md)
+- [Memory 使用指南](docs/users/guides/memory_zh.md)
+- [Reflection 使用指南](docs/users/guides/reflection_zh.md)
+- [编写 Policy](docs/users/guides/writing-policies_zh.md)
+- [编写插件](docs/users/guides/writing-plugins_zh.md)
+- [事件系统开发指南](docs/users/guides/runtime-events_zh.md)
 
 ## 🙏 致谢
 

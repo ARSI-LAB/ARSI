@@ -52,27 +52,42 @@ async function inferencebenchConfiguration(
 test('Evaluator plugins persist SDK-normalized settings without mutating the input or injecting defaults', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-evaluator-passthrough-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  for (const kind of ['agentbench', 'inferencebench'] as const) {
-    const config: EvaluatorConfig = {
-      hardware: 'gpu',
-      services: {
-        default: {
-          model: 'template',
-          base_url: 'https://template.invalid',
-          contextWindow: 8192,
-          retry: { maxAttempts: 2 },
+  const common = {
+    hardware: 'gpu',
+    scheduler: { concurrency: 1 },
+    store: 'local',
+    reporter: 'markdown',
+    metrics: [
+      'duration',
+      { name: 'usage', config: { custom: { enabled: true } } },
+    ],
+    run: { timeoutSeconds: 12000, includeTaskAnswer: true },
+  } satisfies Omit<EvaluatorConfig, 'services' | 'benchmark'>;
+  const options = { contextWindow: 8192, retry: { maxAttempts: 2 } };
+  for (const { kind, config } of [
+    {
+      kind: 'agentbench' as const,
+      config: {
+        ...common,
+        benchmark: 'gsm8k',
+        services: {
+          default: {
+            ...options,
+            model: 'template',
+            base_url: 'https://template.invalid',
+          },
         },
       },
-      benchmark: kind === 'agentbench' ? 'gsm8k' : 'agentx',
-      scheduler: { concurrency: 1 },
-      store: 'local',
-      reporter: 'markdown',
-      metrics: [
-        'duration',
-        { name: 'usage', config: { custom: { enabled: true } } },
-      ],
-      run: { timeoutSeconds: 12000, includeTaskAnswer: true },
-    };
+    },
+    {
+      kind: 'inferencebench' as const,
+      config: {
+        ...common,
+        benchmark: 'agentx',
+        services: { default: options },
+      },
+    },
+  ]) {
     const before = structuredClone(config);
     const execution = {
       directory: '/candidate',
@@ -156,9 +171,13 @@ test('Evaluator plugins check native configuration before charging or invoking t
     },
   });
   for (const definition of [agentbenchDefinition, inferencebenchDefinition]) {
-    const config = {
+    const service: JsonObject =
+      definition === agentbenchDefinition
+        ? { model: 'test', base_url: 'http://localhost' }
+        : {};
+    const config: JsonObject = {
       hardware: 'gpu',
-      services: { default: { model: 'test', base_url: 'http://localhost' } },
+      services: { default: service },
       benchmark:
         definition === agentbenchDefinition ? 'terminalbench' : 'agentx',
     };
@@ -182,8 +201,7 @@ test('Evaluator plugins check native configuration before charging or invoking t
         ...config,
         services: {
           default: {
-            model: 'test',
-            base_url: 'http://localhost',
+            ...service,
             maxTokens: 0,
           },
         },
@@ -194,8 +212,7 @@ test('Evaluator plugins check native configuration before charging or invoking t
         ...config,
         services: {
           default: {
-            model: 'test',
-            base_url: 'http://localhost',
+            ...service,
             api_key: 'fixture-secret',
           },
         },
@@ -242,7 +259,7 @@ test('Evaluator plugins check native configuration before charging or invoking t
         } finally {
           await invalidOperation.dispose();
         }
-      }, /configuration|services.default.maxTokens|duplicates|api_key|owned by RSI|must be agentbundle|requires benchmark.name=agentx|requires local AgentX/);
+      }, /supplied by the Application|configuration|services.default.maxTokens|duplicates|api_key|owned by RSI|must be agentbundle|requires benchmark.name=agentx|requires local AgentX/);
     }
   }
   assert.equal(sdkCalls, 0);
@@ -259,11 +276,10 @@ test('inferencebench passes AgentX limits through and the SDK enforces them', as
   await writeFile(networkConfigPath, '{}\n');
   for (const [index, config] of [
     {
-      services: { default: { api_key: '${TEST_KEY}', maxTokens: 32 } },
+      services: { default: { maxTokens: 32 } },
       benchmark: 'agentx',
     },
     {
-      services: { default: { api_key: '${TEST_KEY}' } },
       benchmark: 'agentx',
       scheduler: { concurrency: 2 },
     },
@@ -271,7 +287,11 @@ test('inferencebench passes AgentX limits through and the SDK enforces them', as
     const callDirectory = join(directory, String(index));
     await inferencebenchConfiguration(
       { ...config, hardware: 'gpu' },
-      { model: 'candidate', baseUrl: 'http://127.0.0.1:8000/v1' },
+      {
+        model: 'candidate',
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        credentialRef: 'TEST_KEY',
+      },
       callDirectory,
     );
     const loaded = await loadConfig(
@@ -329,9 +349,6 @@ test('inferencebench rejects non-AgentX benchmarks before invoking the SDK', asy
     () =>
       inferencebenchConfiguration(
         {
-          services: {
-            default: { model: 'test', base_url: 'http://localhost' },
-          },
           benchmark: { name: 'vllm-serving' },
         },
         { baseUrl: 'http://localhost', model: 'test' },
@@ -367,7 +384,6 @@ test('inferencebench leaves benchmark-controlled output limits unset', async (t)
   const directory = await temporaryDirectory(t);
   const native = await inferencebenchConfiguration(
     {
-      services: { default: { model: 'test', base_url: 'http://localhost' } },
       benchmark: { name: 'agentx', solver: 'agentx-replay' },
     },
     { baseUrl: 'http://localhost', model: 'test' },
@@ -384,7 +400,7 @@ test('inferencebench binds only the routed Application service and preserves the
   const config = {
     benchmark: { name: 'agentx', solver: { service: 'target' } },
     services: {
-      target: {},
+      target: { retry: { maxAttempts: 2 } },
       judge: { model: 'judge', base_url: 'https://judge.invalid' },
     },
     scheduler: { concurrency: 1 },
@@ -410,6 +426,7 @@ test('inferencebench binds only the routed Application service and preserves the
     directory,
   );
   assert.deepEqual(object(native.services).target, {
+    retry: { maxAttempts: 2 },
     model: 'candidate',
     base_url: 'http://127.0.0.1:8000/v1',
     api_key: '${CANDIDATE_KEY}',
@@ -428,6 +445,29 @@ test('inferencebench binds only the routed Application service and preserves the
       ),
     /services.judge.model/,
   );
+});
+
+test('inferencebench rejects explicit candidate bindings and missing service routes', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const benchmark = { name: 'agentx', solver: { service: 'candidate' } };
+  const execution = { model: 'served', baseUrl: 'http://localhost' };
+  for (const field of ['model', 'base_url', 'api_key']) {
+    await assert.rejects(
+      inferencebenchConfiguration(
+        { benchmark, services: { candidate: { [field]: 'from-recipe' } } },
+        execution,
+        directory,
+      ),
+      { message: `services.candidate.${field} is supplied by the Application` },
+    );
+  }
+  await assert.rejects(
+    inferencebenchConfiguration({ benchmark }, execution, directory),
+    /services.candidate must be declared/,
+  );
+  await assert.rejects(readFile(join(directory, 'evaluator.json')), {
+    code: 'ENOENT',
+  });
 });
 
 test('Evaluator loads bound agent configuration through its public SDK', async (t) => {

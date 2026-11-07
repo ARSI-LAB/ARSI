@@ -19,6 +19,7 @@ import { inferencebenchDefinition } from '../../src/plugins/evaluator-inferenceb
 import { createAgentbench } from '../../src/plugins/evaluator-agentbench/service.js';
 import { createInferencebench } from '../../src/plugins/evaluator-inferencebench/service.js';
 import type { AgentbenchConfig as EvaluatorConfig } from '../../src/plugins/evaluator-agentbench/schema.js';
+import type { InferencebenchConfig } from '../../src/plugins/evaluator-inferencebench/schema.js';
 import type { EvaluatorRunner } from '../../src/plugins/shared/evaluator-adapter/sdk.js';
 import {
   RuntimeContext,
@@ -30,14 +31,17 @@ type EvaluatorKind = 'agentbench' | 'inferencebench';
 function evaluatorWithRunner(
   kind: EvaluatorKind,
   runner: EvaluatorRunner,
-): OperationDefinition<JsonValue, JsonValue, EvaluatorConfig> {
-  const definition =
-    kind === 'agentbench' ? agentbenchDefinition : inferencebenchDefinition;
-  const create =
-    kind === 'agentbench' ? createAgentbench : createInferencebench;
+): OperationDefinition {
+  if (kind === 'inferencebench')
+    return {
+      ...inferencebenchDefinition,
+      create: (config: InferencebenchConfig, services) =>
+        createInferencebench(config, services, runner),
+    };
   return {
-    ...definition,
-    create: (config, services) => create(config, services, runner),
+    ...agentbenchDefinition,
+    create: (config: EvaluatorConfig, services) =>
+      createAgentbench(config, services, runner),
   };
 }
 function context(directory: string): RuntimeContext {
@@ -844,9 +848,6 @@ test('AgentX preserves point distributions and official comparability, without a
     });
     const op = await def.create(
       {
-        services: {
-          default: { model: 'placeholder', base_url: '${MODEL_ENDPOINT}' },
-        },
         benchmark: {
           name: 'agentx',
           scenario: 'replay',
@@ -1003,12 +1004,14 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
           return partial;
         });
         const op = await def.create(
-          {
-            services: {
-              default: { model: 'fixture', base_url: 'http://model' },
-            },
-            benchmark: kind === 'agentbench' ? { name: 'workbuddy' } : 'agentx',
-          },
+          kind === 'agentbench'
+            ? {
+                benchmark: 'workbuddy',
+                services: {
+                  default: { model: 'fixture', base_url: 'http://model' },
+                },
+              }
+            : { benchmark: 'agentx' },
           services,
         );
         await assert.rejects(
@@ -1059,10 +1062,14 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
         runs++;
         return {};
       }).create(
-        {
-          services: { default: { model: 'fixture', base_url: 'http://model' } },
-          benchmark: { name: kind === 'agentbench' ? 'workbuddy' : 'agentx' },
-        },
+        kind === 'agentbench'
+          ? {
+              benchmark: 'workbuddy',
+              services: {
+                default: { model: 'fixture', base_url: 'http://model' },
+              },
+            }
+          : { benchmark: 'agentx' },
         services,
       );
       const call = context(directory).extend(services);

@@ -57,6 +57,7 @@ test('invalid SDK templates and operator binding conflicts fail before writing f
   };
   for (const [overrides, error] of [
     [{ fixtures: 'unused' }, /unknown field fixtures/],
+    [{ services: {} }, /services is owned by RSI/],
     [{ benchmark: 'agentx' }, /benchmark.name=kernel/],
     [
       { benchmark: { name: 'kernel', config: { manifest: 'external.json' } } },
@@ -66,10 +67,14 @@ test('invalid SDK templates and operator binding conflicts fail before writing f
     [
       {
         services: {
-          default: { model: 'fixture', base_url: 'unused', api_key: 'literal' },
+          default: {
+            model: 'fixture',
+            base_url: 'unused',
+            api_key: '${TEST_KEY}',
+          },
         },
       },
-      /environment reference/,
+      /services is owned by RSI/,
     ],
   ] as const) {
     const operation = await createOperatorbench(

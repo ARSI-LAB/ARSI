@@ -1,5 +1,5 @@
 import type { JsonObject } from '../../contracts/index.js';
-import type { EvaluatorConfig } from '../shared/evaluator-adapter/configuration.js';
+import type { BoundServiceConfig } from '../shared/evaluator-adapter/configuration.js';
 import { recordSchema } from '../../contracts/models/measurement.js';
 
 const text: JsonObject = { type: 'string', minLength: 1 };
@@ -7,9 +7,8 @@ export const hashSchema: JsonObject = {
   type: 'string',
   pattern: '^[a-f0-9]{64}$',
 };
-/** Kernel replay supplies a placeholder service when the Recipe omits services. */
-export type OperatorbenchConfig = Omit<EvaluatorConfig, 'services'> & {
-  services?: EvaluatorConfig['services'];
+/** Kernel replay supplies the SDK service and rejects it in Recipe input. */
+export type OperatorbenchConfig = BoundServiceConfig & {
   task: { directory: string };
 };
 export const configSchema: JsonObject = {

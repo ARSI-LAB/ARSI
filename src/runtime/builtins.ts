@@ -9,7 +9,7 @@ import { proposerDefinition } from '../plugins/proposer-agent/index.js';
 import { operatorProposerDefinition } from '../plugins/proposer-operator/index.js';
 import { gridProposerDefinition } from '../plugins/proposer-grid/index.js';
 import { optunaProposerDefinition } from '../plugins/proposer-optuna/index.js';
-import { gepaOptimizerDefinition } from '../plugins/gepa/index.js';
+import { gepaSearchDefinition } from '../plugins/gepa/index.js';
 import { memoryDefinition } from '../plugins/memory-agent/index.js';
 import { reflectionDefinition } from '../plugins/reflection-agent/index.js';
 import { agentbenchDefinition } from '../plugins/evaluator-agentbench/index.js';
@@ -30,7 +30,7 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     operatorProposerDefinition,
     gridProposerDefinition,
     optunaProposerDefinition,
-    gepaOptimizerDefinition,
+    gepaSearchDefinition,
     memoryDefinition,
     reflectionDefinition,
     agentbenchDefinition,

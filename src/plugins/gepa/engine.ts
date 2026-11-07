@@ -1,8 +1,5 @@
 import type { JsonObject } from '../../contracts/index.js';
-import type {
-  GepaModule,
-  GepaSettings,
-} from '../../contracts/plugin-types/gepa.js';
+import type { GepaModule, GepaSettings } from './schema.js';
 
 /**
  * GEPA's deterministic population bookkeeping. The Policy owns evaluation and

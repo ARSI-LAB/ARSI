@@ -1,23 +1,21 @@
 import {
-  gepaOptimizerContract,
-  type GepaOptimizerInput,
-  type GepaOptimizerOutput,
-} from '../../contracts/plugin-types/gepa.js';
+  populationSearchContract,
+  type PopulationSearchInput,
+  type PopulationSearchOutput,
+} from '../../contracts/plugin-types/population-search.js';
 import type { OperationDefinition } from '../../contracts/index.js';
-import { configSchema } from './schema.js';
-import { createGepaOptimizer } from './service.js';
+import { configSchema, type GepaConfig } from './schema.js';
+import { createGepaSearch } from './service.js';
 
-export const gepaOptimizerDefinition: OperationDefinition<
-  GepaOptimizerInput,
-  GepaOptimizerOutput
+export const gepaSearchDefinition: OperationDefinition<
+  PopulationSearchInput,
+  PopulationSearchOutput,
+  GepaConfig
 > = {
-  id: 'gepa.optimizer',
+  id: 'search.gepa',
   description:
     'Run GEPA reflective prompt evolution with Pareto candidate sampling, ancestry-aware crossover and truthful rollout accounting.',
-  contract: gepaOptimizerContract,
+  contract: populationSearchContract,
   configSchema,
-  create: createGepaOptimizer,
+  create: createGepaSearch,
 };
-
-export * from './engine.js';
-export { createGepaOptimizer } from './service.js';

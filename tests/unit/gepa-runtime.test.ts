@@ -59,16 +59,16 @@ test('a custom Policy invokes evaluator and Proposer bindings directly', async (
     assert.equal(run.agentCalls.length, 1);
     assert.equal((run.output.rounds as JsonObject[])[0]!.status, 'admitted');
     const calls = await run.manager.facts.list('calls');
-    const optimizerCalls = new Set(
+    const searchCalls = new Set(
       calls
-        .filter((call) => call.bindingId === 'optimizer')
+        .filter((call) => call.bindingId === 'search')
         .map((call) => call.callId),
     );
     for (const binding of ['measure', 'mutate']) {
       const externalCalls = calls.filter((call) => call.bindingId === binding);
       assert.equal(externalCalls.length, binding === 'measure' ? 4 : 1);
       for (const call of externalCalls) {
-        assert.equal(optimizerCalls.has(call.parentCallId), false);
+        assert.equal(searchCalls.has(call.parentCallId), false);
         assert.match(String(call.path), /^steps\//);
       }
     }
@@ -146,7 +146,7 @@ test('a complete mutation round uses sampled evidence, admits strict improvement
   }
 });
 
-test('checkpoint resume preserves task sampling and module rotation without repeating external calls', async () => {
+test('checkpoint resume in a fresh Manager preserves task sampling, budgets and module rotation without repeating external calls', async () => {
   const scores = (value: number): Record<string, number> =>
     Object.fromEntries(
       ['f1', 'f2', 'f3', 's1', 's2', 's3'].map((task) => [task, value]),
@@ -167,7 +167,11 @@ test('checkpoint resume preserves task sampling and module rotation without repe
   const complete = await runGepa(options);
   let resumed: Awaited<ReturnType<typeof runGepa>> | undefined;
   try {
-    resumed = await runGepa({ ...options, resumeAfterEvaluation: 2 });
+    resumed = await runGepa({
+      ...options,
+      resumeAfterEvaluation: 2,
+      restartOnResume: true,
+    });
     assert.equal(resumed.interrupted?.status, 'cancelled');
     assert.deepEqual(resumed.output, complete.output);
     assert.deepEqual(resumed.evaluationCalls, complete.evaluationCalls);
@@ -179,6 +183,10 @@ test('checkpoint resume preserves task sampling and module rotation without repe
     assert.equal(resumed.agentCalls.length, complete.agentCalls.length);
     assert.equal(resumed.output.rolloutsUsed, 14);
     assert.equal(resumed.output.completedRounds, 2);
+    assert.deepEqual(
+      (await resumed.manager.get('gepa-runtime')).usage,
+      (await complete.manager.get('gepa-runtime')).usage,
+    );
   } finally {
     await complete.manager.dispose();
     await rm(complete.root, { recursive: true, force: true });

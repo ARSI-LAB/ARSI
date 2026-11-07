@@ -4,12 +4,12 @@ This file defines documentation organization and maintenance. See the [root AGEN
 
 ## Directory responsibilities
 
-| Location             | Content                                                                       | Maintenance                                                         |
-| -------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `design/YYYY-MM-DD/` | RSI protocols, role responsibilities, strategies, and interface designs       | Append-only; retain the latest 14 days, including the boundary date |
-| `tasks/YYYY-MM-DD/`  | Development plans, progress, and acceptance for the RSI library               | Append-only; retain the latest 5 days, including the boundary date  |
-| `users/`             | Project introduction, installation, configuration, usage, and troubleshooting | Maintain paired `en/` and `zh-CN/` guides against current behavior  |
-| `lessons/`           | Reusable lessons                                                              | Record established conclusions with evidence references             |
+| Location             | Content                                                                       | Maintenance                                                                   |
+| -------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `design/YYYY-MM-DD/` | RSI protocols, role responsibilities, strategies, and interface designs       | Append-only; retain the latest 14 days, including the boundary date           |
+| `tasks/YYYY-MM-DD/`  | Development plans, progress, and acceptance for the RSI library               | Append-only; retain the latest 5 days, including the boundary date            |
+| `users/`             | Project introduction, installation, configuration, usage, and troubleshooting | Keep English and Chinese pages side by side and aligned with current behavior |
+| `lessons/`           | Reusable lessons                                                              | Record established conclusions with evidence references                       |
 
 Create directories only when needed; do not create empty placeholders. Store runtime data, logs, temporary scripts, one-off checks, and raw trajectories in `.scratch/` or other locations specified by the root guidelines, outside formal documentation directories.
 
@@ -31,7 +31,7 @@ Create design documents, task breakdowns, and task records only when explicitly 
 
 ## Naming and writing
 
-- User guides live in `users/en/` and `users/zh-CN/` with matching filenames and sections. Add reciprocal language links, keep commands/configuration examples aligned, and update both languages when behavior changes. Root README files link to the matching language. Historical design/task records do not require parallel translations.
+- Use the getting-started pages as the documentation entry points under `users/` and link to related guides from their Next steps sections. Keep conceptual material under `users/concepts/` and how-to guides under `users/guides/`. Put each English `<topic>.md` beside its Chinese counterpart `<topic>_zh.md` and keep their sections aligned. Add reciprocal language links, keep commands/configuration examples aligned, and update both languages when behavior changes. Root README files link to the matching language. Historical design/task records do not require parallel translations.
 
 - Name new designs `YYYY-MM-DD-<topic>.md` and new tasks `YYYY-MM-DD-<type>-<topic>.md`. Add a two-digit sequence when needed to distinguish same-day documents. Use short English kebab-case topics. Preserve existing filenames.
 - Use English by default for documentation, comments, prompts, example prose, UI text, and repository metadata. Follow the user's language in conversation, including Chinese when the user writes Chinese. Use UTF-8 and LF, with a final newline. Use relative links; cross-date references must include the correct date directory, and expired material must use links to specific Git commits.

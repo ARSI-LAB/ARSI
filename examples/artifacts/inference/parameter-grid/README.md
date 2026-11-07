@@ -26,7 +26,7 @@ searchSpace:
     values: [2048, 4096, 8192, 16384]
 ```
 
-The grid Policy defaults `maxCandidates` to 1,000, with a maximum of 100,000. To cover all 16 points,
+The grid Policy defaults `maxCandidates` to 1,000. To cover all 16 points,
 allow at least 16 candidates and ensure the evaluation budgets cover them.
 Include the baseline in the grid or measure it separately. Resume with the same
 ordered configuration and cursor.
@@ -44,12 +44,6 @@ Keep this recipe directory and `shared/` together when copying the example.
   the request/response contract and `start`, `status`, `stop` functions to implement.
   The supplied template raises `NotImplementedError`; it cannot deploy a server yet.
 - [shared/target.yaml](../shared/target.yaml): only the candidate's `tuning.json` may change.
-
-`bindings.proposer.config.path` selects the parameter file to tune:
-[tuning.json](../shared/baseline/tuning.json) in this example. The Application's
-`remote.parametersFile` must name the same file so deployment uses each
-candidate's parameters. Each `searchSpace` entry names a parameter in that JSON
-file; fields outside the search space keep their baseline values.
 
 Implement the template using SSH or your deployment system. Keep host, model,
 device and authentication settings in the script or local environment. For SSH,
@@ -166,24 +160,3 @@ ember-rsi run examples/artifacts/inference/parameter-grid/recipe.yaml --id param
 Cancellation attempts bounded owned cleanup. If deployment connectivity prevents it,
 retain the lock and inspect the saved lifecycle request before retrying; do not
 delete locks or kill a process solely by an unverified historical PID.
-
-## Results
-
-The Policy takes `candidateRef` as input, defaulting to the Application's initial
-candidate. `ember-rsi show <experiment-id>` includes the Policy output after a
-normal finish:
-
-| Field                            | Meaning                                                                                                                 |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `status`                         | `selected` when a configuration satisfies the constraints; `no-feasible-configuration` when none does.                  |
-| `candidateRef`, `measurementRef` | The selected configuration and its measurement; both are `null` when no feasible result exists.                         |
-| `parameters`                     | The selected search parameters and values, or `null` when no feasible result exists.                                    |
-| `measurementRefs`                | All measurement references recorded by the search.                                                                      |
-| `stopReason`                     | `search-exhausted` when all combinations have been evaluated, or `max-candidates` when the evaluation limit is reached. |
-
-The result is the best feasible configuration among those evaluated. Compare it
-with a baseline measurement under the same workload before assessing improvement.
-See the [result Schema](../../../../src/policies/parameter-grid/schemas/result.yaml)
-for field definitions, [limits and budgets](../../../../docs/users/guides/configuration.md#limits-and-budgets)
-for experiment resource limits, and [cancellation and resume](../../../../docs/users/guides/running-experiments.md#cancellation-and-resume)
-for recovery.

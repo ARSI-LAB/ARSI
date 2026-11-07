@@ -131,7 +131,7 @@ ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task
 ```
 
 - 候选版本、评测指标、调用收据与证据默认保存在当前目录的 `.rsi/` 下，请结合评测状态、得分和交付物判断实验结果。
-- 详细用法见 `docs/users` 下的 [用户指南](docs/users/zh-CN/guide.md)、[Reflection 指南](docs/users/zh-CN/reflection.md) 和 [运行时事件说明](docs/users/zh-CN/runtime-events.md)。
+- 详细用法见 `docs/users` 下的 [快速入门](docs/users/getting-started_zh.md)、[Reflection 指南](docs/users/guides/reflection_zh.md) 和 [运行时事件说明](docs/users/guides/runtime-events_zh.md)。
 
 若实验中断，可在原工作目录使用相同的 Recipe 和实验 ID 断点续跑。
 
@@ -182,7 +182,7 @@ ember-rsi dashboard
 
 ### 面向开发者
 
-可以先调整 Recipe 配置，再按需扩展框架。[用户指南](docs/users/zh-CN/guide.md#3-定制绑定与插件)提供了 Policy 和插件示例。
+可以先调整 Recipe 配置，再按需扩展框架。开发示例见 [编写 Policy](docs/users/guides/writing-policies_zh.md) 和 [编写插件](docs/users/guides/writing-plugins_zh.md)。
 
 
 | 目标                       | 扩展方式                                                                |
@@ -205,12 +205,10 @@ ember-rsi dashboard
 
 ## 📖 使用指南
 
-- **概念与全流程配置**：[用户指南](docs/users/zh-CN/guide.md)
-- **组件级自演进指导**：[Reflection 使用指南](docs/users/zh-CN/reflection.md)
-- **推理服务参数调优**：[推理参数搜索指南](docs/users/zh-CN/parameter-search.md)
-- **事件订阅与二次开发**：[事件系统开发指南](docs/users/zh-CN/runtime-events.md)
-
-
+- [快速入门](docs/users/getting-started_zh.md)，编写第一个 Recipe 并查找后续指南
+- [架构与核心概念](docs/users/concepts/architecture_zh.md)，了解 Application、Policy、插件与 Runtime 如何协作
+- **组件级自演进指导**：[Reflection 使用指南](docs/users/guides/reflection_zh.md)
+- **事件订阅与二次开发**：[事件系统开发指南](docs/users/guides/runtime-events_zh.md)
 
 ## 🙏 致谢
 

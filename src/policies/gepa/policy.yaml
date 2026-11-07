@@ -46,7 +46,6 @@ defaults:
         agentRef: agent
         prompt: ./prompts/mutation.md
         evidenceView: training-summary
-        maxModelCalls: 32
 steps:
   - id: initialize
     type: invoke

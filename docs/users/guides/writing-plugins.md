@@ -36,7 +36,7 @@ The Policy's `require` specifies the contract, and the binding selects a plugin 
 
 Optuna and GEPA share `contract.search` and its `initialize`, `suggest`, and `observe` actions. Implementations return an opaque `stateRef` and evaluation or proposal work with an opaque work ID. The Policy calls its Evaluator, Proposer, and, when needed, Selector, then returns the work ID and feedback through `observe`. An observation can request further work for the same attempt.
 
-Task splits remain in the Policy configuration. Searches that sample tasks receive `feedbackTaskIds` and `selectionTaskIds` during initialization and return the selected task IDs in their work requests. Algorithms, candidate populations, RNG state, rollout accounting, and pending-work details stay inside each implementation's immutable state artifacts. Policy checkpoints retain the latest `stateRef`.
+Task splits remain in the Policy configuration. Searches that sample tasks receive `feedbackTaskIds` and `selectionTaskIds` during initialization and return the selected task IDs in their work requests. Algorithms, candidate populations, RNG state, rollout accounting, and pending-work details stay inside each implementation's immutable state artifacts. Policy checkpoints retain the latest `stateRef` and outstanding work requests.
 
 Optuna reconstructs its Study from saved worker history. It keeps one trial pending at a time, reuses pending suggestions, and treats identical feedback as idempotent. Implementations validate configuration and execution scope before restoring state; Optuna also checks worker, environment, objective, and comparison identities.
 

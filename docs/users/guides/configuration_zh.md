@@ -70,6 +70,8 @@ bindings:
 
 `services.default` 中的 `model`、`base_url` 和 `api_key` 分别指定模型名称、服务地址和凭据环境变量引用。
 
+如果优化器需要任务的公开提示词，可在 Evaluator 配置中设置 `run.includeTaskAnswer: true`，使 SDK 保存任务数据。RSI 将其中的公开提示词作为 `task-input` 执行证据提供给后续插件，参考答案仍保留在私有原生记录中。
+
 ### Pi 后端
 
 `agent.pi` 通过 Pi 执行优化流程中的 Agent 任务，适合直接指定模型服务地址、模型名称和凭据。
@@ -145,6 +147,8 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | OperatorBench Evaluator                               | `sdk.profiling.attemptTimeoutSeconds`             | 一次性能分析尝试的时长上限，单位秒。                                                                      | SDK 默认 300 秒（5 分钟）。                                                       |
 | Inference Application                                 | `remote.timeoutMs`                                | 一次远端脚本调用的时长上限，单位毫秒。                                                                    | 无远端调用的独立时长上限。                                                        |
 | Inference Application                                 | `healthcheck.timeoutMs`                           | 等待推理服务就绪的时长上限，单位毫秒。                                                                    | 远端模式继承 `remote.timeoutMs`；该值也未设置或使用本地模式时，不设就绪等待上限。 |
+| 提示词演化搜索 | `maxRounds` | 逻辑尝试轮数上限，包含无修改和被拒绝的尝试。 | 必填，无默认值。 |
+| 提示词演化搜索 | `maxRollouts` | 初始评分、父候选与提案比较、种群选择消耗的任务 rollout 总额度，与评测调用次数预算分别计算。 | 必填，无默认值。 |
 | Optuna Proposer                                       | `python.timeoutMs`                                | 单次 Python worker 调用的时长上限，单位毫秒。                                                             | 无单次 worker 调用的独立时长上限。                                                |
 | Optuna Proposer                                       | `maxSamplingAttempts`                             | 整个搜索的采样尝试次数上限，包含不进入评测的重复参数组合；评测次数另由 `policy.config.maxTrials` 限制。   | 不额外限制采样尝试次数。                                                          |
 | Reflection 文件                                       | `budget.modelCalls`                               | 单次 Reflection 的模型请求数上限；设为 0 时不启动内置生成器，正数上限需要后端支持计量。                   | 无单次 Reflection 的模型调用次数上限。                                            |

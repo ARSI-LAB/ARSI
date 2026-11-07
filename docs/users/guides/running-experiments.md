@@ -49,6 +49,8 @@ ember-rsi show terminal-skills-01
 
 Facts and execution records live in `.rsi/facts/`, immutable artifacts in `.rsi/artifacts/`, and experiment-specific working resources in `.rsi/experiments/<experiment-id>/`.
 
+AgentBench and InferenceBench map each task's execution status from the SDK's `executionStatus`, separately from its score or correctness status. A successfully completed execution can receive a zero score or produce an incorrect answer; inspect metrics and evaluation feedback to assess quality. Cancellation, execution failure, and unknown execution outcomes retain their respective statuses.
+
 - Preserve the store and original resource files when resuming.
 
 ## Cancellation and resume

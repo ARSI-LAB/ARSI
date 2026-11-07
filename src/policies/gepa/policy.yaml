@@ -1,33 +1,35 @@
 schemaVersion: rsi.policy/v1
 id: policy.gepa
-description: >-
-  GEPA reflective prompt evolution over a modular file target. Candidates are
-  sampled from the instance-wise Pareto frontier, mutated with sampled execution
-  feedback, merged through ancestry-aware crossover, and compared against their
-  genetic parents before selection scoring.
+description: GEPA reflective prompt evolution over a modular file target.
+  Candidates are sampled from the instance-wise Pareto frontier, mutated with
+  sampled execution feedback, merged through ancestry-aware crossover, and
+  compared against their genetic parents before selection scoring.
 input_schema:
   type: object
   additionalProperties: false
-  required: [candidateRef]
+  required:
+    - candidateRef
   properties:
-    candidateRef: { type: string, minLength: 1 }
+    candidateRef:
+      type: string
+      minLength: 1
 config_schema:
   $ref: ./schemas/config.yaml
 state_schema:
   type: object
   additionalProperties: false
-  required: [optimizer, plan]
+  required:
+    - search
   properties:
-    optimizer: { type: object }
-    plan: { type: [object, 'null'] }
+    search:
+      type: object
 state:
-  optimizer: {}
-  plan: null
+  search: {}
 output_schema:
   $ref: ./schemas/output.yaml
 require:
-  optimizer:
-    contract: contract.gepa-optimizer
+  search:
+    contract: contract.population-search
   evaluator:
     contract: contract.agentbench
   proposer:
@@ -36,8 +38,8 @@ require:
     contract: contract.agent
 defaults:
   bindings:
-    optimizer:
-      plugin: gepa.optimizer
+    search:
+      plugin: search.gepa
     proposer:
       plugin: proposer.agent
       config:
@@ -48,19 +50,18 @@ defaults:
 steps:
   - id: initialize
     type: invoke
-    use: optimizer
+    use: search
     with:
       action: initialize
       candidateRef: ${{ input.candidateRef }}
-      settings: ${{ config }}
+      dataset: ${{ config.dataset }}
   - id: save_initial
     type: state
     state:
-      optimizer: ${{ steps.initialize.output.state }}
-      plan: ${{ steps.initialize.output.plan }}
+      search: ${{ steps.initialize.output }}
   - id: initial_evaluation
     type: if
-    if: ${{ size(state.optimizer.selectionTaskIds) > 0 }}
+    if: ${{ state.search.evaluation != null }}
     then:
       steps:
         - id: evaluate
@@ -68,44 +69,40 @@ steps:
           use: evaluator
           with:
             candidateRef: ${{ input.candidateRef }}
-            taskIds: ${{ state.optimizer.selectionTaskIds }}
+            taskIds: ${{ state.search.evaluation.taskIds }}
       output: ${{ steps.evaluate.output.measurementRef }}
     else:
       steps: []
       output: null
   - id: observe_initial
     type: invoke
-    use: optimizer
+    use: search
     with:
       action: observe-initial
-      state: ${{ state.optimizer }}
-      settings: ${{ config }}
       measurementRef: ${{ steps.initial_evaluation.output }}
+      stateRef: ${{ state.search.stateRef }}
   - id: save_observed
     type: state
     state:
-      optimizer: ${{ steps.observe_initial.output.state }}
-      plan: ${{ steps.observe_initial.output.plan }}
+      search: ${{ steps.observe_initial.output }}
   - id: optimize
     type: loop
-    maxIterations: ${{ config.maxRounds }}
-    while: ${{ !state.optimizer.done }}
+    maxIterations: ${{ state.search.iterationLimit }}
+    while: ${{ !state.search.done }}
     steps:
       - id: prepare
         type: invoke
-        use: optimizer
+        use: search
         with:
           action: prepare
-          state: ${{ state.optimizer }}
-          settings: ${{ config }}
+          stateRef: ${{ state.search.stateRef }}
       - id: save_plan
         type: state
         state:
-          optimizer: ${{ steps.prepare.output.state }}
-          plan: ${{ steps.prepare.output.plan }}
+          search: ${{ steps.prepare.output }}
       - id: stop_if_done
         type: if
-        if: ${{ state.plan == null }}
+        if: ${{ state.search.plan == null }}
         then:
           steps:
             - id: stop
@@ -113,22 +110,22 @@ steps:
               control: break
       - id: proposal
         type: if
-        if: ${{ state.plan.proposalInput != null }}
+        if: ${{ state.search.plan.proposalInput != null }}
         then:
           steps:
             - id: evaluate_parent
               type: invoke
               use: evaluator
               with:
-                candidateRef: ${{ state.plan.proposalInput.parent }}
-                taskIds: ${{ state.plan.report.taskIds }}
+                candidateRef: ${{ state.search.plan.proposalInput.parent }}
+                taskIds: ${{ state.search.plan.taskIds }}
             - id: propose
               type: invoke
               use: proposer
               with:
-                parent: ${{ state.plan.proposalInput.parent }}
-                goal: ${{ state.plan.proposalInput.goal }}
-                editConstraints: ${{ state.plan.proposalInput.editConstraints }}
+                parent: ${{ state.search.plan.proposalInput.parent }}
+                goal: ${{ state.search.plan.proposalInput.goal }}
+                editConstraints: ${{ state.search.plan.proposalInput.editConstraints }}
                 evidenceRefs:
                   - ${{ steps.evaluate_parent.output.measurementRef }}
           output:
@@ -139,12 +136,12 @@ steps:
           steps:
             - id: evaluate_merge_parents
               type: if
-              if: ${{ state.plan.proposalResult.status == 'created' }}
+              if: ${{ state.search.plan.proposalResult.status == 'created' }}
               then:
                 steps:
                   - id: parents
                     type: foreach
-                    foreach: ${{ state.plan.report.parentRefs }}
+                    foreach: ${{ state.search.plan.parentRefs }}
                     as: parent
                     key: ${{ parent }}
                     steps:
@@ -153,14 +150,14 @@ steps:
                         use: evaluator
                         with:
                           candidateRef: ${{ parent }}
-                          taskIds: ${{ state.plan.report.taskIds }}
+                          taskIds: ${{ state.search.plan.taskIds }}
                     output: ${{ steps.evaluate.output.measurementRef }}
                 output: ${{ steps.parents.output }}
               else:
                 steps: []
                 output: []
           output:
-            proposal: ${{ state.plan.proposalResult }}
+            proposal: ${{ state.search.plan.proposalResult }}
             parentMeasurementRefs: ${{ steps.evaluate_merge_parents.output }}
       - id: proposal_evaluation
         type: if
@@ -172,63 +169,44 @@ steps:
               use: evaluator
               with:
                 candidateRef: ${{ steps.proposal.output.proposal.candidateRef }}
-                taskIds: ${{ state.plan.report.taskIds }}
+                taskIds: ${{ state.search.plan.taskIds }}
           output: ${{ steps.evaluate.output.measurementRef }}
         else:
           steps: []
           output: null
       - id: compare
         type: invoke
-        use: optimizer
+        use: search
         with:
           action: compare
-          state: ${{ state.optimizer }}
-          settings: ${{ config }}
-          plan: ${{ state.plan }}
           parentMeasurementRefs: ${{ steps.proposal.output.parentMeasurementRefs }}
           proposal: ${{ steps.proposal.output.proposal }}
           proposalMeasurementRef: ${{ steps.proposal_evaluation.output }}
+          stateRef: ${{ state.search.stateRef }}
       - id: save_comparison
         type: state
         state:
-          optimizer: ${{ steps.compare.output.state }}
-          plan: ${{ steps.compare.output.plan }}
+          search: ${{ steps.compare.output }}
       - id: select_if_accepted
         type: if
-        if: ${{ steps.compare.output.selectionRequired }}
+        if: ${{ steps.compare.output.evaluation != null }}
         then:
           steps:
             - id: evaluate_selection
               type: invoke
               use: evaluator
               with:
-                candidateRef: ${{ state.plan.report.candidateRef }}
-                taskIds: ${{ state.optimizer.selectionTaskIds }}
+                candidateRef: ${{ state.search.evaluation.candidateRef }}
+                taskIds: ${{ state.search.evaluation.taskIds }}
             - id: select
               type: invoke
-              use: optimizer
+              use: search
               with:
                 action: select
-                state: ${{ state.optimizer }}
-                settings: ${{ config }}
-                plan: ${{ state.plan }}
                 measurementRef: ${{ steps.evaluate_selection.output.measurementRef }}
+                stateRef: ${{ state.search.stateRef }}
             - id: save_selection
               type: state
               state:
-                optimizer: ${{ steps.select.output.state }}
-                plan: ${{ steps.select.output.plan }}
-output:
-  baselineCandidateRef: ${{ state.optimizer.baselineCandidateRef }}
-  bestCandidateRef: ${{ state.optimizer.bestCandidateRef }}
-  bestAggregateScore: ${{ state.optimizer.bestAggregateScore }}
-  completedRounds: ${{ state.optimizer.completedRounds }}
-  rolloutsUsed: ${{ state.optimizer.rolloutsUsed }}
-  maxRollouts: ${{ config.maxRollouts }}
-  feedbackTaskIds: ${{ state.optimizer.feedbackTaskIds }}
-  selectionTaskIds: ${{ state.optimizer.selectionTaskIds }}
-  datasetDegenerate: ${{ state.optimizer.datasetDegenerate }}
-  stopReason: ${{ state.optimizer.stopReason }}
-  candidates: ${{ state.optimizer.candidates }}
-  rounds: ${{ state.optimizer.rounds }}
-  weightsChanged: false
+                search: ${{ steps.select.output }}
+output: ${{ state.search.result }}

@@ -7,15 +7,16 @@ import type {
   RuntimeContext,
 } from '../../contracts/index.js';
 import type {
-  GepaModule,
-  GepaOptimizerInput,
-  GepaOptimizerOutput,
-  GepaSettings,
-} from '../../contracts/plugin-types/gepa.js';
+  PopulationSearchInput,
+  PopulationSearchOutput,
+} from '../../contracts/plugin-types/population-search.js';
+import { configSchema, type GepaModule, type GepaConfig } from './schema.js';
 import {
-  gepaPlanSchema,
-  gepaStateSchema,
-} from '../../contracts/plugin-types/gepa.js';
+  readSearchState,
+  writeSearchState,
+  type GepaStepResult,
+  type RoundPlan,
+} from './state.js';
 import { digest, object, string, strings } from '../../shared/json.js';
 import { metricDefinitionSchema } from '../../contracts/models/measurement.js';
 import { parseConfig, validate } from '../../shared/schema.js';
@@ -79,10 +80,6 @@ function validateModules(modules: readonly GepaModule[]): void {
     ids.add(module.id);
     safePath(module.path);
   }
-}
-
-function readState(value: JsonObject): GepaState {
-  return parseConfig<GepaState>(gepaStateSchema, value, 'GEPA state');
 }
 
 function scoresFromEvaluation(
@@ -295,7 +292,7 @@ async function loadPopulationPrompts(
 
 async function commitPrompts(
   ctx: RuntimeContext,
-  settings: GepaSettings,
+  settings: GepaConfig,
   base: CandidateRecord,
   modules: readonly GepaModule[],
   prompts: Readonly<Record<string, string>>,
@@ -396,7 +393,7 @@ async function recordCandidateMeta(
   return newCandidate(ref, record.artifactRef, meta);
 }
 
-function finishState(state: GepaState, settings: GepaSettings): void {
+function finishState(state: GepaState, settings: GepaConfig): void {
   const best = bestCandidate(state.candidates, state.selectionTaskIds);
   state.bestCandidateRef = best.candidate?.ref ?? null;
   state.bestAggregateScore = best.score;
@@ -418,30 +415,19 @@ function finishState(state: GepaState, settings: GepaSettings): void {
   }
 }
 
-interface RoundPlan extends JsonObject {
-  report: RoundReport;
-  proposalInput: {
-    parent: string;
-    goal: string;
-    editConstraints: JsonObject;
-  } | null;
-  proposalResult: ProposerOutput | null;
-  candidate: CandidateRecord | null;
-}
-
 function result(
   state: GepaState,
   plan: RoundPlan | null = null,
   selectionRequired = false,
-): GepaOptimizerOutput {
+): GepaStepResult {
   return { state, plan, selectionRequired };
 }
 
 function finishRound(
   state: GepaState,
-  settings: GepaSettings,
+  settings: GepaConfig,
   report: RoundReport,
-): GepaOptimizerOutput {
+): GepaStepResult {
   if (report.status === 'admitted' || report.status === 'rejected')
     state.completedRounds += 1;
   state.rounds.push(report);
@@ -476,8 +462,8 @@ function roundReport(
 async function prepareRound(
   ctx: RuntimeContext,
   state: GepaState,
-  settings: GepaSettings,
-): Promise<GepaOptimizerOutput> {
+  settings: GepaConfig,
+): Promise<GepaStepResult> {
   finishState(state, settings);
   if (state.done) return result(state);
   const rng = stateRngFrom(state);
@@ -593,13 +579,13 @@ async function prepareRound(
 }
 
 async function compareRound(
-  input: Extract<GepaOptimizerInput, { action: 'compare' }>,
+  input: Extract<PopulationSearchInput, { action: 'compare' }>,
   ctx: RuntimeContext,
   state: GepaState,
   plan: RoundPlan,
-): Promise<GepaOptimizerOutput> {
+  settings: GepaConfig,
+): Promise<GepaStepResult> {
   const { report } = plan;
-  const settings = input.settings;
   const parentEvaluations: EvaluationOutcome[] = [];
   // A no-change deterministic merge has no source evaluations; a mutation
   // always has the parent feedback that informed its Proposer request.
@@ -711,110 +697,173 @@ async function compareRound(
   return result(state, plan, true);
 }
 
-export const createGepaOptimizer: OperationDefinition<
-  GepaOptimizerInput,
-  GepaOptimizerOutput
->['create'] = async (): Promise<
-  Operation<GepaOptimizerInput, GepaOptimizerOutput>
-> => ({
-  async execute(input, context): Promise<GepaOptimizerOutput> {
-    context.signal.throwIfAborted();
-    const settings = input.settings;
-    validateModules(settings.modules);
-    if (input.action === 'initialize') {
-      const rng = new Rng(settings.seed);
-      const sampled = sampleWithoutReplacement(
-        rng,
-        settings.selectionTaskIds,
-        Math.min(settings.paretoSize, settings.selectionTaskIds.length),
-      );
-      const tasks = sampled.slice(0, settings.maxRollouts);
-      const state = emptyState(settings, tasks, rng);
-      const initial = await context.readCandidate(input.candidateRef);
-      state.selectionTruncated =
-        tasks.length < settings.selectionTaskIds.length;
-      state.baselineCandidateRef = initial.ref;
-      state.candidates = [
-        {
-          ref: initial.ref,
-          artifactRef: initial.artifactRef,
-          applicationParentRef: null,
-          parents: [],
-          ancestors: [],
-          origin: 'base',
-          createdRound: 0,
-          scores: {},
-          aggregate: null,
-          aggregateComplete: false,
-          moduleIds: settings.modules.map((module) => module.id),
-        },
-      ];
-      return result(state);
-    }
-    const state = readState(input.state);
-    if (input.action === 'observe-initial') {
-      if (state.selectionTaskIds.length) {
-        if (!input.measurementRef)
-          throw new Error('GEPA initial selection requires a measurement');
-        const initial = state.candidates[0]!;
-        const evaluation = await readEvaluation(
-          context,
-          state,
-          input.measurementRef,
-          initial.ref,
-          state.selectionTaskIds,
-        );
-        state.selectionConditions = Object.fromEntries(
-          state.selectionTaskIds.map((task) => [
-            task,
-            scoreConditions(evaluation, task),
-          ]),
-        );
-        state.candidates[0] = addScores(
-          initial,
-          scoresFromEvaluation(evaluation, state.selectionTaskIds),
-          state.selectionTaskIds,
-        );
-      }
-      finishState(state, settings);
-      return result(state);
-    }
-    if (input.action === 'prepare')
-      return prepareRound(context, state, settings);
-    const plan = parseConfig<RoundPlan>(
-      gepaPlanSchema,
-      input.plan,
-      'GEPA round plan',
+async function advanceSearch(
+  input: PopulationSearchInput,
+  context: RuntimeContext,
+  settings: GepaConfig,
+  configuration: string,
+): Promise<GepaStepResult> {
+  context.signal.throwIfAborted();
+  validateModules(settings.modules);
+  if (input.action === 'initialize') {
+    const initialization = {
+      ...settings,
+      feedbackTaskIds: input.dataset.trainTaskIds,
+      selectionTaskIds: input.dataset.validationTaskIds,
+    };
+    const rng = new Rng(settings.seed);
+    const sampled = sampleWithoutReplacement(
+      rng,
+      initialization.selectionTaskIds,
+      Math.min(settings.paretoSize, initialization.selectionTaskIds.length),
     );
-    if (input.action === 'compare')
-      return compareRound(input, context, state, plan);
-    const { candidate, report } = plan;
-    if (!candidate)
-      throw new Error('GEPA selection requires a compared candidate');
-    const selection = await readEvaluation(
-      context,
-      state,
-      input.measurementRef,
-      candidate.ref,
-      state.selectionTaskIds,
-    );
-    report.rollouts += selection.rollouts;
-    report.selectionScores = selectionScores(state, selection);
-    if (Object.values(report.selectionScores).some((score) => score === null)) {
-      report.status = 'evaluation-failed';
-      report.reason =
-        'Selection scores were unavailable or incomparable with the initial selection conditions.';
-    } else {
-      state.candidates.push(
-        addScores(candidate, report.selectionScores, state.selectionTaskIds),
+    const tasks = sampled.slice(0, settings.maxRollouts);
+    const state = emptyState(initialization, tasks, rng);
+    const initial = await context.readCandidate(input.candidateRef);
+    state.selectionTruncated =
+      tasks.length < initialization.selectionTaskIds.length;
+    state.baselineCandidateRef = initial.ref;
+    state.candidates = [
+      {
+        ref: initial.ref,
+        artifactRef: initial.artifactRef,
+        applicationParentRef: null,
+        parents: [],
+        ancestors: [],
+        origin: 'base',
+        createdRound: 0,
+        scores: {},
+        aggregate: null,
+        aggregateComplete: false,
+        moduleIds: settings.modules.map((module) => module.id),
+      },
+    ];
+    return result(state);
+  }
+  const { state, plan } = await readSearchState(
+    context,
+    input.stateRef,
+    configuration,
+  );
+  if (input.action === 'observe-initial') {
+    if (state.selectionTaskIds.length) {
+      if (!input.measurementRef)
+        throw new Error('GEPA initial selection requires a measurement');
+      const initial = state.candidates[0]!;
+      const evaluation = await readEvaluation(
+        context,
+        state,
+        input.measurementRef,
+        initial.ref,
+        state.selectionTaskIds,
       );
-      report.status = 'admitted';
-      report.reason =
-        report.strategy === 'mutation'
-          ? 'Strict minibatch improvement; candidate added to the population.'
-          : 'Merged candidate matched or improved on both source parents; candidate added to the population.';
+      state.selectionConditions = Object.fromEntries(
+        state.selectionTaskIds.map((task) => [
+          task,
+          scoreConditions(evaluation, task),
+        ]),
+      );
+      state.candidates[0] = addScores(
+        initial,
+        scoresFromEvaluation(evaluation, state.selectionTaskIds),
+        state.selectionTaskIds,
+      );
     }
-    return finishRound(state, settings, report);
-  },
-  async dispose(): Promise<void> {},
-});
+    finishState(state, settings);
+    return result(state);
+  }
+  if (input.action === 'prepare') return prepareRound(context, state, settings);
+  if (!plan) throw new Error('GEPA search has no pending round plan');
+  if (input.action === 'compare')
+    return compareRound(input, context, state, plan, settings);
+  const { candidate, report } = plan;
+  if (!candidate)
+    throw new Error('GEPA selection requires a compared candidate');
+  const selection = await readEvaluation(
+    context,
+    state,
+    input.measurementRef,
+    candidate.ref,
+    state.selectionTaskIds,
+  );
+  report.rollouts += selection.rollouts;
+  report.selectionScores = selectionScores(state, selection);
+  if (Object.values(report.selectionScores).some((score) => score === null)) {
+    report.status = 'evaluation-failed';
+    report.reason =
+      'Selection scores were unavailable or incomparable with the initial selection conditions.';
+  } else {
+    state.candidates.push(
+      addScores(candidate, report.selectionScores, state.selectionTaskIds),
+    );
+    report.status = 'admitted';
+    report.reason =
+      report.strategy === 'mutation'
+        ? 'Strict minibatch improvement; candidate added to the population.'
+        : 'Merged candidate matched or improved on both source parents; candidate added to the population.';
+  }
+  return finishRound(state, settings, report);
+}
+
+function searchResult(state: GepaState, settings: GepaConfig): JsonObject {
+  return {
+    baselineCandidateRef: state.baselineCandidateRef,
+    bestCandidateRef: state.bestCandidateRef,
+    bestAggregateScore: state.bestAggregateScore,
+    completedRounds: state.completedRounds,
+    rolloutsUsed: state.rolloutsUsed,
+    maxRollouts: settings.maxRollouts,
+    feedbackTaskIds: state.feedbackTaskIds,
+    selectionTaskIds: state.selectionTaskIds,
+    datasetDegenerate: state.datasetDegenerate,
+    stopReason: state.stopReason,
+    candidates: state.candidates,
+    rounds: state.rounds,
+    weightsChanged: false,
+  };
+}
+
+export const createGepaSearch: OperationDefinition<
+  PopulationSearchInput,
+  PopulationSearchOutput,
+  GepaConfig
+>['create'] = async (
+  raw,
+): Promise<Operation<PopulationSearchInput, PopulationSearchOutput>> => {
+  const settings = parseConfig<GepaConfig>(configSchema, raw, 'GEPA config');
+  const configuration = digest(settings);
+  return {
+    async execute(input, context): Promise<PopulationSearchOutput> {
+      const step = await advanceSearch(input, context, settings, configuration);
+      const { state, plan } = step;
+      const stateRef = await writeSearchState(context, configuration, step);
+      return {
+        stateRef,
+        done: state.done,
+        iterationLimit: settings.maxRounds,
+        evaluation:
+          input.action === 'initialize' && state.selectionTaskIds.length
+            ? {
+                candidateRef: input.candidateRef,
+                taskIds: state.selectionTaskIds,
+              }
+            : step.selectionRequired
+              ? {
+                  candidateRef: plan!.candidate!.ref,
+                  taskIds: state.selectionTaskIds,
+                }
+              : null,
+        plan: plan
+          ? {
+              parentRefs: plan.report.parentRefs,
+              taskIds: plan.report.taskIds,
+              proposalInput: plan.proposalInput,
+              proposalResult: plan.proposalResult,
+            }
+          : null,
+        result: state.done ? searchResult(state, settings) : null,
+      };
+    },
+    async dispose(): Promise<void> {},
+  };
+};

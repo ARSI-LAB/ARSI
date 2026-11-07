@@ -54,7 +54,8 @@ steps:
     with:
       action: initialize
       candidateRef: ${{ input.candidateRef }}
-      dataset: ${{ config.dataset }}
+      feedbackTaskIds: ${{ config.dataset.trainTaskIds }}
+      selectionTaskIds: ${{ config.dataset.validationTaskIds }}
   - id: save_initial
     type: state
     state:

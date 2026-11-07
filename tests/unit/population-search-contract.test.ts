@@ -18,10 +18,8 @@ test('population search exchanges work and opaque state without algorithm settin
     {
       action: 'initialize',
       candidateRef: 'parent',
-      dataset: {
-        trainTaskIds: ['training'],
-        validationTaskIds: ['validation'],
-      },
+      feedbackTaskIds: ['training'],
+      selectionTaskIds: ['validation'],
     },
     { action: 'observe-initial', stateRef: 'state', measurementRef: null },
     { action: 'prepare', stateRef: 'state' },
@@ -93,20 +91,34 @@ test('population search exchanges work and opaque state without algorithm settin
   );
 });
 
-test('population search validates the initialization dataset before execution', () => {
-  for (const dataset of [
-    { trainTaskIds: [], validationTaskIds: ['validation'] },
+test('population search validates initialization task ID pools before execution', () => {
+  for (const pools of [
+    { feedbackTaskIds: [], selectionTaskIds: ['validation'] },
     {
-      trainTaskIds: ['training'],
-      validationTaskIds: ['validation', 'validation'],
+      feedbackTaskIds: ['training'],
+      selectionTaskIds: ['validation', 'validation'],
     },
-    { trainTaskIds: ['training'] },
+    { feedbackTaskIds: ['training'] },
   ])
     assert.throws(() =>
       validate(populationSearchContract.input_schema, {
         action: 'initialize',
         candidateRef: 'parent',
-        dataset,
+        ...pools,
       }),
     );
+  assert.throws(
+    () =>
+      validate(populationSearchContract.input_schema, {
+        action: 'initialize',
+        candidateRef: 'parent',
+        feedbackTaskIds: ['training'],
+        selectionTaskIds: ['validation'],
+        dataset: {
+          trainTaskIds: ['training'],
+          validationTaskIds: ['validation'],
+        },
+      }),
+    /additional properties/,
+  );
 });

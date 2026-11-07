@@ -22,9 +22,9 @@ const settings: GepaConfig = {
   goal: 'Improve the prompt',
 };
 
-const dataset = {
-  trainTaskIds: ['feedback'],
-  validationTaskIds: ['selection'],
+const taskPools = {
+  feedbackTaskIds: ['feedback'],
+  selectionTaskIds: ['selection'],
 };
 
 async function scope(t: TestContext): Promise<RuntimeContext> {
@@ -82,7 +82,7 @@ test('GEPA state references restore into a fresh implementation and retain earli
   const context = await scope(t);
   const search = await createGepaSearch(settings, context);
   const initial = await search.execute(
-    { action: 'initialize', candidateRef: 'baseline', dataset },
+    { action: 'initialize', candidateRef: 'baseline', ...taskPools },
     context,
   );
   const saved = await context.artifacts.readJson(initial.stateRef);
@@ -103,7 +103,7 @@ test('GEPA rejects state references from another configuration or execution scop
   const context = await scope(t);
   const search = await createGepaSearch(settings, context);
   const initial = await search.execute(
-    { action: 'initialize', candidateRef: 'baseline', dataset },
+    { action: 'initialize', candidateRef: 'baseline', ...taskPools },
     context,
   );
   const input = { action: 'prepare' as const, stateRef: initial.stateRef };
@@ -153,7 +153,7 @@ test('GEPA retries an unconfirmed snapshot write with the same immutable state i
   const input = {
     action: 'initialize' as const,
     candidateRef: 'baseline',
-    dataset,
+    ...taskPools,
   };
   await assert.rejects(
     search.execute(input, interrupted),

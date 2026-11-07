@@ -34,8 +34,9 @@ GEPA's selection, comparison, and population bookkeeping; it does not route
 calls to those plugins. Mutation uses `proposer.agent`, which invokes `agent`,
 validates edits, and commits through the Application. The Recipe configures the
 Evaluator and Agent and keeps algorithm parameters in `bindings.search.config`.
-The task split lives in `policy.config.dataset`, matching the other harness
-examples. The search plugin owns its algorithm configuration Schema. Its public
+The task split and its Schema belong to the Policy, with the task IDs configured
+in `policy.config.dataset`. The search plugin owns its algorithm configuration
+Schema. Its public
 `contract.population-search` interface exchanges immutable state references,
 evaluation requests and proposal plans; GEPA's population, lineage, RNG and
 pending-round details stay inside the implementation's state artifacts.
@@ -107,11 +108,18 @@ deterministic.
 The Recipe uses ten training tasks and five disjoint validation tasks from the
 [WorkBuddy Bench Office subset](https://github.com/Tencent/workbuddy-bench#overview).
 The ordered task lists live in `policy.config.dataset`: `trainTaskIds` is the
-training pool and `validationTaskIds` is the validation pool. The Policy passes
-this dataset to the search plugin during initialization. `paretoSize: 5` keeps all five
+training pool and `validationTaskIds` is the validation pool. The Policy maps
+these to the search initialization inputs `feedbackTaskIds` and
+`selectionTaskIds`. The search plugin returns the selected task IDs, and the
+Policy invokes the Evaluator with those IDs. `paretoSize: 5` keeps all five
 validation tasks for candidate selection. There is no independent test set or
 test evaluation stage; GEPA does not need an extra `testTaskIds` setting.
 `datasetDegenerate` is `false` for this split.
+
+The local Evaluator runs up to five tasks concurrently and prepares up to five
+task environments in pipeline mode. A validation evaluation submits the same
+five task IDs in one Evaluator call; the one-task feedback minibatch uses one
+execution slot. GEPA rounds retain their existing Policy order.
 
 The existing run limits remain `maxRounds: 3`, `maxRollouts: 64`, and
 `minibatchSize: 1`. These allow at most three optimization attempts, each sampling

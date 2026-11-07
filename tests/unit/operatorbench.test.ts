@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { RuntimeContext } from '../../src/contracts/index.js';
 import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/service.js';
 
@@ -17,9 +21,24 @@ test('operatorbench requires its task directory and an SDK benchmark', async () 
   );
 });
 
-test('operatorbench rejects invalid SDK templates and ownership conflicts at creation', async () => {
-  const context = new RuntimeContext();
-  const task = { directory: '/unused' };
+test('operatorbench rejects invalid bound configs before acquiring a candidate, writing inputs or charging', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'rsi-invalid-operator-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const context = new RuntimeContext().extend({
+    directory,
+    signal: new AbortController().signal,
+    withInstance: async () =>
+      assert.fail('Invalid config acquired a candidate'),
+    charge: async () => assert.fail('Invalid config charged the budget'),
+  });
+  const task = {
+    directory: fileURLToPath(
+      new URL(
+        '../../examples/artifacts/kernel/transpose-copy/task/',
+        import.meta.url,
+      ),
+    ),
+  };
   for (const [overrides, error] of [
     [{ fixtures: 'unused' }, /unknown field fixtures/],
     [{ services: {} }, /services is owned by RSI/],
@@ -42,9 +61,21 @@ test('operatorbench rejects invalid SDK templates and ownership conflicts at cre
       /services is owned by RSI/,
     ],
   ] as const) {
-    await assert.rejects(
-      createOperatorbench({ task, benchmark: 'kernel', ...overrides }, context),
-      error,
+    const operation = await createOperatorbench(
+      { task, benchmark: 'kernel', ...overrides },
+      context,
     );
+    try {
+      await assert.rejects(
+        operation.execute(
+          { action: 'evaluate', candidateRef: 'candidate', caseIds: ['fixed'] },
+          context,
+        ),
+        error,
+      );
+    } finally {
+      await operation.dispose();
+    }
   }
+  assert.deepEqual(await readdir(directory), []);
 });

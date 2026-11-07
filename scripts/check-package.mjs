@@ -391,12 +391,12 @@ async function packageResource(path){
 }
 const context=new RuntimeContext().extend({traceId:'consumer'});
 const runtime=await createRuntime({rootDirectory:${JSON.stringify(outside)},context});
-for(const [id,benchmark,services] of [
- ['evaluator.agentbench','gsm8k',{default:{model:'consumer',base_url:'https://consumer.invalid'}}],
- ['evaluator.inferencebench','agentx',{default:{}}],
+for(const [id,template] of [
+ ['evaluator.agentbench',{benchmark:'gsm8k',services:{default:{model:'consumer',base_url:'https://consumer.invalid'}}}],
+ ['evaluator.inferencebench',{benchmark:'agentx'}],
 ]){
  const definition=runtime.registry.get(id);
- const config={hardware:'gpu',services,benchmark};
+ const config={hardware:'gpu',...template};
  const bind=value=>Binding.resolve({name:'evaluator',registry:runtime.registry,required:definition.contract,override:{declaration:{plugin:id,config:value},directory:${JSON.stringify(outside)}}});
  const binding=bind(config);
  assert.deepEqual(binding.config,config,'installed bindings preserve native fields and instance templates');

@@ -227,7 +227,7 @@ ember-rsi show terminal-skills-01 # Inspect the saved status and results
 - [选择内置 Policy 和组件](guides/built-in-components_zh.md)，匹配你的优化目标和评测环境。
 - [配置实验](guides/configuration_zh.md)，了解 Recipe 字段、插件绑定、Agent 与环境变量及预算。
 - [运行、观察与恢复实验](guides/running-experiments_zh.md)，使用 CLI 和工作台。
-- [使用 Skill](guides/using-skills_zh.md)，为编程助手、被评测的 Agent 或优化器配置 Skill。
+- [使用 Skill](guides/using-skills_zh.md)，为个人编程 Agent、被评测的 Agent 或优化器配置 Skill。
 - [配置 Memory](guides/memory_zh.md)，整理执行经验并传给后续优化调用。
 - [配置 Reflection](guides/reflection_zh.md)，根据执行证据改进插件，并将插件修订版本用于当前或后续实验。
 - 调优推理服务参数：参见[网格搜索](../../examples/artifacts/inference/parameter-grid/README.md)或 [Optuna](../../examples/artifacts/inference/parameter-tpe/README.md) 示例。

@@ -2,18 +2,45 @@
 
 English | [简体中文](using-skills_zh.md) · [Getting started](../getting-started.md)
 
-This guide explains how to provide skills to a coding assistant, the evaluated Agent, and the optimizer.
+This guide covers three ways to provide skills: to a coding Agent, to the evaluated Agent, and to optimization plugins.
 
-## Give a coding assistant the RSI skill
+## Give a coding Agent the RSI skill
 
-Make the complete [`skills/ember-rsi/` directory](../../../skills/ember-rsi/SKILL.md) available using your assistant's skill discovery mechanism, or point it directly to `SKILL.md` in this checkout. Keep `references/` and `assets/` alongside the entry file so the assistant can follow the instructions and load examples. The skill names its target RSI revision. Ask the assistant to check the current catalog and Schemas before adapting a referenced example.
+The RSI skill guides a coding Agent through writing Recipes, validating configuration, and troubleshooting experiments.
 
-For example, ask the assistant to create a one-round WikiSkill Recipe with distinct train, validation, and test tasks and validate it. For an existing experiment, give the assistant its ID and ask it to trace the candidate, measurement, and selection receipts.
+1. Place the complete [RSI skill directory](../../../skills/ember-rsi/SKILL.md) in a skill location supported by your Agent, keeping `SKILL.md` and its sibling `references/` and `assets/` directories.
+2. Ask the Agent to read the skill, then give it a concrete task, such as “Write a Recipe for this project and validate it.” You can also give the Agent the path to `SKILL.md` directly.
 
-## Add a skill to the evaluated Bundle
+## Add a skill to the evaluated Agent
 
-The WikiSkill baseline starts with no skills. To provide an initial skill, create `baseline/plugins/terminal-base/skills/<name>/SKILL.md`; the baseline's terminal plugin loads it into the evaluated Agent's system prompt. If you want the loop to create or edit skills, include that path in the Application's Target. A valid file has YAML frontmatter with string `name` and `description` and a nonempty Markdown body. See the [WikiSkill example](../../../examples/harness/dsh-wikiskill/README.md) and [baseline loader](../../../examples/harness/dsh-wikiskill/baseline/plugins/terminal-base/index.js).
+These skills are provided with the Baseline Agent Bundle and read by its Agent plugin to guide the evaluated Agent's task execution.
 
-## Give the optimizer a skill
+1. Prepare a directory containing `SKILL.md`. Its `name` identifies the skill, `description` explains its purpose, and the body contains the instructions. For example:
 
-A model-backed Proposer can load a separate skill through its binding's `config.skills`. Each entry points to a skill directory containing `SKILL.md`. For example, Harness² gives its Proposer bindings the [harness-edit skill](../../../src/policies/harness2/skills/harness-edit/SKILL.md) through Policy defaults. To override that list for one binding, set `skills` in the binding's Recipe config and list every directory it should receive. Paths declared there are relative to the Recipe. These skills guide the optimizer's edit workflow. The evaluated Agent receives its own skills from the Bundle.
+   ```markdown
+   ---
+   name: output-checks
+   description: Check task outputs before finishing.
+   ---
+
+   Before finishing, verify that the requested files exist and report any missing outputs.
+   ```
+
+2. Place the directory where the Agent plugin expects it within the Baseline. The plugin reads the file and adds its contents to the Agent's prompt or context; custom Agent plugins must implement this logic.
+3. To let the optimization flow create or edit these skills, include their paths in the permitted [Target](../getting-started.md#target) scope.
+
+## Configure skills for optimization plugins
+
+Plugins that support `config.skills`, such as `proposer.agent`, read the skills and pass their contents as context to the Agent performing optimization tasks.
+
+1. Prepare a skill directory, such as `my-experiment/skills/code-editing/SKILL.md`.
+2. Add `skills` to an existing plugin binding's configuration in the Recipe:
+
+   ```yaml
+   # Recipe excerpt
+   bindings:
+     proposer:
+       config:
+         skills:
+           - ./skills/code-editing
+   ```

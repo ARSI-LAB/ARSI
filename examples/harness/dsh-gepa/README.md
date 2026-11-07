@@ -141,10 +141,8 @@ from Runtime Reflection, which revises plugin guidance.
 The example opts into the SDK's `includeTaskAnswer` recording option to retain
 the public task prompt. The evaluator adapter publishes only that prompt as an
 initial execution event; any reference answer remains in private native records.
-The Policy's Proposer defaults set `maxModelCalls: 32` per Agent session. The
+The Recipe and Policy leave model-call and output-token limits unset. The
 Recipe-wide budget limits only elapsed wall time. Evidence uses the existing
-Runtime summary limits.
-The session allowance accommodates evidence reads and file editing; it is not
-an instruction to use every call. The Office target edits
+Runtime summary limits. The Office target edits
 only `plugins/office-base/prompts/office-discipline.md`; model weights and all
 other Bundle files are unchanged.

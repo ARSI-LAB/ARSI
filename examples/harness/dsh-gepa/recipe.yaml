@@ -58,7 +58,6 @@ bindings:
           base_url: ${MODEL_ENDPOINT}
           api_key: ${MODEL_API_KEY}
           api: openai-completions
-          maxTokens: 65536
       benchmark:
         name: workbuddy
         scenario: office
@@ -93,7 +92,6 @@ bindings:
       model: deepseek-v4.1-flash
       base_url: ${MODEL_ENDPOINT}
       api_key: ${MODEL_API_KEY}
-      maxTokens: 65536
       contextWindow: 262144
       thinkingLevel: low
       retries: 1

@@ -321,7 +321,7 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   assert.equal(recipe.bindings.search!.pluginId, 'search.gepa');
   const dataset = object(recipe.policyConfig.dataset);
   const searchConfig = recipe.bindings.search!.config;
-  assert.equal(searchConfig.maxRounds, 3);
+  assert.equal(searchConfig.maxRounds, 10);
   assert.equal(searchConfig.maxRollouts, 64);
   assert.equal((dataset.trainTaskIds as string[]).length, 10);
   assert.equal((dataset.validationTaskIds as string[]).length, 5);

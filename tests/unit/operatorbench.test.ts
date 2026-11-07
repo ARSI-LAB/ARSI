@@ -1,9 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { RuntimeContext } from '../../src/contracts/index.js';
 import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/service.js';
 
@@ -21,40 +17,9 @@ test('operatorbench requires its task directory and an SDK benchmark', async () 
   );
 });
 
-test('invalid SDK templates and operator binding conflicts fail before writing files or charging', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'rsi-operator-config-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const task = {
-    directory: fileURLToPath(
-      new URL(
-        '../../examples/artifacts/kernel/transpose-copy/task/',
-        import.meta.url,
-      ),
-    ),
-  };
-  let charges = 0;
-  const context = new RuntimeContext().extend({
-    directory,
-    signal: new AbortController().signal,
-    async charge() {
-      charges++;
-    },
-    async withInstance(_ref, _capability, use) {
-      return use({
-        kind: 'kernel-source',
-        format: 'triton-ascend',
-        entryPoint: 'kernel_function',
-        directory,
-        artifactRef: 'fixture',
-        sourceDigest: 'a'.repeat(64),
-      });
-    },
-  });
-  const input = {
-    action: 'evaluate' as const,
-    candidateRef: 'candidate',
-    caseIds: ['fixed'],
-  };
+test('operatorbench rejects invalid SDK templates and ownership conflicts at creation', async () => {
+  const context = new RuntimeContext();
+  const task = { directory: '/unused' };
   for (const [overrides, error] of [
     [{ fixtures: 'unused' }, /unknown field fixtures/],
     [{ services: {} }, /services is owned by RSI/],
@@ -77,13 +42,9 @@ test('invalid SDK templates and operator binding conflicts fail before writing f
       /services is owned by RSI/,
     ],
   ] as const) {
-    const operation = await createOperatorbench(
-      { task, benchmark: 'kernel', ...overrides },
-      context,
+    await assert.rejects(
+      createOperatorbench({ task, benchmark: 'kernel', ...overrides }, context),
+      error,
     );
-    await assert.rejects(operation.execute(input, context), error);
-    await operation.dispose();
   }
-  assert.equal(charges, 0);
-  assert.deepEqual(await readdir(directory), []);
 });

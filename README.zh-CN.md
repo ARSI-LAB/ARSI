@@ -10,7 +10,7 @@
 
 [简介](#overview) · [工作原理](#architecture) · [安装与部署](#installation) · [使用 ember-rsi](#usage) · [内置 RSI 策略](#built-in-rsi-strategies) · [一切皆插件](#extensions) · [使用指南](#user-guide)
 
-<a id="overview"></a>
+
 
 ## ℹ️ 简介
 
@@ -20,7 +20,7 @@
 - **内置策略与扩展能力**。框架内置 Agent Harness 优化和推理参数搜索策略。为其他目标定义允许的修改、生成候选方案并衡量效果，即可将其接入同一框架。
 - **面向开发者和编程 Agent**。开发者可通过 CLI 配置和运行实验，并在网页中查看结果。编程 Agent 可通过 RSI Skill 使用同一套工具。我们希望它们能在开发者授权的范围和预算内规划、校验、运行实验，诊断失败，并根据评测结果决定下一步。
 
-<a id="architecture"></a>
+
 
 ## 🔄 工作原理
 
@@ -30,7 +30,7 @@
 2. **运行 RSI 实验**。Runtime 按 Policy 执行迭代。典型流程是从基线出发，提出并校验修改、评测候选版本，再根据结果选择下一轮的起点。
 3. **让组件自进化**。Policy 可调用 Memory 沉淀实验经验，供组件在后续迭代中使用，也可调用 Reflection 根据实验反馈提出对组件提示词、资源或配置的改进。
 
-<a id="installation"></a>
+
 
 ## 📦 安装与部署
 
@@ -91,11 +91,11 @@ npx skills add evolving-foundry/ember-rsi --skill ember-rsi
 
 后续命令均在 `ember-rsi` 仓库根目录执行，使用已安装的 `ember-rsi` CLI。
 
-<a id="usage"></a>
+
 
 ## 🛠️ 使用 ember-rsi
 
-<a id="quickstart"></a>
+
 
 ### 快速开始
 
@@ -103,7 +103,7 @@ npx skills add evolving-foundry/ember-rsi --skill ember-rsi
 
 #### 1. 配置模型与评测环境
 
-下面以 [Harness² 示例](examples/harness/dsh-harness2/README.md)（WorkBuddy Office 场景）为例。请先按 Evaluator 的 [WorkBuddy 配置说明](https://github.com/evolving-foundry/ember-evaluator/blob/master/docs/users/benchmarks/workbuddy.md) 准备 **Docker**、题库与容器镜像，并确保宿主机与评测容器均可访问模型服务地址。
+下面以 [Harness² 示例](examples/harness/dsh-harness2/README.md)（WorkBuddy Office 场景）为例。请先按 Evaluator 的 [WorkBuddy 配置说明](https://github.com/evolving-foundry/ember-evaluator/blob/master/docs/users/benchmarks/workbuddy.zh-CN.md) 准备 **Docker**、题库与容器镜像，并确保宿主机与评测容器均可访问模型服务地址。
 
 ```bash
 # 在运行 ember-rsi 的同一个终端中显式设置变量，ember-rsi 不会自动读取 .env 文件。
@@ -124,7 +124,7 @@ export MODEL_API_KEY="your-api-key"
 
 #### 2. 校验、运行与续跑实验
 
-Harness² 默认在 10 个任务上优化 AgentBundle 基线（最多 40 次评测、72 小时实验总时限）。首次试跑可先在 [`recipe.yaml`](examples/harness/dsh-harness2/recipe.yaml) 的 `policy.config.dataset.taskIds` 中只保留第一道题：
+Harness² 默认在 10 个任务上优化 AgentBundle 基线（最多 40 次评测、72 小时实验总时限）。首次试跑可先在 `[recipe.yaml](examples/harness/dsh-harness2/recipe.yaml)` 的 `policy.config.dataset.taskIds` 中只保留第一道题：
 
 ```sh
 # 校验实验配方，不启动实验。
@@ -144,7 +144,7 @@ ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --resume
 ```
 
-<a id="web-workspace"></a>
+
 
 ### 查看实验进度
 
@@ -162,23 +162,23 @@ ember-rsi show my-harness2-task
 ember-rsi dashboard
 ```
 
-<a id="built-in-rsi-strategies"></a>
+
 
 ## 内置 RSI 策略
 
 
 | Policy                    | 如何优化目标                                    | 示例Recipe                                                                        | 可替换插件                                                                                                                                                                                                                                              |
 | ------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `policy.harness2`         | 评测通用、领域和组合改进，再匿名比较交付物。                    | [DSH Harness²](examples/harness/dsh-harness2/README.md)                         | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench)†, [`selector.artifact`](src/plugins/selector-artifacts), [`memory.agent`](src/plugins/memory-agent) |
-| `policy.wikiskill`        | 将训练经验汇总到 Wiki，在验证集上有所改善的 Skill 修改才进入独立测试。 | [DSH WikiSkill](examples/harness/dsh-wikiskill/README.md)                       | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`memory.agent`](src/plugins/memory-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench)†, [`selector.metric`](src/plugins/selector-metrics)     |
-| `policy.parameter-grid`   | 在参数网格中寻找满足延迟 SLO 等约束的最高吞吐配置。              | [推理参数网格搜索](examples/artifacts/inference/parameter-grid/README.md)               | [`proposer.grid`](src/plugins/proposer-grid), [`evaluator.inferencebench`](src/plugins/evaluator-inferencebench)†, [`selector.metric`](src/plugins/selector-metrics)                                                                               |
-| `policy.parameter-optuna` | 用 Optuna TPE 或随机采样搜索推理参数。                 | [推理参数 TPE 搜索](examples/artifacts/inference/parameter-tpe/README.md)             | [`proposer.optuna`](src/plugins/proposer-optuna), [`evaluator.inferencebench`](src/plugins/evaluator-inferencebench)†, [`selector.metric`](src/plugins/selector-metrics)                                                                           |
-| `policy.operator-search`  | 搜索 Triton-Ascend 算子改进方案，并独立复评选中的候选方案。     | [Transpose-copy 算子优化](examples/artifacts/kernel/transpose-copy/README.zh-CN.md) | [`agent.pi`](src/plugins/agent-pi)†, [`proposer.operator`](src/plugins/proposer-operator), [`evaluator.operatorbench`](src/plugins/evaluator-operatorbench)†, [`selector.metric`](src/plugins/selector-metrics)†                                   |
+| `policy.harness2`         | 评测通用、领域和组合改进，再匿名比较交付物。                    | [DSH Harness²](examples/harness/dsh-harness2/README.md)                         | `[agent.pi](src/plugins/agent-pi)`, `[proposer.agent](src/plugins/proposer-agent)`, `[evaluator.agentbench](src/plugins/evaluator-agentbench)`†, `[selector.artifact](src/plugins/selector-artifacts)`, `[memory.agent](src/plugins/memory-agent)` |
+| `policy.wikiskill`        | 将训练经验汇总到 Wiki，在验证集上有所改善的 Skill 修改才进入独立测试。 | [DSH WikiSkill](examples/harness/dsh-wikiskill/README.md)                       | `[agent.pi](src/plugins/agent-pi)`, `[proposer.agent](src/plugins/proposer-agent)`, `[memory.agent](src/plugins/memory-agent)`, `[evaluator.agentbench](src/plugins/evaluator-agentbench)`†, `[selector.metric](src/plugins/selector-metrics)`     |
+| `policy.parameter-grid`   | 在参数网格中寻找满足延迟 SLO 等约束的最高吞吐配置。              | [推理参数网格搜索](examples/artifacts/inference/parameter-grid/README.md)               | `[proposer.grid](src/plugins/proposer-grid)`, `[evaluator.inferencebench](src/plugins/evaluator-inferencebench)`†, `[selector.metric](src/plugins/selector-metrics)`                                                                               |
+| `policy.parameter-optuna` | 用 Optuna TPE 或随机采样搜索推理参数。                 | [推理参数 TPE 搜索](examples/artifacts/inference/parameter-tpe/README.md)             | `[proposer.optuna](src/plugins/proposer-optuna)`, `[evaluator.inferencebench](src/plugins/evaluator-inferencebench)`†, `[selector.metric](src/plugins/selector-metrics)`                                                                           |
+| `policy.operator-search`  | 搜索 Triton-Ascend 算子改进方案，并独立复评选中的候选方案。     | [Transpose-copy 算子优化](examples/artifacts/kernel/transpose-copy/README.zh-CN.md) | `[agent.pi](src/plugins/agent-pi)`†, `[proposer.operator](src/plugins/proposer-operator)`, `[evaluator.operatorbench](src/plugins/evaluator-operatorbench)`†, `[selector.metric](src/plugins/selector-metrics)`†                                   |
 
 
 † 表示插件由示例 Recipe 指定。
 
-<a id="extensions"></a>
+
 
 ## 一切皆插件
 
@@ -196,7 +196,7 @@ ember-rsi dashboard
 - [编写插件](docs/users/guides/writing-plugins_zh.md) · 选择或定义契约，编写并注册实现
 - [用 Recipe 组装实验](docs/users/guides/configuration_zh.md#recipe-字段与绑定覆盖) · 选择 Policy、绑定插件并填写配置
 
-<a id="user-guide"></a>
+
 
 ## 📖 使用指南
 
@@ -211,6 +211,8 @@ ember-rsi dashboard
 - [编写 Policy](docs/users/guides/writing-policies_zh.md)
 - [编写插件](docs/users/guides/writing-plugins_zh.md)
 - [事件系统开发指南](docs/users/guides/runtime-events_zh.md)
+
+
 
 ## 🙏 致谢
 

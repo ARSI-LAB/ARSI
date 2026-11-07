@@ -37,8 +37,6 @@ Evidence references are measurement identities, not arbitrary local paths. Use `
 
 ## Current Reflection protocol
 
-Reflection improves target plugins from execution evidence. The current implementation revises authorized plugin configuration resources, such as prompts and guidance files, to change later plugin behavior.
-
 A Policy containing `type: reflection` must declare `defaults.reflection.configFile` so it can compile. A Recipe may override the selected complete file with `reflection.configFile`; file contents do not merge. The module declares:
 
 ```yaml

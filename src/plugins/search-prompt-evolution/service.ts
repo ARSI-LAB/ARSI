@@ -33,6 +33,7 @@ import {
   mergeKey,
   mergePrompts,
   sampleWithoutReplacement,
+  sampleFeedbackTasks,
   scoresFor,
   selectCandidate,
   stateRngFrom,
@@ -469,11 +470,7 @@ async function prepareRound(
   finishState(state, settings);
   if (state.done) return result(state);
   const rng = stateRngFrom(state);
-  const batch = sampleWithoutReplacement(
-    rng,
-    state.feedbackTaskIds,
-    Math.min(settings.minibatchSize, state.feedbackTaskIds.length),
-  );
+  const batch = sampleFeedbackTasks(rng, state, settings);
   const crossoverDue =
     settings.crossoverEvery > 0 &&
     (state.rounds.length + 1) % settings.crossoverEvery === 0;

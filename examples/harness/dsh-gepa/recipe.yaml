@@ -37,12 +37,13 @@ bindings:
   search:
     plugin: search.prompt-evolution
     config:
-      maxRounds: 10
-      maxRollouts: 64
+      maxRounds: 15
+      maxRollouts: 120
       minibatchSize: 1
+      feedbackSampling: coverage-first
       paretoSize: 5
       seed: 20261105
-      crossoverEvery: 3
+      crossoverEvery: 0 # Crossover is not recommended for single-module optimization.
       modules:
         - id: office-discipline
           path: plugins/office-base/prompts/office-discipline.md

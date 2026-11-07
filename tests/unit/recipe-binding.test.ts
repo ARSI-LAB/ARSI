@@ -331,7 +331,13 @@ test('GEPA example loads through built-in registration with recipe-relative reso
     recipe.bindings.proposer!.config.evidenceView,
     'training-summary',
   );
-  assert.equal(recipe.bindings.proposer!.config.maxModelCalls, 32);
+  assert.equal(recipe.bindings.proposer!.config.maxModelCalls, undefined);
+  assert.equal(recipe.bindings.agent!.config.maxTokens, undefined);
+  for (const service of Object.values(
+    object(recipe.bindings.evaluator!.config.services),
+  ))
+    assert.equal(object(service).maxTokens, undefined);
+  assert.deepEqual(recipe.budget, { elapsedWallMs: 86400000 });
   assert.equal(recipe.bindings.proposer!.config.maxEvidenceBytes, undefined);
   const raw = await readYaml(join(directory, 'recipe.yaml'));
   for (const field of [

@@ -5,17 +5,17 @@ import {
 } from '../../contracts/plugin-types/search.js';
 import type { OperationDefinition } from '../../contracts/index.js';
 import { configSchema, type GepaConfig } from './schema.js';
-import { createGepaSearch } from './service.js';
+import { createPromptEvolutionSearch } from './service.js';
 
-export const gepaSearchDefinition: OperationDefinition<
+export const promptEvolutionSearchDefinition: OperationDefinition<
   SearchInput,
   SearchOutput,
   GepaConfig
 > = {
-  id: 'search.gepa',
+  id: 'search.prompt-evolution',
   description:
-    'Run GEPA reflective prompt evolution with Pareto candidate sampling, ancestry-aware crossover and truthful rollout accounting.',
+    'Evolve modular prompts through reflective proposals, Pareto candidate sampling and ancestry-aware crossover.',
   contract: searchContract,
   configSchema,
-  create: createGepaSearch,
+  create: createPromptEvolutionSearch,
 };

@@ -3,7 +3,7 @@
 This example optimizes the Office discipline prompt with GEPA v2. The
 [Recipe](recipe.yaml) uses the [baseline Office Bundle](baseline/) and its narrow
 [Target](target.yaml). The algorithm source is
-[`src/plugins/gepa/`](../../../src/plugins/gepa/) and its orchestration Policy is
+[`src/plugins/search-prompt-evolution/`](../../../src/plugins/search-prompt-evolution/) and its orchestration Policy is
 [`src/policies/gepa/policy.yaml`](../../../src/policies/gepa/policy.yaml).
 
 ## Running
@@ -26,8 +26,12 @@ pnpm ember-rsi validate examples/harness/dsh-gepa/recipe.yaml
 pnpm ember-rsi run examples/harness/dsh-gepa/recipe.yaml --id gepa-office
 ```
 
-The built-in startup entrypoint provides `search.gepa` and `policy.gepa`.
+The built-in startup entrypoint provides `search.prompt-evolution` and `policy.gepa`.
 Run facts, candidates, measurements and receipts are stored in `.rsi/`.
+
+The plugin is named for its modular prompt-evolution capability. This Policy
+uses its existing GEPA sampling, comparison and crossover rules; the shared
+`contract.search` also supports the separate Optuna implementation.
 
 The Policy invokes `evaluator` and `proposer` explicitly. The search plugin owns
 GEPA's selection, comparison, and population bookkeeping; it does not route

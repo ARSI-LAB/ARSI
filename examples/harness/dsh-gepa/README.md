@@ -31,9 +31,8 @@ Run facts, candidates, measurements and receipts are stored in `.rsi/`.
 
 The Policy invokes `evaluator` and `proposer` explicitly. The optimizer owns
 GEPA's selection, comparison, and population bookkeeping; it does not route
-calls to those plugins. Mutation uses the existing `proposer.agent`, which
-invokes `agent`, validates edits, and commits through the Application, following
-the same proposal path as Harness² and WikiSkill. The Recipe configures the
+calls to those plugins. Mutation uses `proposer.agent`, which invokes `agent`,
+validates edits, and commits through the Application. The Recipe configures the
 Evaluator and Agent and keeps algorithm parameters in `policy.config`.
 
 ## Algorithm shape
@@ -82,8 +81,7 @@ selection. Candidate identities appear once in the population. Both comparison
 and selection scoring require matching measurement conditions, task conditions
 and scalar metric definitions. An unavailable or incompatible Measurement does
 not count as a completed round. Evaluator and Proposer exceptions propagate
-through the Policy and stop the run, as in Harness² and WikiSkill; cancellation
-also stops subsequent work.
+through the Policy and stop the run. Cancellation also stops subsequent work.
 
 This RSI adaptation keeps one global mutation-module cursor and schedules
 crossover periodically. The reference GEPA implementation keeps a cursor per

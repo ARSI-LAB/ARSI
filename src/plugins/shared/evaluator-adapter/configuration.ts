@@ -7,14 +7,11 @@ import type { JsonObject, JsonValue } from '../../../contracts/index.js';
 
 export type { SdkEvaluatorConfig };
 
-/** SDK configuration persisted as RSI JSON; no parallel field definitions. */
+/** SDK options in a JSON Recipe. A plugin may supply service fields at execution. */
 export type EvaluatorConfig = {
-  [K in keyof SdkEvaluatorConfig]: SdkEvaluatorConfig[K] & JsonValue;
-};
-/** Recipe input for plugins that bind the SDK service at evaluation time. */
-export type BoundServiceConfig = Omit<EvaluatorConfig, 'services'> & {
-  services?: Record<string, Partial<ServiceInput>>;
-};
+  [K in keyof Omit<SdkEvaluatorConfig, 'services'>]: SdkEvaluatorConfig[K] &
+    JsonValue;
+} & { services?: Record<string, Partial<ServiceInput>> };
 export const configSchema: JsonObject = { type: 'object' };
 
 export function parseEvaluatorConfig(value: unknown): SdkEvaluatorConfig {

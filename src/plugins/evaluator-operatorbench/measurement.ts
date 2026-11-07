@@ -18,7 +18,7 @@ import {
   sdkConditionsSchema,
   sdkProvenanceSchema,
   sdkDetailsSchema,
-} from './schema.js';
+} from './measurement-schema.js';
 import type { SdkOperatorResult } from './result.js';
 
 export async function recordSdkMeasurement(

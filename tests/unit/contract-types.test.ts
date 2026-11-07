@@ -125,6 +125,38 @@ export type ConcreteConfigChecks = [
       SdkEvaluatorConfig['benchmark'] & JsonValue
     >
   >,
+  // The same benchmark-only Recipe is sufficient only when the plugin binds its service.
+  Check<
+    Equal<
+      { benchmark: 'gsm8k' } extends Config<typeof agentbenchDefinition>
+        ? true
+        : false,
+      false
+    >
+  >,
+  Check<
+    Equal<
+      { benchmark: 'agentx' } extends Config<typeof inferencebenchDefinition>
+        ? true
+        : false,
+      true
+    >
+  >,
+  Check<
+    Equal<
+      { benchmark: 'kernel' } extends Config<typeof operatorbenchDefinition>
+        ? true
+        : false,
+      false
+    >
+  >,
+  Check<
+    { benchmark: 'kernel'; task: { directory: string } } extends Config<
+      typeof operatorbenchDefinition
+    >
+      ? true
+      : false
+  >,
   Check<Equal<Config<typeof proposerDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof memoryDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof reflectionDefinition>['prompt'], string>>,

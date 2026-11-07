@@ -520,6 +520,10 @@ export async function runGepa(options: {
   seed: number;
   maxRounds: number;
   maxRollouts: number;
+  minibatchSize?: number;
+  paretoSize?: number;
+  feedbackSampling?: 'random' | 'coverage-first';
+  crossoverEvery?: number;
   feedbackTasks: string[];
   selectionTasks: string[];
   scoreTable: Record<string, ScoreEntry>;
@@ -668,10 +672,13 @@ export async function runGepa(options: {
           config: {
             maxRounds: options.maxRounds,
             maxRollouts: options.maxRollouts,
-            minibatchSize: 2,
-            paretoSize: 2,
+            minibatchSize: options.minibatchSize ?? 2,
+            paretoSize: options.paretoSize ?? 2,
+            ...(options.feedbackSampling
+              ? { feedbackSampling: options.feedbackSampling }
+              : {}),
             seed: options.seed,
-            crossoverEvery: 3,
+            crossoverEvery: options.crossoverEvery ?? 3,
             modules,
             goal: 'Improve both modules.',
             ...(options.editConstraints

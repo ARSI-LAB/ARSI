@@ -8,9 +8,10 @@ This example optimizes the Office discipline prompt with GEPA v2. The
 
 ## Running
 
-Prepare Node 24, install the project dependencies, and configure the Evaluator's
-WorkBuddy Office execution environment. Run the following commands from the
-repository root.
+Prepare Node 24.19 or newer within the Node 24 release line, install the project
+dependencies, and configure the Evaluator's WorkBuddy Office execution
+environment. The pinned Evaluator SDK requires Node >=24.19.0. Run the following
+commands from the repository root.
 
 Configure `MODEL_ENDPOINT`, `MODEL_API_KEY`, `GEPA_WORKBUDDY_SOURCE` and
 `GEPA_WORKBUDDY_CACHE` in the execution environment. The model name is a proxy
@@ -19,6 +20,27 @@ contains the Office Bundle and its narrow Target; the WorkBuddy dataset remains
 an external local source. Point `GEPA_WORKBUDDY_SOURCE` at the complete
 `wb-bench-office-v1.0` dataset. The SDK's Office defaults check that the source
 contains all 50 tasks before filtering by the requested task IDs.
+
+Set `EVALUATOR_NETWORK_CONFIG` to the absolute path of the included
+[`network.yaml`](network.yaml). This selects the pinned SDK's portable network
+defaults without loading an unrelated machine-wide configuration. For a network
+that requires proxies or mirrors, copy this file to a local location and configure
+it using the pinned SDK's supported fields; keep credentials out of this example.
+The SDK rejects unknown fields, including the obsolete top-level `version` field.
+
+For POSIX shells:
+
+```sh
+export EVALUATOR_NETWORK_CONFIG="$PWD/examples/harness/dsh-gepa/network.yaml"
+```
+
+For PowerShell:
+
+```powershell
+$env:EVALUATOR_NETWORK_CONFIG = (Resolve-Path examples/harness/dsh-gepa/network.yaml).Path
+```
+
+Then build, validate and run the Recipe:
 
 ```sh
 pnpm build
@@ -126,11 +148,25 @@ task environments in pipeline mode. A validation evaluation submits the same
 five task IDs in one Evaluator call; the one-task feedback minibatch uses one
 execution slot. GEPA rounds retain their existing Policy order.
 
-The search allows up to `maxRounds: 10` optimization attempts, with
-`maxRollouts: 64` and `minibatchSize: 1`. Each attempt samples one training task;
-the rollout allowance can stop the search before ten attempts, and sampling
-does not guarantee coverage of all ten training tasks. The Recipe-wide budget
+The search allows up to `maxRounds: 15` logical optimization attempts, with
+`maxRollouts: 120`, `minibatchSize: 1`, `feedbackSampling: coverage-first`, and
+`crossoverEvery: 0`. Crossover is disabled and is not recommended for this
+single-module Office configuration. Every attempt evaluates a training parent
+before proposing a mutation.
+Coverage-first sampling prioritizes tasks without a finite parent score in a
+completed attempt; zero counts as covered, while unavailable scores do not.
+Completed no-change attempts count toward coverage when their parent was scored.
+With valid parent feedback, coverage-first sampling covers all ten training
+tasks in the first ten completed attempts before repeating any. The configured
+normal path requires at most 110 task rollouts: five baseline validation tasks
+and fifteen mutation attempts at up to seven rollouts each. This is a
+configuration-derived upper bound, not measured usage. Failures or the wall-time
+limit can still prevent completion. The Recipe-wide budget
 limits only elapsed wall time to `86400000` ms (24 hours).
+
+The optional `feedbackSampling` setting defaults to `random`. Coverage-first mode
+uses completed round reports and the existing seeded RNG. Checkpoint recovery
+preserves selected tasks and completed evaluation receipts.
 
 ## Evidence and limits
 

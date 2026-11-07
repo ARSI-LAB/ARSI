@@ -43,7 +43,7 @@ export interface GepaState extends JsonObject {
   completedRounds: number;
   rolloutsUsed: number;
   mergeAttempts: string[];
-  rounds: JsonObject[];
+  rounds: RoundReport[];
   bestCandidateRef: string | null;
   bestAggregateScore: number | null;
   done: boolean;
@@ -129,6 +129,48 @@ export function sampleWithoutReplacement<T>(
     [pool[index], pool[pick]] = [pool[pick]!, pool[index]!];
   }
   return pool.slice(0, count);
+}
+
+export function sampleFeedbackTasks(
+  rng: Rng,
+  state: Pick<GepaState, 'feedbackTaskIds' | 'rounds'>,
+  settings: Pick<GepaSettings, 'minibatchSize' | 'feedbackSampling'>,
+): string[] {
+  const count = Math.min(settings.minibatchSize, state.feedbackTaskIds.length);
+  if (settings.feedbackSampling !== 'coverage-first')
+    return sampleWithoutReplacement(rng, state.feedbackTaskIds, count);
+
+  const covered = new Set<string>();
+  for (const round of state.rounds) {
+    for (const [index, task] of round.taskIds.entries()) {
+      // Parent scores are flattened in parent order; any finite parent suffices.
+      if (
+        round.parentRefs.some((_, parent) =>
+          Number.isFinite(
+            round.parentScores[parent * round.taskIds.length + index],
+          ),
+        )
+      )
+        covered.add(task);
+    }
+  }
+  const unseen = state.feedbackTaskIds.filter((task) => !covered.has(task));
+  if (!unseen.length)
+    return sampleWithoutReplacement(rng, state.feedbackTaskIds, count);
+  const selected = sampleWithoutReplacement(
+    rng,
+    unseen,
+    Math.min(count, unseen.length),
+  );
+  if (selected.length === count) return selected;
+  return [
+    ...selected,
+    ...sampleWithoutReplacement(
+      rng,
+      state.feedbackTaskIds.filter((task) => covered.has(task)),
+      count - selected.length,
+    ),
+  ];
 }
 
 export function mean(values: readonly number[]): number | null {

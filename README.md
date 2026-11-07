@@ -36,9 +36,9 @@ English | [中文](./README.zh-CN.md)
 
 ### Everything is a plugin
 
-![Plugin animation showing the Recipe selecting an AgentBundle Application and Harness² Policy and binding the Agent backend separately](docs/users/assets/rsi-plugin-mechanism.gif)
+![Animation of a Harness² Policy call resolving its Agent binding, invoking Pi, and invoking Codex after a Recipe change](docs/users/assets/rsi-plugin-mechanism.gif)
 
-*Harness² example · `application.agentbundle` manages the optimization target and its evaluation instances. The Recipe can switch the Agent backend independently.*
+*Harness² example · The Proposer references the `agent` binding. Changing that binding in the Recipe routes the same call from `agent.pi` to `agent.codex` on the next run.*
 
 - **Application** is the core plugin selected under `application` in the Recipe. It defines what to optimize, what may change, and how to prepare and release candidate instances for evaluation. Built-in Applications manage Agent Bundles, inference service configurations, and Triton-Ascend kernels.
 - **Policy** defines the RSI loop, stopping conditions, and the contract each plugin binding requires.

@@ -8,17 +8,11 @@ A Policy's `require` instead uses the **contract ID string**, e.g. `proposer: { 
 
 For larger TypeScript plugins organize schema.ts (configuration), service.ts (behavior), index.ts (assembly). Compile to modules Node can load. Expose one contract per operation; lifecycle actions use its discriminated union. Shared internal tools are not separate public plugins.
 
-## Keep implementation changes inside the authorized scope
-
-A plugin task authorizes particular paths — typically the plugin modules plus its Policy, Recipe and tests. Contract objects and their types come from the installed package: import them, do not extend them. Declare helper types, configuration fields, result shapes and internal enums in the plugin's own files even when a shared `src/contracts/...` module looks like their natural home. Editing a shared contract, type barrel or baseline consumer so that new code compiles changes semantics for every other plugin, and it is reported as an unauthorized delivery change even when the local tests pass.
-
-When the public contract genuinely lacks something the algorithm needs, report that as the smallest out-of-scope requirement and keep the deliverable within its authorized paths instead of absorbing the gap in shared modules. Before reporting completion, list the delivered paths, compare them with the authorized entries, and explain or remove every path that is not listed.
-
 Read [service signatures](runtime-services.md) before storing candidates/measurements or acquiring instances. The starter covers Application commits, no-change outputs, measurement/evidence construction, budget charge, instance release and disposal. Implementing an evaluator under `contract.agentbench` does not imply it uses the Evaluator SDK; accurately label its actual measurement method.
 
 The SDK adapter's runner-injection helpers are internal, not exported package APIs. They may be used in repository development tests, but cannot be an installed consumer's integration prerequisite. Use the stock evaluator with its configured backend or implement the public evaluator contract. Never import `src/plugins/...` from a consumer.
 
-Verify invalid inputs/config, actual outputs, relevant side effects, no-change behavior, cancellation, repeat/unknown-effect handling, owned-resource cleanup and any declared termination or eligibility invariant. Do not count a registration-only or schema-only test as successful plugin execution; exercise the composed path with the limits the Recipe declares.
+Verify invalid inputs/config, actual outputs, relevant side effects, no-change behavior, cancellation, repeat/unknown-effect handling and owned-resource cleanup. Do not count a registration-only or schema-only test as successful plugin execution.
 
 ## Discover schemas through public APIs
 

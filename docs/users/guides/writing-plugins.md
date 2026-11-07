@@ -32,16 +32,6 @@ Each regular plugin implements one public contract. Contracts such as Applicatio
 
 The Policy's `require` specifies the contract, and the binding selects a plugin that satisfies it. This lets the same Policy use different implementations; see [Contract, Schema, and Binding](../concepts/architecture.md#contract-schema-and-binding) for the concepts.
 
-### Stateful search
-
-Optuna and GEPA share `contract.search` and its `initialize`, `suggest`, and `observe` actions. Implementations return an opaque `stateRef` and evaluation or proposal work with an opaque work ID. The Policy calls its Evaluator, Proposer, and, when needed, Selector, then returns the work ID and feedback through `observe`. An observation can request further work for the same attempt.
-
-Task splits remain in the Policy configuration. Searches that sample tasks receive `feedbackTaskIds` and `selectionTaskIds` during initialization and return the selected task IDs in their work requests. Algorithms, candidate populations, RNG state, rollout accounting, and pending-work details stay inside each implementation's immutable state artifacts. Policy checkpoints retain the latest `stateRef` and outstanding work requests.
-
-Optuna reconstructs its Study from saved worker history. It keeps one trial pending at a time, reuses pending suggestions, and treats identical feedback as idempotent. Implementations validate configuration and execution scope before restoring state; Optuna also checks worker, environment, objective, and comparison identities.
-
-The shared contract replaces `contract.proposer-parameter-search` and `contract.population-search`. Internal snapshot formats are unchanged, but older locked Policy definitions are not migrated automatically. Resume those experiments with their original code version.
-
 ## What a plugin definition contains
 
 `OperationDefinition<I, O, C>` describes a plugin definition. Its three type parameters are input, output, and configuration; see the [interface definition](../../../src/contracts/operation.ts).

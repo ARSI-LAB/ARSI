@@ -203,19 +203,17 @@ Load the RSI Skill in a coding agent and provide the optimization goal, permitte
 
 ## 📖 User guides
 
-| Guide |
-| --- |
-| [Getting started](docs/users/getting-started.md) |
-| [Architecture and core concepts](docs/users/concepts/architecture.md) |
-| [Built-in components](docs/users/guides/built-in-components.md) |
-| [Configure an experiment](docs/users/guides/configuration.md) |
-| [Run and inspect experiments](docs/users/guides/running-experiments.md) |
-| [Use skills](docs/users/guides/using-skills.md) |
-| [Memory guide](docs/users/guides/memory.md) |
-| [Reflection guide](docs/users/guides/reflection.md) |
-| [Write a Policy](docs/users/guides/writing-policies.md) |
-| [Write a plugin](docs/users/guides/writing-plugins.md) |
-| [Runtime events guide](docs/users/guides/runtime-events.md) |
+- [Getting started](docs/users/getting-started.md)
+- [Architecture and core concepts](docs/users/concepts/architecture.md)
+- [Built-in components](docs/users/guides/built-in-components.md)
+- [Configure an experiment](docs/users/guides/configuration.md)
+- [Run and inspect experiments](docs/users/guides/running-experiments.md)
+- [Use skills](docs/users/guides/using-skills.md)
+- [Memory guide](docs/users/guides/memory.md)
+- [Reflection guide](docs/users/guides/reflection.md)
+- [Write a Policy](docs/users/guides/writing-policies.md)
+- [Write a plugin](docs/users/guides/writing-plugins.md)
+- [Runtime events guide](docs/users/guides/runtime-events.md)
 
 ## 🙏 Acknowledgments
 

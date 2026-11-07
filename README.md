@@ -8,7 +8,7 @@ Generate candidates, evaluate their performance, and iterate in one framework, f
 
 English | [中文](./README.zh-CN.md)
 
-[Overview](#overview) · [How it works](#architecture) · [Installation](#installation) · [Using ember-rsi](#usage) · [Built-in RSI strategies](#built-in-rsi-strategies) · [Extending ember-rsi](#extensions) · [User guides](#user-guide)
+[Overview](#overview) · [How it works](#architecture) · [Installation](#installation) · [Using ember-rsi](#usage) · [Built-in RSI strategies](#built-in-rsi-strategies) · [Everything is a plugin](#extensions) · [User guides](#user-guide)
 
 <a id="overview"></a>
 
@@ -24,7 +24,7 @@ English | [中文](./README.zh-CN.md)
 
 ## 🔄 How it works
 
-![ember-rsi architecture showing Recipe and Policy configuration, the RSI core, the Application plugin loop, and component improvement through Memory and Reflection](docs/users/assets/rsi-architecture-handdrawn.png)
+![ember-rsi architecture showing Recipe and Policy configuration, the RSI core, the Application plugin loop, and component improvement through Memory and Reflection](docs/users/assets/rsi-architecture-handdrawn.gif)
 
 1. **Configure an experiment.** The Recipe selects the target and Policy and configures the dataset, plugins, and budget. The Policy defines the steps and stopping conditions.
 2. **Run the RSI experiment.** The Runtime follows the Policy. A typical run starts from a baseline, proposes and validates edits, evaluates candidates, and uses the results to choose the next starting point.
@@ -84,6 +84,10 @@ npx skills add evolving-foundry/ember-rsi --skill ember-rsi
 ```
 
 Add `-g` for a user-wide installation. Reload or restart your agent as required, then confirm that it can discover and read the `ember-rsi` skill.
+
+Load the RSI Skill in a coding agent and provide the optimization goal, permitted edits, and budget. The agent can choose or write a Recipe, validate the configuration, and, once authorized, run the experiment, inspect results, and diagnose failures.
+
+- The [RSI Skill entrypoint](skills/ember-rsi/SKILL.md) uses the reference material and templates in the full `skills/ember-rsi/` directory. Use the [minimal example](skills/ember-rsi/references/quickstart.md) to check that the Recipe and plugins work together.
 
 <a id="usage"></a>
 
@@ -161,7 +165,7 @@ ember-rsi dashboard
 ## Built-in RSI strategies
 
 
-| Policy                    | How it improves the target                                                                          | Example Recipe                                                                             | Plugins                                                                                                                                                                                                                                            |
+| Policy                    | How it improves the target                                                                          | Example Recipe                                                                             | Replaceable plugins                                                                                                                                                                                                                                |
 | ------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `policy.harness2`         | Evaluates general, domain-specific, and combined edits, then compares deliverables anonymously.     | [DSH Harness²](examples/harness/dsh-harness2/README.md)                                    | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench)†, [`selector.artifact`](src/plugins/selector-artifacts), [`memory.agent`](src/plugins/memory-agent) |
 | `policy.wikiskill`        | Builds a wiki from training runs and independently tests skill edits that improve on validation.    | [DSH WikiSkill](examples/harness/dsh-wikiskill/README.md)                                  | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`memory.agent`](src/plugins/memory-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench)†, [`selector.metric`](src/plugins/selector-metrics)     |
@@ -174,30 +178,21 @@ ember-rsi dashboard
 
 <a id="extensions"></a>
 
-## Extending ember-rsi
+## Everything is a plugin
 
+![Animation showing how Recipe, Policy, contracts, and plugins connect](docs/users/assets/rsi-plugin-mechanism.gif)
 
+*Harness² example · Switch the Agent backend from `agent.pi` to `agent.codex`.*
 
-### For developers
+- **Policy** describes the RSI loop in YAML. It defines what happens in each round, how results guide the next iteration, and when to stop. A Policy declares the contract required by each plugin binding and calls the plugin by its binding name.
+- **Plugin** pairs a contract with an implementation. The contract defines the input and output schemas, and the implementation does the work. Any implementation that satisfies a binding's contract can replace the current plugin within the same Policy.
+- **Recipe** is the YAML entry point for an experiment. It selects the optimization target and Policy, chooses an implementation for each plugin binding, and supplies the experiment's configuration and budget.
 
-Start with Recipe configuration and extend the framework as needed. See the examples for [writing Policies](docs/users/guides/writing-policies.md) and [writing plugins](docs/users/guides/writing-plugins.md).
+**There is no universal input or output format for plugins.** Each contract can define schemas suited to its task. For example, selecting candidates by numerical metrics and judging candidates by the quality of their deliverables can each use different inputs. New tasks can define their own interfaces, and existing Policies can switch between implementations of the same contract through the Recipe.
 
-
-| Goal                                                              | Extension point                                                                                                                                       |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Change the dataset, models, budget, or plugin bindings            | Update or override the relevant `recipe.yaml` settings and `bindings`.                                                                                |
-| Add a search loop, concurrent branches, or stopping conditions    | Write and register an `rsi.policy/v1` YAML Policy.                                                                                                    |
-| Add an optimization target, proposer, evaluator, or agent backend | Implement a public contract from `ember-rsi/contracts` and register the implementation through `--plugin-dir <dir>` or in the application entrypoint. |
-| Host experiments in another platform or service                   | Embed the Runtime with the Node.js APIs `createRuntime` and `validateRecipe`.                                                                         |
-
-
-
-
-### For AI coding agents
-
-Load the RSI Skill in a coding agent and provide the optimization goal, permitted edits, and budget. The agent can choose or write a Recipe, validate the configuration, and, once authorized, run the experiment, inspect results, and diagnose failures.
-
-- The [RSI Skill entrypoint](skills/ember-rsi/SKILL.md) uses the reference material and templates in the full `skills/ember-rsi/` directory. Use the [minimal example](skills/ember-rsi/references/quickstart.md) to check that the Recipe and plugins work together.
+- [Write a Policy](docs/users/guides/writing-policies.md) · Define the RSI loop and the contracts it needs
+- [Write a plugin](docs/users/guides/writing-plugins.md) · Choose or define a contract, then implement and register it
+- [Assemble an experiment with a Recipe](docs/users/guides/configuration.md#recipe-fields-and-binding-overrides) · Select a Policy, bind plugins, and fill in the configuration
 
 <a id="user-guide"></a>
 

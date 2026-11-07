@@ -78,13 +78,13 @@ bindings:
         platform: linux/amd64
       scheduler:
         name: local
-        concurrency: 1
+        concurrency: 5
       run:
         includeTaskAnswer: true
         timeoutSeconds: 14400
         preparation:
           mode: pipeline
-          concurrency: 1
+          concurrency: 5
           environmentTimeoutSeconds: 1800
           roundTimeoutSeconds: 14400
   agent:

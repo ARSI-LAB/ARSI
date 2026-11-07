@@ -1,5 +1,5 @@
 schemaVersion: 1
-name: dsh-harness2-baseline
+name: dsh-gepa-baseline
 kind: dsh-agent-bundle
 harness:
   name: dsh

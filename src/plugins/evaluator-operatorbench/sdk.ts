@@ -104,6 +104,8 @@ function prepareEvaluationConfig(
       ? { name: template.store }
       : plain(template.store);
   const storeConfig = plain(store.config);
+  if (Object.hasOwn(template, 'services'))
+    throw new Error('services is owned by RSI for kernel replay');
   if (benchmark.name !== 'kernel')
     throw new Error('operatorbench requires benchmark.name=kernel');
   if (template.deployment !== undefined)
@@ -120,6 +122,7 @@ function prepareEvaluationConfig(
     throw new Error('output.directory is owned by RSI');
   const { sampling: _sampling, offset: _offset, ...run } = plain(template.run);
   return parseEvaluatorConfig({
+    ...template,
     // The SDK requires a service even though kernel-replay never calls a model.
     services: {
       default: {
@@ -128,7 +131,6 @@ function prepareEvaluationConfig(
         api_key: '${RSI_KERNEL_REPLAY_NO_MODEL_KEY}',
       },
     },
-    ...template,
     benchmark: {
       ...benchmark,
       config: {

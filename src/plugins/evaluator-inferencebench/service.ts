@@ -141,14 +141,28 @@ function prepareEvaluationConfig(
     solver.service ?? 'default',
     'benchmark.solver.service',
   );
-  const services = object(prepared.services, 'services');
-  const model = object(services[serviceName], `services.${serviceName}`);
-  model.model = string(execution.model, 'inference model');
-  model.base_url = string(execution.baseUrl, 'inference baseUrl');
+  const services: JsonObject =
+    prepared.services === undefined
+      ? { default: {} }
+      : object(prepared.services, 'services');
+  if (!Object.hasOwn(services, serviceName))
+    throw new Error(
+      `services.${serviceName} must be declared for the selected solver service`,
+    );
+  const service = object(services[serviceName], `services.${serviceName}`);
+  for (const field of ['model', 'base_url', 'api_key']) {
+    if (Object.hasOwn(service, field))
+      throw new Error(
+        `services.${serviceName}.${field} is supplied by the Application`,
+      );
+  }
+  service.model = string(execution.model, 'inference model');
+  service.base_url = string(execution.baseUrl, 'inference baseUrl');
   if (typeof execution.credentialRef === 'string')
-    model.api_key = execution.credentialRef.startsWith('${')
+    service.api_key = execution.credentialRef.startsWith('${')
       ? execution.credentialRef
       : `\${${execution.credentialRef}}`;
+  prepared.services = services;
   prepared.output = {
     ...plain(prepared.output),
     directory: join(directory, 'sdk'),

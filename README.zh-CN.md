@@ -205,10 +205,19 @@ ember-rsi dashboard
 
 ## 📖 使用指南
 
-- [快速入门](docs/users/getting-started_zh.md)，编写第一个 Recipe 并查找后续指南
-- [架构与核心概念](docs/users/concepts/architecture_zh.md)，了解 Application、Policy、插件与 Runtime 如何协作
-- **组件级自演进指导**：[Reflection 使用指南](docs/users/guides/reflection_zh.md)
-- **事件订阅与二次开发**：[事件系统开发指南](docs/users/guides/runtime-events_zh.md)
+| 你想做什么 | 对应指南 |
+| --- | --- |
+| 安装 ember-rsi 并运行第一个 Recipe | [快速入门](docs/users/getting-started_zh.md) |
+| 了解 Application、Policy、插件与 Runtime 如何协作 | [架构与核心概念](docs/users/concepts/architecture_zh.md) |
+| 为优化目标选择内置 Policy 和插件 | [内置组件](docs/users/guides/built-in-components_zh.md) |
+| 设置插件绑定、模型、环境变量和预算 | [配置实验](docs/users/guides/configuration_zh.md) |
+| 校验、运行、查看或续跑实验 | [运行与检查实验](docs/users/guides/running-experiments_zh.md) |
+| 为编程 Agent、被评测的 Agent 或优化器提供 Skill | [使用 Skill](docs/users/guides/using-skills_zh.md) |
+| 保存执行经验，供后续优化步骤使用 | [Memory 使用指南](docs/users/guides/memory_zh.md) |
+| 根据执行证据改进插件行为 | [Reflection 使用指南](docs/users/guides/reflection_zh.md) |
+| 自定义实验流程与停止条件 | [编写 Policy](docs/users/guides/writing-policies_zh.md) |
+| 实现并注册插件 | [编写插件](docs/users/guides/writing-plugins_zh.md) |
+| 订阅 Runtime 事件或发布自定义事件 | [事件系统开发指南](docs/users/guides/runtime-events_zh.md) |
 
 ## 🙏 致谢
 

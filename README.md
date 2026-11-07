@@ -203,10 +203,19 @@ Load the RSI Skill in a coding agent and provide the optimization goal, permitte
 
 ## 📖 User guides
 
-- [Getting started](docs/users/getting-started.md) for writing a first Recipe and finding follow-on guides
-- [Architecture and core concepts](docs/users/concepts/architecture.md) for the roles of Applications, Policies, plugins, and the Runtime
-- [Reflection guide](docs/users/guides/reflection.md) for improving component guidance
-- [Runtime events](docs/users/guides/runtime-events.md) for event subscriptions and extensions
+| What you want to do | Guide |
+| --- | --- |
+| Install ember-rsi and run your first Recipe | [Getting started](docs/users/getting-started.md) |
+| Understand how Applications, Policies, plugins, and the Runtime work together | [Architecture and core concepts](docs/users/concepts/architecture.md) |
+| Choose a built-in Policy and plugins for your target | [Built-in components](docs/users/guides/built-in-components.md) |
+| Configure plugin bindings, models, environment variables, and budgets | [Configure an experiment](docs/users/guides/configuration.md) |
+| Validate, run, inspect, or resume an experiment | [Run and inspect experiments](docs/users/guides/running-experiments.md) |
+| Provide skills to a coding Agent, evaluated Agent, or optimizer | [Use skills](docs/users/guides/using-skills.md) |
+| Save execution experience for later optimization steps | [Memory guide](docs/users/guides/memory.md) |
+| Use execution evidence to improve plugin behavior | [Reflection guide](docs/users/guides/reflection.md) |
+| Customize the experiment flow and stopping conditions | [Write a Policy](docs/users/guides/writing-policies.md) |
+| Implement and register a plugin | [Write a plugin](docs/users/guides/writing-plugins.md) |
+| Subscribe to Runtime events or publish custom events | [Runtime events guide](docs/users/guides/runtime-events.md) |
 
 ## 🙏 Acknowledgments
 

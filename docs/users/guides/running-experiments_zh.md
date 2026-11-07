@@ -49,6 +49,8 @@ ember-rsi show terminal-skills-01
 
 事实与痕迹位于 `.rsi/facts/`，不可变制品位于 `.rsi/artifacts/`，实验专属工作资源位于 `.rsi/experiments/<experiment-id>/`。
 
+AgentBench 和 InferenceBench 的逐任务执行状态来自 SDK 的 `executionStatus`，得分或正确性状态单独保留。一次成功完成的执行可以得到零分或错误答案；判断质量时还需查看指标和评测反馈。取消、执行失败和执行状态未知的情况会保留各自状态。
+
 - 恢复时需保留存储和原始资源文件。
 
 ## 取消与恢复

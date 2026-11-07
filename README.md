@@ -8,9 +8,9 @@ Generate candidates, evaluate their performance, and iterate in one framework, f
 
 English | [中文](./README.zh-CN.md)
 
-[Overview](#overview) · [How it works](#architecture) · [Installation](#installation) · [Using ember-rsi](#usage) · [Built-in RSI strategies](#built-in-rsi-strategies) · [Everything is a plugin](#extensions) · [User guides](#user-guide)
+[Overview](#overview) · [How it works](#architecture) · [Everything is a plugin](#extensions) · [Installation](#installation) · [Using ember-rsi](#usage) · [Built-in RSI strategies](#built-in-rsi-strategies) · [User guides](#user-guide)
 
-
+<a id="overview"></a>
 
 ## ℹ️ Overview
 
@@ -20,17 +20,37 @@ English | [中文](./README.zh-CN.md)
 - **Built-in strategies and extensions.** Run built-in strategies for agent harness optimization and inference parameter search. You can bring other targets into the same framework by defining allowed changes, generating candidates, and measuring their performance.
 - **For developers and coding agents.** Developers can configure and run experiments from the CLI and inspect the results in the web viewer. Coding agents can use the same tools through the RSI Skill. Our goal is for them to plan, validate, run, and diagnose experiments, then choose the next step based on evaluation results within the scope and budget a developer authorizes.
 
-
+<a id="architecture"></a>
 
 ## 🔄 How it works
 
-![ember-rsi architecture showing Recipe and Policy configuration, the RSI core, the Application plugin loop, and component improvement through Memory and Reflection](docs/users/assets/rsi-architecture-handdrawn.gif)
+### Architecture Overview
 
-1. **Configure an experiment.** The Recipe selects the target and Policy and configures the dataset, plugins, and budget. The Policy defines the steps and stopping conditions.
-2. **Run the RSI experiment.** The Runtime follows the Policy. A typical run starts from a baseline, proposes and validates edits, evaluates candidates, and uses the results to choose the next starting point.
-3. **Improve the components.** The Policy can call Memory to preserve experience for later iterations and Reflection to propose changes to component prompts, resources, or configuration based on experiment feedback.
+![Architecture animation showing Recipe selecting an Application that manages candidates and evaluation instances](docs/users/assets/rsi-architecture-handdrawn.gif)
 
+1. **Define the optimization target.** Select an Application in the Recipe and configure the baseline and allowed edits. The Application also defines how to turn a candidate into an instance for the Evaluator.
+2. **Run the optimization loop.** The Runtime follows the Policy. The Application initializes the baseline, validates and commits edits from the Proposer, and provides and releases instances for the Evaluator. The Selector uses evaluation results or deliverables to choose the next starting point.
+3. **Improve the components.** A Policy can use Memory to retain experience and Reflection to improve component prompts, resources, or configuration from execution evidence.
 
+<a id="extensions"></a>
+
+### Everything is a plugin
+
+![Plugin animation showing the Recipe selecting an AgentBundle Application and Harness² Policy and binding the Agent backend separately](docs/users/assets/rsi-plugin-mechanism.gif)
+
+*Harness² example · `application.agentbundle` manages the optimization target and its evaluation instances. The Recipe can switch the Agent backend independently.*
+
+- **Application** is the core plugin selected under `application` in the Recipe. It defines what to optimize, what may change, and how to prepare and release candidate instances for evaluation. Built-in Applications manage Agent Bundles, inference service configurations, and Triton-Ascend kernels.
+- **Policy** defines the RSI loop, stopping conditions, and the contract each plugin binding requires.
+- **Plugin** implements a contract. The contract specifies the inputs and outputs, and implementations that satisfy it can be swapped.
+- **Recipe** selects the Application and Policy, binds the plugins used by the flow, and supplies configuration and budgets.
+
+- [Choose an Application](docs/users/guides/built-in-components.md#application)
+- [Write a Policy](docs/users/guides/writing-policies.md)
+- [Write a plugin](docs/users/guides/writing-plugins.md)
+- [Assemble an experiment with a Recipe](docs/users/guides/configuration.md#recipe-fields-and-binding-overrides)
+
+<a id="installation"></a>
 
 ## 📦 Installation and deployment
 
@@ -89,7 +109,7 @@ Load the RSI Skill in a coding agent and provide the optimization goal, permitte
 
 - The [RSI Skill entrypoint](skills/ember-rsi/SKILL.md) uses the reference material and templates in the full `skills/ember-rsi/` directory. Use the [minimal example](skills/ember-rsi/references/quickstart.md) to check that the Recipe and plugins work together.
 
-
+<a id="usage"></a>
 
 ## 🛠️ Using ember-rsi
 
@@ -160,7 +180,7 @@ To view progress in the browser, start the local read-only dashboard and open th
 ember-rsi dashboard
 ```
 
-
+<a id="built-in-rsi-strategies"></a>
 
 ## Built-in RSI strategies
 
@@ -176,25 +196,7 @@ ember-rsi dashboard
 
 † marks plugins set by the example Recipe.
 
-
-
-## Everything is a plugin
-
-![Animation showing how Recipe, Policy, contracts, and plugins connect](docs/users/assets/rsi-plugin-mechanism.gif)
-
-*Harness² example · Switch the Agent backend from `agent.pi` to `agent.codex`.*
-
-- **Policy** describes the RSI loop in YAML. It defines what happens in each round, how results guide the next iteration, and when to stop. A Policy declares the contract required by each plugin binding and calls the plugin by its binding name.
-- **Plugin** pairs a contract with an implementation. The contract defines the input and output schemas, and the implementation does the work. Any implementation that satisfies a binding's contract can replace the current plugin within the same Policy.
-- **Recipe** is the YAML entry point for an experiment. It selects the optimization target and Policy, chooses an implementation for each plugin binding, and supplies the experiment's configuration and budget.
-
-**There is no universal input or output format for plugins.** Each contract can define schemas suited to its task. For example, selecting candidates by numerical metrics and judging candidates by the quality of their deliverables can each use different inputs. New tasks can define their own interfaces, and existing Policies can switch between implementations of the same contract through the Recipe.
-
-- [Write a Policy](docs/users/guides/writing-policies.md) · Define the RSI loop and the contracts it needs
-- [Write a plugin](docs/users/guides/writing-plugins.md) · Choose or define a contract, then implement and register it
-- [Assemble an experiment with a Recipe](docs/users/guides/configuration.md#recipe-fields-and-binding-overrides) · Select a Policy, bind plugins, and fill in the configuration
-
-
+<a id="user-guide"></a>
 
 ## 📖 User guides
 

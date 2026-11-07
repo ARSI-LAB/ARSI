@@ -26,14 +26,15 @@ async function prepare(
   const bindings = object(recipe.bindings);
   delete bindings.agent;
   delete bindings.proposer;
-  const sdk = object(object(object(bindings.evaluator).config).sdk);
+  const evaluator = object(object(bindings.evaluator).config);
+  const kernel = object(object(evaluator.benchmark).config);
   const msprof = join(fixture.root, 'msprof.mjs');
   await copyFile(
     new URL('../fixtures/operator-sdk/msprof.mjs', import.meta.url),
     msprof,
   );
   await chmod(msprof, 0o755);
-  sdk.profiling = {
+  kernel.profiling = {
     enabled: false,
     cacheEnabled: false,
     warmup: 25,

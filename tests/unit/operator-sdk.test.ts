@@ -15,8 +15,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { Evaluator } from 'ember-evaluator';
-import { prepareSdkConfiguration } from '../../src/plugins/evaluator-operatorbench/sdk.js';
+import { Evaluator, loadConfig } from 'ember-evaluator';
+import { prepareOperatorRun } from '../../src/plugins/evaluator-operatorbench/sdk.js';
 import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';
 import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/service.js';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
@@ -42,21 +42,22 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   );
   await chmod(worker, 0o755);
   const config = {
-    mode: 'sdk' as const,
     task: { directory: taskDirectory },
-    protocol: {
-      warmup: 5,
-      repeat: 20,
-      rtol: 0,
-      atol: 0,
-      timingScope: 'all-device-kernels' as const,
+    benchmark: {
+      name: 'kernel',
+      config: {
+        warmup: 5,
+        repeat: 20,
+        rtol: 0,
+        atol: 0,
+        python: worker,
+        device: 0,
+        timeoutSeconds: 15,
+        profiling: { enabled: false },
+      },
     },
-    sdk: {
-      python: worker,
-      device: 0,
-      timeoutSeconds: 15,
-      profiling: { enabled: false },
-    },
+    reporter: 'markdown',
+    run: { timeoutSeconds: 45 },
   };
   const contract = {
     inputs: [{ shape: [4], dtype: 'float16' }],
@@ -68,15 +69,46 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     },
     inputUnmodified: true,
   };
-  const prepared = await prepareSdkConfiguration(
-    config,
-    contract,
-    { id: 'fixed', seed: 42 },
-    {
+  const bindings = {
+    rawContract: contract,
+    selected: { id: 'fixed', seed: 42 },
+    execution: {
       directory: sourceDirectory,
       sourceDigest: createHash('sha256').update(source).digest('hex'),
     },
-    join(directory, 'call'),
+    directory: join(directory, 'call'),
+    operation: 'evaluate' as const,
+  };
+  const prepared = await prepareOperatorRun({ config, ...bindings });
+  const saved = JSON.parse(await readFile(prepared.configPath, 'utf8'));
+  assert.deepEqual(saved.reporter, { name: 'markdown', config: {} });
+  assert.equal(saved.run.timeoutSeconds, 45);
+  assert.deepEqual(saved.run.taskIds, ['fixed']);
+  assert.deepEqual(saved.benchmark.config.seeds, [42]);
+  assert.equal(saved.task, undefined);
+  assert.equal(config.benchmark.config.profiling.enabled, false);
+  const invalidProfile = await prepareOperatorRun({
+    ...bindings,
+    directory: join(directory, 'invalid-profile'),
+    operation: 'profile',
+    config: {
+      ...config,
+      benchmark: {
+        ...config.benchmark,
+        config: {
+          ...config.benchmark.config,
+          profiling: { collection: 'Default,PipeTimeline' },
+        },
+      },
+    },
+  });
+  await assert.rejects(
+    loadConfig(
+      invalidProfile.configPath,
+      {},
+      { ...process.env, ...invalidProfile.env },
+    ),
+    /profiling.collection/,
   );
   const result = await new Evaluator().run({
     configPath: prepared.configPath,
@@ -92,7 +124,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     object(result.snapshot.records[0]?.verdict?.details).candidateMs,
     8,
   );
-  const adapted = adaptSdkResult(result, prepared, config, 42);
+  const adapted = adaptSdkResult(result, prepared, 42);
   assert.equal(adapted.status, 'completed');
   assert.equal(adapted.valid, true);
   assert.equal(adapted.candidateMs, 8);
@@ -145,7 +177,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
       sha256: 'a'.repeat(64),
     });
   const profilePrepared = { ...prepared, operation: 'profile' as const };
-  const profileResult = adaptSdkResult(diagnostic, profilePrepared, config, 42);
+  const profileResult = adaptSdkResult(diagnostic, profilePrepared, 42);
   assert.equal(profileResult.status, 'completed');
   assert.equal(profileResult.valid, null);
   assert.equal(profileResult.candidateMs, null);
@@ -154,31 +186,22 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   unavailable.snapshot.records[0].verdict.details.status = 'unavailable';
   unavailable.snapshot.records[0].verdict.details.profiling.status = 'failed';
   assert.equal(
-    adaptSdkResult(unavailable, profilePrepared, config, 42).status,
+    adaptSdkResult(unavailable, profilePrepared, 42).status,
     'completed',
   );
   const raw = JSON.parse(JSON.stringify(result));
   raw.snapshot.records[0].verdict.details.assessment.checks.pop();
-  assert.throws(() => adaptSdkResult(raw, prepared, config, 42), /checks/);
+  assert.throws(() => adaptSdkResult(raw, prepared, 42), /checks/);
   const wrongCandidate = JSON.parse(JSON.stringify(result));
   wrongCandidate.snapshot.records[0].verdict.details.candidateSha256 =
     'b'.repeat(64);
-  assert.throws(
-    () => adaptSdkResult(wrongCandidate, prepared, config, 42),
-    /identity/,
-  );
+  assert.throws(() => adaptSdkResult(wrongCandidate, prepared, 42), /identity/);
   const unconfirmed = JSON.parse(JSON.stringify(result));
   unconfirmed.snapshot.records[0].cleanupStatus = 'unconfirmed';
-  assert.equal(
-    adaptSdkResult(unconfirmed, prepared, config, 42).status,
-    'unknown',
-  );
+  assert.equal(adaptSdkResult(unconfirmed, prepared, 42).status, 'unknown');
   const cancelled = JSON.parse(JSON.stringify(result));
   cancelled.snapshot.records[0].executionStatus = 'cancelled';
-  assert.equal(
-    adaptSdkResult(cancelled, prepared, config, 42).status,
-    'cancelled',
-  );
+  assert.equal(adaptSdkResult(cancelled, prepared, 42).status, 'cancelled');
   const profiled = JSON.parse(JSON.stringify(result));
   profiled.snapshot.records[0].verdict.details.profiling = {
     schemaVersion: 1,
@@ -188,7 +211,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     metadata: { upstreamCommit: 'fixture' },
     artifacts: [],
   };
-  const withProfile = adaptSdkResult(profiled, prepared, config, 42);
+  const withProfile = adaptSdkResult(profiled, prepared, 42);
   assert.equal(withProfile.valid, true);
   assert.equal(withProfile.candidateMs, 8);
   assert.ok(
@@ -378,14 +401,17 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   const profileOperation = await createOperatorbench(
     {
       ...config,
-      sdk: {
-        ...config.sdk,
-        profiling: {
-          enabled: true,
-          cacheEnabled: false,
-          msprofBin: msprof,
-          maxAttempts: 1,
-          attemptTimeoutSeconds: 5,
+      benchmark: {
+        ...config.benchmark,
+        config: {
+          ...config.benchmark.config,
+          profiling: {
+            enabled: true,
+            cacheEnabled: false,
+            msprofBin: msprof,
+            maxAttempts: 1,
+            attemptTimeoutSeconds: 5,
+          },
         },
       },
     },

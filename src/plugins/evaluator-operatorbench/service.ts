@@ -18,14 +18,13 @@ import { digest, object, string } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { archiveItemExecution } from '../shared/evaluator-adapter/measurement.js';
-import { prepareSdkConfiguration } from './sdk.js';
+import { prepareOperatorRun, type PreparedSdkRun } from './sdk.js';
 import { loadOperatorTask } from '../shared/operator-task.js';
 import { EvaluatorRunError } from 'ember-evaluator';
 import { sdkRunner } from '../shared/evaluator-adapter/sdk.js';
-import type { PreparedSdkRun } from './sdk.js';
 import { adaptSdkResult, type SdkOperatorResult } from './result.js';
 import { readProfileAssessment, recordSdkMeasurement } from './measurement.js';
-import { configSchema, type SdkOperatorbenchConfig } from './schema.js';
+import { configSchema, type OperatorbenchConfig } from './schema.js';
 
 async function sdkBuildIdentity(): Promise<string> {
   const directory = fileURLToPath(
@@ -56,7 +55,7 @@ export async function createOperatorbench(
   rawConfig: unknown,
   _services: RuntimeContext,
 ): Promise<Operation<OperatorbenchInput, OperatorbenchOutput>> {
-  const config = parseConfig<SdkOperatorbenchConfig>(
+  const config = parseConfig<OperatorbenchConfig>(
     configSchema,
     rawConfig,
     'operatorbench config',
@@ -69,6 +68,8 @@ export async function createOperatorbench(
     './result',
     './measurement',
     '../shared/operator-task',
+    '../shared/evaluator-adapter/configuration',
+    '../shared/evaluator-adapter/data',
     '../application-kernel/schema',
   ]);
   const sdkBuildDigest = await sdkBuildIdentity();
@@ -117,14 +118,14 @@ export async function createOperatorbench(
             throw new Error(
               'Diagnostic source differs from its precision assessment',
             );
-          const prepared = await prepareSdkConfiguration(
+          const prepared = await prepareOperatorRun({
             config,
-            task.definition.contract,
+            rawContract: task.definition.contract,
             selected,
             execution,
-            context.directory,
-            input.action,
-          );
+            directory: context.directory,
+            operation: input.action,
+          });
           context.signal.throwIfAborted();
           await context.charge('evaluationRuns', 1);
           let native: JsonObject = { status: 'not-returned' };
@@ -149,7 +150,7 @@ export async function createOperatorbench(
                   null,
                 );
             }
-            result = adaptSdkResult(native, prepared, config, selected.seed);
+            result = adaptSdkResult(native, prepared, selected.seed);
             if (input.action === 'profile' && result.status === 'completed') {
               if (
                 digest(result.conditions?.pluginVersions) !==

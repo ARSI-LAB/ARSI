@@ -129,7 +129,12 @@ export type ConcreteConfigChecks = [
   Check<Equal<Config<typeof memoryDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof reflectionDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof artifactSelectorDefinition>['prompt'], string>>,
-  Check<Equal<Config<typeof operatorbenchDefinition>['mode'], 'sdk'>>,
+  Check<
+    Equal<
+      Config<typeof operatorbenchDefinition>['benchmark'],
+      SdkEvaluatorConfig['benchmark'] & JsonValue
+    >
+  >,
   Check<
     Equal<
       Config<typeof kernelApplicationDefinition>['target'],

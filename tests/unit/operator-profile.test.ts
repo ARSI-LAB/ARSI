@@ -308,27 +308,27 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
   });
   const operation = await createOperatorbench(
     {
-      mode: 'sdk',
       task: { directory: taskDirectory },
-      protocol: {
-        warmup: 5,
-        repeat: 20,
-        rtol: 0,
-        atol: 0,
-        timingScope: 'all-device-kernels',
-      },
-      sdk: {
-        python: worker,
-        device: 0,
-        timeoutSeconds: 15,
-        profiling: {
-          enabled: false,
-          msprofBin: msprof,
-          cacheEnabled: false,
-          maxAttempts: 1,
-          attemptTimeoutSeconds: 5,
+      benchmark: {
+        name: 'kernel',
+        config: {
+          warmup: 5,
+          repeat: 20,
+          rtol: 0,
+          atol: 0,
+          python: worker,
+          device: 0,
+          timeoutSeconds: 15,
+          profiling: {
+            enabled: false,
+            msprofBin: msprof,
+            cacheEnabled: false,
+            maxAttempts: 1,
+            attemptTimeoutSeconds: 5,
+          },
         },
       },
+      run: { onError: 'abort', timeoutSeconds: 45 },
     },
     context,
   );

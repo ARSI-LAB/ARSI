@@ -36,7 +36,10 @@ await writeFile(join(resourcesDirectory,'knowledge/manifest.json'),JSON.stringif
 const recipe=parse(await readFile(join(example,'recipe.search.yaml'),'utf8'));
 const examplePromptsDirectory=recipe.bindings.proposer.config.promptsDirectory;
 assert.equal(typeof examplePromptsDirectory,'string','the example explicitly selects its local prompts');
-recipe.bindings.evaluator.config.sdk.python=join(example,'sdk-fixture-worker.mjs');recipe.bindings.evaluator.config.sdk.timeoutSeconds=15;
+const evaluator=recipe.bindings.evaluator.config;
+evaluator.benchmark.config.python=join(example,'sdk-fixture-worker.mjs');
+evaluator.benchmark.config.timeoutSeconds=15;
+evaluator.run.timeoutSeconds=45;
 recipe.policy={id:'policy.operator-search',config:{goal:'Installed functional fixture',caseIds:['fixed'],maxAttempts:1,repairLimit:0,metricsEnabled:false}};
 recipe.bindings.agent={plugin:'agent.installed-operator-fixture',config:{}};
 recipe.bindings.proposer={plugin:'proposer.operator',config:{agentRef:'agent',task:{directory:join(example,'task')},embedding:{python:embeddingPython,modelDirectory,identityFile,resourcesDirectory,retrievalScript:embeddingPython}}};

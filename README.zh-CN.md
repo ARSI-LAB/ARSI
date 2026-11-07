@@ -205,19 +205,17 @@ ember-rsi dashboard
 
 ## 📖 使用指南
 
-| 对应指南 |
-| --- |
-| [快速入门](docs/users/getting-started_zh.md) |
-| [架构与核心概念](docs/users/concepts/architecture_zh.md) |
-| [内置组件](docs/users/guides/built-in-components_zh.md) |
-| [配置实验](docs/users/guides/configuration_zh.md) |
-| [运行与检查实验](docs/users/guides/running-experiments_zh.md) |
-| [使用 Skill](docs/users/guides/using-skills_zh.md) |
-| [Memory 使用指南](docs/users/guides/memory_zh.md) |
-| [Reflection 使用指南](docs/users/guides/reflection_zh.md) |
-| [编写 Policy](docs/users/guides/writing-policies_zh.md) |
-| [编写插件](docs/users/guides/writing-plugins_zh.md) |
-| [事件系统开发指南](docs/users/guides/runtime-events_zh.md) |
+- [快速入门](docs/users/getting-started_zh.md)
+- [架构与核心概念](docs/users/concepts/architecture_zh.md)
+- [内置组件](docs/users/guides/built-in-components_zh.md)
+- [配置实验](docs/users/guides/configuration_zh.md)
+- [运行与检查实验](docs/users/guides/running-experiments_zh.md)
+- [使用 Skill](docs/users/guides/using-skills_zh.md)
+- [Memory 使用指南](docs/users/guides/memory_zh.md)
+- [Reflection 使用指南](docs/users/guides/reflection_zh.md)
+- [编写 Policy](docs/users/guides/writing-policies_zh.md)
+- [编写插件](docs/users/guides/writing-plugins_zh.md)
+- [事件系统开发指南](docs/users/guides/runtime-events_zh.md)
 
 ## 🙏 致谢
 

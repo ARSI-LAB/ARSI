@@ -35,9 +35,9 @@
 
 ### 一切皆插件
 
-![插件动画：Recipe 选择 AgentBundle Application 和 Harness² Policy，并独立绑定 Agent 后端](docs/users/assets/rsi-plugin-mechanism.gif)
+![插件动画：Harness² 解析 Agent 绑定并调用 Pi，修改 Recipe 后改为调用 Codex](docs/users/assets/rsi-plugin-mechanism.gif)
 
-*Harness² 示例 ·* `application.agentbundle` *管理优化对象及其评测实例。Recipe 可独立切换 Agent 后端。*
+*Harness² 示例 · Proposer 通过 `agent` 引用绑定。在 Recipe 中修改绑定后，下一次运行时同一个调用就会从 `agent.pi` 切换到 `agent.codex`。*
 
 - **Application（优化目标与实例化）** 是 Recipe 在 `application` 下选择的核心插件。它定义优化什么、允许改动什么，以及如何为评测准备和释放候选实例。内置实现可管理 AgentBundle、推理服务配置或 Triton-Ascend 算子。
 - **Policy（优化策略）** 定义 RSI 循环、停止条件，以及各插件绑定所需的契约。

@@ -231,7 +231,7 @@ export function register(registry) {
     assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
   assert.ok(!catalog.plugins.includes('agent.scripted'));
   assert.ok(catalog.plugins.includes('agent.codex'));
-  assert.ok(catalog.plugins.includes('search.gepa'));
+  assert.ok(catalog.plugins.includes('search.prompt-evolution'));
   assert.deepEqual(
     [...catalog.policies].sort(),
     [
@@ -274,7 +274,7 @@ export function register(registry) {
     if (name === 'dsh-gepa') {
       assert.equal(validation.policyId, 'policy.gepa');
       assert.ok(
-        validation.plugins.includes('search.gepa'),
+        validation.plugins.includes('search.prompt-evolution'),
         'installed consumer assembles built-in GEPA without an extension directory',
       );
     }
@@ -451,7 +451,7 @@ try {
   assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
   if(id==='policy.gepa'){
    assert.deepEqual(policy.requirements.search,searchContract,'installed GEPA Policy uses the shared stateful search contract');
-   assert.deepEqual(runtime.registry.get('search.gepa').contract,searchContract,'installed GEPA implementation uses the shared stateful search contract');
+   assert.deepEqual(runtime.registry.get('search.prompt-evolution').contract,searchContract,'installed GEPA implementation uses the shared stateful search contract');
    assert.deepEqual(runtime.registry.get('proposer.optuna').contract,searchContract,'installed Optuna and GEPA share one search contract');
   }else{
    const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;

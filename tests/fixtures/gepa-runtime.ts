@@ -26,7 +26,7 @@ import { object, string } from '../../src/shared/json.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { readPolicyDocument } from '../../src/runtime/compiler/document.js';
-import { gepaSearchDefinition } from '../../src/plugins/gepa/index.js';
+import { promptEvolutionSearchDefinition } from '../../src/plugins/search-prompt-evolution/index.js';
 import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
 import {
   checkTarget,
@@ -588,7 +588,7 @@ export async function runGepa(options: {
         options.agentOutput,
       ),
     );
-  registry.registerOperation(gepaSearchDefinition);
+  registry.registerOperation(promptEvolutionSearchDefinition);
   registry.registerOperation(proposerDefinition);
   const bindingNames = options.bindingNames ?? {
     evaluator: 'evaluator',
@@ -615,7 +615,7 @@ export async function runGepa(options: {
     policy.defaults = {
       bindings: {
         search: {
-          plugin: gepaSearchDefinition.id,
+          plugin: promptEvolutionSearchDefinition.id,
           config: {},
         },
         [bindingNames.proposer]: {

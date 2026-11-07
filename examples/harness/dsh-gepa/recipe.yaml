@@ -35,7 +35,7 @@ policy:
         - workbuddy/channel-period-compare-L4-017
 bindings:
   search:
-    plugin: search.gepa
+    plugin: search.prompt-evolution
     config:
       maxRounds: 10
       maxRollouts: 64

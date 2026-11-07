@@ -11,7 +11,7 @@ import {
   paretoChoice,
   selectCandidate,
   type CandidateRecord,
-} from '../../src/plugins/gepa/engine.js';
+} from '../../src/plugins/search-prompt-evolution/engine.js';
 
 function candidate(
   ref: string,

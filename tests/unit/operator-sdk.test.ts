@@ -79,7 +79,10 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     JSON.stringify({
       schemaVersion: 'rsi.kernel-task/v1',
       id: 'fixture-copy',
-      cases: [{ id: 'fixed', seed: 42 }],
+      cases: [
+        { id: 'fixed', seed: 42 },
+        { id: 'alternate', seed: 7 },
+      ],
       contract,
     }),
   );
@@ -161,7 +164,6 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     operation: input.action,
     taskId: 'fixed',
     seed: 42,
-    manifest: saved.benchmark.config.manifest,
     contract: parseKernelContract(manifest.tasks[0].contract),
     candidateSha256: createHash('sha256').update(source).digest('hex'),
   };
@@ -480,6 +482,36 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(profileProvenance.cleanup, 'confirmed');
   assert.equal(charges, 6);
   assert.equal(releases, 6);
+  const alternateDirectory = join(directory, 'alternate-case');
+  await assert.rejects(
+    operation.execute(
+      { ...input, caseIds: ['alternate'] },
+      context.extend({
+        directory: alternateDirectory,
+        charge: async () => {
+          throw new Error('Stop before SDK execution');
+        },
+      }),
+    ),
+    /Stop before SDK execution/,
+  );
+  const alternate = JSON.parse(
+    await readFile(join(alternateDirectory, 'sdk-config.json'), 'utf8'),
+  );
+  assert.deepEqual(alternate.run.taskIds, ['alternate']);
+  assert.deepEqual(alternate.benchmark.config.seeds, [7]);
+  assert.equal(
+    alternate.benchmark.config.manifest,
+    join(alternateDirectory, 'sdk-input', 'manifest.json'),
+  );
+  assert.equal(
+    alternate.store.config.runIndexDirectory,
+    join(alternateDirectory, 'sdk-index'),
+  );
+  assert.equal(
+    alternate.output.directory,
+    join(alternateDirectory, 'sdk-output'),
+  );
   const errors: unknown[] = [];
   const invalid = await createOperatorbench(
     {

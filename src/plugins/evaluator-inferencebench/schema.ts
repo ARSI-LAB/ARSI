@@ -1,4 +1,4 @@
 export {
   configSchema,
-  type BoundServiceConfig as InferencebenchConfig,
+  type EvaluatorConfig,
 } from '../shared/evaluator-adapter/configuration.js';

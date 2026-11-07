@@ -20,9 +20,9 @@ import {
   type SdkEvaluatorConfig,
 } from '../shared/evaluator-adapter/configuration.js';
 import { normalizeEvaluation } from './measurement.js';
-import { configSchema, type InferencebenchConfig } from './schema.js';
+import { configSchema, type EvaluatorConfig } from './schema.js';
 export async function createInferencebench(
-  config: InferencebenchConfig,
+  config: EvaluatorConfig,
   _context: RuntimeContext,
   runner: EvaluatorRunner = sdkRunner,
 ): Promise<Operation<InferencebenchInput, InferencebenchOutput>> {
@@ -119,7 +119,7 @@ export async function createInferencebench(
 }
 
 function prepareEvaluationConfig(
-  config: InferencebenchConfig,
+  config: EvaluatorConfig,
   {
     execution,
     directory,

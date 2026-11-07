@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bootstrap, loadConfig } from 'ember-evaluator';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
-import type { AgentbenchConfig as EvaluatorConfig } from '../../src/plugins/evaluator-agentbench/schema.js';
-import type { InferencebenchConfig } from '../../src/plugins/evaluator-inferencebench/schema.js';
+import type { AgentbenchConfig } from '../../src/plugins/evaluator-agentbench/schema.js';
+import type { EvaluatorConfig } from '../../src/plugins/evaluator-inferencebench/schema.js';
 import { object } from '../../src/shared/json.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Binding } from '../../src/runtime/loaders/binding.js';
@@ -23,7 +23,7 @@ async function temporaryDirectory(t: TestContext): Promise<string> {
 }
 
 async function agentbenchConfiguration(
-  config: EvaluatorConfig,
+  config: AgentbenchConfig,
   input: { taskIds: string[] },
   execution: JsonObject,
   directory: string,
@@ -37,7 +37,7 @@ async function agentbenchConfiguration(
 }
 
 async function inferencebenchConfiguration(
-  config: InferencebenchConfig,
+  config: EvaluatorConfig,
   execution: JsonObject,
   directory: string,
 ): Promise<JsonObject> {
@@ -142,12 +142,12 @@ test('Evaluator plugins check native configuration before charging or invoking t
   };
   registry.registerOperation({
     ...agentbenchDefinition,
-    create: (config: EvaluatorConfig, context) =>
+    create: (config: AgentbenchConfig, context) =>
       createAgentbench(config, context, runner),
   });
   registry.registerOperation({
     ...inferencebenchDefinition,
-    create: (config: InferencebenchConfig, context) =>
+    create: (config: EvaluatorConfig, context) =>
       createInferencebench(config, context, runner),
   });
   const context = new RuntimeContext().extend({
@@ -312,7 +312,7 @@ test('inferencebench passes AgentX limits through and the SDK enforces them', as
 
 test('agentbench binds the exact task set while preserving SDK configuration and caller input', async (t) => {
   const directory = await temporaryDirectory(t);
-  const config: EvaluatorConfig = {
+  const config: AgentbenchConfig = {
     services: { default: { model: 'test', base_url: 'http://localhost' } },
     benchmark: {
       name: 'terminalbench',
@@ -360,7 +360,7 @@ test('inferencebench rejects non-AgentX benchmarks before invoking the SDK', asy
 
 test('agentbench forwards only explicitly configured service output limits', async (t) => {
   const directory = await temporaryDirectory(t);
-  const config: EvaluatorConfig = {
+  const config: AgentbenchConfig = {
     services: {
       default: { model: 'test', base_url: 'http://localhost' },
       custom: { model: 'test', base_url: 'http://localhost', maxTokens: 32768 },
@@ -546,7 +546,7 @@ test('agentbench leaves preparation settings and defaults to the SDK', async (t)
     undefined,
   ];
   for (const [index, settings] of cases.entries()) {
-    const config: EvaluatorConfig = {
+    const config: AgentbenchConfig = {
       services: { default: { model: 'test', base_url: 'http://localhost' } },
       benchmark: { name: 'terminalbench', version: '4.0' },
       ...settings,

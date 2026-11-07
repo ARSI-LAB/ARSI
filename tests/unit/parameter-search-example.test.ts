@@ -13,7 +13,7 @@ import { inferenceDefinition } from '../../src/plugins/application-inference/ind
 import { parseConfig, validate } from '../../src/shared/schema.js';
 import {
   configSchema as evaluatorConfigSchema,
-  type InferencebenchConfig,
+  type EvaluatorConfig,
 } from '../../src/plugins/evaluator-inferencebench/schema.js';
 
 test('vLLM tuning example uses AgentX against the Application endpoint with matching selection metrics', async () => {
@@ -27,7 +27,7 @@ test('vLLM tuning example uses AgentX against the Application endpoint with matc
   );
   const bindings = object(recipe.bindings);
   validate(inferenceDefinition.configSchema, object(recipe.application).config);
-  const evaluator = parseConfig<InferencebenchConfig>(
+  const evaluator = parseConfig<EvaluatorConfig>(
     evaluatorConfigSchema,
     object(bindings.evaluator).config,
   );

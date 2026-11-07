@@ -18,8 +18,8 @@ import { agentbenchDefinition } from '../../src/plugins/evaluator-agentbench/ind
 import { inferencebenchDefinition } from '../../src/plugins/evaluator-inferencebench/index.js';
 import { createAgentbench } from '../../src/plugins/evaluator-agentbench/service.js';
 import { createInferencebench } from '../../src/plugins/evaluator-inferencebench/service.js';
-import type { AgentbenchConfig as EvaluatorConfig } from '../../src/plugins/evaluator-agentbench/schema.js';
-import type { InferencebenchConfig } from '../../src/plugins/evaluator-inferencebench/schema.js';
+import type { AgentbenchConfig } from '../../src/plugins/evaluator-agentbench/schema.js';
+import type { EvaluatorConfig } from '../../src/plugins/evaluator-inferencebench/schema.js';
 import type { EvaluatorRunner } from '../../src/plugins/shared/evaluator-adapter/sdk.js';
 import {
   RuntimeContext,
@@ -35,12 +35,12 @@ function evaluatorWithRunner(
   if (kind === 'inferencebench')
     return {
       ...inferencebenchDefinition,
-      create: (config: InferencebenchConfig, services) =>
+      create: (config: EvaluatorConfig, services) =>
         createInferencebench(config, services, runner),
     };
   return {
     ...agentbenchDefinition,
-    create: (config: EvaluatorConfig, services) =>
+    create: (config: AgentbenchConfig, services) =>
       createAgentbench(config, services, runner),
   };
 }

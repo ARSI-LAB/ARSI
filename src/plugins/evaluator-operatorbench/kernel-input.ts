@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseKernelContract, type KernelContract } from 'ember-evaluator';
 import type { OperatorbenchInput } from '../../contracts/plugin-types/operatorbench.js';
 import type { KernelExecution } from '../application-kernel/schema.js';
@@ -10,7 +10,6 @@ export type PreparedOperatorCase = {
   operation: OperatorbenchInput['action'];
   taskId: string;
   seed: number;
-  manifest: string;
   contract: KernelContract;
   candidateSha256: string;
 };
@@ -20,18 +19,17 @@ export async function prepareOperatorCase({
   rawContract,
   selected,
   execution,
-  directory,
+  manifest,
   operation,
 }: {
   taskDirectory: string;
   rawContract: unknown;
   selected: { id: string; seed: number };
   execution: KernelExecution;
-  directory: string;
+  manifest: string;
   operation: OperatorbenchInput['action'];
 }): Promise<PreparedOperatorCase> {
-  const data = join(directory, 'sdk-input');
-  const manifest = join(data, 'manifest.json');
+  const data = dirname(manifest);
   const raw = object(rawContract);
   const contract = parseKernelContract({
     ...raw,
@@ -69,7 +67,6 @@ export async function prepareOperatorCase({
     operation,
     taskId: selected.id,
     seed: selected.seed,
-    manifest,
     contract,
     candidateSha256: execution.sourceDigest,
   };

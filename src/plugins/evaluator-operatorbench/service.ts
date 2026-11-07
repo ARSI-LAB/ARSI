@@ -27,7 +27,6 @@ import {
 } from '../shared/evaluator-adapter/sdk.js';
 import {
   parseEvaluatorConfig,
-  type BoundServiceConfig,
   type SdkEvaluatorConfig,
 } from '../shared/evaluator-adapter/configuration.js';
 import { plain } from '../shared/evaluator-adapter/data.js';
@@ -41,15 +40,12 @@ export async function createOperatorbench(
   _context: RuntimeContext,
   runner: EvaluatorRunner = sdkRunner,
 ): Promise<Operation<OperatorbenchInput, OperatorbenchOutput>> {
-  const {
-    task: { directory: taskDirectory },
-    ...template
-  } = parseConfig<OperatorbenchConfig>(
+  const config = parseConfig<OperatorbenchConfig>(
     configSchema,
     rawConfig,
     'operatorbench config',
   );
-  const evaluationConfig = prepareEvaluationConfig(template);
+  const taskDirectory = config.task.directory;
   const task = await loadOperatorTask(taskDirectory);
   const adapterDigest = await sourceIdentity(import.meta.url, [
     './service',
@@ -58,6 +54,7 @@ export async function createOperatorbench(
     './conditions',
     './result',
     './measurement',
+    './measurement-schema',
     '../shared/operator-task',
     '../shared/evaluator-adapter/configuration',
     '../shared/evaluator-adapter/data',
@@ -75,6 +72,13 @@ export async function createOperatorbench(
         throw new Error('M1 SDK supports exactly one case per call');
       const selected = task.cases.find((c) => c.id === input.caseIds[0]);
       if (!selected) throw new Error('Unknown SDK operator case');
+      const manifest = join(context.directory, 'sdk-input', 'manifest.json');
+      const evaluationConfig = prepareEvaluationConfig(config, {
+        selected,
+        operation: input.action,
+        directory: context.directory,
+        manifest,
+      });
       if ((await sdkBuildIdentity()) !== sdkBuildDigest)
         throw new Error(
           'Operator SDK build changed after loading; start a new experiment',
@@ -109,48 +113,16 @@ export async function createOperatorbench(
             throw new Error(
               'Diagnostic source differs from its precision assessment',
             );
-          const { benchmark, store, run } = evaluationConfig;
-          const kernel = { ...benchmark.config };
-          if (input.action === 'profile')
-            kernel.profiling = {
-              ...plain(kernel.profiling),
-              enabled: true,
-              cacheEnabled: false,
-            };
           const prepared = await prepareOperatorCase({
             taskDirectory,
             rawContract: task.definition.contract,
             selected,
             execution,
-            directory: context.directory,
+            manifest,
             operation: input.action,
           });
-          const callConfig: SdkEvaluatorConfig = {
-            ...evaluationConfig,
-            benchmark: {
-              ...benchmark,
-              config: {
-                ...kernel,
-                operation: prepared.operation,
-                manifest: prepared.manifest,
-                seeds: [prepared.seed],
-              },
-            },
-            store: {
-              ...store,
-              config: {
-                ...store.config,
-                runIndexDirectory: join(context.directory, 'sdk-index'),
-              },
-            },
-            run: { ...run, taskIds: [prepared.taskId] },
-            output: {
-              ...evaluationConfig.output,
-              directory: join(context.directory, 'sdk-output'),
-            },
-          };
           const configPath = join(context.directory, 'sdk-config.json');
-          await writeFile(configPath, JSON.stringify(callConfig), {
+          await writeFile(configPath, JSON.stringify(evaluationConfig), {
             mode: 0o600,
           });
           context.signal.throwIfAborted();
@@ -267,32 +239,36 @@ export async function createOperatorbench(
   };
 }
 
-function prepareEvaluationConfig(template: BoundServiceConfig) {
-  if (Object.hasOwn(template, 'services'))
+function prepareEvaluationConfig(
+  { task: _task, ...config }: OperatorbenchConfig,
+  {
+    selected,
+    operation,
+    directory,
+    manifest,
+  }: {
+    selected: { id: string; seed: number };
+    operation: OperatorbenchInput['action'];
+    directory: string;
+    manifest: string;
+  },
+): SdkEvaluatorConfig {
+  if (Object.hasOwn(config, 'services'))
     throw new Error('services is owned by RSI for kernel replay');
-  const parsed = parseEvaluatorConfig({
-    ...template,
-    // The SDK requires a service even though kernel replay never calls a model.
-    services: {
-      default: {
-        model: 'kernel-replay-no-model',
-        base_url: 'http://127.0.0.1:1',
-        api_key: '${RSI_KERNEL_REPLAY_NO_MODEL_KEY}',
-      },
-    },
-  });
   const benchmark =
-    typeof parsed.benchmark === 'string'
-      ? { name: parsed.benchmark }
-      : parsed.benchmark;
+    typeof config.benchmark === 'string'
+      ? { name: config.benchmark }
+      : object(config.benchmark, 'benchmark');
+  const kernel = { ...plain(benchmark.config) };
   const store =
-    typeof parsed.store === 'string'
-      ? { name: parsed.store }
-      : (parsed.store ?? {});
-  const kernel = object(benchmark.config ?? {});
+    typeof config.store === 'string'
+      ? { name: config.store }
+      : plain(config.store);
+  const storeConfig = plain(store.config);
+  const output = plain(config.output);
   if (benchmark.name !== 'kernel')
     throw new Error('operatorbench requires benchmark.name=kernel');
-  if (parsed.deployment !== undefined)
+  if (config.deployment !== undefined)
     throw new Error('operatorbench requires local SDK execution');
   if (store.name !== undefined && store.name !== 'local')
     throw new Error('operatorbench requires a local run store');
@@ -300,17 +276,41 @@ function prepareEvaluationConfig(template: BoundServiceConfig) {
     if (field in kernel)
       throw new Error(`benchmark.config.${field} is owned by RSI`);
   }
-  if (store.config?.runIndexDirectory !== undefined)
+  if (storeConfig.runIndexDirectory !== undefined)
     throw new Error('store.config.runIndexDirectory is owned by RSI');
-  if (parsed.output?.directory !== undefined)
+  if (output.directory !== undefined)
     throw new Error('output.directory is owned by RSI');
-  const { sampling: _sampling, offset: _offset, ...run } = parsed.run ?? {};
-  return {
-    ...parsed,
-    benchmark: { ...benchmark, config: kernel },
-    store,
-    run: { ...run, maxTasks: null },
-  } satisfies SdkEvaluatorConfig;
+  if (operation === 'profile')
+    kernel.profiling = {
+      ...plain(kernel.profiling),
+      enabled: true,
+      cacheEnabled: false,
+    };
+  const { sampling: _sampling, offset: _offset, ...run } = plain(config.run);
+  return parseEvaluatorConfig({
+    ...config,
+    // Kernel replay needs an SDK service declaration but never calls a model.
+    services: {
+      default: {
+        model: 'kernel-replay-no-model',
+        base_url: 'http://127.0.0.1:1',
+        api_key: '${RSI_KERNEL_REPLAY_NO_MODEL_KEY}',
+      },
+    },
+    benchmark: {
+      ...benchmark,
+      config: { ...kernel, manifest, operation, seeds: [selected.seed] },
+    },
+    store: {
+      ...store,
+      config: {
+        ...storeConfig,
+        runIndexDirectory: join(directory, 'sdk-index'),
+      },
+    },
+    run: { ...run, taskIds: [selected.id], maxTasks: null },
+    output: { ...output, directory: join(directory, 'sdk-output') },
+  });
 }
 
 async function sdkBuildIdentity(): Promise<string> {

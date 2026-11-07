@@ -8,7 +8,7 @@
 
 [English](./README.md) | 中文
 
-[简介](#overview) · [工作原理](#architecture) · [安装与部署](#installation) · [使用 ember-rsi](#usage) · [内置 RSI 策略](#built-in-rsi-strategies) · [扩展 ember-rsi](#extensions) · [使用指南](#user-guide)
+[简介](#overview) · [工作原理](#architecture) · [安装与部署](#installation) · [使用 ember-rsi](#usage) · [内置 RSI 策略](#built-in-rsi-strategies) · [一切皆插件](#extensions) · [使用指南](#user-guide)
 
 <a id="overview"></a>
 
@@ -24,7 +24,7 @@
 
 ## 🔄 工作原理
 
-![ember-rsi 架构：Recipe 与 Policy 配置、RSI Core、围绕 Application 的插件循环，以及 Memory 与 Reflection 自进化](docs/users/assets/rsi-architecture-handdrawn.png)
+![ember-rsi 架构：Recipe 与 Policy 配置、RSI Core、围绕 Application 的插件循环，以及 Memory 与 Reflection 自进化](docs/users/assets/rsi-architecture-handdrawn.gif)
 
 1. **配置实验**。在 Recipe(实验配置) 中选定优化目标和 Policy，配置数据集、插件和预算。Policy(优化策略) 定义每轮执行哪些步骤，以及何时停止。
 2. **运行 RSI 实验**。Runtime 按 Policy 执行迭代。典型流程是从基线出发，提出并校验修改、评测候选版本，再根据结果选择下一轮的起点。
@@ -84,6 +84,10 @@ npx skills add evolving-foundry/ember-rsi --skill ember-rsi
 ```
 
 如需用户级安装，添加 `-g`。按 Agent 的要求重新加载或重启，然后确认能发现和读取 `ember-rsi` skill。
+
+将 RSI Skill 加载到支持 Skill 的编程助手后，可以直接交代优化目标、允许修改的范围和预算，让助手选择或编写 Recipe、校验配置，并在授权后运行实验、检查结果和诊断失败。
+
+- **RSI Skill** 的入口是 [`SKILL.md`](skills/ember-rsi/SKILL.md)。加载时请保留整个 `skills/ember-rsi/` 目录，以便助手访问参考文档和模板。可先用[最小示例](skills/ember-rsi/references/quickstart.md)验证配方和插件能否正常协作。
 
 后续命令均在 `ember-rsi` 仓库根目录执行，使用已安装的 `ember-rsi` CLI。
 
@@ -163,7 +167,7 @@ ember-rsi dashboard
 ## 内置 RSI 策略
 
 
-| Policy                    | 如何优化目标                                    | 示例Recipe                                                                        | 插件                                                                                                                                                                                                                                                 |
+| Policy                    | 如何优化目标                                    | 示例Recipe                                                                        | 可替换插件                                                                                                                                                                                                                                              |
 | ------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `policy.harness2`         | 评测通用、领域和组合改进，再匿名比较交付物。                    | [DSH Harness²](examples/harness/dsh-harness2/README.md)                         | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench)†, [`selector.artifact`](src/plugins/selector-artifacts), [`memory.agent`](src/plugins/memory-agent) |
 | `policy.wikiskill`        | 将训练经验汇总到 Wiki，在验证集上有所改善的 Skill 修改才进入独立测试。 | [DSH WikiSkill](examples/harness/dsh-wikiskill/README.md)                       | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`memory.agent`](src/plugins/memory-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench)†, [`selector.metric`](src/plugins/selector-metrics)     |
@@ -176,30 +180,21 @@ ember-rsi dashboard
 
 <a id="extensions"></a>
 
-## 扩展 ember-rsi
+## 一切皆插件
 
+![展示 Recipe、Policy、契约和插件如何连接的动画](docs/users/assets/rsi-plugin-mechanism.gif)
 
+*Harness² 示例 · 将 Agent 后端从 `agent.pi` 切换为 `agent.codex`。*
 
-### 面向开发者
+- **Policy（优化策略）** 用 YAML 描述 RSI 循环，决定每轮执行哪些步骤、如何根据结果继续迭代，以及何时停止。Policy 为每个插件绑定声明所需的契约，并在流程中通过绑定名调用插件。
+- **Plugin（插件）** 由契约（Contract）和具体实现组成。契约定义插件的输入和输出 Schema，实现负责完成实际工作。只要新实现满足该绑定所需的契约，就可以在同一个 Policy 中替换原来的插件。
+- **Recipe（实验配方）** 是启动实验的 YAML 入口。它选定优化目标和 Policy，为各个绑定选择具体插件，并提供实验所需的配置和预算。
 
-可以先调整 Recipe 配置，再按需扩展框架。开发示例见 [编写 Policy](docs/users/guides/writing-policies_zh.md) 和 [编写插件](docs/users/guides/writing-plugins_zh.md)。
+**框架没有为所有插件规定统一的输入和输出格式。** 每种契约可以按任务需要定义自己的 Schema。例如，按数值指标筛选候选和按交付物质量评审候选，可以各自接收不同的信息。这样，新任务可以定义适合自己的接口，已有流程也可以通过 Recipe 切换同一契约下的实现。
 
-
-| 目标                       | 扩展方式                                                                |
-| ------------------------ | ------------------------------------------------------------------- |
-| 更换数据集、模型、预算或插件绑定         | 修改或覆盖 `recipe.yaml` 中的相关设置和 `bindings`。                             |
-| 添加搜索循环、并发分支或停止条件         | 编写并注册符合 `rsi.policy/v1` 的 YAML Policy。                              |
-| 接入优化目标、提案器、评测器或 Agent 后端 | 实现 `ember-rsi/contracts` 中的公共契约，并通过 `--plugin-dir <dir>` 或在应用入口中注册。 |
-| 在其他平台或服务中托管实验            | 通过 Node.js API `createRuntime` 和 `validateRecipe` 嵌入 Runtime。       |
-
-
-
-
-### 面向 AI 编程助手
-
-将 RSI Skill 加载到支持 Skill 的编程助手后，可以直接交代优化目标、允许修改的范围和预算，让助手选择或编写 Recipe、校验配置，并在授权后运行实验、检查结果和诊断失败。
-
-- **RSI Skill** 的入口是 [`skills/ember-rsi/SKILL.md`](skills/ember-rsi/SKILL.md)。加载时请保留整个 `skills/ember-rsi/` 目录，以便助手访问参考文档和模板。可先用[最小示例](skills/ember-rsi/references/quickstart.md)验证配方和插件能否正常协作。
+- [编写 Policy](docs/users/guides/writing-policies_zh.md) · 定义 RSI 循环和所需契约
+- [编写插件](docs/users/guides/writing-plugins_zh.md) · 选择或定义契约，编写并注册实现
+- [用 Recipe 组装实验](docs/users/guides/configuration_zh.md#recipe-字段与绑定覆盖) · 选择 Policy、绑定插件并填写配置
 
 <a id="user-guide"></a>
 

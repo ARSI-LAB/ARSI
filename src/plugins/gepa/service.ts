@@ -7,9 +7,11 @@ import type {
   RuntimeContext,
 } from '../../contracts/index.js';
 import type {
-  PopulationSearchInput,
-  PopulationSearchOutput,
-} from '../../contracts/plugin-types/population-search.js';
+  SearchFeedback,
+  SearchInput,
+  SearchOutput,
+  SearchWork,
+} from '../../contracts/plugin-types/search.js';
 import { configSchema, type GepaModule, type GepaConfig } from './schema.js';
 import {
   readSearchState,
@@ -579,7 +581,7 @@ async function prepareRound(
 }
 
 async function compareRound(
-  input: Extract<PopulationSearchInput, { action: 'compare' }>,
+  input: Extract<SearchFeedback, { kind: 'proposal' }>,
   ctx: RuntimeContext,
   state: GepaState,
   plan: RoundPlan,
@@ -698,7 +700,7 @@ async function compareRound(
 }
 
 async function advanceSearch(
-  input: PopulationSearchInput,
+  input: SearchInput,
   context: RuntimeContext,
   settings: GepaConfig,
   configuration: string,
@@ -706,6 +708,10 @@ async function advanceSearch(
   context.signal.throwIfAborted();
   validateModules(settings.modules);
   if (input.action === 'initialize') {
+    if (!input.feedbackTaskIds?.length || !input.selectionTaskIds?.length)
+      throw new Error(
+        'GEPA initialization requires feedbackTaskIds and selectionTaskIds',
+      );
     const initialization = {
       ...settings,
       feedbackTaskIds: input.feedbackTaskIds,
@@ -719,7 +725,7 @@ async function advanceSearch(
     );
     const tasks = sampled.slice(0, settings.maxRollouts);
     const state = emptyState(initialization, tasks, rng);
-    const initial = await context.readCandidate(input.candidateRef);
+    const initial = await context.readCandidate(input.parent);
     state.selectionTruncated =
       tasks.length < initialization.selectionTaskIds.length;
     state.baselineCandidateRef = initial.ref;
@@ -745,15 +751,31 @@ async function advanceSearch(
     input.stateRef,
     configuration,
   );
-  if (input.action === 'observe-initial') {
+  if (input.action === 'suggest') return prepareRound(context, state, settings);
+  const feedback = input.feedback;
+  if (feedback.kind === 'proposal') {
+    if (!plan || input.workId !== `proposal:${plan.report.round}`)
+      throw new Error('GEPA feedback does not match the pending proposal work');
+    return compareRound(feedback, context, state, plan, settings);
+  }
+  const expectedWorkId = plan ? `selection:${plan.report.round}` : 'initial';
+  if (input.workId !== expectedWorkId)
+    throw new Error('GEPA feedback does not match the pending evaluation work');
+  const expectedMeasurements = state.selectionTaskIds.length ? 1 : 0;
+  if (feedback.measurementRefs.length !== expectedMeasurements)
+    throw new Error(
+      'GEPA feedback requires one measurement per requested evaluation',
+    );
+  const measurementRef = feedback.measurementRefs[0];
+  if (!plan) {
     if (state.selectionTaskIds.length) {
-      if (!input.measurementRef)
+      if (!measurementRef)
         throw new Error('GEPA initial selection requires a measurement');
       const initial = state.candidates[0]!;
       const evaluation = await readEvaluation(
         context,
         state,
-        input.measurementRef,
+        measurementRef,
         initial.ref,
         state.selectionTaskIds,
       );
@@ -772,17 +794,13 @@ async function advanceSearch(
     finishState(state, settings);
     return result(state);
   }
-  if (input.action === 'prepare') return prepareRound(context, state, settings);
-  if (!plan) throw new Error('GEPA search has no pending round plan');
-  if (input.action === 'compare')
-    return compareRound(input, context, state, plan, settings);
   const { candidate, report } = plan;
   if (!candidate)
     throw new Error('GEPA selection requires a compared candidate');
   const selection = await readEvaluation(
     context,
     state,
-    input.measurementRef,
+    measurementRef!,
     candidate.ref,
     state.selectionTaskIds,
   );
@@ -823,44 +841,61 @@ function searchResult(state: GepaState, settings: GepaConfig): JsonObject {
   };
 }
 
+function requestedWork(
+  input: SearchInput,
+  step: GepaStepResult,
+): SearchWork | null {
+  const { state, plan } = step;
+  if (input.action === 'initialize')
+    return {
+      kind: 'evaluation',
+      id: 'initial',
+      evaluations: state.selectionTaskIds.length
+        ? [{ candidateRef: input.parent, taskIds: state.selectionTaskIds }]
+        : [],
+    };
+  if (step.selectionRequired)
+    return {
+      kind: 'evaluation',
+      id: `selection:${plan!.report.round}`,
+      evaluations: [
+        { candidateRef: plan!.candidate!.ref, taskIds: state.selectionTaskIds },
+      ],
+    };
+  if (!plan) return null;
+  const work = {
+    kind: 'proposal' as const,
+    id: `proposal:${plan.report.round}`,
+    parentRefs: plan.report.parentRefs,
+    taskIds: plan.report.taskIds,
+  };
+  if (plan.proposalInput)
+    return {
+      ...work,
+      proposalInput: { ...plan.proposalInput, evidenceRefs: [] },
+      proposalResult: null,
+    };
+  if (!plan.proposalResult) throw new Error('GEPA round plan has no proposal');
+  return { ...work, proposalInput: null, proposalResult: plan.proposalResult };
+}
+
 export const createGepaSearch: OperationDefinition<
-  PopulationSearchInput,
-  PopulationSearchOutput,
+  SearchInput,
+  SearchOutput,
   GepaConfig
->['create'] = async (
-  raw,
-): Promise<Operation<PopulationSearchInput, PopulationSearchOutput>> => {
+>['create'] = async (raw): Promise<Operation<SearchInput, SearchOutput>> => {
   const settings = parseConfig<GepaConfig>(configSchema, raw, 'GEPA config');
   const configuration = digest(settings);
   return {
-    async execute(input, context): Promise<PopulationSearchOutput> {
+    async execute(input, context): Promise<SearchOutput> {
       const step = await advanceSearch(input, context, settings, configuration);
-      const { state, plan } = step;
+      const { state } = step;
       const stateRef = await writeSearchState(context, configuration, step);
       return {
         stateRef,
         done: state.done,
         iterationLimit: settings.maxRounds,
-        evaluation:
-          input.action === 'initialize' && state.selectionTaskIds.length
-            ? {
-                candidateRef: input.candidateRef,
-                taskIds: state.selectionTaskIds,
-              }
-            : step.selectionRequired
-              ? {
-                  candidateRef: plan!.candidate!.ref,
-                  taskIds: state.selectionTaskIds,
-                }
-              : null,
-        plan: plan
-          ? {
-              parentRefs: plan.report.parentRefs,
-              taskIds: plan.report.taskIds,
-              proposalInput: plan.proposalInput,
-              proposalResult: plan.proposalResult,
-            }
-          : null,
+        work: requestedWork(input, step),
         result: state.done ? searchResult(state, settings) : null,
       };
     },

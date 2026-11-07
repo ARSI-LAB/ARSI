@@ -389,10 +389,10 @@ import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,populationSearchContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
-import {RuntimeContext as ContractContext,populationSearchContract as ContractsPopulationSearchContract} from 'ember-rsi/contracts';
+import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,searchContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
+import {RuntimeContext as ContractContext,searchContract as ContractsSearchContract} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
-assert.equal(populationSearchContract,ContractsPopulationSearchContract);
+assert.equal(searchContract,ContractsSearchContract);
 const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
 async function packageResource(path){
  const location=relative(packageDirectory,await realpath(path));
@@ -450,11 +450,12 @@ try {
   const path=await packageResource(runtime.registry.policy(id)),policy=await Policy.load(path,runtime.registry);
   assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
   if(id==='policy.gepa'){
-   assert.deepEqual(policy.requirements.search,populationSearchContract,'installed GEPA Policy uses the public population search contract');
-   assert.deepEqual(runtime.registry.get('search.gepa').contract,populationSearchContract,'installed GEPA implementation uses the public population search contract');
+   assert.deepEqual(policy.requirements.search,searchContract,'installed GEPA Policy uses the shared stateful search contract');
+   assert.deepEqual(runtime.registry.get('search.gepa').contract,searchContract,'installed GEPA implementation uses the shared stateful search contract');
+   assert.deepEqual(runtime.registry.get('proposer.optuna').contract,searchContract,'installed Optuna and GEPA share one search contract');
   }else{
    const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;
-   assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?parameterSearchProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
+   assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?searchContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
   }
   assert.deepEqual(runtime.registry.get('proposer.agent').contract,proposerContract);
   const reflection=policy.defaults.reflection;
@@ -605,8 +606,8 @@ new Registry().registerOperation(definition);
     join(consumer, 'contracts-consumer.ts'),
     `
 import { RuntimeContext, type OperationDefinition } from 'ember-rsi/contracts';
-import type { PopulationSearchInput, PopulationSearchOutput } from 'ember-rsi';
-import type { PopulationSearchInput as ContractPopulationSearchInput, PopulationSearchOutput as ContractPopulationSearchOutput } from 'ember-rsi/contracts';
+import type { SearchInput, SearchOutput } from 'ember-rsi';
+import type { SearchInput as ContractSearchInput, SearchOutput as ContractSearchOutput } from 'ember-rsi/contracts';
 declare module 'ember-rsi/contracts' {
  interface RuntimeContext { contractsOnlyTrace?: string; }
 }
@@ -614,11 +615,11 @@ const context=new RuntimeContext().extend({contractsOnlyTrace:'consumer'});
 const signal:AbortSignal=context.signal;
 const result:Promise<import('ember-rsi/contracts').JsonValue>=context.invoke('worker',{});
 void signal;void result;
-export function checkPopulationSearchInput(candidateRef:string,feedbackTaskIds:string[],selectionTaskIds:string[]):PopulationSearchInput {
- const input:ContractPopulationSearchInput={action:'initialize',candidateRef,feedbackTaskIds,selectionTaskIds};
+export function checkSearchInput(candidateRef:string,feedbackTaskIds:string[],selectionTaskIds:string[]):SearchInput {
+ const input:ContractSearchInput={action:'initialize',parent:candidateRef,feedbackTaskIds,selectionTaskIds};
  return input;
 }
-export function checkPopulationSearchOutput(output:PopulationSearchOutput):ContractPopulationSearchOutput {
+export function checkSearchOutput(output:SearchOutput):ContractSearchOutput {
  return output;
 }
 export function checkOperation(definition:OperationDefinition):void {

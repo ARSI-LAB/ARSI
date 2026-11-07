@@ -11,7 +11,7 @@ import { readYaml } from '../../src/runtime/loaders/yaml.js';
 import { object } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 import {
-  populationSearchContract,
+  searchContract,
   type JsonSchema,
   type OperationDefinition,
 } from '../../src/contracts/index.js';
@@ -311,10 +311,7 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   await registerBuiltins(registry);
   assert.ok(registry.catalog().plugins.includes('search.gepa'));
   assert.ok(registry.catalog().policies.includes('policy.gepa'));
-  assert.deepEqual(
-    registry.get('search.gepa').contract,
-    populationSearchContract,
-  );
+  assert.deepEqual(registry.get('search.gepa').contract, searchContract);
   const directory = resolve('examples/harness/dsh-gepa');
   const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
   assert.equal(recipe.policy.id, 'policy.gepa');
@@ -369,15 +366,15 @@ test('GEPA example loads through built-in registration with recipe-relative reso
     assert.throws(
       () =>
         validate(
-          populationSearchContract.input_schema,
+          searchContract.input_schema,
           {
             action: 'initialize',
-            candidateRef: 'initial-candidate',
+            parent: 'initial-candidate',
             feedbackTaskIds: dataset.trainTaskIds,
             selectionTaskIds: dataset.validationTaskIds,
             settings,
           },
-          'population search input',
+          'search input',
         ),
       /additional properties/,
     );

@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { operatorbenchContract } from '../../src/contracts/plugin-types/operatorbench.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
+import { readProfileAssessment } from '../../src/plugins/evaluator-operatorbench/conditions.js';
 import { recordSdkMeasurement } from '../../src/plugins/evaluator-operatorbench/measurement.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
@@ -123,9 +124,6 @@ for (const sdkStatus of ['completed', 'cancelled', 'unknown'] as const)
   });
 
 test('diagnostic calls reject assessments of another source or experiment', async () => {
-  const { readProfileAssessment } = await import(
-    '../../src/plugins/evaluator-operatorbench/measurement.js'
-  );
   const context = new RuntimeContext().extend({
     experimentId: 'exp',
     async readMeasurement() {
@@ -150,9 +148,6 @@ test('diagnostic calls reject assessments of another source or experiment', asyn
 });
 
 test('a passing assessment cannot certify a different case or seed of the same task', async (t) => {
-  const { readProfileAssessment } = await import(
-    '../../src/plugins/evaluator-operatorbench/measurement.js'
-  );
   const dir = await mkdtemp(join(tmpdir(), 'rsi-profile-case-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const artifacts = new FileArtifacts(join(dir, 'artifacts'));

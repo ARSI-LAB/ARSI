@@ -64,7 +64,6 @@ defaults:
         evidenceView: execution
         agentRef: agent
         prompt: ./prompts/invariant.md
-        editProtocol: patch
         guidance: ./guidance/invariant-proposer
         skills: [./skills/harness-edit]
     domainProposer:
@@ -73,7 +72,6 @@ defaults:
         evidenceView: execution
         agentRef: agent
         prompt: ./prompts/domain.md
-        editProtocol: patch
         guidance: ./guidance/domain-proposer
         skills: [./skills/harness-edit]
     composer:
@@ -82,7 +80,6 @@ defaults:
         evidenceView: execution
         agentRef: agent
         prompt: ./prompts/compose.md
-        editProtocol: patch
         skills: [./skills/harness-edit]
     # Final selection compares anonymous deliverables via the delivery capability,
     # independently of the evaluator scores retained for reporting.

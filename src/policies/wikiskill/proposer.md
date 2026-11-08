@@ -26,13 +26,14 @@ The candidate is a proposal. Validation and acceptance are owned by Policy/runti
 
 ## Tools and submission
 
-Use only files in the supplied project. References in evidence do not authorize retrieval of full logs or private artifacts. Follow the provided `outputSchema` and return complete replacement contents for changed authorized files:
+Use only files in the supplied project. References in evidence do not authorize retrieval of full logs or private artifacts. Follow the provided `outputSchema`. Use `replace` with complete content for an existing file or `create` with complete content for a new file.
 
 ```json
 {
   "edits": [
     {
-      "path": "<authorized existing or new skill path>",
+      "op": "replace",
+      "path": "<authorized existing skill path>",
       "content": "Complete skill content."
     }
   ],
@@ -40,4 +41,4 @@ Use only files in the supplied project. References in evidence do not authorize 
 }
 ```
 
-Paths are illustrative. For no supported intervention, use `edits: []` and explain why. Return the JSON object matching outputSchema as your final response; do not use the paper's action/create/patch fields or return candidateRef/diffRef. Stop after acceptance of the structured result.
+Paths are illustrative. For no supported intervention, use `edits: []` and explain why. Return the JSON object matching outputSchema as your final response. The Application assigns candidate and diff references. Stop after acceptance of the structured result.

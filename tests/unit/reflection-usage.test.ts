@@ -330,7 +330,11 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
         );
         return {
           edits: [
-            { path: 'asset.md', content: `candidate revision ${proposals}` },
+            {
+              op: 'replace',
+              path: 'asset.md',
+              content: `candidate revision ${proposals}`,
+            },
           ],
           reason: `proposed revision ${proposals}`,
         };

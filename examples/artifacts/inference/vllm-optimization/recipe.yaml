@@ -22,8 +22,6 @@ policy:
   id: parameter.agent
   config:
     parameterFile: tuning.json
-    baseline:
-      maxAttempts: 3
     maxTrials: 8
     candidatesPerRound: 4
 bindings:
@@ -47,17 +45,6 @@ bindings:
         - name: research-scout
           description: Form tuning hypotheses from upstream source when searchable, workspace evidence, and prior trials.
           prompt: ./roles/research-scout.md
-  repair:
-    plugin: proposer.agent
-    config:
-      agentRef: agent
-      prompt: ./prompts/enablement.md
-      skills: [./skills/vllm-ascend-tuning]
-      evidenceView: training-summary
-      subagents:
-        - name: enablement-reviewer
-          description: Distinguish recoverable parameter rejection from deployment or benchmark problems.
-          prompt: ./roles/enablement-reviewer.md
   evaluator:
     plugin: evaluator.inferencebench
     config:

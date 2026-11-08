@@ -9,11 +9,12 @@ tokenizer as described in the grid example before running.
 
 The search samples `max_num_seqs` from 32 through 64 in steps of 8 and
 `max_num_batched_tokens` from 1024 or 2048. The calibration upper corner stays
-64 / 2048. The AgentX workload, latency constraint and four-evaluation budget
+64 / 2048. The AgentX workload, latency constraint and budget for one baseline and up to four candidate evaluations
 match the grid example. Two completed startup trials allow TPE to use measured
 feedback within this small budget; this is a configuration example, not evidence
 of convergence or performance improvement. Duplicate suggestions are skipped.
-The baseline is not automatically evaluated unless sampled.
+The Policy measures the initial baseline before sampling and reuses its
+measurement if that same candidate is sampled.
 
 ## Python setup
 

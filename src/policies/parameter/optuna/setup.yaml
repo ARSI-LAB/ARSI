@@ -1,0 +1,63 @@
+state_schema:
+  type: object
+  properties:
+    searchStateRef:
+      type:
+        - string
+        - 'null'
+    stopped:
+      type: boolean
+    stopReason:
+      type: string
+    bestCandidate:
+      type:
+        - string
+        - 'null'
+    bestMeasurement:
+      type:
+        - string
+        - 'null'
+    bestParameters:
+      type:
+        - object
+        - 'null'
+    history:
+      type: array
+      items:
+        type: string
+  required:
+    - searchStateRef
+    - stopped
+    - stopReason
+    - bestCandidate
+    - bestMeasurement
+    - bestParameters
+    - history
+  additionalProperties: false
+state:
+  searchStateRef: null
+  stopped: false
+  stopReason: max-trials
+  bestCandidate: null
+  bestMeasurement: null
+  bestParameters: null
+  history: []
+require:
+  proposer:
+    contract: contract.search
+  evaluator:
+    contract: contract.inferencebench
+  selector:
+    contract: contract.selector-metrics
+defaults:
+  bindings:
+    proposer:
+      plugin: proposer.optuna
+    selector:
+      plugin: selector.metric
+      config:
+        metric: requestThroughput
+        direction: maximize
+        constraints:
+          - metric: sloSatisfied
+            min: 1

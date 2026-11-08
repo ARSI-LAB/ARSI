@@ -22,16 +22,20 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
         }),
         application: {},
         checkpoint: async () => {},
-        input: { candidateRef: 'original' },
+        input: { candidateRef: 'baseline' },
         config: { maxTrials: 4, candidatesPerRound: 2 },
         async invoke(binding, raw): Promise<JsonObject> {
           const input = object(raw);
           events.push(
             `${binding}:${input.candidateRef ?? input.parent ?? input.candidateMeasurementRef}`,
           );
+          if (binding === 'evaluator') {
+            assert.equal(input.candidateRef, 'baseline');
+            return { measurementRef: 'm-baseline' };
+          }
           if (binding === 'trial') {
             const candidate = String(input.candidateRef);
-            if (['original', 'bad', 'single'].includes(candidate))
+            if (['bad', 'single'].includes(candidate))
               return {
                 status: 'startup-failed',
                 measurementRef: null,
@@ -43,25 +47,11 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
               reason: null,
             };
           }
-          if (binding === 'repair') {
-            assert.deepEqual(input.observations, {
-              baseline: {
-                status: 'startup-failed',
-                reason: 'Startup was rejected',
-              },
-            });
-            return {
-              status: 'created',
-              candidateRef: 'ready',
-              diffRef: 'repair-diff',
-              rationale: 'Reduce memory pressure',
-            };
-          }
           if (binding === 'proposer') {
-            if (input.parent === 'ready') {
+            if (input.parent === 'baseline') {
               assert.equal(input.maxCandidates, 2);
-              assert.deepEqual(input.evidenceRefs, ['m-ready']);
-              assert.deepEqual(input.sources, [{ candidateRef: 'ready' }]);
+              assert.deepEqual(input.evidenceRefs, ['m-baseline']);
+              assert.deepEqual(input.sources, [{ candidateRef: 'baseline' }]);
               return {
                 status: 'batch',
                 candidates: [
@@ -79,7 +69,7 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
               };
             }
             assert.equal(input.parent, 'best');
-            assert.deepEqual(input.evidenceRefs, ['m-ready', 'm-best']);
+            assert.deepEqual(input.evidenceRefs, ['m-baseline', 'm-best']);
             if (input.maxCandidates === 2)
               return {
                 status: 'created',
@@ -89,7 +79,7 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
               };
             assert.equal(input.maxCandidates, 1);
             assert.deepEqual(input.sources, [
-              { candidateRef: 'ready' },
+              { candidateRef: 'baseline' },
               { candidateRef: 'bad' },
               { candidateRef: 'best' },
               { candidateRef: 'single' },
@@ -107,14 +97,14 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
           }
           assert.equal(binding, 'selector');
           const candidate =
-            input.candidateMeasurementRef === 'm-best' ? 'best' : 'ready';
+            input.candidateMeasurementRef === 'm-best' ? 'best' : 'baseline';
           return {
             accepted: false,
             candidateFeasible: candidate === 'best',
-            selectedCandidateRef: 'ready',
+            selectedCandidateRef: 'baseline',
             reason: 'Compared',
             decisionRef: 'decision',
-            measurementRef: 'm-ready',
+            measurementRef: 'm-baseline',
             metric: 'requestThroughput',
             incumbentValue: 10,
             candidateValue: 9,
@@ -124,11 +114,9 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
       }),
     );
     assert.deepEqual(events, [
-      'trial:original',
-      'repair:original',
-      'trial:ready',
-      'selector:m-ready',
-      'proposer:ready',
+      'evaluator:baseline',
+      'selector:m-baseline',
+      'proposer:baseline',
       'trial:bad',
       'trial:best',
       'selector:m-best',
@@ -138,8 +126,8 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
     ]);
     assert.equal(result.status, 'selected');
     assert.equal(result.stopReason, 'no-change');
-    assert.equal(result.baselineCandidateRef, 'ready');
-    assert.equal(result.baselineMeasurementRef, 'm-ready');
+    assert.equal(result.baselineCandidateRef, 'baseline');
+    assert.equal(result.baselineMeasurementRef, 'm-baseline');
     assert.equal(result.candidateRef, 'best');
     assert.equal(result.measurementRef, 'm-best');
   } finally {

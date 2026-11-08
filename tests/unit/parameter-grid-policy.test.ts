@@ -3,11 +3,6 @@ import { optunaProposerDefinition } from '../../src/plugins/proposer-optuna/inde
 import { createOptunaProposer } from '../../src/plugins/proposer-optuna/service.js';
 import test from 'node:test';
 import { RuntimeContext } from '../../src/contracts/index.js';
-import {
-  agentContract,
-  inferenceTrialContract,
-  proposerContract,
-} from '../../src/contracts/plugin-types/index.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -26,9 +21,6 @@ import {
   typedArtifact,
 } from '../../src/contracts/models/measurement.js';
 import { gridProposerDefinition } from '../../src/plugins/proposer-grid/index.js';
-import { inferenceTrialDefinition } from '../../src/plugins/inference-trial/index.js';
-import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
-import { codexDefinition } from '../../src/plugins/agent-codex/index.js';
 import {
   createFileApplication,
   type FileApplicationConfig,
@@ -42,11 +34,8 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     registry.registerContract(gridProposerContract);
     registry.registerContract(inferencebenchContract);
     registry.registerContract(metricSelectorContract);
-    registry.registerContract(inferenceTrialContract);
-    registry.registerContract(proposerContract);
-    registry.registerContract(agentContract);
     const policy = await Policy.load(
-      'src/policies/parameter-grid/policy.yaml',
+      'src/policies/parameter/grid/policy.yaml',
       registry,
     );
     const evaluated: string[] = [];
@@ -65,7 +54,8 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
       invoke: async (name: string, raw: unknown): Promise<JsonObject> => {
         const input = object(raw);
         if (name === 'proposer') {
-          assert.equal(input.parent, 'baseline');
+          assert.equal(input.parent, 'c0');
+          assert.equal(evaluated[0], 'c0');
           const cursor = Number(input.cursor);
           proposed.push(cursor);
           return {
@@ -100,19 +90,20 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     };
     const output = object(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 4 },
         ...options,
       }),
     );
     assert.deepEqual(proposed, [0, 1, 2, 3]);
     assert.deepEqual(evaluated, ['c0', 'c1', 'c2', 'c3']);
+    assert.equal(output.baselineMeasurementRef, 'm0');
     assert.equal(output.candidateRef, 'c2');
     assert.equal(output.stopReason, 'search-exhausted');
     assert.deepEqual(output.parameters, { arbitrary: 2 });
     assert.deepEqual(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 4 },
         ...options,
         restore: checkpoint,
@@ -124,7 +115,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     );
     const limited = object(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 1 },
         ...options,
       }),
@@ -136,7 +127,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     evaluated.length = 0;
     await assert.rejects(
       policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 4 },
         ...options,
         invoke: async (name, raw) => {
@@ -149,7 +140,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     );
     const resumed = object(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 4 },
         ...options,
         restore: checkpoint,
@@ -173,9 +164,6 @@ for (const strategy of ['grid', 'optuna'] as const) {
     let evaluationCount = 0;
     const evaluated: number[] = [];
     registry.registerOperation(gridProposerDefinition);
-    registry.registerOperation(inferenceTrialDefinition);
-    registry.registerOperation(proposerDefinition);
-    registry.registerOperation(codexDefinition);
     registry.registerOperation({
       ...optunaProposerDefinition,
       create: (config: OptunaConfig, services) =>
@@ -334,7 +322,7 @@ for (const strategy of ['grid', 'optuna'] as const) {
     });
     registry.registerPolicy(
       `policy.parameter-${strategy}`,
-      resolve(`src/policies/parameter-${strategy}/policy.yaml`),
+      resolve(`src/policies/parameter/${strategy}/policy.yaml`),
     );
     const recipePath = join(root, 'recipe.yaml');
     const recipe = {
@@ -397,6 +385,10 @@ for (const strategy of ['grid', 'optuna'] as const) {
         object(first.output).stopReason,
         strategy === 'grid' ? 'search-exhausted' : 'max-trials',
       );
+      assert.equal(
+        typeof object(first.output).baselineMeasurementRef,
+        'string',
+      );
       assert.deepEqual(object(first.output).parameters, { x: 2 });
       assert.deepEqual(evaluated, [0, 1, 2, 3]);
       assert.deepEqual(
@@ -442,33 +434,6 @@ for (const strategy of ['grid', 'optuna'] as const) {
         strategy === 'grid' ? 'max-candidates' : 'max-trials',
       );
       assert.deepEqual(object(capped.output).parameters, { x: 1 });
-      const beforeEnabled = evaluationCount;
-      await writeFile(
-        recipePath,
-        stringify({
-          ...recipe,
-          policy: {
-            ...recipe.policy,
-            config: {
-              ...recipe.policy.config,
-              enableBaseline: true,
-              baseline: { maxAttempts: 1 },
-            },
-          },
-        }),
-      );
-      const enabled = await manager.run(recipePath, { id: 'with-baseline' });
-      assert.equal(object(enabled.output).status, 'selected');
-      assert.equal(
-        typeof object(enabled.output).baselineMeasurementRef,
-        'string',
-      );
-      assert.deepEqual(object(enabled.output).parameters, { x: 2 });
-      assert.equal(
-        evaluationCount - beforeEnabled,
-        4,
-        'reuses the baseline measurement for the same point',
-      );
     } finally {
       await manager.dispose();
       await registry.dispose();

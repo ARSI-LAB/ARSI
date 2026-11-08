@@ -26,7 +26,7 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 | `policy.parameter-optuna`                                      | Use evaluation feedback to search parameters and improve inference service performance within a limited budget. | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)  |
 | `policy.operator-search`                                       | Optimize Triton-Ascend kernels using correctness checks and performance feedback.                               | [README](../../../examples/artifacts/kernel/transpose-copy/README.md)    |
 
-Grid and Optuna can opt into the same baseline loop with `policy.config.enableBaseline: true`. Their search strategies remain independent. With enablement enabled, set the `repair` binding to the intended proposer prompt and the `agent` binding to its model backend. When enabling repair with Pi, allow model calls in the Recipe budget. A completed baseline uses one evaluation run.
+Agent, Grid, and Optuna each evaluate the initial configuration once before search. Supply a configuration that can start the service and reserve one evaluation run for the baseline. A baseline evaluation failure stops the experiment.
 
 ## Loop components
 
@@ -42,7 +42,7 @@ Grid and Optuna can opt into the same baseline loop with `policy.config.enableBa
 | Search | `search.prompt-evolution` | Evolve prompt modules through reflective proposals, Pareto sampling, and ancestry-aware crossover. | Optimize prompts using feedback and selection tasks. |
 | Evaluator     | `evaluator.agentbench`                          | Run Agent benchmark tasks and save scores and execution evidence.                                                        | Assess changes to prompts, skills, or code.                                             |
 | Evaluator     | `evaluator.inferencebench`                      | Benchmark inference services and measure throughput, latency, and other metrics.                                         | Compare the performance of service configurations.                                      |
-| Trial | `inference.trial` | Classify recoverable startup failures and require a complete, comparable benchmark result. | Inference baseline and candidate trials. |
+| Trial | `inference.trial` | Classify recoverable startup failures and require a complete, comparable benchmark result. | Agent-driven inference candidate trials. |
 | Evaluator     | `evaluator.operatorbench`                       | Use the Evaluator SDK to check correctness, measure latency, and optionally collect profiling data.                      | Check whether kernel changes are correct and faster.                                    |
 | Selector      | `selector.metric`                               | Compare candidates using specified metrics and constraints.                                                              | Select a better version by success rate, throughput, latency, or other numeric results. |
 | Selector      | `selector.artifact`                             | Use a model to review anonymously presented reports or other deliverables against a rubric.                              | Select candidates by content quality.                                                   |

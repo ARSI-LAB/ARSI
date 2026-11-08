@@ -1,5 +1,0 @@
-type: object
-default: {}
-additionalProperties: false
-properties:
-  maxAttempts: { type: integer, minimum: 1, maximum: 20, default: 3 }

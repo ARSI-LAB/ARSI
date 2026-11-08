@@ -1,0 +1,54 @@
+state_schema:
+  type: object
+  additionalProperties: false
+  properties:
+    incumbent: { type: [string, 'null'] }
+    incumbentMeasurement: { type: [string, 'null'] }
+    incumbentFeasible: { type: boolean }
+    stopReason: { enum: [max-trials, no-change] }
+    sources: { type: array, items: { type: object } }
+    trials:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        properties:
+          candidateRef: { type: string }
+          measurementRef: { type: [string, 'null'] }
+          status:
+            { enum: [measured, startup-failed, invalid-measurement, duplicate] }
+          reason: { type: [string, 'null'] }
+          accepted: { type: boolean }
+        required: [candidateRef, measurementRef, status, reason, accepted]
+  required:
+    [
+      incumbent,
+      incumbentMeasurement,
+      incumbentFeasible,
+      stopReason,
+      trials,
+      sources,
+    ]
+state:
+  incumbent: null
+  incumbentMeasurement: null
+  incumbentFeasible: false
+  stopReason: max-trials
+  trials: []
+  sources: []
+require:
+  proposer: { contract: contract.proposer }
+  evaluator: { contract: contract.inferencebench }
+  selector: { contract: contract.selector-metrics }
+  trial: { contract: contract.inference-trial }
+  agent: { contract: contract.agent }
+defaults:
+  bindings:
+    trial: { plugin: inference.trial }
+    agent: { plugin: agent.codex }
+    proposer:
+      plugin: proposer.agent
+      config: { agentRef: agent }
+    selector:
+      plugin: selector.metric
+      config: { metric: requestThroughput, direction: maximize }

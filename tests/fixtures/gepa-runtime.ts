@@ -17,6 +17,7 @@ import {
   agentContract,
   agentbenchContract,
   applicationContract,
+  parseFileTree,
 } from '../../src/contracts/index.js';
 import {
   evaluationFeedbackSchema,
@@ -42,10 +43,12 @@ interface EvaluationCall {
 
 interface AgentCall {
   moduleId: string;
-  maxModelCalls: number | undefined;
   modelCalls: number;
-  input: JsonObject;
-  files: JsonObject;
+  request: AgentInput;
+  metadata: JsonObject;
+  evidence: JsonObject;
+  projectFiles: Record<string, string>;
+  candidateFiles: Record<string, string>;
 }
 
 function fileTree(files: Record<string, string>): JsonObject {
@@ -62,15 +65,11 @@ function fileTree(files: Record<string, string>): JsonObject {
 }
 
 export function decodeTree(value: JsonObject): Record<string, string> {
-  const files = Array.isArray(value.files) ? value.files : [];
   return Object.fromEntries(
-    files.map((entry) => {
-      const file = object(entry);
-      return [
-        string(file.path),
-        Buffer.from(string(file.base64), 'base64').toString('utf8'),
-      ];
-    }),
+    parseFileTree(value).files.map((file) => [
+      file.path,
+      Buffer.from(file.base64, 'base64').toString('utf8'),
+    ]),
   );
 }
 
@@ -462,9 +461,21 @@ function fakeAgentPlugin(
     configSchema: { type: 'object' },
     async create() {
       return {
-        async execute(input) {
-          const payload = object(input.input ?? {});
-          const constraints = object(payload.editConstraints);
+        async execute(input, context) {
+          const projectFiles = decodeTree(
+            object(
+              await context.artifacts.readJson(
+                await context.artifacts.capture(input.cwd),
+              ),
+            ),
+          );
+          const metadata = object(
+            JSON.parse(string(projectFiles['context/input.json'])),
+          );
+          const evidence = object(
+            JSON.parse(string(projectFiles['context/measurements.json'])),
+          );
+          const constraints = object(metadata.editConstraints);
           const pathsAllowed = constraints.allowedPaths;
           if (!Array.isArray(pathsAllowed) || pathsAllowed.length !== 1)
             throw new Error('GEPA mutation must authorize exactly one module');
@@ -475,30 +486,31 @@ function fakeAgentPlugin(
           if (!module)
             throw new Error(`Unknown GEPA module pattern: ${pattern}`);
           const { id: moduleId, path } = module;
-          const files = object(input.files ?? {});
+          const files = Object.fromEntries(
+            Object.entries(projectFiles)
+              .filter(([path]) => path.startsWith('candidate/'))
+              .map(([path, content]) => [
+                path.slice('candidate/'.length),
+                content,
+              ]),
+          );
           const paths = Object.keys(files).sort();
           const modelCalls = reads + 1;
-          if (
-            typeof input.maxModelCalls === 'number' &&
-            modelCalls > input.maxModelCalls
-          )
-            throw new Error('controlled Agent model-call limit reached');
+          for (let index = 0; index < modelCalls; index++)
+            await context.charge('modelCalls', 1);
           for (let index = 0; index < reads; index++) {
             const path = paths[index % paths.length];
             if (path === undefined || typeof files[path] !== 'string')
-              throw new Error(
-                'controlled Agent read_file target is unavailable',
-              );
+              throw new Error('controlled Agent candidate file is unavailable');
           }
           calls.push({
             moduleId,
-            maxModelCalls:
-              typeof input.maxModelCalls === 'number'
-                ? input.maxModelCalls
-                : undefined,
             modelCalls,
-            input: payload,
-            files,
+            request: input,
+            metadata,
+            evidence,
+            projectFiles,
+            candidateFiles: files,
           });
           return (
             output ?? {
@@ -528,7 +540,7 @@ export async function runGepa(options: {
   selectionTasks: string[];
   scoreTable: Record<string, ScoreEntry>;
   proposals: Record<string, string | null>;
-  maxModelCalls?: number;
+  modelCallBudget?: number;
   reads?: number;
   agentOutput?: JsonObject;
   baselineFiles?: Record<string, string>;
@@ -687,9 +699,6 @@ export async function runGepa(options: {
           },
         },
         [bindingNames.evaluator]: { plugin: 'test.gepa-evaluator', config: {} },
-        [bindingNames.proposer]: {
-          config: { maxModelCalls: options.maxModelCalls ?? 12 },
-        },
         [bindingNames.agent]: options.realAgentEndpoint
           ? {
               plugin: 'agent.pi',
@@ -710,7 +719,7 @@ export async function runGepa(options: {
       budget: {
         operations: 1000,
         evaluationRuns: 100,
-        modelCalls: 1000,
+        modelCalls: options.modelCallBudget ?? 1000,
         elapsedWallMs: 60000,
       },
     }),

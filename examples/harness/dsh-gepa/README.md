@@ -173,8 +173,12 @@ preserves selected tasks and completed evaluation receipts.
 The Proposer uses `evidenceView: training-summary` to receive
 authorized scores, evaluator feedback, and execution excerpts associated with
 the sampled tasks. This bounded projection may omit or truncate content and
-does not expose the complete archived trajectories as virtual files. Full
-execution artifacts remain in Runtime storage for separate inspection. Private
+does not expose the complete archived trajectories in the Agent project. The
+Proposer prepares a managed workspace with candidate files under `candidate/`,
+the training summary in `context/measurements.json`, and edit constraints and
+target metadata in `context/input.json`. The Agent receives `cwd`, `goal`, and
+`outputSchema`; final edit paths are relative to `candidate/` without that prefix.
+Full execution artifacts remain in Runtime storage for separate inspection. Private
 verifier files and hidden grading answers are excluded from the execution
 projection. The selected module is enforced by existing Proposer edit
 constraints and the Application Target. This candidate mutation is separate

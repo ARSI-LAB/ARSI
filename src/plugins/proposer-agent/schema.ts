@@ -10,7 +10,6 @@ import {
 
 export type AgentEditingConfig = SharedConfig & {
   subagents?: AgentRole[];
-  editProtocol?: 'replacement' | 'patch';
 };
 
 export const configSchema: JsonSchema = {
@@ -30,6 +29,5 @@ export const configSchema: JsonSchema = {
         required: ['name', 'description', 'prompt'],
       },
     },
-    editProtocol: { enum: ['replacement', 'patch'], default: 'replacement' },
   },
 };

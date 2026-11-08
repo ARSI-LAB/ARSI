@@ -16,7 +16,7 @@ import type {
 } from '../../../contracts/index.js';
 import { parseFileTree } from '../../../contracts/index.js';
 import { inside } from '../../../runtime/storage/index.js';
-import { object, string, strings } from '../../../shared/json.js';
+import { canonical, object, string, strings } from '../../../shared/json.js';
 import { validate } from '../../../shared/schema.js';
 import { prepareAgentProject, type AgentRole } from './project.js';
 import type { AgentEditingConfig } from './schema.js';
@@ -118,6 +118,44 @@ export async function resourceFiles(
   }
   return files;
 }
+function projectJson(value: JsonValue): string {
+  // Fact storage can reorder keys on resume; project bytes identify Agent calls.
+  return JSON.stringify(JSON.parse(canonical(value)), null, 2);
+}
+
+async function assertEditReplay(
+  context: RuntimeContext,
+  binding: string,
+  request: AgentInput,
+): Promise<void> {
+  // Each editor call makes one Agent request. A changed request must not bypass
+  // its existing receipt when a pending call resumes with a newer implementation.
+  // Direct editor callers without a Manager receipt have nothing to replay.
+  if (!context.facts) return;
+  let parent: JsonObject;
+  try {
+    parent = await context.facts.read('calls', context.callId);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+      return;
+    throw error;
+  }
+  if (typeof parent.recoveredFrom !== 'string') return;
+  const calls = context.facts.scan
+    ? context.facts.scan('calls')
+    : await context.facts.list('calls');
+  for await (const call of calls) {
+    if (
+      call.parentCallId === context.callId &&
+      call.bindingId === binding &&
+      canonical(call.input) !== canonical(request)
+    )
+      throw new Error(
+        `Agent edit input differs from existing call ${call.callId}; inspect and reconcile the receipt before recovery`,
+      );
+  }
+}
+
 export async function requestEdit(
   config: AgentEditingConfig,
   input: JsonObject,
@@ -178,8 +216,8 @@ export async function requestEdit(
     ...readOnly?.input,
   };
   const projectFiles: JsonObject = {
-    'context/measurements.json': JSON.stringify(evidence, null, 2),
-    'context/input.json': JSON.stringify(metadata, null, 2),
+    'context/measurements.json': projectJson(evidence),
+    'context/input.json': projectJson(metadata),
   };
   for (const [path, content] of Object.entries(files)) {
     const contextPath =
@@ -202,10 +240,9 @@ Read context/input.json for the target, edit constraints, memory, observations a
     cwd,
     outputSchema: object(outputSchema),
   };
-  const result = await context.invokeAgent(
-    config.agentRef ?? 'agent.default',
-    request,
-  );
+  const agentRef = config.agentRef ?? 'agent.default';
+  await assertEditReplay(context, agentRef, request);
+  const result = await context.invokeAgent(agentRef, request);
   validate(outputSchema, result, 'Agent edit output');
   if (Array.isArray(result.edits))
     for (const raw of result.edits) {

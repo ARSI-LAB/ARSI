@@ -549,6 +549,7 @@ export async function runGepa(options: {
   bindingNames?: { evaluator: string; proposer: string; agent: string };
   realAgentEndpoint?: string;
   resumeAfterEvaluation?: number;
+  editWorkspaceFailures?: number;
   restartOnResume?: boolean;
   signal?: AbortSignal;
   onFailure?: (
@@ -562,6 +563,7 @@ export async function runGepa(options: {
   manager: Manager;
   root: string;
   interrupted: JsonObject | null;
+  interruptions: JsonObject[];
 }> {
   const root = await mkdtemp(join(tmpdir(), 'rsi-gepa-runtime-'));
   const registry = new Registry();
@@ -569,7 +571,22 @@ export async function runGepa(options: {
   const agentCalls: AgentCall[] = [];
   const interruption =
     options.resumeAfterEvaluation === undefined ? null : new AbortController();
-  let manager = new Manager({ registry, rootDirectory: root });
+  const editFailure = new Error('controlled GEPA edit workspace failure');
+  let failuresRemaining = options.editWorkspaceFailures ?? 0;
+  const createManager = (): Manager => {
+    const current = new Manager({ registry, rootDirectory: root });
+    const create = current.workspaces.create.bind(current.workspaces);
+    current.workspaces.create = async (ref, parent) => {
+      // The Proposer creates its edit workspace after the Agent has returned.
+      if (parent !== undefined && failuresRemaining > 0) {
+        failuresRemaining--;
+        throw editFailure;
+      }
+      return create(ref, parent);
+    };
+    return current;
+  };
+  let manager = createManager();
   const baselineFiles = options.baselineFiles ?? { 'a.md': 'A0', 'b.md': 'B0' };
   const modules = options.modules ?? [
     { id: 'a', path: 'a.md' },
@@ -726,26 +743,34 @@ export async function runGepa(options: {
   );
   let record: JsonObject;
   let interrupted: JsonObject | null = null;
+  const interruptions: JsonObject[] = [];
+  let resume = false;
   try {
-    try {
-      const signals = [options.signal, interruption?.signal].filter(
-        (signal): signal is AbortSignal => signal !== undefined,
-      );
-      record = await manager.run(recipePath, {
-        id: 'gepa-runtime',
-        ...(signals.length ? { signal: AbortSignal.any(signals) } : {}),
-      });
-    } catch (error) {
-      if (!interruption?.signal.aborted) throw error;
-      interrupted = await manager.get('gepa-runtime');
-      if (options.restartOnResume) {
-        await manager.dispose();
-        manager = new Manager({ registry, rootDirectory: root });
+    const signals = [options.signal, interruption?.signal].filter(
+      (signal): signal is AbortSignal => signal !== undefined,
+    );
+    while (true) {
+      try {
+        record = await manager.run(recipePath, {
+          id: 'gepa-runtime',
+          ...(resume
+            ? { resume: true }
+            : signals.length
+              ? { signal: AbortSignal.any(signals) }
+              : {}),
+        });
+        break;
+      } catch (error) {
+        if (error !== editFailure && (resume || !interruption?.signal.aborted))
+          throw error;
+        interrupted = await manager.get('gepa-runtime');
+        interruptions.push(interrupted);
+        if (options.restartOnResume) {
+          await manager.dispose();
+          manager = createManager();
+        }
+        resume = true;
       }
-      record = await manager.run(recipePath, {
-        id: 'gepa-runtime',
-        resume: true,
-      });
     }
   } catch (error) {
     if (options.onFailure)
@@ -765,5 +790,6 @@ export async function runGepa(options: {
     manager,
     root,
     interrupted,
+    interruptions,
   };
 }

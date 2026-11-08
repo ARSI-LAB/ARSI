@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rm } from 'node:fs/promises';
 import type { JsonObject } from '../../src/contracts/index.js';
+import { object } from '../../src/shared/json.js';
 import { runGepa } from '../fixtures/gepa-runtime.js';
 
 function sseChunk(delta: object, finish: string | null): string {
@@ -18,7 +19,7 @@ function sseChunk(delta: object, finish: string | null): string {
     '\n\n'
   );
 }
-async function localModel(onRequest?: (count: number) => void) {
+async function localModel(onRequest?: (count: number) => void, readTurns = 4) {
   let requests = 0;
   const seenTools = new Map<string, string>();
   let sockets = 0;
@@ -31,7 +32,7 @@ async function localModel(onRequest?: (count: number) => void) {
     for (const message of request.messages ?? [])
       if (message.role === 'tool')
         seenTools.set(message.tool_call_id, String(message.content));
-    const toolUse = requests <= 4;
+    const toolUse = requests <= readTurns;
     const delta = toolUse
       ? {
           role: 'assistant',
@@ -53,8 +54,7 @@ async function localModel(onRequest?: (count: number) => void) {
           role: 'assistant',
           content: JSON.stringify({
             edits: [{ path: 'a.md', content: 'A1' }],
-            reason:
-              'Completed four tool turns, eight authorized page reads, then final schema-valid JSON.',
+            reason: `Completed ${readTurns} tool turns, then final schema-valid JSON.`,
           }),
         };
     if (onRequest && requests === 2) return;
@@ -102,6 +102,56 @@ const common = {
   },
   proposals: { a: 'A1' },
 };
+
+for (const failures of [1, 2]) {
+  test(`GEPA reuses its successful Pi receipt across ${failures} pre-commit failures and fresh Managers`, async () => {
+    const previous = process.env.GEPA_LOCAL_FIXTURE_KEY;
+    process.env.GEPA_LOCAL_FIXTURE_KEY = 'localhost-fixture-only';
+    const model = await localModel(undefined, 0);
+    let run: Awaited<ReturnType<typeof runGepa>> | undefined;
+    try {
+      run = await runGepa({
+        ...common,
+        realAgentEndpoint: model.endpoint,
+        editWorkspaceFailures: failures,
+        restartOnResume: true,
+      });
+      assert.equal(run.interruptions.length, failures);
+      assert(run.interruptions.every((record) => record.status === 'failed'));
+      assert.equal(run.output.completedRounds, 1);
+      assert.equal(model.requests, 1);
+      assert.equal(
+        object((await run.manager.get('gepa-runtime')).usage).modelCalls,
+        1,
+      );
+      assert.equal(run.evaluationCalls.length, 4);
+      const calls = await run.manager.facts.list('calls');
+      assert.equal(
+        calls.filter(
+          (call) => call.bindingId === 'agent' && call.status === 'succeeded',
+        ).length,
+        1,
+      );
+      assert.equal(
+        calls.filter(
+          (call) =>
+            call.bindingId === '_application' &&
+            object(call.input).action === 'commit' &&
+            call.status === 'succeeded',
+        ).length,
+        1,
+      );
+    } finally {
+      if (run) {
+        await run.manager.dispose();
+        await rm(run.root, { recursive: true, force: true });
+      }
+      await model.close();
+      if (previous === undefined) delete process.env.GEPA_LOCAL_FIXTURE_KEY;
+      else process.env.GEPA_LOCAL_FIXTURE_KEY = previous;
+    }
+  });
+}
 test('actual Pi reads managed candidate files and respects the Manager model-call budget', async () => {
   const previous = process.env.GEPA_LOCAL_FIXTURE_KEY;
   process.env.GEPA_LOCAL_FIXTURE_KEY = 'localhost-fixture-only';

@@ -107,26 +107,44 @@ test('a complete mutation round uses sampled evidence, admits strict improvement
     assert.equal(run.evaluationCalls.length, 4);
     assert.equal(run.agentCalls.length, 1);
     assert.equal(run.agentCalls[0]!.moduleId, 'a');
-    assert.equal(run.agentCalls[0]!.maxModelCalls, 12);
     const request = run.agentCalls[0]!;
-    assert.equal(object(request.input.evidence).view, 'training-summary');
-    assert.deepEqual(object(request.input.editConstraints).allowedPaths, [
+    assert.deepEqual(Object.keys(request.request).sort(), [
+      'cwd',
+      'goal',
+      'outputSchema',
+    ]);
+    assert.equal(request.evidence.view, 'training-summary');
+    assert.deepEqual(object(request.metadata.editConstraints).allowedPaths, [
       'a.md',
     ]);
-    assert.equal(object(request.input.editConstraints).maxChangedFiles, 1);
-    const evidenceText = JSON.stringify(request.input.evidence);
+    assert.equal(object(request.metadata.editConstraints).maxChangedFiles, 1);
+    const evidenceText = JSON.stringify(request.evidence);
     assert.match(evidenceText, /"value":0.2/);
     assert.match(evidenceText, /feedback for task-a/);
     assert.match(evidenceText, /TASK_INPUT_MARKER task-a/);
     assert.match(evidenceText, /AGENT_OUTPUT_MARKER baseline-output/);
-    const measurements = object(request.input.evidence)
-      .measurements as JsonObject[];
+    const measurements = request.evidence.measurements as JsonObject[];
     const items = measurements.flatMap(
       (measurement) => measurement.items as JsonObject[],
     );
     assert.deepEqual(items.map((item) => item.id).sort(), ['task-a', 'task-b']);
-    assert.equal(request.input.executionEvidence, undefined);
-    assert.deepEqual(Object.keys(request.files).sort(), ['a.md', 'b.md']);
+    assert.equal(request.metadata.executionEvidence, undefined);
+    assert.deepEqual(Object.keys(request.candidateFiles).sort(), [
+      'a.md',
+      'b.md',
+    ]);
+    assert.deepEqual(Object.keys(request.projectFiles).sort(), [
+      '.rsi-project',
+      'AGENTS.md',
+      'candidate/a.md',
+      'candidate/b.md',
+      'context/input.json',
+      'context/measurements.json',
+    ]);
+    assert.match(
+      request.projectFiles['AGENTS.md']!,
+      /reflective GEPA mutation/,
+    );
     const candidates = output.candidates as JsonObject[];
     const best = candidates.find(
       (candidate) => candidate.ref === output.bestCandidateRef,
@@ -526,13 +544,16 @@ test('eight controlled evidence reads plus a final response fit the reflective s
     },
     proposals: { a: 'A1' },
     reads: 8,
-    maxModelCalls: 12,
+    modelCallBudget: 12,
   });
   try {
     assert.equal(run.output.completedRounds, 1);
     assert.equal(run.agentCalls.length, 1);
     assert.equal(run.agentCalls[0]!.modelCalls, 9);
-    assert.equal(run.agentCalls[0]!.maxModelCalls, 12);
+    assert.equal(
+      object((await run.manager.get('gepa-runtime')).usage).modelCalls,
+      9,
+    );
   } finally {
     await run.manager.dispose();
     await rm(run.root, { recursive: true, force: true });
@@ -559,12 +580,15 @@ test('Proposer receives the existing training summary while Runtime retains full
   try {
     assert.equal(run.output.completedRounds, 1);
     const request = run.agentCalls[0]!;
-    const summary = JSON.stringify(request.input.evidence);
+    const summary = JSON.stringify(request.evidence);
     assert.match(summary, /"value":0.2/);
     assert.match(summary, /feedback for task-a/);
-    assert.equal(object(request.input.evidence).truncated, true);
-    assert.equal(request.input.executionEvidence, undefined);
-    assert.deepEqual(Object.keys(request.files).sort(), ['a.md', 'b.md']);
+    assert.equal(request.evidence.truncated, true);
+    assert.equal(request.metadata.executionEvidence, undefined);
+    assert.deepEqual(Object.keys(request.candidateFiles).sort(), [
+      'a.md',
+      'b.md',
+    ]);
     const measurements = await run.manager.facts.list('measurements');
     const baseline = measurements.find(
       (measurement) =>
@@ -581,8 +605,8 @@ test('Proposer receives the existing training summary while Runtime retains full
     assert.match(trace, /TASK_INPUT_MARKER task-a/);
     assert.match(trace, /AGENT_OUTPUT_MARKER baseline-output/);
     assert.match(trace, /LATE_EXECUTION_MARKER task-a/);
-    assert.equal(request.files['a.md'], 'A0');
-    assert.equal(request.files['b.md'], 'B0');
+    assert.equal(request.candidateFiles['a.md'], 'A0');
+    assert.equal(request.candidateFiles['b.md'], 'B0');
   } finally {
     await run.manager.dispose();
     await rm(run.root, { recursive: true, force: true });

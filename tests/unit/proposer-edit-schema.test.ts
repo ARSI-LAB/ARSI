@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { JsonObject } from '../../src/contracts/index.js';
-import { patchEditOutputSchema } from '../../src/plugins/proposer-agent/patch-edits.js';
+import { proposerEditOutputSchema } from '../../src/plugins/proposer-agent/edits.js';
 import { object } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 
-test('patch edit anyOf preserves the exclusive tagged operation contract', () => {
-  const legacy = object(structuredClone(patchEditOutputSchema));
+test('proposer edit anyOf preserves the exclusive tagged operation contract', () => {
+  const legacy = object(structuredClone(proposerEditOutputSchema));
   const items = object(object(object(legacy.properties).edits).items);
   assert.ok(Array.isArray(items.anyOf));
   const tags = items.anyOf.map((value) => {
@@ -31,6 +31,9 @@ test('patch edit anyOf preserves the exclusive tagged operation contract', () =>
   const cases: [boolean, JsonObject][] = [
     [true, patch],
     [true, create],
+    [true, { ...create, op: 'replace' }],
+    [false, { path: 'skill.md', content: 'Legacy edit' }],
+    [false, { ...create, op: 'replace', content: null }],
     [true, remove],
     [false, { ...patch, content: 'Mixed patch/create fields' }],
     [false, { ...create, changes: patch.changes }],
@@ -42,7 +45,7 @@ test('patch edit anyOf preserves the exclusive tagged operation contract', () =>
     [false, { op: 'create', path: 'missing-content.md' }],
     [false, { op: 'delete' }],
   ];
-  for (const schema of [patchEditOutputSchema, legacy]) {
+  for (const schema of [proposerEditOutputSchema, legacy]) {
     validate(schema, { edits: [], reason: 'No change' }, 'patch output');
     for (const [accepted, edit] of cases) {
       const check = () =>

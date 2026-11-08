@@ -79,7 +79,7 @@ The learning examples update Memory/Reflection only when another round will cons
 
 For custom Agents serving these editors, honor each request's `outputSchema`. The response contains `edits` and `reason`.
 
-- For `proposer.agent`, every edit has an `op` and a path. Use `replace` or `create` with complete `content`, `patch` with `changes` containing exact `oldText` and `newText`, or `delete` with just the operation and path.
+- For `proposer.agent`, every edit has an `op` and a path. Use `patch` with `changes` containing exact `oldText` and `newText`, `create` with complete `content`, or `delete` with just the operation and path. To rewrite a file, use its full original content as `oldText`.
 - For Memory and Reflection, edits have `path` and `content`. Use string content to write and null to delete an authorized file.
 
 Paths are relative to the supplied editable file tree. Treat the `context/` and `sources/` projections as read-only. Submit edits for the Application to validate and apply.

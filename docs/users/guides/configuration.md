@@ -126,11 +126,11 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 
 ## Proposer file edits
 
-`proposer.agent` uses one Agent output schema for file edits. Each entry in `edits` has a path and an `op`. Use `replace` or `create` with full `content`, `patch` with exact `oldText` and `newText` in `changes`, or `delete` with only the path. A proposal can combine operations on different paths. The Proposer and Application enforce the edit constraints and Target permissions.
+`proposer.agent` uses one Agent output schema for file edits. Each entry in `edits` has a path and an `op`. Use `patch` with exact `oldText` and `newText` in `changes`, `create` with full `content`, or `delete` with only the path. A proposal can combine operations on different paths. The Proposer and Application enforce the edit constraints and Target permissions.
 
-A `patch` must be the only operation for its path. Duplicate whole-file edits use the existing merge and conflict handling.
+A `patch` must be the only operation for its path. Each `oldText` must match exactly once in the parent, and the matched ranges must not overlap. To rewrite a file, pass its full original text in `oldText`. An empty `oldText` is valid only for a single change to an empty file.
 
-To migrate a custom Proposer prompt, remove `editProtocol` from the binding and give every edit an `op`. For whole-file edits, use `replace` for an existing file, `create` for a new file, and `delete` for a deletion. Existing tagged patch operations keep their fields.
+To migrate a custom Proposer prompt, remove `editProtocol` from the binding and give every edit an `op`. Convert whole-file updates to `patch` with the full original and new text. Use `create` for a new file and `delete` for a deletion.
 
 ## Limits and budgets
 

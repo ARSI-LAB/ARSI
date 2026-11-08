@@ -71,7 +71,7 @@ async function setup(
   await writeFile(fixture.recipePath, stringify(recipe));
   const runtime = await createRuntime({ rootDirectory: fixture.root });
   t.after(() => runtime.dispose());
-  const requests: AgentInput[] = [];
+  const requests: { input: JsonObject; source: string }[] = [];
   let generated = 0;
   const agent: OperationDefinition<AgentInput, AgentOutput, JsonObject> = {
     id: 'agent.operator-policy-fixture',
@@ -80,9 +80,17 @@ async function setup(
     async create() {
       return {
         async execute(request, context): Promise<JsonObject> {
-          requests.push(structuredClone(request));
+          const input = object(
+            JSON.parse(
+              await readFile(join(request.cwd, 'context/input.json'), 'utf8'),
+            ),
+          );
+          requests.push({
+            input,
+            source: await readFile(join(request.cwd, 'input.py'), 'utf8'),
+          });
           await context.charge('modelCalls', 1);
-          const stage = object(request.input).stage;
+          const stage = input.stage;
           if (stage === 'diagnose')
             return {
               issues: options.noIssues
@@ -184,10 +192,10 @@ test('static SDK search summarizes a failed repair chain and delivers it to a fr
     ],
   );
   assert.equal(
-    f.requests[2]!.files?.['input.py'],
+    f.requests[2]!.source,
     operatorFixtureSource('fixture:incorrect'),
   );
-  assert.equal(f.requests[4]!.files?.['input.py'], f.entrySource);
+  assert.equal(f.requests[4]!.source, f.entrySource);
   assert.match(
     JSON.stringify(object(f.requests[4]!.input).history),
     /candidateMs.*12/,
@@ -265,7 +273,7 @@ test('three attempts with three repairs stay within fourteen SDK runs and restar
   assert.equal(object(result.usage).modelCalls, 16);
   const fresh = f.requests.filter((r) => object(r.input).stage === 'generate');
   assert.equal(fresh.length, 3);
-  assert.ok(fresh.every((r) => r.files?.['input.py'] === f.entrySource));
+  assert.ok(fresh.every((r) => r.source === f.entrySource));
   assert.equal(
     output.bestCandidateRef,
     object(result.application).initialCandidateRef,

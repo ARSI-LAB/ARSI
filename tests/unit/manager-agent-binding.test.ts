@@ -1,10 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type {
-  JsonObject,
-  OperationDefinition,
-} from '../../src/contracts/index.js';
+import type { OperationDefinition } from '../../src/contracts/index.js';
 import { agentContract } from '../../src/contracts/plugin-types/index.js';
+import { prepareAgentProject } from '../../src/plugins/shared/agent-editing/project.js';
 import { string } from '../../src/shared/json.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
 
@@ -31,30 +29,32 @@ test('Manager invokes exact Agent bindings and never falls back to an implementa
   };
   const fixture = await managerFixture(
     async (context) => {
-      const request: JsonObject = {
+      const request = {
         goal: 'test routing',
-        prompt: 'test',
+        cwd: await prepareAgentProject(context, 'test', {}, [], []),
         outputSchema: { type: 'object' },
       };
-      assert.deepEqual(
-        await context.invokeAgent({ ...request, agentRef: 'second' }),
-        { label: 'second' },
-      );
-      assert.deepEqual(
-        await context.invokeAgent({ ...request, agentRef: 'first' }),
-        { label: 'first' },
-      );
-      assert.deepEqual(await context.invokeAgent(request), {
+      assert.deepEqual(await context.invokeAgent('second', request), {
+        label: 'second',
+      });
+      assert.deepEqual(await context.invokeAgent('first', request), {
+        label: 'first',
+      });
+      assert.deepEqual(await context.invokeAgent('agent.default', request), {
         label: 'default',
       });
       const before = await context.facts.read('budgets', context.experimentId);
       await assert.rejects(
-        context.invokeAgent({ ...request, agentRef: agent.id }),
+        context.invokeAgent(agent.id, request),
         /Unknown Agent test.shared-agent/,
       );
       await assert.rejects(
-        context.invokeAgent({ ...request, agentRef: 'missing' }),
+        context.invokeAgent('missing', request),
         /Unknown Agent missing/,
+      );
+      await assert.rejects(
+        context.invokeAgent('driver', request),
+        /does not implement contract\.agent/,
       );
       assert.deepEqual(
         await context.facts.read('budgets', context.experimentId),
@@ -73,7 +73,7 @@ test('Manager invokes exact Agent bindings and never falls back to an implementa
     },
   );
   try {
-    await fixture.run();
+    assert.equal((await fixture.run()).status, 'succeeded');
   } finally {
     await fixture.dispose();
   }

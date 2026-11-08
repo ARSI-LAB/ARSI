@@ -87,11 +87,23 @@ test('memory receives authorized summary and current skills, persists Wiki and r
         assert.deepEqual(refs, ['train-measurement']);
         return { training: 'Observed execution' };
       },
-      invokeAgent: async (request) => {
-        const supplied = object(request.input);
+      invokeAgent: async (_binding, request) => {
+        const cwd = string(request.cwd);
+        const supplied = object(
+          JSON.parse(await readFile(join(cwd, 'context/input.json'), 'utf8')),
+        );
         assert.deepEqual(supplied.observations, observations);
+        assert.deepEqual(
+          JSON.parse(
+            await readFile(join(cwd, 'context/measurements.json'), 'utf8'),
+          ),
+          { training: 'Observed execution' },
+        );
         assert.equal(
-          object(request.files)['sources/0/plugins/base/skills/check/SKILL.md'],
+          await readFile(
+            join(cwd, 'sources/0/plugins/base/skills/check/SKILL.md'),
+            'utf8',
+          ),
           'Check completed work.',
         );
         calls++;

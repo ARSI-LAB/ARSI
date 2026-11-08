@@ -31,7 +31,7 @@ These skills are provided with the Baseline Agent Bundle and read by its Agent p
 
 ## Configure skills for optimization plugins
 
-Plugins that support `config.skills`, such as `proposer.agent`, read the skills and pass their contents as context to the Agent performing optimization tasks.
+`proposer.agent` copies the locked skill directories into `.agents/skills/` in the workspace for the current call. Pi and Codex discover the skills and read their instructions and references as needed.
 
 1. Prepare a skill directory, such as `my-experiment/skills/code-editing/SKILL.md`.
 2. Add `skills` to an existing plugin binding's configuration in the Recipe:
@@ -44,3 +44,14 @@ Plugins that support `config.skills`, such as `proposer.agent`, read the skills 
          skills:
            - ./skills/code-editing
    ```
+
+### Configure specialist agents
+
+Set `subagents` in the same `proposer.agent` binding. RSI locks role prompts and skills with the Recipe. Parent and child sessions share the project directory. Pi delegates through the RSI `subagent` tool. Codex uses the generated role TOML files and native delegation. The Pi workspace `bash` tool uses `sandbox-exec` on macOS and requires `bubblewrap` on Linux.
+
+```yaml
+subagents:
+  - name: research-scout
+    description: Investigate configuration options and supporting evidence.
+    prompt: ./roles/research-scout.md
+```

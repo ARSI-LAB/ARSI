@@ -308,10 +308,29 @@ Runtime passes `context` to `create` and every `execute` call. Plugins use it to
 | Call the Application                 | `application(input)`, `applicationMetadata()`            | Execute lifecycle actions or read metadata such as the target, capabilities, and initial candidate.                                      |
 | Use a candidate's execution instance | `withInstance(candidateRef, capability, use)`            | Acquire an instance, execute `use(execution)`, and coordinate its release.                                                               |
 | Call another binding                 | `invoke(bindingName, input)`                             | Apply Runtime contract validation, budget checks, call recording, and revision selection.                                                |
-| Call an Agent                        | `invokeAgent(input)`                                     | Select the Agent binding through `input.agentRef`, defaulting to `agent.default` when omitted.                                           |
+| Call an Agent                        | `invokeAgent(agentRef, input)`                           | Select the Recipe binding with `agentRef` and send `input` to the Agent.                                                                 |
 | Read evidence                        | `readEvidence(refs, options?)`                           | Select `view`, file or JSON format, and `maxBytes` to read the evidence available to this call.                                          |
 | Record usage                         | `charge(metric, amount)`                                 | Record usage and check budgets; call with `await`.                                                                                       |
 | Subscribe to events                  | `event`                                                  | Listen for runtime events and unsubscribe when finished; see [Runtime events](runtime-events.md).                                        |
+
+Inside `execute`, build the managed workspace with `prepareAgentProject` from `ember-rsi`. Put instructions in the second argument and authorized text files in the third. The last two arguments accept skill directories and role definitions. Prepare a workspace for each independent call. Use distinct project content for independent calls from the same plugin execution when they must not share local edits.
+
+```ts
+import { prepareAgentProject } from 'ember-rsi';
+
+const cwd = await prepareAgentProject(
+  context,
+  'Read context/input.json and return your findings.',
+  { 'context/input.json': JSON.stringify({ target: 'example' }) },
+  [],
+  [],
+);
+const result = await context.invokeAgent('agent', {
+  cwd,
+  goal: 'Inspect the target',
+  outputSchema: { type: 'object' },
+});
+```
 
 ### Calls and resource cleanup
 

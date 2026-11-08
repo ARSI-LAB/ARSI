@@ -1,6 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   AgentInput,
@@ -28,19 +27,12 @@ export const createAgentCodex: OperationDefinition<
     'agent.codex config',
   );
   return {
-    async canRetry(_input, receipt) {
-      // Older receipts also carry this error on sibling calls cancelled by it.
-      return (
-        typeof receipt.error === 'string' &&
-        /^EBUSY: resource busy or locked, rmdir '[^'\r\n]*[\\/]rsi-codex-[a-zA-Z0-9]+'$/.test(
-          receipt.error,
-        )
-      );
-    },
     async execute(request, context) {
       json(request);
       validateSchemaDefinition(request.outputSchema, 'Agent outputSchema');
       context.signal.throwIfAborted();
+      if (request.role !== undefined)
+        throw new Error('For Codex role delegation, use native spawn_agent');
       const controller = new AbortController();
       const signal = AbortSignal.any([context.signal, controller.signal]);
       const timer =
@@ -51,7 +43,6 @@ export const createAgentCodex: OperationDefinition<
               config.timeoutMs,
             );
       timer?.unref();
-      let directory: string | undefined;
       const record = (type: string, data: unknown): void => {
         appendFileSync(
           join(context.directory, 'diagnostics.jsonl'),
@@ -61,17 +52,16 @@ export const createAgentCodex: OperationDefinition<
       };
       try {
         await mkdir(context.directory, { recursive: true });
-        directory = await mkdtemp(join(tmpdir(), 'rsi-codex-'));
+        const cwd = await realpath(request.cwd);
         // App-server reports tokens, not an authoritative per-upstream-request counter.
         // Do not report invented modelCalls or pretend their budget can be enforced here.
         record('usage_capabilities', {
           modelCalls: 'unavailable',
           tokenUsage: 'native',
-          maxModelCallsEnforced: false,
         });
         return await runSession({
           executable: config.executable,
-          directory,
+          directory: cwd,
           model: config.model,
           reasoningEffort: config.thinkingLevel,
           request,
@@ -81,13 +71,6 @@ export const createAgentCodex: OperationDefinition<
       } finally {
         if (timer) clearTimeout(timer);
         controller.abort();
-        if (directory)
-          await rm(directory, {
-            recursive: true,
-            force: true,
-            maxRetries: 5,
-            retryDelay: 200,
-          });
       }
     },
     async dispose() {},

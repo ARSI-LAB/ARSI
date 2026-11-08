@@ -70,6 +70,8 @@ bindings:
 
 The `model`, `base_url`, and `api_key` fields in `services.default` specify the model name, service endpoint, and credential environment-variable reference.
 
+When the optimizer needs the public task prompt, set `run.includeTaskAnswer: true` in the Evaluator configuration so the SDK records task data. RSI publishes the public prompt as `task-input` execution evidence for later plugins; reference answers remain in private native records.
+
 ### Pi backend
 
 `agent.pi` executes Agent tasks in the optimization flow through Pi, with an explicitly configured model endpoint, model name, and credentials.
@@ -145,6 +147,8 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | OperatorBench Evaluator                               | `sdk.profiling.attemptTimeoutSeconds`             | Duration limit for an individual profiling attempt, in seconds.                                                                                                       | SDK default: 300 seconds (5 minutes).                                                                             |
 | Inference Application                                 | `remote.timeoutMs`                                | Duration limit for one remote-script invocation, in milliseconds.                                                                                                     | No separate duration limit for the remote call.                                                                   |
 | Inference Application                                 | `healthcheck.timeoutMs`                           | Duration limit for waiting for the inference service to become ready, in milliseconds.                                                                                | Remote mode inherits `remote.timeoutMs`; if that is also unset, or in local mode, no readiness-wait limit is set. |
+| Prompt-evolution search | `maxRounds` | Maximum logical attempts, including no-change and rejected attempts. | Required; no default. |
+| Prompt-evolution search | `maxRollouts` | Task-rollout allowance across initial scoring, parent/proposal comparison, and population selection; separate from the evaluation-call budget. | Required; no default. |
 | Optuna Proposer                                       | `python.timeoutMs`                                | Duration limit for one Python worker invocation, in milliseconds.                                                                                                     | No separate duration limit for a worker invocation.                                                               |
 | Optuna Proposer                                       | `maxSamplingAttempts`                             | Maximum sampling attempts across the search, including duplicate combinations that skip evaluation; `policy.config.maxTrials` separately limits evaluations.          | No additional sampling-attempt limit.                                                                             |
 | Reflection file                                       | `budget.modelCalls`                               | Maximum model requests for one Reflection call; 0 prevents the built-in generator from starting, and positive limits require backend accounting.                      | No model-call limit specific to this Reflection call.                                                             |

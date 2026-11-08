@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rename,
   rm,
   writeFile,
@@ -120,7 +121,48 @@ export async function prepareAgentProject(
     const artifact = await context.artifacts.capture(staging);
     const hash = artifact.slice('artifact:'.length);
     const project = join(context.directory, 'agent-projects', hash, 'project');
-    await mkdir(dirname(project), { recursive: true });
+    let parent = context.directory;
+    for (const segment of ['agent-projects', hash]) {
+      parent = join(parent, segment);
+      try {
+        await mkdir(parent);
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !('code' in error) ||
+          error.code !== 'EEXIST'
+        )
+          throw error;
+      }
+      if (!(await lstat(parent)).isDirectory())
+        throw new Error('Agent project parent must be a regular directory');
+    }
+    const owner = await realpath(context.directory);
+    if (
+      (await realpath(dirname(project))) !== join(owner, 'agent-projects', hash)
+    )
+      throw new Error('Agent project parent is outside its owning call');
+    const published = async (): Promise<boolean> => {
+      let existing;
+      try {
+        existing = await lstat(project);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          'code' in error &&
+          error.code === 'ENOENT'
+        )
+          return false;
+        throw error;
+      }
+      if (!existing.isDirectory())
+        throw new Error('Agent project must be a regular directory');
+      const marker = await lstat(join(project, projectMarker));
+      if (!marker.isFile() || marker.size !== 0)
+        throw new Error('Agent project marker must be a regular empty file');
+      return true;
+    };
+    if (await published()) return project;
     // Keep the input snapshot immutable and use a stable, separate path for execution.
     try {
       await rename(staging, project);
@@ -128,9 +170,12 @@ export async function prepareAgentProject(
       if (
         !(error instanceof Error) ||
         !('code' in error) ||
-        !['EEXIST', 'ENOTEMPTY'].includes(String(error.code))
+        !['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(String(error.code))
       )
         throw error;
+      // Windows reports a concurrent directory publication as EPERM. Only a
+      // verified, already-published project fulfills this call; other errors stay errors.
+      if (!(await published())) throw error;
     }
     return project;
   } finally {

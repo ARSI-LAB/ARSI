@@ -113,6 +113,7 @@ export async function normalizeEvaluation(
       id,
       attemptId,
       solve,
+      record ? nullableObject(record.task) : null,
     );
     entries.push({
       id: `${id}/native-result`,
@@ -170,7 +171,7 @@ export async function normalizeEvaluation(
         id,
         parameters,
       },
-      status: nativeStatus(record?.status, context.signal),
+      status: nativeStatus(record?.executionStatus, context.signal),
       coverage: record ? 'complete' : 'none',
       comparisonKey: pointKey,
       metrics: pointMetrics,

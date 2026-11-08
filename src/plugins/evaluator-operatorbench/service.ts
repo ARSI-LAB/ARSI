@@ -147,6 +147,7 @@ export async function createOperatorbench(
                   selected.id,
                   string(key.attemptId),
                   null,
+                  null,
                 );
             }
             result = adaptSdkResult(native, prepared, config, selected.seed);

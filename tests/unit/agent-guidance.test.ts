@@ -17,6 +17,7 @@ import {
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
+import { string } from '../../src/shared/json.js';
 
 test('agent prompt loads optional recursive guidance afresh without rewriting the base', async () => {
   assert.equal(typeof editing.loadAgentPrompt, 'function');
@@ -110,7 +111,10 @@ test('editor delivers guidance revisions on subsequent requests without appendin
       withInstance: unused,
       charge: unused,
       readEvidence: async () => ({}),
-      invokeAgent: async (request) => ({ edits: [], reason: request.prompt }),
+      invokeAgent: async (_binding, request) => ({
+        edits: [],
+        reason: await readFile(join(string(request.cwd), 'AGENTS.md'), 'utf8'),
+      }),
     });
     const context: RuntimeContext = new RuntimeContext().extend({
       experimentId: 'test',
@@ -145,17 +149,13 @@ test('editor delivers guidance revisions on subsequent requests without appendin
       files: [{ path: 'note.txt', mode: 0o644, base64: 'invalid!' }],
     });
     await assert.rejects(editing.resourceFiles(malformed, services), /bytes/);
-    assert.equal(
-      (
-        await editing.requestEdit(
-          config,
-          { goal: 'Improve' },
-          null,
-          context.extend(services),
-        )
-      ).reason,
-      'Base editor prompt.',
+    const original = await editing.requestEdit(
+      config,
+      { goal: 'Improve' },
+      null,
+      context.extend(services),
     );
+    assert.match(string(original.reason), /^Base editor prompt\.\n/);
     await writeFile(join(guidance, 'rule.md'), 'Use evidence.');
     const first = await editing.requestEdit(
       config,

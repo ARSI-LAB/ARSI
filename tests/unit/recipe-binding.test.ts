@@ -354,11 +354,18 @@ test('bundled Recipes preserve time budgets without injecting call or token limi
     );
     for (const [bindingName, binding] of editors) {
       assert.equal(binding.config.maxModelCalls, undefined);
-      const declaration = object(overrides[bindingName] ?? {});
+      const original = overrides[bindingName];
+      const declaration = object(original ?? {});
       overrides[bindingName] = {
         ...declaration,
         config: { ...object(declaration.config ?? {}), maxModelCalls: 2 },
       };
+      await assert.rejects(
+        Recipe.fromJSON(raw, registry, { sourcePath }),
+        /additional properties|maxModelCalls/,
+      );
+      if (original === undefined) delete overrides[bindingName];
+      else overrides[bindingName] = original;
     }
     object(raw.budget).modelCalls = 17;
     agentConfig.maxTokens = 32768;
@@ -375,8 +382,6 @@ test('bundled Recipes preserve time budgets without injecting call or token limi
     );
     assert.equal(limited.bindings.agent!.config.timeoutMs, 1800000);
     assert.equal(limited.bindings.agent!.config.executionTimeoutMs, 3600000);
-    for (const [bindingName] of editors)
-      assert.equal(limited.bindings[bindingName]!.config.maxModelCalls, 2);
   }
 });
 

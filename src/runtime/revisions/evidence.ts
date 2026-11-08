@@ -182,7 +182,7 @@ export async function collectReflectionEvidence(
                   content,
                   /\.jsonl$/i.test(file.path)
                     ? 'jsonl'
-                    : /\.json$/i.test(file.path)
+                    : /\.json$/i.test(file.path) || /^\s*[\[{]/.test(content)
                       ? 'json'
                       : 'text',
                 ),
@@ -339,6 +339,22 @@ export async function collectReflectionEvidence(
         )
           throw error;
       }
+    }
+    for (const child of calls) {
+      const childId = String(child.record.callId);
+      const ref = child.record.agentProjectArtifactRef;
+      if (
+        childId === id ||
+        !descendants.has(childId) ||
+        typeof ref !== 'string' ||
+        !options.isAgentBinding?.(String(child.record.bindingId))
+      )
+        continue;
+      await artifactText(
+        ref,
+        `context/reflection/calls/${id}-workspace-${safeId(childId)}`,
+        child.record,
+      );
     }
     entry.trace = traceCount ? 'available' : 'unavailable';
   };
@@ -762,22 +778,19 @@ function safeText(
     }
     return raw;
   };
-  const content =
-    format === 'jsonl' && typeof value === 'string'
-      ? value
-          .split('\n')
-          .map((line) => {
-            try {
-              const parsed: unknown = JSON.parse(line);
-              json(parsed);
-              return canonical(project(parsed));
-            } catch {
-              return line;
-            }
-          })
-          .join('\n')
-      : typeof value === 'string' && format === 'text'
-        ? value
-        : canonical(project(value));
+  const projectDocument = (text: string): string => {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      json(parsed);
+      return canonical(project(parsed));
+    } catch {
+      return text;
+    }
+  };
+  let content: string;
+  if (typeof value !== 'string') content = canonical(project(value));
+  else if (format === 'jsonl')
+    content = value.split('\n').map(projectDocument).join('\n');
+  else content = format === 'json' ? projectDocument(value) : value;
   return fullEvidenceText(content, format).text;
 }

@@ -9,9 +9,11 @@ import { reflectionContract } from '../../src/contracts/plugin-types/reflection.
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { readYaml } from '../../src/runtime/loaders/yaml.js';
 import { object } from '../../src/shared/json.js';
-import type {
-  JsonSchema,
-  OperationDefinition,
+import { validate } from '../../src/shared/schema.js';
+import {
+  searchContract,
+  type JsonSchema,
+  type OperationDefinition,
 } from '../../src/contracts/index.js';
 import { defineContract } from '../../src/contracts/contract.js';
 import { Registry } from '../../src/runtime/registry/index.js';
@@ -301,6 +303,127 @@ test('Recipe assembles registered definitions, prepares paths/defaults and prese
     policy: recipe.policy,
   });
   assert.deepEqual(restored.toJSON(), recipe.toJSON());
+});
+
+test('GEPA example loads through built-in registration with recipe-relative resources', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  assert.ok(registry.catalog().plugins.includes('search.prompt-evolution'));
+  assert.ok(registry.catalog().policies.includes('policy.gepa'));
+  assert.deepEqual(
+    registry.get('search.prompt-evolution').contract,
+    searchContract,
+  );
+  const directory = resolve('examples/harness/dsh-gepa');
+  const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
+  assert.equal(recipe.policy.id, 'policy.gepa');
+  assert.equal(recipe.bindings.search!.pluginId, 'search.prompt-evolution');
+  const dataset = object(recipe.policyConfig.dataset);
+  const searchConfig = recipe.bindings.search!.config;
+  assert.equal(searchConfig.maxRounds, 15);
+  assert.equal(searchConfig.maxRollouts, 120);
+  assert.equal(searchConfig.minibatchSize, 1);
+  assert.equal(searchConfig.feedbackSampling, 'coverage-first');
+  assert.equal(searchConfig.paretoSize, 5);
+  assert.equal(searchConfig.crossoverEvery, 0);
+  assert.equal((dataset.trainTaskIds as string[]).length, 10);
+  assert.equal((dataset.validationTaskIds as string[]).length, 5);
+  assert.equal(recipe.bindings.proposer!.pluginId, 'proposer.agent');
+  assert.equal(recipe.bindings.proposer!.config.agentRef, 'agent');
+  assert.equal(
+    recipe.bindings.proposer!.config.evidenceView,
+    'training-summary',
+  );
+  assert.equal(recipe.bindings.proposer!.config.maxModelCalls, undefined);
+  assert.equal(recipe.bindings.agent!.config.maxTokens, undefined);
+  for (const service of Object.values(
+    object(recipe.bindings.evaluator!.config.services),
+  ))
+    assert.equal(object(service).maxTokens, undefined);
+  assert.deepEqual(recipe.budget, { elapsedWallMs: 86400000 });
+  assert.equal(recipe.bindings.proposer!.config.maxEvidenceBytes, undefined);
+  const raw = await readYaml(join(directory, 'recipe.yaml'));
+  for (const field of [
+    'evaluatorBinding',
+    'reflectorBinding',
+    'proposerBinding',
+    'reflectionMaxModelCalls',
+    'maxEvidenceBytes',
+    'dataset',
+    'feedbackTaskIds',
+    'selectionTaskIds',
+  ]) {
+    assert.equal(Object.hasOwn(searchConfig, field), false);
+    const settings = { ...searchConfig, [field]: 'duplicate-route' };
+    await assert.rejects(
+      Recipe.fromJSON(
+        {
+          ...raw,
+          bindings: {
+            ...object(raw.bindings),
+            search: { plugin: 'search.prompt-evolution', config: settings },
+          },
+        },
+        registry,
+        { sourcePath: join(directory, 'recipe.yaml') },
+      ),
+      /additional properties/,
+    );
+    assert.throws(
+      () =>
+        validate(
+          searchContract.input_schema,
+          {
+            action: 'initialize',
+            parent: 'initial-candidate',
+            feedbackTaskIds: dataset.trainTaskIds,
+            selectionTaskIds: dataset.validationTaskIds,
+            settings,
+          },
+          'search input',
+        ),
+      /additional properties/,
+    );
+  }
+  await assert.rejects(
+    Recipe.fromJSON(
+      {
+        ...raw,
+        policy: {
+          ...object(raw.policy),
+          config: { ...recipe.policyConfig, ...searchConfig },
+        },
+      },
+      registry,
+      { sourcePath: join(directory, 'recipe.yaml') },
+    ),
+    /additional properties/,
+  );
+  await assert.rejects(
+    Recipe.fromJSON(
+      {
+        ...raw,
+        policy: {
+          ...object(raw.policy),
+          config: { dataset: { ...dataset, trainTaskIds: [] } },
+        },
+      },
+      registry,
+      { sourcePath: join(directory, 'recipe.yaml') },
+    ),
+    /fewer than 1 items/,
+  );
+  assert.equal(
+    object(recipe.application.config.target).schema,
+    join(directory, 'target.yaml'),
+  );
+  assert.equal(
+    object(recipe.application.config.baseline).directory,
+    join(directory, 'baseline'),
+  );
+  await readYaml(join(directory, 'target.yaml'));
+  await readYaml(join(directory, 'baseline/bundle.yaml'));
 });
 
 test('bundled Recipes preserve time budgets without injecting call or token limits', async (t) => {

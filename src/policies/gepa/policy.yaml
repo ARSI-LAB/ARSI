@@ -1,0 +1,223 @@
+schemaVersion: rsi.policy/v1
+id: policy.gepa
+description: GEPA reflective prompt evolution over a modular file target.
+  Candidates are sampled from the instance-wise Pareto frontier, mutated with
+  sampled execution feedback, merged through ancestry-aware crossover, and
+  compared against their genetic parents before selection scoring.
+input_schema:
+  type: object
+  additionalProperties: false
+  required:
+    - candidateRef
+  properties:
+    candidateRef:
+      type: string
+      minLength: 1
+config_schema:
+  $ref: ./schemas/config.yaml
+state_schema:
+  type: object
+  additionalProperties: false
+  required:
+    - search
+  properties:
+    search:
+      type: object
+state:
+  search: {}
+output_schema:
+  $ref: ./schemas/output.yaml
+require:
+  search:
+    contract: contract.search
+  evaluator:
+    contract: contract.agentbench
+  proposer:
+    contract: contract.proposer
+  agent:
+    contract: contract.agent
+defaults:
+  bindings:
+    search:
+      plugin: search.prompt-evolution
+    proposer:
+      plugin: proposer.agent
+      config:
+        agentRef: agent
+        prompt: ./prompts/mutation.md
+        evidenceView: training-summary
+steps:
+  - id: initialize
+    type: invoke
+    use: search
+    with:
+      action: initialize
+      parent: ${{ input.candidateRef }}
+      feedbackTaskIds: ${{ config.dataset.trainTaskIds }}
+      selectionTaskIds: ${{ config.dataset.validationTaskIds }}
+  - id: save_initial
+    type: state
+    state:
+      search: ${{ steps.initialize.output }}
+  - id: initial_evaluation
+    type: if
+    if: ${{ size(state.search.work.evaluations) > 0 }}
+    then:
+      steps:
+        - id: evaluate
+          type: invoke
+          use: evaluator
+          with:
+            candidateRef: ${{ input.candidateRef }}
+            taskIds: ${{ state.search.work.evaluations[0].taskIds }}
+      output:
+        - ${{ steps.evaluate.output.measurementRef }}
+    else:
+      steps: []
+      output: []
+  - id: observe_initial
+    type: invoke
+    use: search
+    with:
+      action: observe
+      workId: ${{ state.search.work.id }}
+      feedback:
+        kind: evaluation
+        measurementRefs: ${{ steps.initial_evaluation.output }}
+      stateRef: ${{ state.search.stateRef }}
+  - id: save_observed
+    type: state
+    state:
+      search: ${{ steps.observe_initial.output }}
+  - id: optimize
+    type: loop
+    maxIterations: ${{ state.search.iterationLimit }}
+    while: ${{ !state.search.done }}
+    steps:
+      - id: prepare
+        type: invoke
+        use: search
+        with:
+          action: suggest
+          stateRef: ${{ state.search.stateRef }}
+      - id: save_plan
+        type: state
+        state:
+          search: ${{ steps.prepare.output }}
+      - id: stop_if_done
+        type: if
+        if: ${{ state.search.work == null }}
+        then:
+          steps:
+            - id: stop
+              type: control
+              control: break
+      - id: proposal
+        type: if
+        if: ${{ state.search.work.proposalInput != null }}
+        then:
+          steps:
+            - id: evaluate_parent
+              type: invoke
+              use: evaluator
+              with:
+                candidateRef: ${{ state.search.work.proposalInput.parent }}
+                taskIds: ${{ state.search.work.taskIds }}
+            - id: propose
+              type: invoke
+              use: proposer
+              with:
+                parent: ${{ state.search.work.proposalInput.parent }}
+                goal: ${{ state.search.work.proposalInput.goal }}
+                editConstraints: ${{ state.search.work.proposalInput.editConstraints }}
+                evidenceRefs:
+                  - ${{ steps.evaluate_parent.output.measurementRef }}
+          output:
+            proposal: ${{ steps.propose.output }}
+            parentMeasurementRefs:
+              - ${{ steps.evaluate_parent.output.measurementRef }}
+        else:
+          steps:
+            - id: evaluate_merge_parents
+              type: if
+              if: ${{ state.search.work.proposalResult.status == 'created' }}
+              then:
+                steps:
+                  - id: parents
+                    type: foreach
+                    foreach: ${{ state.search.work.parentRefs }}
+                    as: parent
+                    key: ${{ parent }}
+                    steps:
+                      - id: evaluate
+                        type: invoke
+                        use: evaluator
+                        with:
+                          candidateRef: ${{ parent }}
+                          taskIds: ${{ state.search.work.taskIds }}
+                    output: ${{ steps.evaluate.output.measurementRef }}
+                output: ${{ steps.parents.output }}
+              else:
+                steps: []
+                output: []
+          output:
+            proposal: ${{ state.search.work.proposalResult }}
+            parentMeasurementRefs: ${{ steps.evaluate_merge_parents.output }}
+      - id: proposal_evaluation
+        type: if
+        if: ${{ steps.proposal.output.proposal.status == 'created' }}
+        then:
+          steps:
+            - id: evaluate
+              type: invoke
+              use: evaluator
+              with:
+                candidateRef: ${{ steps.proposal.output.proposal.candidateRef }}
+                taskIds: ${{ state.search.work.taskIds }}
+          output: ${{ steps.evaluate.output.measurementRef }}
+        else:
+          steps: []
+          output: null
+      - id: compare
+        type: invoke
+        use: search
+        with:
+          action: observe
+          workId: ${{ state.search.work.id }}
+          feedback:
+            kind: proposal
+            parentMeasurementRefs: ${{ steps.proposal.output.parentMeasurementRefs }}
+            proposal: ${{ steps.proposal.output.proposal }}
+            proposalMeasurementRef: ${{ steps.proposal_evaluation.output }}
+          stateRef: ${{ state.search.stateRef }}
+      - id: save_comparison
+        type: state
+        state:
+          search: ${{ steps.compare.output }}
+      - id: select_if_accepted
+        type: if
+        if: ${{ steps.compare.output.work != null }}
+        then:
+          steps:
+            - id: evaluate_selection
+              type: invoke
+              use: evaluator
+              with:
+                candidateRef: ${{ state.search.work.evaluations[0].candidateRef }}
+                taskIds: ${{ state.search.work.evaluations[0].taskIds }}
+            - id: select
+              type: invoke
+              use: search
+              with:
+                action: observe
+                workId: ${{ state.search.work.id }}
+                feedback:
+                  kind: evaluation
+                  measurementRefs:
+                    - ${{ steps.evaluate_selection.output.measurementRef }}
+                stateRef: ${{ state.search.stateRef }}
+            - id: save_selection
+              type: state
+              state:
+                search: ${{ steps.select.output }}
+output: ${{ state.search.result }}

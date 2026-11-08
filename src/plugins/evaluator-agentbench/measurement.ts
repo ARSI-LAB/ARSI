@@ -119,6 +119,7 @@ export async function normalizeEvaluation(
       id,
       attemptId,
       solve,
+      record ? nullableObject(record.task) : null,
     );
     const verifier = entries
       .map((entry) => object(entry))
@@ -151,7 +152,7 @@ export async function normalizeEvaluation(
         id,
         parameters: null,
       },
-      status: nativeStatus(record?.status, context.signal),
+      status: nativeStatus(record?.executionStatus, context.signal),
       coverage: record ? 'complete' : 'none',
       comparisonKey,
       metrics: training?.metrics ?? {},

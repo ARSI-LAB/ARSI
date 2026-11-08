@@ -153,13 +153,18 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
               proposals: [
                 {
                   edits: [
-                    { path: 'tuning.json', content: '{"max_num_seqs":16}' },
+                    {
+                      op: 'replace',
+                      path: 'tuning.json',
+                      content: '{"max_num_seqs":16}',
+                    },
                   ],
                   reason: 'Raise concurrency',
                 },
                 {
                   edits: [
                     {
+                      op: 'replace',
                       path: 'tuning.json',
                       content: '{ "max_num_seqs" : 8 }\n',
                     },
@@ -168,7 +173,11 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
                 },
                 {
                   edits: [
-                    { path: 'tuning.json', content: '{"max_num_seqs":12}' },
+                    {
+                      op: 'replace',
+                      path: 'tuning.json',
+                      content: '{"max_num_seqs":12}',
+                    },
                   ],
                   reason: 'Try an intermediate value',
                 },
@@ -178,6 +187,7 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
           return {
             edits: [
               {
+                op: 'replace',
                 path: 'tuning.json',
                 content: '{"max_num_seqs":8}',
               },

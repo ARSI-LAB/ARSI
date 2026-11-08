@@ -70,6 +70,8 @@ bindings:
 
 `services.default` 中的 `model`、`base_url` 和 `api_key` 分别指定模型名称、服务地址和凭据环境变量引用。
 
+如果优化器需要任务的公开提示词，可在 Evaluator 配置中设置 `run.includeTaskAnswer: true`，使 SDK 保存任务数据。RSI 将其中的公开提示词作为 `task-input` 执行证据提供给后续插件，参考答案仍保留在私有原生记录中。
+
 ### Pi 后端
 
 `agent.pi` 通过 Pi 执行优化流程中的 Agent 任务，适合直接指定模型服务地址、模型名称和凭据。
@@ -122,11 +124,21 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 - 目前该后端无法执行实验的 `modelCalls` 预算。
 
+## 推理优化
+
 推理优化可用 `evaluator.inferencebench` 的 `benchmark.name: aisbench` 和内置 SSH Solver，也可选择 `agentx` 及其回放 Solver。基线和候选使用相同的评测负载。`parameter.agent` 会在提出候选和运行 benchmark 前检查时间。`baseline.phaseTimeMs` 和 `phaseTimeMs` 分别限制 enablement 和 framework 阶段可启动的工作，`budget.elapsedWallMs` 仍是实验的硬超时。
 
 `policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 依次验证候选，时间不足以开始下一次试验时停止，并用已完成的试验结果生成下一批。`maxTrials` 限制所有批次的候选尝试总数，跳过的重复候选也计入。
 
 设置 `application.inference.config.remote.discoverParameters: true` 后，启动器会在初始化时报告当前安装版本的参数目录。Agent 可在 `context/input.json` 的 `target.parameterCatalog` 中读取。vLLM Ascend 示例已启用此功能。
+
+## Proposer 文件编辑
+
+`proposer.agent` 使用一套 Agent 输出 Schema。`edits` 中的每一项都有路径和 `op`。`replace` 和 `create` 提供完整的 `content`，`patch` 在 `changes` 中提供精确的 `oldText` 和 `newText`，`delete` 只需提供路径。同一个提案可以对不同路径使用不同操作。Proposer 和 Application 会执行编辑约束和 Target 权限检查。
+
+如果路径使用了 `patch`，该路径只能有一条操作。同一路径上的多条整文件编辑仍按现有规则合并和处理冲突。
+
+迁移自定义 Proposer prompt 时，从绑定配置删除 `editProtocol`，并为每条 edit 添加 `op`。整文件编辑中，已有文件用 `replace`，新文件用 `create`，删除用 `delete`。已有的带 `op` 的 patch 操作保留原有字段。
 
 ## 限制与预算
 
@@ -151,6 +163,8 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | OperatorBench Evaluator                               | `sdk.profiling.attemptTimeoutSeconds`             | 一次性能分析尝试的时长上限，单位秒。                                                                      | SDK 默认 300 秒（5 分钟）。                                                       |
 | Inference Application                                 | `remote.timeoutMs`                                | 一次远端脚本调用的时长上限，单位毫秒。                                                                    | 无远端调用的独立时长上限。                                                        |
 | Inference Application                                 | `healthcheck.timeoutMs`                           | 等待推理服务就绪的时长上限，单位毫秒。                                                                    | 远端模式继承 `remote.timeoutMs`；该值也未设置或使用本地模式时，不设就绪等待上限。 |
+| 提示词演化搜索 | `maxRounds` | 逻辑尝试轮数上限，包含无修改和被拒绝的尝试。 | 必填，无默认值。 |
+| 提示词演化搜索 | `maxRollouts` | 初始评分、父候选与提案比较、种群选择消耗的任务 rollout 总额度，与评测调用次数预算分别计算。 | 必填，无默认值。 |
 | Optuna Proposer                                       | `python.timeoutMs`                                | 单次 Python worker 调用的时长上限，单位毫秒。                                                             | 无单次 worker 调用的独立时长上限。                                                |
 | Optuna Proposer                                       | `maxSamplingAttempts`                             | 整个搜索的采样尝试次数上限，包含不进入评测的重复参数组合；评测次数另由 `policy.config.maxTrials` 限制。   | 不额外限制采样尝试次数。                                                          |
 | Reflection 文件                                       | `budget.modelCalls`                               | 单次 Reflection 的模型请求数上限；设为 0 时不启动内置生成器，正数上限需要后端支持计量。                   | 无单次 Reflection 的模型调用次数上限。                                            |

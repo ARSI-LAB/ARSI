@@ -70,6 +70,8 @@ bindings:
 
 The `model`, `base_url`, and `api_key` fields in `services.default` specify the model name, service endpoint, and credential environment-variable reference.
 
+When the optimizer needs the public task prompt, set `run.includeTaskAnswer: true` in the Evaluator configuration so the SDK records task data. RSI publishes the public prompt as `task-input` execution evidence for later plugins; reference answers remain in private native records.
+
 ### Pi backend
 
 `agent.pi` executes Agent tasks in the optimization flow through Pi, with an explicitly configured model endpoint, model name, and credentials.
@@ -122,11 +124,21 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 
 - This backend currently cannot enforce the experiment's `modelCalls` budget.
 
+## Inference optimization
+
 For inference optimization, `evaluator.inferencebench` supports `benchmark.name: aisbench` with the bundled SSH solver, or `agentx` with the replay solver. Use the same benchmark workload for the baseline and candidate trials. `parameter.agent` checks time before proposing or benchmarking. `baseline.phaseTimeMs` and `phaseTimeMs` bound admission to enablement and framework work respectively. `budget.elapsedWallMs` remains the hard experiment deadline.
 
 `policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy tests them serially, stops the batch when the next trial cannot fit, and uses completed trial results when requesting the next batch. `maxTrials` caps candidate attempts across all batches, including skipped duplicates.
 
 With `application.inference.config.remote.discoverParameters: true`, the launcher reports its installed parameter catalog at initialization. Agent proposals receive the catalog in `context/input.json` as `target.parameterCatalog`. This is enabled in the vLLM Ascend example.
+
+## Proposer file edits
+
+`proposer.agent` uses one Agent output schema for file edits. Each entry in `edits` has a path and an `op`. Use `replace` or `create` with full `content`, `patch` with exact `oldText` and `newText` in `changes`, or `delete` with only the path. A proposal can combine operations on different paths. The Proposer and Application enforce the edit constraints and Target permissions.
+
+A `patch` must be the only operation for its path. Duplicate whole-file edits use the existing merge and conflict handling.
+
+To migrate a custom Proposer prompt, remove `editProtocol` from the binding and give every edit an `op`. For whole-file edits, use `replace` for an existing file, `create` for a new file, and `delete` for a deletion. Existing tagged patch operations keep their fields.
 
 ## Limits and budgets
 
@@ -151,6 +163,8 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | OperatorBench Evaluator                               | `sdk.profiling.attemptTimeoutSeconds`             | Duration limit for an individual profiling attempt, in seconds.                                                                                                       | SDK default: 300 seconds (5 minutes).                                                                             |
 | Inference Application                                 | `remote.timeoutMs`                                | Duration limit for one remote-script invocation, in milliseconds.                                                                                                     | No separate duration limit for the remote call.                                                                   |
 | Inference Application                                 | `healthcheck.timeoutMs`                           | Duration limit for waiting for the inference service to become ready, in milliseconds.                                                                                | Remote mode inherits `remote.timeoutMs`; if that is also unset, or in local mode, no readiness-wait limit is set. |
+| Prompt-evolution search | `maxRounds` | Maximum logical attempts, including no-change and rejected attempts. | Required; no default. |
+| Prompt-evolution search | `maxRollouts` | Task-rollout allowance across initial scoring, parent/proposal comparison, and population selection; separate from the evaluation-call budget. | Required; no default. |
 | Optuna Proposer                                       | `python.timeoutMs`                                | Duration limit for one Python worker invocation, in milliseconds.                                                                                                     | No separate duration limit for a worker invocation.                                                               |
 | Optuna Proposer                                       | `maxSamplingAttempts`                             | Maximum sampling attempts across the search, including duplicate combinations that skip evaluation; `policy.config.maxTrials` separately limits evaluations.          | No additional sampling-attempt limit.                                                                             |
 | Reflection file                                       | `budget.modelCalls`                               | Maximum model requests for one Reflection call; 0 prevents the built-in generator from starting, and positive limits require backend accounting.                      | No model-call limit specific to this Reflection call.                                                             |

@@ -120,6 +120,7 @@ export async function normalizeEvaluation(
       id,
       attemptId,
       solve,
+      record ? nullableObject(record.task) : null,
     );
     entries.push({
       id: `${id}/native-result`,
@@ -138,11 +139,7 @@ export async function normalizeEvaluation(
     allEvidence.push(...entries);
     let pointMetrics: JsonObject = {};
     let pointKey = aisbench ? null : conditionsKey;
-    const status = aisbench ? record?.executionStatus : record?.status;
-    const pointStatus = nativeStatus(
-      aisbench && status === 'failed' ? 'error' : status,
-      context.signal,
-    );
+    const pointStatus = nativeStatus(record?.executionStatus, context.signal);
     let pointCoverage = record ? (aisbench ? 'partial' : 'complete') : 'none';
     let parameters: JsonObject | null = null;
     if (

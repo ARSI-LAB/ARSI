@@ -240,7 +240,7 @@ test('Reflection requires explicit registered implementation, contract and built
     budget: { modelCalls: 0 },
   });
   assert.equal(zero.budget.modelCalls, 0);
-  assert.equal(zero.implementation.config.maxModelCalls, 1);
+  assert.equal(zero.implementation.config.maxModelCalls, undefined);
 });
 test('Reflection rejects legacy rules, unknown fields and invalid target or evidence authorization', async (t) => {
   const { definition, load } = await fixture(t);

@@ -1,5 +1,10 @@
-import { mkdir } from 'node:fs/promises';
-import { memoryContract, reflectionContract } from '../../contracts/index.js';
+import { lstat, mkdir, realpath, rm } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import {
+  agentContract,
+  memoryContract,
+  reflectionContract,
+} from '../../contracts/index.js';
 import type {
   Binding,
   RuntimeContext,
@@ -106,8 +111,47 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         throw new Error('Application returned wrong action');
       return output;
     };
+    const agentInput =
+      definition.contract.id === agentContract.id ? object(input) : undefined;
+    const project =
+      typeof agentInput?.cwd === 'string' ? agentInput.cwd : undefined;
     const job = (async (): Promise<JsonValue> => {
       let ctx = context(bindingId, callId, caller);
+      let projectArtifactRef: string | undefined;
+      if (project !== undefined) {
+        if (caller.agentProject === undefined) {
+          const hash = basename(dirname(project));
+          const projects = join(resolve(caller.directory), 'agent-projects');
+          if (
+            !isAbsolute(project) ||
+            project !== join(projects, hash, 'project') ||
+            !/^[a-f0-9]{64}$/.test(hash) ||
+            agentInput?.role !== undefined
+          )
+            throw new Error(
+              'Agent cwd must be a prepared project owned by this call',
+            );
+          const root = await realpath(caller.directory);
+          if (
+            (await realpath(project)) !==
+              join(root, 'agent-projects', hash, 'project') ||
+            !(await lstat(join(project, '.rsi-project'))).isFile()
+          )
+            throw new Error(
+              'Agent cwd does not resolve to its authorized project',
+            );
+          projectArtifactRef = `artifact:${hash}`;
+        } else if (
+          project !== caller.agentProject ||
+          agentInput?.role === undefined
+        ) {
+          throw new Error(
+            'Agent delegates must use a named role in their parent project',
+          );
+        }
+        ctx = ctx.extend({ agentProject: project });
+      }
+
       let prior: JsonObject | undefined;
       // Prior direct calls hashed input before defaults. Inspect that receipt too,
       // so upgrading a running experiment cannot repeat its external effects.
@@ -173,6 +217,15 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           );
         }
         ctx.signal.throwIfAborted();
+        if (
+          prior &&
+          project !== undefined &&
+          projectArtifactRef !== undefined
+        ) {
+          await ctx.artifacts.readJson(projectArtifactRef);
+          await rm(project, { recursive: true, force: true });
+          await ctx.artifacts.materialize(projectArtifactRef, project);
+        }
         await charge('operations', 1, ctx);
         await mkdir(ctx.directory, { recursive: true });
         const recoveredFrom = prior
@@ -185,6 +238,9 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           pluginId: binding.plugin,
           status: 'running',
           input,
+          ...(projectArtifactRef === undefined
+            ? {}
+            : { agentProjectArtifactRef: projectArtifactRef }),
           startedAt: new Date().toISOString(),
           ...(recoveredFrom ? { recoveredFrom } : {}),
         };

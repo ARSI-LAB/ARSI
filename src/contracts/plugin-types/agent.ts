@@ -1,15 +1,11 @@
-import type { JsonObject, JsonValue } from '../json.js';
+import type { JsonObject } from '../json.js';
 import { defineContract } from '../contract.js';
 
 export type AgentInput = {
   goal: string;
-  prompt: string;
-  input?: JsonValue;
-  files?: Record<string, string>;
+  cwd: string;
+  role?: string;
   outputSchema: JsonObject;
-  agentRef?: string;
-  /** Request-attempt limit for backends that own the transport. Native Codex sessions cannot enforce it. */
-  maxModelCalls?: number;
 };
 
 export type AgentOutput = JsonObject;
@@ -19,15 +15,12 @@ export const agentContract = defineContract({
   input_schema: {
     additionalProperties: false,
     properties: {
-      agentRef: { type: 'string' },
-      files: { additionalProperties: { type: 'string' }, type: 'object' },
+      cwd: { type: 'string', minLength: 1 },
+      role: { type: 'string', pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' },
       goal: { type: 'string' },
-      input: {},
-      maxModelCalls: { minimum: 1, type: 'integer' },
       outputSchema: { type: 'object' },
-      prompt: { type: 'string' },
     },
-    required: ['goal', 'prompt', 'outputSchema'],
+    required: ['goal', 'cwd', 'outputSchema'],
     type: 'object',
   },
   output_schema: { type: 'object' },

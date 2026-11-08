@@ -1,0 +1,67 @@
+evaluate:
+  - id: trial
+    type: invoke
+    use: trial
+    with:
+      evaluatorRef: evaluator
+      candidateRef: ${{ state.batch[state.batchCursor] }}
+      deduplicate:
+        parameterFile: ${{ config.parameterFile }}
+        candidateRefs: ${{ append(pluck(state.trials, 'candidateRef'), state.baseline.candidateRef) }}
+  - id: trial_source
+    type: state
+    state:
+      lastSource:
+        candidateRef: ${{ state.batch[state.batchCursor] }}
+  - id: compare_if_measured
+    type: if
+    if: ${{ steps.trial.output.status == 'measured' }}
+    then:
+      steps:
+        - id: select
+          type: invoke
+          use: selector
+          with:
+            incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
+            candidateMeasurementRef: ${{ steps.trial.output.measurementRef }}
+        - id: measured_trial
+          type: state
+          state:
+            lastTrial:
+              candidateRef: ${{ state.batch[state.batchCursor] }}
+              measurementRef: ${{ steps.trial.output.measurementRef }}
+              status: measured
+              reason: ${{ steps.select.output.reason }}
+              accepted: ${{ steps.select.output.candidateFeasible && (!state.incumbentFeasible || steps.select.output.accepted) }}
+        - id: adopt_if_better
+          type: if
+          if: ${{ state.lastTrial.accepted }}
+          then:
+            steps:
+              - id: adopt
+                type: state
+                state:
+                  incumbent: ${{ state.batch[state.batchCursor] }}
+                  incumbentMeasurement: ${{ steps.trial.output.measurementRef }}
+                  incumbentFeasible: true
+    else:
+      steps:
+        - id: rejected_trial
+          type: state
+          state:
+            lastTrial:
+              candidateRef: ${{ state.batch[state.batchCursor] }}
+              measurementRef: ${{ steps.trial.output.measurementRef }}
+              status: ${{ steps.trial.output.status }}
+              reason: ${{ steps.trial.output.reason }}
+              accepted: false
+  - id: record_trial
+    type: state
+    state:
+      batchCursor: ${{ state.batchCursor + 1 }}
+      trials: ${{ append(state.trials, state.lastTrial) }}
+      sources: ${{ if(state.lastTrial.status == 'duplicate', state.sources, append(state.sources, state.lastSource)) }}
+time_stop:
+  id: time_budget
+  type: state
+  state: { stopped: true, stopReason: time-budget }

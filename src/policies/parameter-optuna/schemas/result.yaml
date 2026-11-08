@@ -2,9 +2,18 @@ type: object
 additionalProperties: false
 properties:
   status:
-    enum: [selected, no-feasible-configuration]
+    enum: [selected, no-feasible-configuration, baseline-unavailable]
   stopReason:
-    enum: [search-exhausted, sampling-limit, max-trials]
+    enum:
+      [
+        search-exhausted,
+        sampling-limit,
+        max-trials,
+        baseline-failed,
+        time-budget,
+      ]
+  baselineCandidateRef: { type: [string, 'null'] }
+  baselineMeasurementRef: { type: [string, 'null'] }
   candidateRef:
     type: [string, 'null']
   measurementRef:
@@ -17,7 +26,7 @@ properties:
     items:
       type: string
   searchStateRef:
-    type: string
+    type: [string, 'null']
 required:
   - status
   - stopReason

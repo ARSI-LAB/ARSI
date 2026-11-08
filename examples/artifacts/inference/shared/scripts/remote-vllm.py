@@ -56,10 +56,11 @@ class Resources(TypedDict):
 class ResponseDetails(TypedDict, total=False):
     parametersDigest: str
     resources: Resources
+    reason: str
 
 
 class LifecycleResponse(ResponseDetails):
-    status: Literal["stopped", "starting", "ready", "capacity-rejected", "failed"]
+    status: Literal["stopped", "starting", "ready", "capacity-rejected", "startup-failed", "failed"]
     instanceId: str
 
 
@@ -116,7 +117,7 @@ def parse_request(value: object) -> LifecycleRequest:
 
 
 def start(request: LifecycleRequest) -> LifecycleResponse:
-    """Start this instance; return starting, ready, or capacity-rejected.
+    """Start this instance and report its readiness or confirmed rejection.
 
     Validate request["parameters"] and map JSON values to vLLM arguments (for example,
     max_num_seqs -> --max-num-seqs; booleans use the appropriate flags and
@@ -125,18 +126,22 @@ def start(request: LifecycleRequest) -> LifecycleResponse:
     --gpu-memory-utilization, and request["endpoint"]["model"] as served name.
     Persist ownership and process identity remotely before returning. Never
     replace another instance, or launch a duplicate on a repeated start.
-    Report capacity-rejected only for confirmed insufficient memory; propagate
-    other failures. Calibration may start and stop several temporary instances.
+    Report capacity-rejected only for confirmed insufficient memory. Report
+    startup-failed with the parameter digest and a sanitized reason for other
+    confirmed candidate launch rejections. Raise for unknown outcomes or
+    transport failures. Calibration may start and stop temporary instances.
     """
     raise NotImplementedError("Implement start(): deploy vLLM using the supplied parameters")
 
 
 def status(request: LifecycleRequest) -> LifecycleResponse:
-    """Query this instance; return stopped, starting, ready, capacity-rejected or failed.
+    """Query this instance and report readiness or an observed startup rejection.
 
     Verify persisted ownership and actual process identity. When ready, include
     queried Resources. Before start, report stopped only when
     absence is confirmed; do not mistake an unrelated service for this instance.
+    After starting, return startup-failed for confirmed launch rejections and
+    keep the matching instance available for stop confirmation.
     """
     raise NotImplementedError("Implement status(): query remote ownership and readiness")
 

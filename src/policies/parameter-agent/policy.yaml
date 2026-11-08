@@ -1,0 +1,180 @@
+schemaVersion: rsi.policy/v1
+id: parameter.agent
+description: Establish a measurable inference baseline and tune engine parameters with Agent proposals.
+input_schema:
+  $ref: ../../contracts/policies/candidate-input.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+config_schema:
+  $ref: ./schemas/config.yaml
+state_schema:
+  type: object
+  additionalProperties: false
+  properties:
+    baseline:
+      $ref: ../parameter-shared/baseline-state.yaml#/schema
+    incumbent: { type: [string, 'null'] }
+    incumbentMeasurement: { type: [string, 'null'] }
+    incumbentFeasible: { type: boolean }
+    stopped: { type: boolean }
+    stopReason: { enum: [max-trials, time-budget, no-change] }
+    lastTrial: { type: [object, 'null'] }
+    lastSource: { type: [object, 'null'] }
+    batch: { type: array, items: { type: string } }
+    batchCursor: { type: integer, minimum: 0 }
+    sources: { type: array, items: { type: object } }
+    trials:
+      $ref: ./schemas/result.yaml#/properties/trials
+  required:
+    [
+      baseline,
+      incumbent,
+      incumbentMeasurement,
+      incumbentFeasible,
+      stopped,
+      stopReason,
+      trials,
+      lastTrial,
+      lastSource,
+      batch,
+      batchCursor,
+      sources,
+    ]
+state:
+  baseline:
+    $ref: ../parameter-shared/baseline-state.yaml#/initial
+  incumbent: null
+  incumbentMeasurement: null
+  incumbentFeasible: false
+  stopped: false
+  stopReason: max-trials
+  trials: []
+  lastTrial: null
+  lastSource: null
+  batch: []
+  batchCursor: 0
+  sources: []
+output_schema:
+  $ref: ./schemas/result.yaml
+require:
+  proposer: { contract: contract.proposer }
+  evaluator: { contract: contract.inferencebench }
+  selector: { contract: contract.selector-metrics }
+  trial:
+    $ref: ../parameter-shared/bindings.yaml#/require/trial
+  repair:
+    $ref: ../parameter-shared/bindings.yaml#/require/repair
+  agent:
+    $ref: ../parameter-shared/bindings.yaml#/require/agent
+defaults:
+  bindings:
+    trial:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/trial
+    repair:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/repair
+    agent:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/agent
+    proposer:
+      plugin: proposer.agent
+      config: { agentRef: agent }
+    selector:
+      plugin: selector.metric
+      config: { metric: requestThroughput, direction: maximize }
+steps:
+  - $ref: ../parameter-shared/baseline-step.yaml
+  - id: framework
+    type: if
+    if: ${{ state.baseline.status == 'ready' }}
+    then:
+      steps:
+        - id: baseline_feasibility
+          type: invoke
+          use: selector
+          with:
+            incumbentMeasurementRef: ${{ state.baseline.measurementRef }}
+            candidateMeasurementRef: ${{ state.baseline.measurementRef }}
+        - id: start_search
+          type: state
+          state:
+            incumbent: ${{ state.baseline.candidateRef }}
+            incumbentMeasurement: ${{ state.baseline.measurementRef }}
+            incumbentFeasible: ${{ steps.baseline_feasibility.output.candidateFeasible }}
+            sources:
+              - candidateRef: ${{ state.baseline.candidateRef }}
+        - id: search
+          type: loop
+          maxIterations: ${{ config.maxTrials }}
+          while: ${{ !state.stopped }}
+          steps:
+            - id: refill_batch
+              type: if
+              if: ${{ state.batchCursor >= length(state.batch) }}
+              then:
+                steps:
+                  - id: admit_proposal
+                    type: time-budget
+                    stage: framework
+                    limitMs: ${{ config.phaseTimeMs }}
+                    actions:
+                      - use: proposer
+                        initialMs: ${{ config.proposalEstimateMs }}
+                      - use: trial
+                        status: measured
+                        initialMs: ${{ config.trialEstimateMs }}
+                    then:
+                      steps:
+                        - id: propose
+                          type: invoke
+                          use: proposer
+                          with:
+                            parent: ${{ state.incumbent }}
+                            goal: Propose ranked inference parameter candidates that could improve serving performance within the benchmark constraints.
+                            maxCandidates: ${{ if(config.candidatesPerRound < config.maxTrials - loop.index, config.candidatesPerRound, config.maxTrials - loop.index) }}
+                            evidenceRefs: ${{ compact(concat(append(range(0, 0), state.baseline.measurementRef), pluck(state.trials, 'measurementRef'))) }}
+                            sources: ${{ state.sources }}
+                            observations:
+                              baselineCandidateRef: ${{ state.baseline.candidateRef }}
+                              baselineMeasurementRef: ${{ state.baseline.measurementRef }}
+                              incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
+                              trials: ${{ state.trials }}
+                            editConstraints:
+                              allowedPaths: ['${{ config.parameterFile }}']
+                              maxChangedFiles: 1
+                        - id: queue_candidates
+                          type: state
+                          state:
+                            batch: ${{ if(steps.propose.output.status == 'batch', pluck(steps.propose.output.candidates, 'candidateRef'), if(steps.propose.output.status == 'created', append(range(0, 0), steps.propose.output.candidateRef), range(0, 0))) }}
+                            batchCursor: 0
+                            stopped: ${{ steps.propose.output.status == 'no-change' }}
+                            stopReason: ${{ if(steps.propose.output.status == 'no-change', 'no-change', state.stopReason) }}
+                    else:
+                      steps:
+                        - $ref: ./trial-steps.yaml#/time_stop
+            - id: explore
+              type: if
+              if: ${{ !state.stopped }}
+              then:
+                steps:
+                  - id: admit_candidate
+                    type: time-budget
+                    stage: framework
+                    limitMs: ${{ config.phaseTimeMs }}
+                    actions:
+                      - use: trial
+                        status: measured
+                        initialMs: ${{ config.trialEstimateMs }}
+                    then:
+                      steps:
+                        $ref: ./trial-steps.yaml#/evaluate
+                    else:
+                      steps:
+                        - $ref: ./trial-steps.yaml#/time_stop
+output:
+  status: ${{ if(state.baseline.status != 'ready', 'baseline-unavailable', if(state.incumbentFeasible, 'selected', 'no-feasible-configuration')) }}
+  stopReason: ${{ if(state.baseline.status == 'time-budget', 'time-budget', if(state.baseline.status == 'failed', 'baseline-failed', state.stopReason)) }}
+  baselineCandidateRef: ${{ state.baseline.candidateRef }}
+  baselineMeasurementRef: ${{ if(state.baseline.status == 'ready', state.baseline.measurementRef, null) }}
+  baselineReason: ${{ state.baseline.reason }}
+  candidateRef: ${{ if(state.incumbentFeasible, state.incumbent, null) }}
+  measurementRef: ${{ if(state.incumbentFeasible, state.incumbentMeasurement, null) }}
+  trials: ${{ state.trials }}

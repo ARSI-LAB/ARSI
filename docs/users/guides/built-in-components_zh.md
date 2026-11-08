@@ -20,9 +20,12 @@
 | -------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
 | `policy.harness2`（[论文](https://arxiv.org/abs/2610.14224)）  | 尝试多种 Agent 改进方案，按最终交付质量选择结果。    | [README](../../../examples/harness/dsh-harness2/README.md)                  |
 | `policy.wikiskill`（[论文](https://arxiv.org/abs/2608.27454)） | 根据训练任务的经验持续改进 Agent 的 Skill。          | [README](../../../examples/harness/dsh-wikiskill/README.md)                 |
+| `parameter.agent` | 先建立可测量的基线，再由 Agent 提出并验证推理引擎参数。 | [README](../../../examples/artifacts/inference/vllm-optimization/README.md) |
 | `policy.parameter-grid`                                        | 逐一尝试预设参数组合，选择更好的推理服务配置。       | [README](../../../examples/artifacts/inference/parameter-grid/README.md)    |
 | `policy.parameter-optuna`                                      | 利用评测反馈搜索参数，在有限预算内优化推理服务性能。 | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)     |
 | `policy.operator-search`                                       | 结合正确性检查与性能反馈，优化 Triton-Ascend 算子。  | [README](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md) |
+
+Grid 和 Optuna 可以通过 `policy.config.enableBaseline: true` 启用同一套基线循环，两种搜索策略仍然独立。启用后，在 `repair` 绑定里配置用于修复基线的 Proposer prompt，并在 `agent` 绑定里选择模型后端。使用 Pi 修复基线时，Recipe 预算需允许模型调用。完成一次基线评测占用一次 evaluation run。
 
 ## Loop 组件
 
@@ -37,6 +40,7 @@
 | Proposer    | `proposer.optuna`                               | 通过 Optuna 提出参数组合并接收评测反馈。                              | 在有限预算内逐步调优。                       |
 | Evaluator   | `evaluator.agentbench`                          | 运行 Agent 基准任务并保存得分与执行证据。                             | 检验提示词、Skill 或代码修改的效果。         |
 | Evaluator   | `evaluator.inferencebench`                      | 对推理服务执行基准测试，测量吞吐量、延迟等指标。                      | 比较不同服务配置的性能。                     |
+| Trial | `inference.trial` | 识别可恢复的启动失败，并检查基准测量是否完整、可比较。 | 基线启动及推理参数试验。 |
 | Evaluator   | `evaluator.operatorbench`                       | 通过 Evaluator SDK 检查算子正确性、测量耗时，并按需采集性能分析数据。 | 判断算子修改是否正确、是否更快。             |
 | Selector    | `selector.metric`                               | 按指定指标及约束比较候选。                                            | 依据成功率、吞吐量或延迟等数值选择更优版本。 |
 | Selector    | `selector.artifact`                             | 让模型按评审标准比较匿名展示的报告等交付内容。                        | 按内容质量选择候选。                         |

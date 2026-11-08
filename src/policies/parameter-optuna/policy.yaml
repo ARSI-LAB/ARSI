@@ -10,6 +10,8 @@ config_schema:
 state_schema:
   type: object
   properties:
+    baseline:
+      $ref: ../parameter-shared/baseline-state.yaml#/schema
     searchStateRef:
       type:
         - string
@@ -35,6 +37,7 @@ state_schema:
       items:
         type: string
   required:
+    - baseline
     - searchStateRef
     - stopped
     - stopReason
@@ -44,6 +47,8 @@ state_schema:
     - history
   additionalProperties: false
 state:
+  baseline:
+    $ref: ../parameter-shared/baseline-state.yaml#/initial
   searchStateRef: null
   stopped: false
   stopReason: max-trials
@@ -54,6 +59,12 @@ state:
 output_schema:
   $ref: ./schemas/result.yaml
 require:
+  trial:
+    $ref: ../parameter-shared/bindings.yaml#/require/trial
+  repair:
+    $ref: ../parameter-shared/bindings.yaml#/require/repair
+  agent:
+    $ref: ../parameter-shared/bindings.yaml#/require/agent
   proposer:
     contract: contract.proposer-parameter-search
   evaluator:
@@ -62,6 +73,12 @@ require:
     contract: contract.selector-metrics
 defaults:
   bindings:
+    trial:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/trial
+    repair:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/repair
+    agent:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/agent
     proposer:
       plugin: proposer.optuna
     selector:
@@ -73,20 +90,27 @@ defaults:
           - metric: sloSatisfied
             min: 1
 steps:
-  - id: initialize_search
-    type: invoke
-    use: proposer
-    with:
-      action: initialize
-      parent: ${{ input.candidateRef }}
-  - id: initialize
-    type: state
-    state:
-      searchStateRef: ${{ steps.initialize_search.output.stateRef }}
+  - $ref: ../parameter-shared/baseline-step.yaml
+  - $ref: ../parameter-shared/select-baseline.yaml
+  - id: initialize_if_enabled
+    type: if
+    if: ${{ !config.enableBaseline || state.baseline.status == 'ready' }}
+    then:
+      steps:
+        - id: initialize_search
+          type: invoke
+          use: proposer
+          with:
+            action: initialize
+            parent: ${{ if(config.enableBaseline, state.baseline.candidateRef, input.candidateRef) }}
+        - id: initialize
+          type: state
+          state:
+            searchStateRef: ${{ steps.initialize_search.output.stateRef }}
   - id: search
     type: loop
     maxIterations: ${{ config.maxTrials }}
-    while: ${{ !state.stopped }}
+    while: ${{ (!config.enableBaseline || state.baseline.status == 'ready') && !state.stopped }}
     steps:
       - id: propose
         type: invoke
@@ -99,17 +123,13 @@ steps:
         if: ${{ steps.propose.output.status == 'candidate' }}
         then:
           steps:
-            - id: evaluate
-              type: invoke
-              use: evaluator
-              with:
-                candidateRef: ${{ steps.propose.output.candidateRef }}
+            - $ref: ../parameter-shared/evaluate-search-point.yaml
             - id: select
               type: invoke
               use: selector
               with:
                 incumbentMeasurementRef: ${{ if(state.bestMeasurement == null,
-                  steps.evaluate.output.measurementRef, state.bestMeasurement)
+                  if(state.baseline.measurementRef == null, steps.evaluate.output.measurementRef, state.baseline.measurementRef), state.bestMeasurement)
                   }}
                 candidateMeasurementRef: ${{ steps.evaluate.output.measurementRef }}
             # Every complete measurement is feedback, including rejected candidates.
@@ -149,9 +169,10 @@ steps:
                 stopped: true
                 stopReason: ${{ steps.propose.output.reason }}
 output:
-  status: ${{ if(state.bestCandidate == null, 'no-feasible-configuration',
-    'selected') }}
-  stopReason: ${{ state.stopReason }}
+  status: ${{ if(config.enableBaseline && state.baseline.status != 'ready', 'baseline-unavailable', if(state.bestCandidate == null, 'no-feasible-configuration', 'selected')) }}
+  stopReason: ${{ if(state.baseline.status == 'time-budget', 'time-budget', if(state.baseline.status == 'failed', 'baseline-failed', state.stopReason)) }}
+  baselineCandidateRef: ${{ state.baseline.candidateRef }}
+  baselineMeasurementRef: ${{ if(state.baseline.status == 'ready', state.baseline.measurementRef, null) }}
   candidateRef: ${{ state.bestCandidate }}
   measurementRef: ${{ state.bestMeasurement }}
   parameters: ${{ state.bestParameters }}

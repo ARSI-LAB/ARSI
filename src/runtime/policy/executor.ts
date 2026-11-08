@@ -19,6 +19,8 @@ import {
   type StepContext,
   type StepResult,
   type Template,
+  type TimeBudgetDecision,
+  type TimeBudgetRequest,
 } from './steps.js';
 import {
   checkpointVersion,
@@ -42,6 +44,8 @@ export interface PolicyOptions {
     state: JsonObject,
     parallel: boolean,
   ): Promise<JsonValue>;
+  timeBudget?(request: TimeBudgetRequest): Promise<TimeBudgetDecision>;
+  hasStartedStep?(pathPrefix: string): Promise<boolean>;
   checkpoint(snapshot: JsonObject): Promise<void>;
   restore?: JsonObject;
   events?: {
@@ -322,6 +326,38 @@ export async function runPolicy(
           );
           signal.throwIfAborted();
           return readReflectionResult(value);
+        },
+        async timeBudget(request, guarded) {
+          if (parallel || !options.timeBudget)
+            throw new Error(
+              `${stepPath}: time budget requires a serial Manager service`,
+            );
+          signal.throwIfAborted();
+          if (!guarded) return options.timeBudget(request);
+          const admissionPath = `${stepPath}/@admission`;
+          if (Object.hasOwn(journal, admissionPath)) {
+            const saved = stepResult(object(journal[admissionPath]).result!);
+            if (saved.kind !== 'completed')
+              throw new Error(`${stepPath}: invalid time-budget checkpoint`);
+            const decision = object(saved.output);
+            const branch = `${stepPath}/${decision.fits === true ? 'then' : 'else'}/`;
+            if (
+              Object.keys(journal).some(
+                (key) => key.startsWith(branch) && !key.endsWith('/@admission'),
+              ) ||
+              (await options.hasStartedStep?.(branch))
+            )
+              return decision;
+          }
+          const decision = await options.timeBudget(request);
+          // A decision is provisional until its branch leaves a checkpoint or receipt.
+          const value = {
+            result: { kind: 'completed', output: decision },
+            patch: {},
+          };
+          journal[admissionPath] = value;
+          await persist({ kind: 'step', path: admissionPath, value });
+          return decision;
         },
         runSteps(children, settings) {
           return runSteps(

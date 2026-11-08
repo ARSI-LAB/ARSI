@@ -1,27 +1,40 @@
 import type { JsonObject } from '../json.js';
 import { defineContract } from '../contract.js';
 
+const maxProposalBatchSize = 6;
+
 export type ProposerInput = {
   parent: string;
   goal: string;
   evidenceRefs: string[];
   sources?: { candidateRef: string; measurementRef?: string }[];
   memoryRef?: string | null;
+  observations?: JsonObject;
   editConstraints?: JsonObject;
+  maxCandidates?: number;
 };
+
+type ProposedCandidate = {
+  candidateRef: string;
+  diffRef: string;
+  rationale: string;
+};
+
 export type ProposerOutput =
-  | {
-      status: 'created';
-      candidateRef: string;
-      diffRef: string;
-      rationale: string;
-    }
+  | ({ status: 'created' } & ProposedCandidate)
+  | { status: 'batch'; candidates: ProposedCandidate[] }
   | {
       status: 'no-change';
       candidateRef: string;
       diffRef: null;
       rationale: string;
     };
+
+const candidateProperties = {
+  candidateRef: { type: 'string', minLength: 1 },
+  diffRef: { type: 'string', minLength: 1 },
+  rationale: { type: 'string' },
+} as const;
 
 export const proposerContract = defineContract({
   id: 'contract.proposer',
@@ -42,6 +55,11 @@ export const proposerContract = defineContract({
         minLength: 1,
         type: 'string',
       },
+      maxCandidates: {
+        type: 'integer',
+        minimum: 1,
+        maximum: maxProposalBatchSize,
+      },
       memoryRef: {
         anyOf: [
           {
@@ -53,6 +71,7 @@ export const proposerContract = defineContract({
           },
         ],
       },
+      observations: { type: 'object' },
       parent: {
         minLength: 1,
         type: 'string',
@@ -84,23 +103,32 @@ export const proposerContract = defineContract({
       {
         additionalProperties: false,
         properties: {
-          candidateRef: {
-            minLength: 1,
-            type: 'string',
-          },
-          diffRef: {
-            minLength: 1,
-            type: 'string',
-          },
-          rationale: {
-            type: 'string',
-          },
+          ...candidateProperties,
           status: {
             const: 'created',
           },
         },
         required: ['status', 'candidateRef', 'diffRef', 'rationale'],
         type: 'object',
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['status', 'candidates'],
+        properties: {
+          status: { const: 'batch' },
+          candidates: {
+            type: 'array',
+            minItems: 1,
+            maxItems: maxProposalBatchSize,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['candidateRef', 'diffRef', 'rationale'],
+              properties: candidateProperties,
+            },
+          },
+        },
       },
       {
         additionalProperties: false,

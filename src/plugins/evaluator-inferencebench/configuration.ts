@@ -15,11 +15,17 @@ export function nativeConfiguration(
     typeof native.benchmark === 'string'
       ? { name: native.benchmark }
       : object(native.benchmark, 'benchmark');
+  if (benchmark.name !== 'agentx' && benchmark.name !== 'aisbench')
+    throw new Error(
+      'inferencebench requires benchmark.name=agentx or aisbench',
+    );
+  const label = benchmark.name === 'aisbench' ? 'AISBench' : 'AgentX';
   native.benchmark = benchmark;
   const solver = solverSelection(benchmark.solver);
   const solverConfig = plain(solver.config);
   solver.config = solverConfig;
-  const expected = 'agentx-replay';
+  const expected =
+    benchmark.name === 'aisbench' ? 'aisbench-ssh' : 'agentx-replay';
   if (solver.name !== undefined && solver.name !== expected)
     throw new Error(`benchmark.solver must be ${expected}`);
   solver.name = expected;
@@ -29,10 +35,8 @@ export function nativeConfiguration(
   native.output = { directory: join(directory, 'sdk') };
   const run = plain(native.run);
   native.run = run;
-  if (benchmark.name !== 'agentx')
-    throw new Error('inferencebench requires benchmark.name=agentx');
   if (native.deployment !== undefined)
-    throw new Error('AgentX does not support Ray Jobs');
+    throw new Error(`${label} does not support Ray Jobs`);
   const environment = native.environment ?? 'local';
   if (
     environment !== 'local' &&
@@ -43,25 +47,27 @@ export function nativeConfiguration(
       environment.name === 'local'
     )
   )
-    throw new Error('Owned inference service requires local AgentX execution');
+    throw new Error(
+      `Owned inference service requires local ${label} execution`,
+    );
   native.environment = environment;
   const scheduler =
     typeof native.scheduler === 'string'
       ? { name: native.scheduler }
       : plain(native.scheduler);
   if (scheduler.name !== undefined && scheduler.name !== 'local')
-    throw new Error('AgentX scheduler must be local');
+    throw new Error(`${label} scheduler must be local`);
   const schedulerConfig = plain(scheduler.config);
   const concurrency = scheduler.concurrency ?? schedulerConfig.concurrency ?? 1;
   if (concurrency !== 1)
-    throw new Error('AgentX scheduler concurrency must be 1');
+    throw new Error(`${label} scheduler concurrency must be 1`);
   native.scheduler = { ...scheduler, name: 'local', concurrency: 1 };
   const services = object(native.services, 'services');
   const service =
     typeof solver.service === 'string' ? solver.service : 'default';
   const model = object(services[service], `services.${service}`);
   if (model.maxTokens !== undefined)
-    throw new Error('AgentX services.maxTokens is forbidden');
+    throw new Error(`${label} services.maxTokens is forbidden`);
   model.base_url = string(execution.baseUrl, 'inference baseUrl');
   model.model = string(execution.model, 'inference model');
   model.api = 'openai-completions';

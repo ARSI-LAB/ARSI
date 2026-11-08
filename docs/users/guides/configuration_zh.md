@@ -122,6 +122,12 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 - 目前该后端无法执行实验的 `modelCalls` 预算。
 
+推理优化可用 `evaluator.inferencebench` 的 `benchmark.name: aisbench` 和内置 SSH Solver，也可选择 `agentx` 及其回放 Solver。基线和候选使用相同的评测负载。`parameter.agent` 会在提出候选和运行 benchmark 前检查时间。`baseline.phaseTimeMs` 和 `phaseTimeMs` 分别限制 enablement 和 framework 阶段可启动的工作，`budget.elapsedWallMs` 仍是实验的硬超时。
+
+`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 依次验证候选，时间不足以开始下一次试验时停止，并用已完成的试验结果生成下一批。`maxTrials` 限制所有批次的候选尝试总数，跳过的重复候选也计入。
+
+设置 `application.inference.config.remote.discoverParameters: true` 后，启动器会在初始化时报告当前安装版本的参数目录。Agent 可在 `context/input.json` 的 `target.parameterCatalog` 中读取。vLLM Ascend 示例已启用此功能。
+
 ## 限制与预算
 
 Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺省时”指对应配置最终仍未设置该项的情况；其他层的限制仍可能生效。

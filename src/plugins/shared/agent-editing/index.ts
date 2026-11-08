@@ -175,6 +175,9 @@ export async function requestEdit(
     sources,
     editConstraints: input.editConstraints ?? {},
     observations: input.observations ?? null,
+    ...(input.maxCandidates === undefined
+      ? {}
+      : { maxCandidates: input.maxCandidates }),
     ...readOnly?.input,
   };
   const projectFiles: JsonObject = {
@@ -207,8 +210,12 @@ Read context/input.json for the target, edit constraints, memory, observations a
     request,
   );
   validate(outputSchema, result, 'Agent edit output');
-  if (Array.isArray(result.edits))
-    for (const raw of result.edits) {
+  const plans = Array.isArray(result.proposals)
+    ? result.proposals.map((plan) => object(plan))
+    : [result];
+  for (const plan of plans) {
+    if (!Array.isArray(plan.edits)) continue;
+    for (const raw of plan.edits) {
       const path = string(object(raw).path);
       if (readOnly && (path === 'context' || path.startsWith('context/')))
         throw new Error('Cannot modify read-only comparison context');
@@ -218,6 +225,7 @@ Read context/input.json for the target, edit constraints, memory, observations a
       )
         throw new Error('Cannot modify read-only source context');
     }
+  }
   return result;
 }
 /** Validate the complete plan before any file is changed. */

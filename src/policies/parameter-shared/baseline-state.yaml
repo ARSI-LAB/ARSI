@@ -1,0 +1,14 @@
+schema:
+  type: object
+  additionalProperties: false
+  properties:
+    candidateRef: { type: [string, 'null'] }
+    measurementRef: { type: [string, 'null'] }
+    status: { enum: [pending, ready, failed, time-budget] }
+    reason: { type: [string, 'null'] }
+  required: [candidateRef, measurementRef, status, reason]
+initial:
+  candidateRef: null
+  measurementRef: null
+  status: pending
+  reason: null

@@ -122,6 +122,12 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 
 - This backend currently cannot enforce the experiment's `modelCalls` budget.
 
+For inference optimization, `evaluator.inferencebench` supports `benchmark.name: aisbench` with the bundled SSH solver, or `agentx` with the replay solver. Use the same benchmark workload for the baseline and candidate trials. `parameter.agent` checks time before proposing or benchmarking. `baseline.phaseTimeMs` and `phaseTimeMs` bound admission to enablement and framework work respectively. `budget.elapsedWallMs` remains the hard experiment deadline.
+
+`policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy tests them serially, stops the batch when the next trial cannot fit, and uses completed trial results when requesting the next batch. `maxTrials` caps candidate attempts across all batches, including skipped duplicates.
+
+With `application.inference.config.remote.discoverParameters: true`, the launcher reports its installed parameter catalog at initialization. Agent proposals receive the catalog in `context/input.json` as `target.parameterCatalog`. This is enabled in the vLLM Ascend example.
+
 ## Limits and budgets
 
 Omitted Recipe binding settings first inherit Policy defaults. The “When omitted” column describes settings that remain unset; limits at other layers can still apply.

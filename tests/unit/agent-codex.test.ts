@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
-import { patchEditOutputSchema } from '../../src/plugins/proposer-agent/patch-edits.js';
+import { proposerEditOutputSchema } from '../../src/plugins/proposer-agent/edits.js';
 import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { configSchema } from '../../src/plugins/agent-codex/schema.js';
 import { parseConfig } from '../../src/shared/schema.js';
@@ -400,7 +400,7 @@ for (const model of [undefined, 'selected-model'])
       await f.close();
     }
   });
-test('Codex forwards the production patch schema unchanged and accepts all edit operations', async () => {
+test('Codex forwards the production edit schema unchanged and accepts all edit operations', async () => {
   const reply = {
     edits: [
       {
@@ -409,13 +409,14 @@ test('Codex forwards the production patch schema unchanged and accepts all edit 
         changes: [{ oldText: 'old', newText: 'new' }],
       },
       { op: 'create', path: 'new.md', content: 'New guidance' },
+      { op: 'replace', path: 'instructions.md', content: 'Updated guidance' },
       { op: 'delete', path: 'obsolete.md' },
     ],
     reason: 'Update guidance',
   };
-  const original = structuredClone(patchEditOutputSchema);
+  const original = structuredClone(proposerEditOutputSchema);
   const f = await fixture([JSON.stringify(reply)], {
-    outputSchema: object(patchEditOutputSchema),
+    outputSchema: object(proposerEditOutputSchema),
   });
   try {
     assert.deepEqual(await f.run(), reply);
@@ -423,12 +424,12 @@ test('Codex forwards the production patch schema unchanged and accepts all edit 
       const execution = JSON.parse(
         await readFile(join(f.directory, 'execution.json'), 'utf8'),
       );
-      assert.deepEqual(execution.turn.outputSchema, patchEditOutputSchema);
+      assert.deepEqual(execution.turn.outputSchema, proposerEditOutputSchema);
       const items = execution.turn.outputSchema.properties.edits.items;
       assert.equal(items.oneOf, undefined);
-      assert.equal(items.anyOf.length, 3);
+      assert.equal(items.anyOf.length, 4);
     }
-    assert.deepEqual(patchEditOutputSchema, original);
+    assert.deepEqual(proposerEditOutputSchema, original);
   } finally {
     await f.close();
   }

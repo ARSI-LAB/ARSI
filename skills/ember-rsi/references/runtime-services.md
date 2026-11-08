@@ -19,7 +19,7 @@ Use `context` supplied to `execute(input, context)` for experiment-scoped calls.
 | `readMeasurement(ref)`                                              | Owned Measurement JSON                                                          |
 | `readEvidence(refs, { view?, maxBytes?, format?: 'files' })`        | Authorized bounded evidence JSON                                                |
 | `invoke(bindingKey, input)`                                         | Controlled validated dependency call                                            |
-| `invokeAgent(input)`                                                | Uses `input.agentRef`, default explicit `agent.default` binding                 |
+| `invokeAgent(agentRef, input)`                                      | Selects the Recipe binding by `agentRef` and sends `input` to the Agent         |
 | `charge(metric, amount)`                                            | Charges actual nonnegative usage; e.g. evaluator `evaluationRuns`               |
 
 Execution context also supplies `experimentId`, `callId`, `bindingId`, `idempotencyKey`, `signal` and `cleanup`. Propagate signal into external requests. The owner of an external effect must bound it and reconcile uncertain outcomes before retrying. `dispose()` releases plugin-owned resources; Runtime disposal is required even on error.

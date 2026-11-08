@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -13,6 +13,7 @@ import { projectEvidenceFiles } from '../../src/runtime/services/facts/evidence-
 import { buildComparisonContext } from '../../src/plugins/memory-agent/comparison.js';
 import { editResource } from '../../src/plugins/shared/agent-editing/index.js';
 import { createMemoryAgent } from '../../src/plugins/memory-agent/service.js';
+import { string } from '../../src/shared/json.js';
 
 const context: RuntimeContext = new RuntimeContext().extend({
   experimentId: 'exp',
@@ -146,6 +147,7 @@ test('Memory receives inline diffs and bounded execution packets without duplica
     const services: RuntimeContext = new RuntimeContext().extend({
       rootDirectory: root,
       dataDirectory: root,
+      directory: root,
       artifacts,
       facts: {
         read: async () => ({}),
@@ -264,20 +266,20 @@ test('Memory receives inline diffs and bounded execution packets without duplica
       /read.only/i,
     );
     assert.equal(workspaceCreates, 0);
-    services.invokeAgent = async (request) => {
-      assert.equal(
-        (request.files as JsonObject)['context/index.json'],
-        undefined,
+    services.invokeAgent = async (_binding, request) => {
+      const directory = join(string(request.cwd), 'context');
+      await assert.rejects(readFile(join(directory, 'index.json')), {
+        code: 'ENOENT',
+      });
+      const input = JSON.parse(
+        await readFile(join(directory, 'input.json'), 'utf8'),
       );
+      assert.match(JSON.stringify(input.comparison), /old action/);
       assert.match(
-        JSON.stringify((request.input as JsonObject).comparison),
-        /old action/,
-      );
-      assert.match(
-        JSON.stringify((request.input as JsonObject).evidence),
+        await readFile(join(directory, 'measurements.json'), 'utf8'),
         /excerpts/,
       );
-      assert.ok(Object.keys(request.files as JsonObject).length <= 4);
+      assert.ok((await readdir(join(directory, 'runs'))).length <= 4);
       return {
         edits: [
           {

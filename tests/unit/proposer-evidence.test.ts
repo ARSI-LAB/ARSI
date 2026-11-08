@@ -1,17 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   RuntimeContext,
   type ProposerInput,
 } from '../../src/contracts/index.js';
-import { object } from '../../src/shared/json.js';
+import { object, string } from '../../src/shared/json.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { projectEvidenceFiles } from '../../src/runtime/services/facts/evidence-files.js';
 import { createProposerAgent } from '../../src/plugins/proposer-agent/service.js';
-import { readVirtualFile } from '../../src/plugins/agent-pi/service.js';
 import { proposerExecutionContext } from '../../src/plugins/proposer-agent/execution-context.js';
 
 test('Proposer can read every non-thinking event and full arguments while only tool-return payloads are shortened', async () => {
@@ -30,6 +29,15 @@ test('Proposer can read every non-thinking event and full arguments while only t
     cleanup: new AbortController().signal,
   });
   try {
+    const skill = join(root, 'test-skill');
+    const role = join(root, 'scout.md');
+    await mkdir(join(skill, 'references'), { recursive: true });
+    await writeFile(
+      join(skill, 'SKILL.md'),
+      '---\nname: test-skill\ndescription: A probe skill\n---\nBody',
+    );
+    await writeFile(join(skill, 'references', 'details.md'), 'Skill reference');
+    await writeFile(role, 'Inspect logs independently.');
     const tree = async (files: Record<string, string>) =>
       artifacts.putJson({
         kind: 'file-tree',
@@ -141,21 +149,48 @@ test('Proposer can read every non-thinking event and full arguments while only t
           maxBytes: 2_000_000,
         });
       },
-      invokeAgent: async (request) => {
+      invokeAgent: async (binding, request) => {
+        assert.equal(binding, 'configured-agent');
         requests++;
-        const files = object(request.files);
-        const evidence = object(object(request.input).evidence);
+        assert.deepEqual(Object.keys(request).sort(), [
+          'cwd',
+          'goal',
+          'outputSchema',
+        ]);
+        const cwd = string(request.cwd);
+        const instructions = await readFile(join(cwd, 'AGENTS.md'), 'utf8');
+        assert.match(instructions, /context\/measurements.json/);
+        assert.match(
+          await readFile(join(cwd, '.codex/agents/scout.toml'), 'utf8'),
+          /Inspect logs independently/,
+        );
+        assert.match(
+          await readFile(join(cwd, 'roles/scout.md'), 'utf8'),
+          /Inspect logs independently/,
+        );
+        assert.equal(
+          await readFile(
+            join(cwd, '.agents/skills/test-skill/references/details.md'),
+            'utf8',
+          ),
+          'Skill reference',
+        );
+        const evidence = object(
+          JSON.parse(
+            await readFile(join(cwd, 'context/measurements.json'), 'utf8'),
+          ),
+        );
         assert.equal(evidence.view, 'execution');
+        const measurements = evidence.measurements as Array<{
+          supplementaryPath: string;
+        }>;
+        assert.equal(measurements.length, 2);
+        const path = measurements[0]!.supplementaryPath;
+        const complete = await readFile(join(cwd, path), 'utf8');
         assert.doesNotMatch(
-          JSON.stringify(request),
+          instructions + JSON.stringify(evidence) + complete,
           /HIDDEN_SCORE|PRIVATE_JUDGE|EXCLUDED_CONFIGURATION|EXCLUDED_THINKING|UNSEEN_TOOL_TAIL/,
         );
-        const paths = Object.keys(files).filter((p) =>
-          p.startsWith('context/'),
-        );
-        assert.equal(paths.length, 2);
-        const path = paths[0];
-        const complete = readVirtualFile(files, { path });
         assert.equal((complete.match(/"type":"tool_call"/g) ?? []).length, 81);
         assert.match(complete, /ARGUMENT_TAIL_40/);
         assert.match(complete, /KEEP_ARGUMENT_REASONING/);
@@ -164,10 +199,10 @@ test('Proposer can read every non-thinking event and full arguments while only t
         assert.match(complete, /"phase":"completed"/);
         assert.match(complete, /"status":"failed"/);
         assert.match(
-          readVirtualFile(files, { path, startLine: 1, lineCount: 200 }),
+          complete.split('\n').slice(0, 200).join('\n'),
           /MIDDLE_ACTION/,
         );
-        assert.match(readVirtualFile(files, { path }), /PUBLIC_TOOL_RESULT/);
+        assert.match(complete, /PUBLIC_TOOL_RESULT/);
         return {
           edits: forbidden ? [{ path, content: 'overwrite evidence' }] : [],
           reason: 'No supported edit.',
@@ -178,7 +213,12 @@ test('Proposer can read every non-thinking event and full arguments while only t
       charge: unused,
     });
     const operation = await createProposerAgent(
-      { prompt: 'src/policies/harness2/prompts/invariant.md' },
+      {
+        prompt: 'src/policies/harness2/prompts/invariant.md',
+        agentRef: 'configured-agent',
+        skills: [skill],
+        subagents: [{ name: 'scout', description: 'Read logs', prompt: role }],
+      },
       services,
     );
     const input: ProposerInput = {

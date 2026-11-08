@@ -1,8 +1,14 @@
+import { randomUUID } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import {
+  projectMarker,
+  roleNamePattern,
+} from '../shared/agent-editing/project.js';
 import type { AgentInput, JsonObject } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { runCodexProcess } from './process.js';
-import { readFileSchema, readVirtualFile } from './virtual-files.js';
 
 function nativeError(value: unknown): string {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
@@ -15,15 +21,7 @@ function nativeError(value: unknown): string {
   return message || code ? `: ${message}${code}` : '';
 }
 
-const readFileTool = {
-  type: 'function',
-  name: 'read_file',
-  description:
-    'Read only an authorized virtual snapshot file. Defaults to 200 lines and a bounded UTF-8 JSON response. Use startLine/lineCount for lines and byteOffset/nextByteOffset to page within a long line or selected range. path="." lists file names. Never accesses host paths.',
-  inputSchema: readFileSchema,
-};
-
-/** Codex owns native tools, configuration and recovery; RSI supplies virtual snapshot access. */
+/** Codex owns native tools, configuration and recovery. */
 export async function runSession(options: {
   executable: string;
   directory: string;
@@ -37,13 +35,42 @@ export async function runSession(options: {
   let threadId = '';
   let response = '';
   let result: JsonObject | undefined;
+  const permissions = `rsi-agent-${randomUUID()}`;
   const prompt = JSON.stringify({
-    instruction: request.prompt,
     goal: request.goal,
-    input: request.input ?? {},
-    files: Object.keys(request.files ?? {}),
-    outputSchema: request.outputSchema,
+    instruction:
+      'Use the project instructions and return the requested JSON result.',
   });
+  const launchConfig = [
+    `project_root_markers=[${JSON.stringify(projectMarker)}]`,
+    `default_permissions=${JSON.stringify(permissions)}`,
+    `permissions.${permissions}.filesystem={":root"="deny",":minimal"="read",":workspace_roots"="read"}`,
+  ];
+  const agentsDir = join(options.directory, '.codex', 'agents');
+  const roles = await readdir(agentsDir, { withFileTypes: true }).catch(
+    (error: unknown) => {
+      if (
+        !(error instanceof Error) ||
+        !('code' in error) ||
+        error.code !== 'ENOENT'
+      )
+        throw error;
+      return [];
+    },
+  );
+  for (const role of roles) {
+    const name = role.name.slice(0, -5);
+    if (
+      role.isFile() &&
+      role.name.endsWith('.toml') &&
+      new RegExp(roleNamePattern).test(name)
+    )
+      launchConfig.push(
+        `agents.${name}.config_file=${JSON.stringify(join(agentsDir, role.name))}`,
+      );
+  }
+  if (roles.length)
+    launchConfig.push('agents.max_depth=1', 'features.multi_agent=true');
   await runCodexProcess(
     options.executable,
     options.directory,
@@ -56,14 +83,12 @@ export async function runSession(options: {
       },
     }) + '\n',
     signal,
-    async (line, send) => {
+    (line, send) => {
       const message = object(JSON.parse(line));
       if (message.error)
         throw new Error(
           `Codex app-server request failed${nativeError(message.error)}`,
         );
-      // Request IDs are independent in the two JSON-RPC directions.
-      // A server tool request may reuse an outstanding/completed client request ID.
       if (message.method === undefined && message.id === 1) {
         send({ method: 'initialized' });
         send({
@@ -78,7 +103,7 @@ export async function runSession(options: {
               : {
                   config: { model_reasoning_effort: options.reasoningEffort },
                 }),
-            dynamicTools: [readFileTool],
+            permissions,
           },
         });
       } else if (message.method === undefined && message.id === 2) {
@@ -96,40 +121,14 @@ export async function runSession(options: {
             threadId,
             input: [{ type: 'text', text: prompt }],
             outputSchema: request.outputSchema,
+            cwd: options.directory,
           },
         });
-      } else if (message.method === 'item/tool/call') {
-        const params = object(message.params);
-        if (
-          params.threadId !== threadId ||
-          params.tool !== 'read_file' ||
-          params.namespace
-        )
-          throw new Error('Codex requested a forbidden tool');
-        signal.throwIfAborted();
-        let text: string;
-        let success = true;
-        try {
-          validate(readFileSchema, params.arguments, 'read_file arguments');
-          const args = object(params.arguments);
-          text = readVirtualFile(request.files ?? {}, args);
-          record('virtual_file_read', {
-            path: args.path,
-            responseBytes: Buffer.byteLength(text),
-          });
-        } catch (error) {
-          success = false;
-          text =
-            error instanceof Error
-              ? error.message
-              : 'Invalid virtual-file request';
-        }
-        send({
-          id: message.id,
-          result: { success, contentItems: [{ type: 'inputText', text }] },
-        });
       } else if (message.method === 'item/completed') {
-        const item = object(object(message.params).item);
+        const params = object(message.params);
+        if (typeof params.threadId === 'string' && params.threadId !== threadId)
+          return;
+        const item = object(params.item);
         if (item.type === 'agentMessage' && item.phase !== 'commentary') {
           if (typeof item.text !== 'string')
             throw new Error('Invalid Codex agent message');
@@ -137,7 +136,10 @@ export async function runSession(options: {
         }
         if (item.type === 'contextCompaction') record('context_compaction', {});
       } else if (message.method === 'thread/tokenUsage/updated') {
-        const usage = object(object(message.params).tokenUsage);
+        const params = object(message.params);
+        if (typeof params.threadId === 'string' && params.threadId !== threadId)
+          return;
+        const usage = object(params.tokenUsage);
         const counts = (value: unknown): JsonObject => {
           const raw = object(value);
           return Object.fromEntries(
@@ -161,7 +163,10 @@ export async function runSession(options: {
               : null,
         });
       } else if (message.method === 'turn/completed') {
-        const turn = object(object(message.params).turn);
+        const params = object(message.params);
+        if (typeof params.threadId === 'string' && params.threadId !== threadId)
+          return;
+        const turn = object(params.turn);
         if (turn.status !== 'completed')
           throw new Error(
             `Codex turn ${string(turn.status)}${nativeError(turn.error)}`,
@@ -179,6 +184,7 @@ export async function runSession(options: {
         );
       }
     },
+    launchConfig,
   );
   if (!result) throw new Error('Codex returned no validated output');
   return result;

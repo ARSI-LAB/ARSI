@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import type { AgentEditingConfig } from './schema.js';
 import type {
   OperationDefinition,
@@ -7,6 +8,13 @@ import type {
 import { json, object, string } from '../../shared/json.js';
 import { editResource } from '../shared/agent-editing/index.js';
 import { prepareDocumentPreviews } from './document-previews.js';
+
+const reviewer = {
+  name: 'reflection-reviewer',
+  description:
+    'Review a focused Reflection question against the authorized workspace evidence.',
+  prompt: fileURLToPath(new URL('./reviewer.md', import.meta.url)),
+};
 
 export const createReflectionAgent: OperationDefinition<
   ReflectionInput,
@@ -33,9 +41,9 @@ export const createReflectionAgent: OperationDefinition<
           object(snapshot.files ?? {}),
         )) {
           if (!path.startsWith('context/') || typeof content !== 'string')
-            throw new Error('Invalid Reflection read-only virtual file');
+            throw new Error('Invalid Reflection read-only evidence file');
           if (Object.hasOwn(files, path))
-            throw new Error('Duplicate Reflection evidence virtual file');
+            throw new Error('Duplicate Reflection evidence file');
           files[path] = content;
         }
         indexes.push({ ref, ...object(snapshot.index ?? {}) });
@@ -64,6 +72,7 @@ export const createReflectionAgent: OperationDefinition<
             readOnlyPaths: Object.keys(files),
           },
         },
+        [reviewer],
       );
       if (updated.changeRef !== null)
         return {

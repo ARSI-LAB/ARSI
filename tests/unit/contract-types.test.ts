@@ -392,7 +392,7 @@ test('typed inputs and outputs satisfy public contract Schemas', () => {
       contract: contracts.agentContract,
       input: {
         goal: 'Improve',
-        prompt: 'Return JSON',
+        cwd: '/tmp/project',
         outputSchema: {},
       } satisfies AgentInput,
       output: { answer: 1 } satisfies AgentOutput,
@@ -598,11 +598,49 @@ test('typed inputs and outputs satisfy public contract Schemas', () => {
   }
 });
 
+test('Agent request rejects routing and request-level model-call limits', () => {
+  const input = { goal: 'Inspect', cwd: '/tmp/project', outputSchema: {} };
+  assert.doesNotThrow(() =>
+    validate(contracts.agentContract.input_schema, input, 'Agent'),
+  );
+  for (const field of [{ agentRef: 'agent' }, { maxModelCalls: 2 }]) {
+    assert.throws(
+      () =>
+        validate(
+          contracts.agentContract.input_schema,
+          { ...input, ...field },
+          'Agent',
+        ),
+      /additional properties/,
+    );
+  }
+});
+
+test('Agent requires a workspace and rejects inline context', () => {
+  const common = { goal: 'Inspect', outputSchema: {} };
+  assert.throws(() =>
+    validate(
+      contracts.agentContract.input_schema,
+      { ...common, prompt: 'Inspect' },
+      'Agent',
+    ),
+  );
+  for (const field of [{ prompt: 'Inspect' }, { input: {} }, { files: {} }]) {
+    assert.throws(() =>
+      validate(
+        contracts.agentContract.input_schema,
+        { ...common, cwd: '/tmp/project', ...field },
+        'Agent',
+      ),
+    );
+  }
+});
+
 test('contract Schemas retain required fields, discriminated branches and collection constraints', () => {
   const cases = [
     {
       schema: contracts.agentContract.input_schema,
-      value: { goal: 'Improve', prompt: 'Return JSON' },
+      value: { goal: 'Improve', cwd: '/tmp/project' },
     },
     {
       schema: contracts.applicationContract.input_schema,

@@ -34,6 +34,8 @@ Recipe 包含以下顶层字段，完整 Recipe 示例见[快速入门](../getti
 
 优化流程中的 Agent 负责生成提案、评审交付内容、整理经验等模型任务，内置后端为 Pi 和 Codex。Evaluator 的配置与优化 Agent 分开：AgentBench 配置被测 Agent（Solver）的模型服务，InferenceBench 配置推理服务基准，OperatorBench 配置算子评测环境。
 
+两个后端都在为 Agent 调用准备好的 workspace 中运行。`contract.agent` 接收 `cwd`、`goal` 和 `outputSchema`，Pi 通过 Runtime 委派时还会传入 `role`。Codex 使用原生工具委派。后端从 `AGENTS.md` 读取指令，并从工作目录读取任务材料。
+
 | 配置对象               | 用途                                                             |
 | ---------------------- | ---------------------------------------------------------------- |
 | Evaluator              | 配置所选基准的模型服务、任务或评测环境。                         |
@@ -118,7 +120,7 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 - `timeoutMs` 限制完整调用，接受 1 到 2,147,483,647 的整数毫秒，实验取消和已配置的墙钟预算也会传递给进程。
 
-- 目前该后端无法执行 `maxModelCalls` 或实验 `modelCalls` 预算。
+- 目前该后端无法执行实验的 `modelCalls` 预算。
 
 ## 限制与预算
 
@@ -137,7 +139,6 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | Pi                                                    | `executionTimeoutMs`                              | 完整 Agent 调用的时长上限，单位毫秒，包含请求、工具、压缩、重试等待和子 Agent。                           | 无整次调用的独立时长上限。                                                        |
 | Codex                                                 | `timeoutMs`                                       | 完整 Agent 调用的时长上限，单位毫秒。                                                                     | RSI 不为该调用设置独立超时。                                                      |
 | Operator Proposer                                     | `modelRequestTimeoutMs`                           | 一个完整模型阶段的共享时长上限，单位毫秒，包含工具续调与子 Agent。                                        | 120000 毫秒（2 分钟）。                                                           |
-| `proposer.agent`、`memory.agent`、`selector.artifact` | `maxModelCalls`                                   | 每次 Agent 调用的请求数上限，仅支持计量的后端可执行；直接调用 Agent 时填在 `steps[].with.maxModelCalls`。 | 不增加本次 Agent 调用的请求数上限。                                               |
 | AgentBench Evaluator                                  | `services.<service>.maxTokens`                    | 被测 Agent 所用模型服务的每轮输出 Token 上限。                                                            | 由 Solver 或模型服务的默认设置决定。                                              |
 | AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                              | 单个基准任务一次执行的时长上限，单位秒。                                                                  | 使用 SDK 基准 profile 的值；profile 未指定时为 7200 秒（2 小时）。                |
 | OperatorBench Evaluator                               | `sdk.timeoutSeconds`                              | 单次算子评测或性能分析的时长上限，单位秒。                                                                | 必填，无默认值。                                                                  |

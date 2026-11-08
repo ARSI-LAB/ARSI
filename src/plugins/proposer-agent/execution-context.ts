@@ -251,7 +251,7 @@ export function proposerExecutionContext(
     },
     input: {
       readOnlyContext:
-        'Read each supplied supplementaryPath event sequence before deciding whether to propose a change. Use read_file with startLine/lineCount to proceed through the recorded phases, calls, results and final text. Inline input is only an inventory and final-reply preview. Only virtual inventory paths are readable; source paths are provenance. context/ files are read-only.',
+        'Read each supplementaryPath in context/measurements.json before deciding whether to propose a change. Follow the recorded phases, calls, results and final text. Paths recorded inside a trace identify provenance. Treat context files as read-only evidence.',
     },
   };
 }

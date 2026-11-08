@@ -16,6 +16,10 @@ export { defineContract } from './contracts/contract.js';
 export { RuntimeContext } from './contracts/runtime/context.js';
 export * from './contracts/plugin-types/index.js';
 export type * from './contracts/index.js';
+export {
+  prepareAgentProject,
+  type AgentRole,
+} from './plugins/shared/agent-editing/project.js';
 
 export { Recipe } from './runtime/loaders/recipe.js';
 export { Binding } from './runtime/loaders/binding.js';

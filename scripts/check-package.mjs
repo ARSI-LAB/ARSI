@@ -380,7 +380,7 @@ import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext} from 'ember-rsi';
+import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,parameterSearchProposerContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
 import {RuntimeContext as ContractContext} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
 const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
@@ -422,8 +422,12 @@ try {
  const targetDirectory=resolve(${JSON.stringify(outside)},'reflection-guidance');await mkdir(targetDirectory);
  const prompt=fileURLToPath(new URL('plugins/reflection-agent/prompt.md',installed));
  assert.match(await readFile(prompt,'utf8'),/selected plugin/);
- const {createSubagentTool}=await import(new URL('plugins/agent-pi/subagent.js',installed));
- assert.equal(createSubagentTool({goal:'inspect',prompt:'inspect',outputSchema:{}},context).name,'run_subagent','installed delegation tool loads without source checkout resources');
+ const reviewer=await packageResource(fileURLToPath(new URL('plugins/reflection-agent/reviewer.md',installed)));
+ assert.ok((await readFile(reviewer,'utf8')).trim());
+ const {createProjectSubagentTool}=await import(new URL('plugins/agent-pi/subagent.js',installed));
+ const projectContext=context.extend({directory:${JSON.stringify(outside)},artifacts:runtime.manager.artifacts});
+ const cwd=await prepareAgentProject(projectContext,'Delegate an inspection.',{},[],[{name:'reviewer',description:'Inspect evidence',prompt:reviewer}]);
+ assert.equal((await createProjectSubagentTool({cwd,goal:'inspect',outputSchema:{}},projectContext)).name,'subagent','installed delegation tool loads without source checkout resources');
  for(const goal of ['generic','proposer','proposer-office','memory','selector']){
   const goalFile=fileURLToPath(new URL('plugins/reflection-agent/goals/'+goal+'/prompt.md',installed));
   const configFile=resolve(${JSON.stringify(outside)},'reflection-'+goal+'.json');

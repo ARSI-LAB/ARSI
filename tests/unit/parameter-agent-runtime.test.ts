@@ -18,7 +18,7 @@ import { InferenceStartupError } from '../../src/shared/errors.js';
 import { object, string } from '../../src/shared/json.js';
 import { measurementFixture } from '../helpers/manager-fixture.js';
 
-test('Manager runs the Agent Policy from failed launch to repaired baseline and verified improvement', async (t) => {
+test('Manager runs the Agent Policy with one baseline, resumable search, and no search after a failed baseline', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-agent-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runtime = await createRuntime({
@@ -132,70 +132,54 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
           const current = JSON.parse(
             await readFile(join(cwd, 'candidate/tuning.json'), 'utf8'),
           );
-          if (modelCalls === 1) {
-            assert.match(instructions, /Repair the baseline/);
-            assert.match(metadata, /NPU memory pressure/);
-            assert.equal(current.max_num_seqs, 32);
-          } else {
-            assert.match(instructions, /Optimize the scheduler/);
-            assert.match(
-              await readFile(join(cwd, 'sources/0/tuning.json'), 'utf8'),
-              /"max_num_seqs":8/,
-            );
-            assert.match(
-              await readFile(join(cwd, 'roles/scheduler.md'), 'utf8'),
-              /Choose a batching change/,
-            );
-            assert.match(
-              await readFile(join(cwd, 'context/measurements.json'), 'utf8'),
-              /requestThroughput/,
-            );
-            assert.equal(current.max_num_seqs, 8);
-            assert.equal(object(JSON.parse(metadata)).maxCandidates, 3);
-            return {
-              proposals: [
-                {
-                  edits: [
-                    {
-                      op: 'replace',
-                      path: 'tuning.json',
-                      content: '{"max_num_seqs":16}',
-                    },
-                  ],
-                  reason: 'Raise concurrency',
-                },
-                {
-                  edits: [
-                    {
-                      op: 'replace',
-                      path: 'tuning.json',
-                      content: '{ "max_num_seqs" : 8 }\n',
-                    },
-                  ],
-                  reason: 'Repeat baseline with different formatting',
-                },
-                {
-                  edits: [
-                    {
-                      op: 'replace',
-                      path: 'tuning.json',
-                      content: '{"max_num_seqs":12}',
-                    },
-                  ],
-                  reason: 'Try an intermediate value',
-                },
-              ],
-            };
-          }
+          assert.match(instructions, /Optimize the scheduler/);
+          assert.match(
+            await readFile(join(cwd, 'sources/0/tuning.json'), 'utf8'),
+            /"max_num_seqs":8/,
+          );
+          assert.match(
+            await readFile(join(cwd, 'roles/scheduler.md'), 'utf8'),
+            /Choose a batching change/,
+          );
+          assert.match(
+            await readFile(join(cwd, 'context/measurements.json'), 'utf8'),
+            /requestThroughput/,
+          );
+          assert.equal(current.max_num_seqs, 8);
+          assert.equal(object(JSON.parse(metadata)).maxCandidates, 3);
           return {
-            edits: [
+            proposals: [
               {
-                op: 'replace',
-                path: 'tuning.json',
-                content: '{"max_num_seqs":8}',
+                edits: [
+                  {
+                    op: 'replace',
+                    path: 'tuning.json',
+                    content: '{"max_num_seqs":16}',
+                  },
+                ],
+                reason: 'Raise concurrency',
+              },
+              {
+                edits: [
+                  {
+                    op: 'replace',
+                    path: 'tuning.json',
+                    content: '{ "max_num_seqs" : 8 }\n',
+                  },
+                ],
+                reason: 'Repeat baseline with different formatting',
+              },
+              {
+                edits: [
+                  {
+                    op: 'replace',
+                    path: 'tuning.json',
+                    content: '{"max_num_seqs":12}',
+                  },
+                ],
+                reason: 'Try an intermediate value',
               },
             ],
-            reason: 'Adjust concurrency',
           };
         },
         async dispose() {},
@@ -206,7 +190,6 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
     await mkdir(join(root, 'baseline'));
     await Promise.all([
       writeFile(join(root, 'baseline/tuning.json'), '{"max_num_seqs":32}'),
-      writeFile(join(root, 'repair.md'), 'Repair the baseline'),
       writeFile(join(root, 'optimize.md'), 'Optimize the scheduler'),
       writeFile(join(root, 'scheduler.md'), 'Choose a batching change'),
     ]);
@@ -238,16 +221,10 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
         },
         policy: {
           id: 'parameter.agent',
-          config: {
-            maxTrials: 3,
-            baseline: {
-              maxAttempts: 2,
-            },
-          },
+          config: { maxTrials: 3 },
         },
         bindings: {
           agent: { plugin: 'test.parameter-agent' },
-          repair: { config: { prompt: './repair.md' } },
           proposer: {
             config: {
               prompt: './optimize.md',
@@ -267,11 +244,21 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
       }),
     );
     await assert.rejects(
+      runtime.manager.run(recipe, { id: 'bad-baseline' }),
+      /NPU memory pressure/,
+    );
+    assert.deepEqual(launches, [32]);
+    assert.deepEqual(benchmarks, []);
+    assert.equal(modelCalls, 0);
+    await writeFile(join(root, 'baseline/tuning.json'), '{"max_num_seqs":8}');
+    launches.length = 0;
+
+    await assert.rejects(
       runtime.manager.run(recipe, { id: 'tune', signal: interruption.signal }),
       /Pause between batch trials/,
     );
     assert.deepEqual(benchmarks, [8, 16]);
-    assert.equal(modelCalls, 2);
+    assert.equal(modelCalls, 1);
     const result = await runtime.manager.run(recipe, {
       id: 'tune',
       resume: true,
@@ -281,9 +268,9 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
     assert.equal(output.status, 'selected');
     assert.equal(output.stopReason, 'max-trials');
     assert.notEqual(output.candidateRef, output.baselineCandidateRef);
-    assert.deepEqual(launches, [32, 8, 16, 12]);
+    assert.deepEqual(launches, [8, 16, 12]);
     assert.deepEqual(benchmarks, [8, 16, 12]);
-    assert.equal(modelCalls, 2);
+    assert.equal(modelCalls, 1);
     assert.ok(Array.isArray(output.trials));
     const repeated = object(output.trials[1]);
     assert.equal(repeated.status, 'duplicate');

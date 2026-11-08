@@ -1,6 +1,6 @@
 # vLLM Ascend framework tuning
 
-The `vllm-optimization` Recipe uses `parameter.agent` to establish a baseline and tune framework parameters with AISBench. Codex reads the candidate and authorized evidence from its workspace. The Recipe supplies a repair prompt, a tuning prompt, a shared skill and four roles. `selector.metric` chooses a feasible candidate by request throughput under the configured latency constraints.
+The `vllm-optimization` Recipe uses `parameter.agent` to establish a baseline and tune framework parameters with AISBench. Codex reads the candidate and authorized evidence from its workspace. The Recipe supplies a tuning prompt, a shared skill and three roles. `selector.metric` chooses a feasible candidate by request throughput under the configured latency constraints.
 
 ## Parameter selection
 
@@ -28,7 +28,7 @@ export VLLM_API_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(24))'
 
 Keep a nonempty `VLLM_API_KEY` available for the Evaluator. The serving process uses the same environment reference for API authentication. [vLLM serving authentication](https://docs.vllm.ai/en/latest/getting_started/quickstart/#online-serving)
 
-The launcher queries the visible devices and installed package versions before starting vLLM, fingerprints the local model files, and records process ownership under `VLLM_ASCEND_STATE_DIR`. Keep the state directory stable for a given port. The launcher gives the service 540 seconds to become ready. To change this limit, set `VLLM_ASCEND_STARTUP_TIMEOUT_SECONDS` and keep it below `application.config.healthcheck.timeoutMs` after converting to milliseconds. Sanitized startup reasons go to the repair loop. Full launch logs stay in the local state directory.
+The launcher queries the visible devices and installed package versions before starting vLLM, fingerprints the local model files, and records process ownership under `VLLM_ASCEND_STATE_DIR`. Keep the state directory stable for a given port. The launcher gives the service 540 seconds to become ready. To change this limit, set `VLLM_ASCEND_STARTUP_TIMEOUT_SECONDS` and keep it below `application.config.healthcheck.timeoutMs` after converting to milliseconds. RSI reports startup failures, and full launch logs stay in the local state directory.
 
 ## Run from the repository root
 
@@ -39,7 +39,7 @@ pnpm ember-rsi validate examples/artifacts/inference/vllm-optimization/recipe.ya
 pnpm ember-rsi run examples/artifacts/inference/vllm-optimization/recipe.yaml --id vllm-ascend-tuning
 ```
 
-A rejected startup can trigger repair of `tuning.json` within the baseline attempt limit. The first complete, comparable AISBench measurement anchors the search. In each tuning round the Proposer returns up to `candidatesPerRound` ranked alternatives from the same incumbent. The workflow skips repeated configurations and measures the remaining candidates serially with AISBench. The next batch uses the selected incumbent and completed trial history. `maxTrials` caps candidate attempts across batches. The Runtime enforces the Recipe's experiment budget. If the budget is exhausted, use `ember-rsi show <experiment-id>` to see the stop reason and any checkpointed result under `partialOutput`.
+Supply a baseline configuration that can start the service. RSI runs AISBench once on that configuration before proposing any changes. The search starts after a complete, comparable baseline measurement. In each tuning round the Proposer returns up to `candidatesPerRound` ranked alternatives from the same incumbent. The workflow skips repeated configurations and measures the remaining candidates serially with AISBench. The next batch uses the selected incumbent and completed trial history. `maxTrials` caps candidate attempts across batches. The Runtime enforces the Recipe's experiment budget. If the budget is exhausted, use `ember-rsi show <experiment-id>` to see the stop reason and any checkpointed result under `partialOutput`.
 
 The local launcher unit tests run without an NPU.
 

@@ -1,9 +1,6 @@
 type: object
 additionalProperties: false
 properties:
-  enableBaseline: { const: true, default: true }
-  baseline:
-    $ref: ../../parameter-shared/baseline-config.yaml
   parameterFile: { type: string, minLength: 1, default: tuning.json }
   maxTrials: { type: integer, minimum: 1, maximum: 100, default: 8 }
   candidatesPerRound: { type: integer, minimum: 1, maximum: 6, default: 4 }

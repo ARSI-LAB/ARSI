@@ -26,7 +26,7 @@
 | `policy.parameter-optuna`                                      | 利用评测反馈搜索参数，在有限预算内优化推理服务性能。 | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)     |
 | `policy.operator-search`                                       | 结合正确性检查与性能反馈，优化 Triton-Ascend 算子。  | [README](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md) |
 
-Grid 和 Optuna 可以通过 `policy.config.enableBaseline: true` 启用同一套基线循环，两种搜索策略仍然独立。启用后，在 `repair` 绑定里配置用于修复基线的 Proposer prompt，并在 `agent` 绑定里选择模型后端。使用 Pi 修复基线时，Recipe 预算需允许模型调用。完成一次基线评测占用一次 evaluation run。
+Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供能正常启动的配置，并为基线预留一次 evaluation run。基线评测失败时，实验停止。
 
 ## Loop 组件
 
@@ -42,7 +42,7 @@ Grid 和 Optuna 可以通过 `policy.config.enableBaseline: true` 启用同一�
 | Search | `search.prompt-evolution` | 通过反馈提案、Pareto 采样和基于血缘的交叉演化提示词模块。 | 根据训练与验证任务的反馈优化提示词。 |
 | Evaluator   | `evaluator.agentbench`                          | 运行 Agent 基准任务并保存得分与执行证据。                             | 检验提示词、Skill 或代码修改的效果。         |
 | Evaluator   | `evaluator.inferencebench`                      | 对推理服务执行基准测试，测量吞吐量、延迟等指标。                      | 比较不同服务配置的性能。                     |
-| Trial | `inference.trial` | 识别可恢复的启动失败，并检查基准测量是否完整、可比较。 | 基线启动及推理参数试验。 |
+| Trial | `inference.trial` | 识别可恢复的启动失败，并检查基准测量是否完整、可比较。 | Agent 的推理参数试验。 |
 | Evaluator   | `evaluator.operatorbench`                       | 通过 Evaluator SDK 检查算子正确性、测量耗时，并按需采集性能分析数据。 | 判断算子修改是否正确、是否更快。             |
 | Selector    | `selector.metric`                               | 按指定指标及约束比较候选。                                            | 依据成功率、吞吐量或延迟等数值选择更优版本。 |
 | Selector    | `selector.artifact`                             | 让模型按评审标准比较匿名展示的报告等交付内容。                        | 按内容质量选择候选。                         |

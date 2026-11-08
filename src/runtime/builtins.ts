@@ -47,9 +47,9 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     'harness2/policy.yaml',
     'wikiskill/policy.yaml',
     'operator-search/policy.yaml',
-    'parameter-grid/policy.yaml',
-    'parameter-optuna/policy.yaml',
-    'parameter-agent/policy.yaml',
+    'parameter/grid/policy.yaml',
+    'parameter/optuna/policy.yaml',
+    'parameter/agent/policy.yaml',
     'gepa/policy.yaml',
   ]) {
     const file = fileURLToPath(new URL(`../policies/${path}`, import.meta.url));

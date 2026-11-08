@@ -2,11 +2,11 @@ type: object
 additionalProperties: false
 properties:
   status:
-    enum: [selected, no-feasible-configuration, baseline-unavailable]
+    enum: [selected, no-feasible-configuration]
   stopReason:
-    enum: [search-exhausted, max-candidates, baseline-failed]
-  baselineCandidateRef: { type: [string, 'null'] }
-  baselineMeasurementRef: { type: [string, 'null'] }
+    enum: [search-exhausted, max-candidates]
+  baselineCandidateRef: { type: string, minLength: 1 }
+  baselineMeasurementRef: { type: string, minLength: 1 }
   candidateRef:
     type: [string, 'null']
   measurementRef:
@@ -21,6 +21,8 @@ properties:
 required:
   - status
   - stopReason
+  - baselineCandidateRef
+  - baselineMeasurementRef
   - candidateRef
   - measurementRef
   - parameters

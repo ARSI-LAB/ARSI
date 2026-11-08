@@ -7,7 +7,7 @@ evaluate:
       candidateRef: ${{ steps.candidates.output[loop.index] }}
       deduplicate:
         parameterFile: ${{ config.parameterFile }}
-        candidateRefs: ${{ append(pluck(state.trials, 'candidateRef'), state.baseline.candidateRef) }}
+        candidateRefs: ${{ append(pluck(state.trials, 'candidateRef'), input.candidateRef) }}
   - id: decide
     type: if
     if: ${{ steps.trial.output.status == 'measured' }}

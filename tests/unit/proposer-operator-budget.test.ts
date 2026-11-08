@@ -1,24 +1,54 @@
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
 import { object } from '../../src/shared/json.js';
+import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
 import { requestOperatorAgent } from '../../src/plugins/proposer-operator/service.js';
 
-test('operator stages derive separate scopes, preserve cancellation and reject an existing scope', async () => {
+async function projectContext(t: TestContext) {
+  const directory = await mkdtemp(join(tmpdir(), 'rsi-operator-stage-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  return new RuntimeContext().extend({
+    directory,
+    artifacts: new FileArtifacts(join(directory, 'artifacts')),
+  });
+}
+
+test('operator stages derive separate scopes, preserve cancellation and reject an existing scope', async (t) => {
   const scopes: string[] = [];
-  const context = new RuntimeContext().extend({
+  const context = (await projectContext(t)).extend({
     experimentId: 'experiment',
     callId: 'parent',
     signal: new AbortController().signal,
-    async invokeAgent(this: RuntimeContext, request) {
-      assert.equal(request.maxModelCalls, this.scope?.limits.modelCalls);
-      assert.deepEqual(request.input, {
-        sourceFiles: { 'input.py': 'authorized source' },
-      });
-      assert.ok(typeof request.prompt === 'string');
+    async invokeAgent(this: RuntimeContext, binding, request) {
+      assert.equal(binding, 'agent');
+      assert.equal(this.scope?.limits.modelCalls, 24);
+      assert.ok(typeof request.cwd === 'string');
+      assert.deepEqual(Object.keys(request).sort(), [
+        'cwd',
+        'goal',
+        'outputSchema',
+      ]);
+      assert.equal(
+        await readFile(join(request.cwd, 'input.py'), 'utf8'),
+        'authorized source',
+      );
+      assert.deepEqual(
+        JSON.parse(
+          await readFile(join(request.cwd, 'context/input.json'), 'utf8'),
+        ),
+        { hardwareContext: 'authorized hardware context' },
+      );
+      assert.match(
+        await readFile(join(request.cwd, 'AGENTS.md'), 'utf8'),
+        /context\/input\.json/,
+      );
       assert.equal(this.scope?.signal, this.signal);
       const id = this.scope!.id;
       scopes.push(id);
@@ -29,14 +59,16 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
     goal: 'Test',
     prompt: 'test',
     files: { 'input.py': 'authorized source' },
+    input: { hardwareContext: 'authorized hardware context' },
     outputSchema: { type: 'object' },
   };
-  await requestOperatorAgent('diagnose', request, context);
-  await requestOperatorAgent('generate', request, context);
+  await requestOperatorAgent('diagnose', 'agent', request, context);
+  await requestOperatorAgent('generate', 'agent', request, context);
   assert.notEqual(scopes[0], scopes[1]);
   await assert.rejects(
     requestOperatorAgent(
       'generate',
+      'agent',
       request,
       context.extend({
         scope: {
@@ -78,16 +110,14 @@ async function modelFixture(replies: Reply[], modelCalls = 64) {
               function:
                 'read' in reply
                   ? {
-                      name: 'read_file',
+                      name: 'read',
                       arguments: JSON.stringify({ path: 'input.py' }),
                     }
                   : {
-                      name: 'run_subagent',
+                      name: 'subagent',
                       arguments: JSON.stringify({
-                        goal: 'Review the authorized source',
-                        prompt: 'Read input.py and return JSON.',
-                        filePaths: ['input.py'],
-                        outputSchema: { type: 'object', required: ['finding'] },
+                        agent: 'operator-reviewer',
+                        task: 'Review the authorized source',
                       }),
                     },
             },
@@ -120,11 +150,12 @@ async function modelFixture(replies: Reply[], modelCalls = 64) {
       (context) =>
         requestOperatorAgent(
           'generate',
+          'agent',
           {
-            agentRef: 'agent',
             goal: 'Review and propose a valid edit',
             prompt: 'Return JSON after inspecting authorized evidence.',
             files: { 'input.py': 'authorized source' },
+            input: {},
             outputSchema: { type: 'object' },
           },
           context,
@@ -168,7 +199,7 @@ const continuedProposal: Reply[] = [
   { read: true },
   { delegate: true },
   { read: true },
-  { result: { finding: 'reviewed source' } },
+  { result: { findings: 'reviewed source' } },
   { result: { accepted: true } },
 ];
 
@@ -189,18 +220,21 @@ test('operator stage completes tool continuations and delegated review beyond tw
   );
   assert.equal(calls.length, 2);
   assert.ok(calls.every((call) => call.status === 'succeeded'));
-  assert.ok(
-    calls.some(
-      (call) => object(call.input).goal === 'Review the authorized source',
-    ),
+  const delegate = calls.find(
+    (call) => object(call.input).role === 'operator-reviewer',
   );
+  assert.ok(delegate);
+  const parent = calls.find((call) => call.callId === delegate.parentCallId);
+  assert.ok(parent);
+  assert.equal(object(delegate.input).goal, 'Review the authorized source');
+  assert.equal(object(delegate.input).cwd, object(parent.input).cwd);
 });
 
 test('operator stage stops delegated model effects at its shared 24-call limit', async (t) => {
   const fixture = await modelFixture([
     { delegate: true },
     ...Array.from({ length: 23 }, (): Reply => ({ read: true })),
-    { result: { finding: 'would exceed the shared stage limit' } },
+    { result: { findings: 'would exceed the shared stage limit' } },
   ]);
   t.after(() => fixture.close());
   await assert.rejects(fixture.run(), /Reflection modelCalls budget exceeded/);
@@ -220,14 +254,16 @@ test('lower Manager model budget stops an operator stage before its next externa
   assert.equal(object(Object.values(object(budget.scopes))[0]).modelCalls, 4);
 });
 
-test('operator model stage bounds all calls with one propagated timeout without cancelling its parent', async () => {
+test('operator model stage bounds all calls with one propagated timeout without cancelling its parent', async (t) => {
   const parent = new AbortController();
-  const context = new RuntimeContext().extend({
+  let entered = false;
+  const context = (await projectContext(t)).extend({
     experimentId: 'bounded-experiment',
     callId: 'bounded-call',
     signal: parent.signal,
     async invokeAgent(this: RuntimeContext) {
-      assert.equal(this.scope?.limits.elapsedWallMs, 25);
+      assert.equal(this.scope?.limits.elapsedWallMs, 250);
+      entered = true;
       return new Promise<never>((_resolve, reject) => {
         this.signal.addEventListener(
           'abort',
@@ -239,19 +275,23 @@ test('operator model stage bounds all calls with one propagated timeout without 
   });
   const pending = requestOperatorAgent(
     'generate',
+    'agent',
     {
       goal: 'Bounded request',
       prompt: 'Return JSON',
+      files: {},
+      input: {},
       outputSchema: { type: 'object' },
     },
     context,
-    25,
+    250,
   );
-  const keepAlive = setTimeout(() => {}, 100);
+  const keepAlive = setTimeout(() => {}, 1000);
   try {
     await assert.rejects(pending, /timeout|aborted/i);
   } finally {
     clearTimeout(keepAlive);
   }
+  assert.ok(entered);
   assert.equal(parent.signal.aborted, false);
 });

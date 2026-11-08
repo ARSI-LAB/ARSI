@@ -87,7 +87,7 @@ budget:
 默认的 [Reflection 提示词](../../../src/plugins/reflection-agent/prompt.md) 说明“怎么反思”，`goal` 文件说明“希望改进什么”。一次反思按下面的流程进行：
 
 1. **先看材料。** 主 Agent 拿到目标、当前资源和本轮执行证据，阅读相关记录，找出值得改进的问题。
-2. **自主决定是否分工。** 使用 `agent.pi` 时，主 Agent 可以自己分析，也可以用 `run_subagent` 把问题和材料交给子代理。子代理也能继续委派，各级共用预算和取消机制。原生 Codex 的能力遵循其本地配置，参见 [Agent 后端](configuration_zh.md#agent-与环境变量)。
+2. **自主决定是否分工。** 主 Agent 可以自己分析，也可以把具体问题交给同一 workspace 中的 `reflection-reviewer`。Pi 使用 `subagent`，主 Agent 和子 Agent 共用 Reflection 的预算和取消机制。Codex 使用原生角色委派。参见 [Agent 后端](configuration_zh.md#agent-与环境变量)。
 3. **汇总插件改进方案。** 主 Agent 根据证据整理对目标插件的改进建议、处理相互矛盾的建议，并给出授权文件的完整新内容和修改理由。没有有用的改进，就说明原因并保持不变。
 4. **检查并生效。** Runtime 检查修改是否符合授权范围、内容要求和版本约束，通过后，会保存并启用插件的修订版本，供当前实验的后续调用使用。
 

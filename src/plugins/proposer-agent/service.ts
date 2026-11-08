@@ -59,6 +59,7 @@ export const createProposerAgent: OperationDefinition<
         context,
         execution,
         patch ? patchEditOutputSchema : undefined,
+        config.subagents ?? [],
       );
       const patchResult = patch
         ? expandPatchEdits(

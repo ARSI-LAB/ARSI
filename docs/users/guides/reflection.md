@@ -87,7 +87,7 @@ For view definitions and visibility, see [Evidence](../concepts/architecture.md#
 The default [Reflection prompt](../../../src/plugins/reflection-agent/prompt.md) explains how to reflect, while the `goal` file describes what to improve. Each Reflection call follows these steps:
 
 1. **Review the material.** The main Agent receives the goal, current resources, and execution evidence for this round. It reads the relevant records and identifies problems worth addressing.
-2. **Decide whether to delegate.** With `agent.pi`, the main Agent can investigate directly or use `run_subagent` to pass questions and material to subagents. Subagents can delegate further, and all levels share the budget and cancellation mechanism. Native Codex capabilities follow its local configuration; see [Agent backends](configuration.md#agent-and-environment-variables).
+2. **Decide whether to delegate.** The main Agent can investigate directly or delegate a focused question to `reflection-reviewer` in the same workspace. Pi uses `subagent` and shares the Reflection budget and cancellation. Codex uses native role delegation. See [Agent backends](configuration.md#agent-and-environment-variables).
 3. **Consolidate plugin improvements.** The main Agent combines evidence-based suggestions for the target plugins, resolves conflicting suggestions, and supplies the complete new contents of authorized files with reasons for each change. If there is no useful improvement, it explains why and leaves the resources unchanged.
 4. **Validate and activate.** The Runtime checks the authorized scope, content requirements, and revision constraints. Once these checks pass, it saves and activates the plugin revisions for subsequent calls in the current experiment.
 

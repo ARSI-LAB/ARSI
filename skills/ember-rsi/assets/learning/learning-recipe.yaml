@@ -24,13 +24,11 @@ bindings:
       agentRef: agent
       prompt: ./proposer.md
       guidance: ./guidance
-      maxModelCalls: 6
   memory:
     plugin: memory.agent
     config:
       agentRef: agent
       prompt: ./memory.md
-      maxModelCalls: 6
   evaluator: { plugin: evaluator.skill-text, config: {} }
   selector:
     {

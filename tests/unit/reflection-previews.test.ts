@@ -12,7 +12,6 @@ import {
 } from '../../src/runtime/storage/index.js';
 import { prepareDocumentPreviews } from '../../src/plugins/reflection-agent/document-previews.js';
 import { createReflectionAgent } from '../../src/plugins/reflection-agent/service.js';
-import { readVirtualFile } from '../../src/plugins/agent-pi/service.js';
 import { object, string } from '../../src/shared/json.js';
 
 async function workbookFixture(): Promise<Buffer> {
@@ -260,7 +259,7 @@ test('Reflection reuses empty readable text while preserving its inspection meta
   assert.deepEqual(previews[0]!.omissions, [
     'The readable source has no visible text',
   ]);
-  assert.equal(readVirtualFile(files, { path: string(previews[0]!.path) }), '');
+  assert.equal(files[string(previews[0]!.path)], '');
 });
 
 test('Reflection preserves an accepted empty workbook extraction as an empty readable preview', async (t) => {
@@ -294,7 +293,7 @@ test('Reflection preserves an accepted empty workbook extraction as an empty rea
   assert.equal(previews[0]!.inspection, 'complete');
   assert.deepEqual(previews[0]!.locations, []);
   assert.deepEqual(previews[0]!.omissions, []);
-  assert.equal(readVirtualFile(files, { path: string(previews[0]!.path) }), '');
+  assert.equal(files[string(previews[0]!.path)], '');
 });
 
 test('Reflection previews redact extracted values and locations and report resource bounds', async (t) => {
@@ -346,7 +345,7 @@ test('Reflection previews redact extracted values and locations and report resou
   assert.match(string(previews[1]!.reason), /input bound/);
 });
 
-test('Reflection supplies preview files to the existing virtual reader and rejects evidence edits and view changes', async (t) => {
+test('Reflection supplies preview files in its workspace and rejects evidence edits and view changes', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-preview-agent-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const artifacts = new FileArtifacts(join(directory, 'artifacts'));
@@ -395,22 +394,22 @@ test('Reflection supplies preview files to the existing virtual reader and rejec
   let reads = 0;
   const context = new RuntimeContext().extend({
     experimentId: 'preview',
+    directory,
     artifacts,
     facts,
     workspaces,
     signal: new AbortController().signal,
-    async invokeAgent(request: JsonObject): Promise<JsonObject> {
-      const files = object(request.files);
+    async invokeAgent(
+      _binding: string,
+      request: JsonObject,
+    ): Promise<JsonObject> {
+      const cwd = string(request.cwd);
       const index = JSON.parse(
-        readVirtualFile(files, { path: 'context/reflection/index.json' }),
+        await readFile(join(cwd, 'context/reflection/index.json'), 'utf8'),
       );
       const preview = object(index.previews[0]);
       assert.match(
-        readVirtualFile(files, {
-          path: string(preview.path),
-          startLine: 1,
-          lineCount: 20,
-        }),
+        await readFile(join(cwd, string(preview.path)), 'utf8'),
         /source value/,
       );
       reads++;

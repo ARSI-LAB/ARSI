@@ -516,7 +516,18 @@ function fakeAgentPlugin(
             output ?? {
               edits:
                 typeof proposals[moduleId] === 'string'
-                  ? [{ op: 'replace', path, content: proposals[moduleId] }]
+                  ? [
+                      {
+                        op: 'patch',
+                        path,
+                        changes: [
+                          {
+                            oldText: files[path],
+                            newText: proposals[moduleId],
+                          },
+                        ],
+                      },
+                    ]
                   : [],
               reason: 'controlled proposal',
             }

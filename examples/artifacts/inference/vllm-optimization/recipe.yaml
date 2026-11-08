@@ -24,14 +24,8 @@ policy:
     parameterFile: tuning.json
     baseline:
       maxAttempts: 3
-      phaseTimeMs: 1800000
-      trialEstimateMs: 600000
-      repairEstimateMs: 120000
     maxTrials: 8
     candidatesPerRound: 4
-    phaseTimeMs: 10800000
-    proposalEstimateMs: 120000
-    trialEstimateMs: 600000
 bindings:
   agent:
     plugin: agent.codex

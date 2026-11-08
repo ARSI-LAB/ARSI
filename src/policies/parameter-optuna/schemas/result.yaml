@@ -4,14 +4,7 @@ properties:
   status:
     enum: [selected, no-feasible-configuration, baseline-unavailable]
   stopReason:
-    enum:
-      [
-        search-exhausted,
-        sampling-limit,
-        max-trials,
-        baseline-failed,
-        time-budget,
-      ]
+    enum: [search-exhausted, sampling-limit, max-trials, baseline-failed]
   baselineCandidateRef: { type: [string, 'null'] }
   baselineMeasurementRef: { type: [string, 'null'] }
   candidateRef:

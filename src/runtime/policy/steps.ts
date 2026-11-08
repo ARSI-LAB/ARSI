@@ -21,8 +21,7 @@ export type StepType =
   | 'loop'
   | 'foreach'
   | 'control'
-  | 'reflection'
-  | 'time-budget';
+  | 'reflection';
 export type StepResult =
   | { kind: 'completed'; output: JsonValue }
   | { kind: 'break' }
@@ -64,7 +63,6 @@ export interface StepContext {
   invoke(binding: string, input: JsonValue): Promise<JsonValue>;
   updateState(patch: JsonObject): JsonObject;
   reflect(): Promise<JsonValue>;
-  timeBudget(request: TimeBudgetRequest, guarded: boolean): Promise<JsonObject>;
   runSteps(
     steps: readonly Step[],
     options: {
@@ -565,134 +563,6 @@ export class ReflectionStep implements Step {
     return { id: this.id, type: this.type };
   }
 }
-export type TimeBudgetRequest = {
-  stage: string;
-  limitMs: number | null;
-  actions: { use: string; initialMs: number; status?: string }[];
-};
-export type TimeBudgetDecision = {
-  fits: boolean;
-  remainingMs: number | null;
-  estimatedMs: number;
-  reason: 'fits' | 'experiment-time' | 'stage-time';
-};
-export class TimeBudgetStep implements Step {
-  readonly type = 'time-budget';
-  readonly id: string;
-  private readonly stage: string;
-  private readonly limitMs: Template;
-  private readonly actions: ReadonlyArray<{
-    use: string;
-    initialMs: Template;
-    status?: string;
-  }>;
-  private readonly branches?: { then: StepBlock; else: StepBlock };
-  constructor(value: JsonObject) {
-    this.id = declaration(value, this.type, [
-      'stage',
-      'limitMs',
-      'actions',
-      'then',
-      'else',
-    ]);
-    this.stage = string(value.stage, `${this.id}.stage`);
-    if (!safeIdentifier.test(this.stage))
-      throw new Error(`${this.id}.stage: unsafe identifier ${this.stage}`);
-    this.limitMs = freezeSnapshot(structuredClone(value.limitMs ?? null));
-    if (!Array.isArray(value.actions) || !value.actions.length)
-      throw new Error(`${this.id}.actions must be a nonempty array`);
-    this.actions = Object.freeze(
-      value.actions.map((value, index) => {
-        const label = `${this.id}.actions[${index}]`;
-        const action = object(value, label);
-        unknownKeys(action, ['use', 'initialMs', 'status'], label);
-        const use = string(action.use, `${label}.use`);
-        const initialMs = required(action.initialMs, `${label}.initialMs`);
-        return Object.freeze({
-          use,
-          initialMs,
-          ...(action.status === undefined
-            ? {}
-            : { status: string(action.status, `${label}.status`) }),
-        });
-      }),
-    );
-    if (value.then !== undefined || value.else !== undefined)
-      this.branches = Object.freeze({
-        then: readBlock(value.then, `${this.id}.then`),
-        else: readBlock(value.else, `${this.id}.else`),
-      });
-    Object.freeze(this);
-  }
-  validate(context: StepValidationContext): void {
-    if (context.parallel)
-      throw new Error(
-        `${context.label}: time budget requires serial execution`,
-      );
-    context.validateTemplate(this.limitMs);
-    for (const action of this.actions) {
-      if (!Object.hasOwn(context.requirements, action.use))
-        throw new Error(
-          `${context.label}: undeclared dependency ${action.use}`,
-        );
-      context.validateTemplate(action.initialMs);
-    }
-    if (this.branches)
-      for (const scope of ['then', 'else'] as const) {
-        const block = this.branches[scope];
-        context.validateSteps(block.steps, {
-          scope,
-          locals: ['budget'],
-          output: block.output,
-        });
-      }
-  }
-  async execute(context: StepContext): Promise<StepResult> {
-    const limitMs = context.evaluate(this.limitMs);
-    const maximum = Number.MAX_SAFE_INTEGER;
-    const decision = await context.timeBudget(
-      {
-        stage: this.stage,
-        limitMs:
-          limitMs === null
-            ? null
-            : boundedInteger(limitMs, `${context.stepPath}.limitMs`, maximum),
-        actions: this.actions.map((action) => ({
-          ...action,
-          initialMs: boundedInteger(
-            context.evaluate(action.initialMs),
-            `${context.stepPath}.actions.${action.use}.initialMs`,
-            maximum,
-          ),
-        })),
-      },
-      this.branches !== undefined,
-    );
-    if (!this.branches) return { kind: 'completed', output: decision };
-    const scope = boolean(decision.fits!, `${context.stepPath}.budget.fits`)
-      ? 'then'
-      : 'else';
-    const block = this.branches[scope];
-    return context.runSteps(block.steps, {
-      scope,
-      locals: { budget: decision },
-      output: block.output,
-    });
-  }
-  toJSON(): JsonObject {
-    return {
-      id: this.id,
-      type: this.type,
-      stage: this.stage,
-      limitMs: structuredClone(this.limitMs),
-      actions: structuredClone([...this.actions]),
-      ...(this.branches && {
-        then: blockJSON(this.branches.then),
-        else: blockJSON(this.branches.else),
-      }),
-    };
-  }
-}
 export function parseSteps(
   value: JsonValue | undefined,
   label: string,
@@ -715,8 +585,6 @@ export function parseSteps(
         return new ControlStep(step);
       case 'reflection':
         return new ReflectionStep(step);
-      case 'time-budget':
-        return new TimeBudgetStep(step);
       default:
         throw new Error(
           `${label}.${String(step.id)}.type: unknown step type ${String(step.type)}`,
@@ -739,10 +607,6 @@ export function assertParallelSafe(
     if (step instanceof StateStep || step instanceof ReflectionStep)
       throw new Error(
         `${label}/${step.id}: parallel execution cannot ${step.type === 'state' ? 'write shared state' : 'call Reflection'}`,
-      );
-    if (step instanceof TimeBudgetStep)
-      throw new Error(
-        `${label}/${step.id}: time budget requires serial execution`,
       );
     if (step instanceof IfStep) {
       assertParallelSafe(step.thenBranch.steps, label);

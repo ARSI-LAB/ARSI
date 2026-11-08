@@ -188,7 +188,7 @@ steps:
                 stopReason: ${{ steps.propose.output.result.reason }}
 output:
   status: ${{ if(config.enableBaseline && state.baseline.status != 'ready', 'baseline-unavailable', if(state.bestCandidate == null, 'no-feasible-configuration', 'selected')) }}
-  stopReason: ${{ if(state.baseline.status == 'time-budget', 'time-budget', if(state.baseline.status == 'failed', 'baseline-failed', state.stopReason)) }}
+  stopReason: ${{ if(state.baseline.status == 'failed', 'baseline-failed', state.stopReason) }}
   baselineCandidateRef: ${{ state.baseline.candidateRef }}
   baselineMeasurementRef: ${{ if(state.baseline.status == 'ready', state.baseline.measurementRef, null) }}
   candidateRef: ${{ state.bestCandidate }}

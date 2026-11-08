@@ -126,9 +126,9 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 
 ## Inference optimization
 
-For inference optimization, `evaluator.inferencebench` supports `benchmark.name: aisbench` with the bundled SSH solver, or `agentx` with the replay solver. Use the same benchmark workload for the baseline and candidate trials. `parameter.agent` checks time before proposing or benchmarking. `baseline.phaseTimeMs` and `phaseTimeMs` bound admission to enablement and framework work respectively. `budget.elapsedWallMs` remains the hard experiment deadline.
+For inference optimization, `evaluator.inferencebench` supports `benchmark.name: aisbench` with the bundled SSH solver, or `agentx` with the replay solver. Use the same benchmark workload for the baseline and candidate trials. The Runtime enforces the experiment-wide limits in the Recipe’s `budget`.
 
-`policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy tests them serially, stops the batch when the next trial cannot fit, and uses completed trial results when requesting the next batch. `maxTrials` caps candidate attempts across all batches, including skipped duplicates.
+`policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy evaluates the batch serially and uses the latest incumbent when requesting the next batch. `maxTrials` caps candidate attempts across all batches, including skipped duplicates.
 
 With `application.inference.config.remote.discoverParameters: true`, the launcher reports its installed parameter catalog at initialization. Agent proposals receive the catalog in `context/input.json` as `target.parameterCatalog`. This is enabled in the vLLM Ascend example.
 
@@ -141,6 +141,8 @@ A `patch` must be the only operation for its path. Duplicate whole-file edits us
 To migrate a custom Proposer prompt, remove `editProtocol` from the binding and give every edit an `op`. For whole-file edits, use `replace` for an existing file, `create` for a new file, and `delete` for a deletion. Existing tagged patch operations keep their fields.
 
 ## Limits and budgets
+
+When an experiment budget is exhausted, the Runtime records `stopReason: budget-exhausted` and the limit in `budgetMetric`. Use `ember-rsi show <experiment-id>` to inspect the record. If the Policy output can be evaluated and validated from the last committed checkpoint, the record includes it as `partialOutput`. For parameter search, this includes the best feasible candidate and its measurement when available. Use the experiment record’s top-level `stopReason` to determine why the run ended.
 
 Omitted Recipe binding settings first inherit Policy defaults. The “When omitted” column describes settings that remain unset; limits at other layers can still apply.
 

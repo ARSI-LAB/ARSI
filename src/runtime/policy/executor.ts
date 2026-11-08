@@ -19,8 +19,6 @@ import {
   type StepContext,
   type StepResult,
   type Template,
-  type TimeBudgetDecision,
-  type TimeBudgetRequest,
 } from './steps.js';
 import {
   checkpointVersion,
@@ -44,8 +42,6 @@ export interface PolicyOptions {
     state: JsonObject,
     parallel: boolean,
   ): Promise<JsonValue>;
-  timeBudget?(request: TimeBudgetRequest): Promise<TimeBudgetDecision>;
-  hasStartedStep?(pathPrefix: string): Promise<boolean>;
   checkpoint(snapshot: JsonObject): Promise<void>;
   restore?: JsonObject;
   events?: {
@@ -116,14 +112,9 @@ function validatedInvocation(
     return result;
   };
 }
-/** Executes a compiled declaration with per-run state and durable progress. */
-export async function runPolicy(
-  policy: Policy,
-  options: PolicyExecutionOptions,
-  invocation: PolicyInvocation = validatedInvocation(options),
-): Promise<JsonValue> {
-  const signal = options.context.signal;
-  signal.throwIfAborted();
+type PolicyInputs = Pick<PolicyOptions, 'application' | 'input' | 'config'>;
+
+function initializePolicy(policy: Policy, options: PolicyInputs) {
   const application = freezeSnapshot(
     structuredClone(object(options.application, 'application')),
   );
@@ -149,7 +140,7 @@ export async function runPolicy(
   const input = structuredClone({ ...defaults, ...supplied });
   validate(policy.inputSchema, input, 'policy.input');
   freezeSnapshot(input);
-  let state = structuredClone(
+  const state = structuredClone(
     object(
       evaluateTemplate(policy.stateInitial, { ...base, input }),
       'policy.state',
@@ -157,6 +148,63 @@ export async function runPolicy(
   );
   validate(policy.stateSchema, state, 'policy.state');
   freezeSnapshot(state);
+  return { application, config, input, state };
+}
+
+/** Projects the declared output from a chronologically ordered, committed journal. */
+export function partialPolicyOutput(
+  policy: Policy,
+  options: PolicyInputs,
+  checkpoint: JsonObject,
+): JsonValue {
+  const initial = initializePolicy(policy, options);
+  const { application, config, input } = initial;
+  const identity = digest({
+    policy: policy.digest,
+    input,
+    config,
+    application,
+  });
+  const { journal } = readPolicyCheckpoint(checkpoint, identity);
+  let state = initial.state;
+  const steps: JsonObject = {};
+  for (const [path, raw] of Object.entries(journal)) {
+    const record = object(raw);
+    state = { ...state, ...object(record.patch) };
+    const [, id, child] = path.split('/');
+    if (child === undefined && id !== undefined) {
+      const result = stepResult(record.result!);
+      if (result.kind === 'completed') steps[id] = { output: result.output };
+    }
+  }
+  validate(policy.stateSchema, state, 'policy.state');
+  const output = evaluateTemplate(policy.output, {
+    application,
+    config,
+    input,
+    state,
+    steps,
+  });
+  validate(policy.outputSchema, output, 'policy.output');
+  return output;
+}
+
+/** Executes a compiled declaration with per-run state and durable progress. */
+export async function runPolicy(
+  policy: Policy,
+  options: PolicyExecutionOptions,
+  invocation: PolicyInvocation = validatedInvocation(options),
+): Promise<JsonValue> {
+  const signal = options.context.signal;
+  signal.throwIfAborted();
+  const {
+    application,
+    config,
+    input,
+    state: initialState,
+  } = initializePolicy(policy, options);
+  const base = { application, config };
+  let state = initialState;
   const identity = digest({
     policy: policy.digest,
     input,
@@ -326,38 +374,6 @@ export async function runPolicy(
           );
           signal.throwIfAborted();
           return readReflectionResult(value);
-        },
-        async timeBudget(request, guarded) {
-          if (parallel || !options.timeBudget)
-            throw new Error(
-              `${stepPath}: time budget requires a serial Manager service`,
-            );
-          signal.throwIfAborted();
-          if (!guarded) return options.timeBudget(request);
-          const admissionPath = `${stepPath}/@admission`;
-          if (Object.hasOwn(journal, admissionPath)) {
-            const saved = stepResult(object(journal[admissionPath]).result!);
-            if (saved.kind !== 'completed')
-              throw new Error(`${stepPath}: invalid time-budget checkpoint`);
-            const decision = object(saved.output);
-            const branch = `${stepPath}/${decision.fits === true ? 'then' : 'else'}/`;
-            if (
-              Object.keys(journal).some(
-                (key) => key.startsWith(branch) && !key.endsWith('/@admission'),
-              ) ||
-              (await options.hasStartedStep?.(branch))
-            )
-              return decision;
-          }
-          const decision = await options.timeBudget(request);
-          // A decision is provisional until its branch leaves a checkpoint or receipt.
-          const value = {
-            result: { kind: 'completed', output: decision },
-            patch: {},
-          };
-          journal[admissionPath] = value;
-          await persist({ kind: 'step', path: admissionPath, value });
-          return decision;
         },
         runSteps(children, settings) {
           return runSteps(

@@ -16,86 +16,44 @@ then:
       maxIterations: ${{ config.baseline.maxAttempts }}
       while: ${{ state.baseline.status == 'pending' }}
       steps:
-        - id: admit_trial
-          type: time-budget
-          stage: enablement
-          limitMs: ${{ config.baseline.phaseTimeMs }}
-          actions:
-            - use: trial
-              status: measured
-              initialMs: ${{ config.baseline.trialEstimateMs }}
+        - id: trial
+          type: invoke
+          use: trial
+          with:
+            evaluatorRef: evaluator
+            candidateRef: ${{ state.baseline.candidateRef }}
+        - id: save_trial
+          type: state
+          state:
+            baseline:
+              candidateRef: ${{ state.baseline.candidateRef }}
+              measurementRef: ${{ steps.trial.output.measurementRef }}
+              status: ${{ if(steps.trial.output.status == 'measured', 'ready', 'failed') }}
+              reason: ${{ steps.trial.output.reason }}
+        - id: repair_needed
+          type: if
+          if: ${{ state.baseline.status == 'failed' && loop.index + 1 < config.baseline.maxAttempts }}
           then:
             steps:
-              - id: trial
+              - id: repair
                 type: invoke
-                use: trial
+                use: repair
                 with:
-                  evaluatorRef: evaluator
-                  candidateRef: ${{ state.baseline.candidateRef }}
-              - id: save_trial
+                  parent: ${{ state.baseline.candidateRef }}
+                  goal: Restore the inference service and obtain a comparable baseline.
+                  evidenceRefs: ${{ compact(append(range(0, 0), state.baseline.measurementRef)) }}
+                  observations:
+                    baseline:
+                      status: ${{ steps.trial.output.status }}
+                      reason: ${{ state.baseline.reason }}
+                  editConstraints:
+                    allowedPaths: ['${{ config.parameterFile }}']
+                    maxChangedFiles: 1
+              - id: save_repair
                 type: state
                 state:
                   baseline:
-                    candidateRef: ${{ state.baseline.candidateRef }}
-                    measurementRef: ${{ steps.trial.output.measurementRef }}
-                    status: ${{ if(steps.trial.output.status == 'measured', 'ready', 'failed') }}
-                    reason: ${{ steps.trial.output.reason }}
-              - id: repair_needed
-                type: if
-                if: ${{ state.baseline.status == 'failed' && loop.index + 1 < config.baseline.maxAttempts }}
-                then:
-                  steps:
-                    - id: admit_repair
-                      type: time-budget
-                      stage: enablement
-                      limitMs: ${{ config.baseline.phaseTimeMs }}
-                      actions:
-                        - use: repair
-                          initialMs: ${{ config.baseline.repairEstimateMs }}
-                        - use: trial
-                          status: measured
-                          initialMs: ${{ config.baseline.trialEstimateMs }}
-                      then:
-                        steps:
-                          - id: repair
-                            type: invoke
-                            use: repair
-                            with:
-                              parent: ${{ state.baseline.candidateRef }}
-                              goal: Restore the inference service and obtain a comparable baseline.
-                              evidenceRefs: ${{ compact(append(range(0, 0), state.baseline.measurementRef)) }}
-                              observations:
-                                baseline:
-                                  status: ${{ steps.trial.output.status }}
-                                  reason: ${{ state.baseline.reason }}
-                              editConstraints:
-                                allowedPaths: ['${{ config.parameterFile }}']
-                                maxChangedFiles: 1
-                          - id: save_repair
-                            type: state
-                            state:
-                              baseline:
-                                candidateRef: ${{ steps.repair.output.candidateRef }}
-                                measurementRef: ${{ if(steps.repair.output.status == 'created', null, state.baseline.measurementRef) }}
-                                status: ${{ if(steps.repair.output.status == 'created', 'pending', 'failed') }}
-                                reason: ${{ if(steps.repair.output.status == 'created', null, steps.repair.output.rationale) }}
-                      else:
-                        steps:
-                          - id: repair_budget
-                            type: state
-                            state:
-                              baseline:
-                                candidateRef: ${{ state.baseline.candidateRef }}
-                                measurementRef: ${{ state.baseline.measurementRef }}
-                                status: time-budget
-                                reason: ${{ budget.reason }}
-          else:
-            steps:
-              - id: trial_budget
-                type: state
-                state:
-                  baseline:
-                    candidateRef: ${{ state.baseline.candidateRef }}
-                    measurementRef: null
-                    status: time-budget
-                    reason: ${{ budget.reason }}
+                    candidateRef: ${{ steps.repair.output.candidateRef }}
+                    measurementRef: ${{ if(steps.repair.output.status == 'created', null, state.baseline.measurementRef) }}
+                    status: ${{ if(steps.repair.output.status == 'created', 'pending', 'failed') }}
+                    reason: ${{ if(steps.repair.output.status == 'created', null, steps.repair.output.rationale) }}

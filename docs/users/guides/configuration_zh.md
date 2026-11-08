@@ -126,9 +126,9 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 ## 推理优化
 
-推理优化可用 `evaluator.inferencebench` 的 `benchmark.name: aisbench` 和内置 SSH Solver，也可选择 `agentx` 及其回放 Solver。基线和候选使用相同的评测负载。`parameter.agent` 会在提出候选和运行 benchmark 前检查时间。`baseline.phaseTimeMs` 和 `phaseTimeMs` 分别限制 enablement 和 framework 阶段可启动的工作，`budget.elapsedWallMs` 仍是实验的硬超时。
+推理优化可用 `evaluator.inferencebench` 的 `benchmark.name: aisbench` 和内置 SSH Solver，也可选择 `agentx` 及其回放 Solver。基线和候选使用相同的评测负载。Runtime 统一执行 Recipe 的 `budget` 所定义的实验级上限。
 
-`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 依次验证候选，时间不足以开始下一次试验时停止，并用已完成的试验结果生成下一批。`maxTrials` 限制所有批次的候选尝试总数，跳过的重复候选也计入。
+`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 依次验证本批候选，再用更新后的当前最优版本生成下一批。`maxTrials` 限制所有批次的候选尝试总数，跳过的重复候选也计入。
 
 设置 `application.inference.config.remote.discoverParameters: true` 后，启动器会在初始化时报告当前安装版本的参数目录。Agent 可在 `context/input.json` 的 `target.parameterCatalog` 中读取。vLLM Ascend 示例已启用此功能。
 
@@ -141,6 +141,8 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 迁移自定义 Proposer prompt 时，从绑定配置删除 `editProtocol`，并为每条 edit 添加 `op`。整文件编辑中，已有文件用 `replace`，新文件用 `create`，删除用 `delete`。已有的带 `op` 的 patch 操作保留原有字段。
 
 ## 限制与预算
+
+实验预算耗尽时，Runtime 会记录 `stopReason: budget-exhausted`，并用 `budgetMetric` 标明触及的上限。使用 `ember-rsi show <experiment-id>` 查看记录。如果能用最近一次已保存的检查点计算并验证 Policy 输出，记录还会包含 `partialOutput`。对于参数搜索，如果已选出满足约束的候选，部分结果中会保留当前最佳候选和测量。实际停止原因以实验记录顶层的 `stopReason` 为准。
 
 Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺省时”指对应配置最终仍未设置该项的情况；其他层的限制仍可能生效。
 

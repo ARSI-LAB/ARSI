@@ -308,10 +308,29 @@ Runtime 将 `context` 传给 `create` 和每次 `execute`。插件通过它读�
 | 调用 Application   | `application(input)`、`applicationMetadata()`            | 执行生命周期动作，或读取目标、能力和初始候选等元数据。                   |
 | 使用候选的运行实例 | `withInstance(candidateRef, capability, use)`            | 获取实例、执行 `use(execution)`，并协调实例释放。                        |
 | 调用其他绑定       | `invoke(bindingName, input)`                             | 经过 Runtime 的契约校验、预算检查、调用记录和修订选择。                  |
-| 调用 Agent         | `invokeAgent(input)`                                     | 按 `input.agentRef` 选择 Agent 绑定；省略时使用 `agent.default`。        |
+| 调用 Agent         | `invokeAgent(agentRef, input)`                           | 按 `agentRef` 选择 Recipe 绑定，把 `input` 交给 Agent。                  |
 | 读取证据           | `readEvidence(refs, options?)`                           | 按需选择 `view`、文件或 JSON 格式及 `maxBytes`，取得本次允许读取的证据。 |
 | 记录用量           | `charge(metric, amount)`                                 | 记录用量并检查预算，调用时必须 `await`。                                 |
 | 订阅事件           | `event`                                                  | 监听运行事件，结束时取消订阅；见 [Runtime 事件](runtime-events_zh.md)。  |
+
+在 `execute` 中，使用 `ember-rsi` 导出的 `prepareAgentProject` 创建受 Runtime 管理的工作目录。第二个参数传指令，第三个参数传授权的文本文件，最后两个参数分别传 Skill 目录和角色定义。每次独立调用都应准备工作目录。同一次插件执行内，如果多个 Agent 调用需要隔离本地修改，需提供不同的项目内容。
+
+```ts
+import { prepareAgentProject } from 'ember-rsi';
+
+const cwd = await prepareAgentProject(
+  context,
+  'Read context/input.json and return your findings.',
+  { 'context/input.json': JSON.stringify({ target: 'example' }) },
+  [],
+  [],
+);
+const result = await context.invokeAgent('agent', {
+  cwd,
+  goal: 'Inspect the target',
+  outputSchema: { type: 'object' },
+});
+```
 
 ### 调用与资源清理
 

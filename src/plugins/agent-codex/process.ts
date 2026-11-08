@@ -11,17 +11,26 @@ export async function runCodexProcess(
     line: string,
     send: (message: unknown) => void,
   ) => void | boolean | Promise<void | boolean>,
+  config: string[] = [],
 ): Promise<void> {
   signal.throwIfAborted();
   const command = codexCommand(executable);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command.executable, [...command.args, 'app-server'], {
-      cwd: directory,
-      detached: process.platform !== 'win32',
-      // Codex owns local authentication, credential refresh and provider environment references.
-      env: process.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      command.executable,
+      [
+        ...command.args,
+        ...config.flatMap((value) => ['-c', value]),
+        'app-server',
+      ],
+      {
+        cwd: directory,
+        detached: process.platform !== 'win32',
+        // Codex owns local authentication, credential refresh and provider environment references.
+        env: process.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
     child.stderr.resume();
     child.stdout.setEncoding('utf8');
     let failure: unknown;

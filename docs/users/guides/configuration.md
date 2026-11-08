@@ -34,6 +34,8 @@ The following table lists the top-level Recipe fields. For a complete Recipe exa
 
 Agents in the optimization flow generate proposals, review deliverables, consolidate experience, and perform other model tasks. The built-in backends are Pi and Codex. Evaluator settings are separate from the optimization Agent: AgentBench configures the evaluated Agent's (Solver's) model services, InferenceBench configures inference service benchmarks, and OperatorBench configures kernel evaluation environments.
 
+Both backends run in the workspace prepared for the Agent call. The `contract.agent` input supplies `cwd`, `goal`, and `outputSchema`, with `role` for Pi delegation through the Runtime. Codex delegates through its native tool. The backend reads instructions from `AGENTS.md` and uses the workspace files for task context.
+
 | Configuration target  | Purpose                                                                                                             |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Evaluator             | Configure model services, tasks, or execution environments for the selected benchmark.                              |
@@ -118,7 +120,7 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 
 - `timeoutMs` limits the complete call and accepts integer milliseconds from 1 to 2,147,483,647. Experiment cancellation and configured wall budgets also propagate to the process.
 
-- This backend currently cannot enforce `maxModelCalls` or the experiment's `modelCalls` budget.
+- This backend currently cannot enforce the experiment's `modelCalls` budget.
 
 ## Limits and budgets
 
@@ -137,7 +139,6 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | Pi                                                    | `executionTimeoutMs`                              | Duration limit for a complete Agent call in milliseconds, including requests, tools, compaction, retry waits, and subagents.                                          | No separate duration limit for the complete call.                                                                 |
 | Codex                                                 | `timeoutMs`                                       | Duration limit for the complete Agent call, in milliseconds.                                                                                                          | RSI sets no separate timeout for the call.                                                                        |
 | Operator Proposer                                     | `modelRequestTimeoutMs`                           | Shared duration limit for a complete model stage in milliseconds, including tool continuations and delegated Agents.                                                  | 120000 ms (2 minutes).                                                                                            |
-| `proposer.agent`, `memory.agent`, `selector.artifact` | `maxModelCalls`                                   | Maximum requests per Agent call when the backend supports accounting; direct Agent calls set `steps[].with.maxModelCalls`.                                            | No additional request-count limit for this Agent call.                                                            |
 | AgentBench Evaluator                                  | `services.<service>.maxTokens`                    | Per-turn output-token limit for the model service used by the evaluated Agent.                                                                                        | Determined by Solver or model-service defaults.                                                                   |
 | AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                              | Duration limit for one benchmark task attempt, in seconds.                                                                                                            | Use the SDK benchmark profile's value; fall back to 7200 seconds (2 hours) if the profile omits it.               |
 | OperatorBench Evaluator                               | `sdk.timeoutSeconds`                              | Duration limit for one kernel evaluation or profiling operation, in seconds.                                                                                          | Required; no default.                                                                                             |

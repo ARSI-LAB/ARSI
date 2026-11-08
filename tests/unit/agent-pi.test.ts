@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type ServerResponse } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -12,7 +12,6 @@ import {
 import {
   createAgentPi,
   resolveModelConfig,
-  readVirtualFile,
 } from '../../src/plugins/agent-pi/service.js';
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
 import type { AgentPiConfig } from '../../src/plugins/agent-pi/schema.js';
@@ -58,6 +57,7 @@ interface Reply {
   status?: number;
   content?: string;
   read?: boolean;
+  tool?: { name: string; arguments: string };
   delayMs?: number;
   stall?: boolean;
 }
@@ -75,7 +75,7 @@ function respond(response: ServerResponse, reply: Reply): void {
     `data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
   response.end(
     chunk(
-      reply.read
+      reply.read || reply.tool
         ? {
             role: 'assistant',
             tool_calls: [
@@ -83,14 +83,17 @@ function respond(response: ServerResponse, reply: Reply): void {
                 index: 0,
                 id: 'read',
                 type: 'function',
-                function: { name: 'read_file', arguments: '{"path":"sample"}' },
+                function: reply.tool ?? {
+                  name: 'read',
+                  arguments: '{"path":"sample"}',
+                },
               },
             ],
           }
         : { role: 'assistant', content: reply.content ?? '{"ok":true}' },
       null,
     ) +
-      chunk({}, reply.read ? 'tool_calls' : 'stop') +
+      chunk({}, reply.read || reply.tool ? 'tool_calls' : 'stop') +
       (reply.contextTokens === undefined
         ? ''
         : `data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [], usage: { prompt_tokens: reply.contextTokens, completion_tokens: 1, total_tokens: reply.contextTokens + 1 } })}\n\n`) +
@@ -129,6 +132,13 @@ async function modelFixture(
   if (!address || typeof address === 'string')
     throw new Error('No fixture address');
   const directory = await mkdtemp(join(tmpdir(), 'rsi-agent-pi-test-'));
+  const cwd = join(directory, 'workspace');
+  await mkdir(cwd);
+  await writeFile(
+    join(cwd, 'AGENTS.md'),
+    'Read the supplied evidence if needed, then return only JSON.',
+  );
+  await writeFile(join(cwd, 'sample'), 'authorized evidence');
   const previous = process.env.RSI_PI_TEST_KEY;
   process.env.RSI_PI_TEST_KEY = 'fixture-private-key';
   const unused = async (): Promise<never> => {
@@ -183,25 +193,33 @@ async function modelFixture(
   });
   return {
     requests,
+    directory,
+    execute: (cwd: string, role?: string) =>
+      operation.execute(
+        {
+          cwd,
+          goal: 'Inspect evidence',
+          outputSchema: { type: 'object' },
+          ...(role === undefined ? {} : { role }),
+        },
+        context.extend(services),
+      ),
     charges,
     controller,
     services,
     disconnected: () => disconnected,
     chargeAttempts: () => chargeAttempts,
-    run: (maxModelCalls = 8) =>
+    run: () =>
       operation.execute(
         {
-          prompt:
-            'Read the supplied evidence if needed, then return only JSON.',
+          cwd,
           goal: 'Return the fixture result.',
-          files: { sample: 'authorized evidence' },
           outputSchema: {
             type: 'object',
             properties: { ok: { const: true } },
             required: ['ok'],
             additionalProperties: false,
           },
-          maxModelCalls,
         },
         context.extend(services),
       ),
@@ -218,6 +236,81 @@ async function modelFixture(
     },
   };
 }
+
+test('Pi uses the workspace instructions, default tools, and on-demand skill contents', async () => {
+  const fixture = await modelFixture([
+    {
+      tool: {
+        name: 'read',
+        arguments: '{"path":".agents/skills/probe/SKILL.md"}',
+      },
+    },
+    { content: '{"ok":true}' },
+  ]);
+  try {
+    const project = join(fixture.directory, 'project');
+    const skill = join(project, '.agents/skills/probe');
+    await mkdir(skill, { recursive: true });
+    await writeFile(join(project, 'AGENTS.md'), 'WORKSPACE_INSTRUCTIONS');
+    await writeFile(
+      join(skill, 'SKILL.md'),
+      '---\nname: probe\ndescription: WORKSPACE_SKILL_DESCRIPTION\n---\nWORKSPACE_SKILL_BODY',
+    );
+    assert.deepEqual(await fixture.execute(project), { ok: true });
+    const first = JSON.stringify(fixture.requests[0]);
+    assert.match(first, /WORKSPACE_INSTRUCTIONS/);
+    assert.match(first, /WORKSPACE_SKILL_DESCRIPTION/);
+    assert.doesNotMatch(first, /WORKSPACE_SKILL_BODY/);
+    const tools = fixture.requests[0]!.tools as Array<{
+      function: { name: string };
+    }>;
+    assert.deepEqual(tools.map((tool) => tool.function.name).sort(), [
+      'bash',
+      'edit',
+      'read',
+      'write',
+    ]);
+    assert.match(JSON.stringify(fixture.requests[1]), /WORKSPACE_SKILL_BODY/);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test(
+  'Pi bash can read the workspace but cannot read a sibling file',
+  { skip: process.platform !== 'darwin' },
+  async () => {
+    const fixture = await modelFixture([
+      {
+        tool: {
+          name: 'bash',
+          arguments: JSON.stringify({
+            command: 'cat AGENTS.md; cat ../sibling.txt 2>/dev/null || true',
+          }),
+        },
+      },
+      { content: '{"ok":true}' },
+    ]);
+    try {
+      const project = join(fixture.directory, 'project');
+      await mkdir(project);
+      await writeFile(join(project, 'AGENTS.md'), 'PROJECT_READ_MARKER');
+      await writeFile(
+        join(fixture.directory, 'sibling.txt'),
+        'OUTSIDE_READ_MARKER',
+      );
+      assert.deepEqual(await fixture.execute(project), { ok: true });
+      const messages = fixture.requests[1]!.messages as JsonObject[];
+      const result = JSON.stringify(
+        messages.find((message) => message.role === 'tool'),
+      );
+      assert.match(result, /PROJECT_READ_MARKER/);
+      assert.doesNotMatch(result, /OUTSIDE_READ_MARKER/);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
 
 test('Pi sends configured reasoning and output limits with final JSON', async () => {
   const f = await modelFixture([{}], {
@@ -599,38 +692,50 @@ test('Pi budget denial prevents a retry even when its error looks transient', as
   }
 });
 
-test('Pi retries share the model-call cap with output correction', async () => {
-  const f = await modelFixture([{ status: 503 }, { content: 'invalid' }, {}], {
-    retries: 2,
-    retryBaseDelayMs: 0,
-  });
+test('Pi retries share the Manager model-call budget with output correction', async () => {
+  const f = await modelFixture(
+    [{ status: 503 }, { content: 'invalid' }, {}],
+    {
+      retries: 2,
+      retryBaseDelayMs: 0,
+    },
+    2,
+  );
   try {
-    await assert.rejects(f.run(2), /model-call limit.*validation failed/);
+    await assert.rejects(f.run(), /Budget rejected 503/);
     assert.equal(f.requests.length, 2);
     assert.deepEqual(f.charges, [1, 1]);
   } finally {
     await f.close();
   }
 });
-test('virtual evidence supports bounded line ranges without reading host paths', () => {
-  const files = {
-    log: Array.from({ length: 1000 }, (_, n) => `event-${n + 1}`).join('\n'),
-    empty: '',
-  };
-  const excerpt = readVirtualFile(files, {
-    path: 'log',
-    startLine: 501,
-    lineCount: 2,
-  });
-  assert.match(excerpt, /Lines 501-502 of 1000; more=true/);
-  assert.match(excerpt, /event-501\nevent-502$/);
-  assert.equal(readVirtualFile(files, { path: 'empty' }), '');
-  assert.throws(
-    () => readVirtualFile(files, { path: '/etc/passwd' }),
-    /authorized/,
-  );
-  assert.throws(
-    () => readVirtualFile(files, { path: 'log', lineCount: 501 }),
-    /range/,
-  );
+
+test('Pi workspace read supports line ranges and rejects sibling files', async () => {
+  const f = await modelFixture([
+    {
+      tool: {
+        name: 'read',
+        arguments: '{"path":"log","offset":501,"limit":2}',
+      },
+    },
+    { tool: { name: 'read', arguments: '{"path":"../sibling.txt"}' } },
+    {},
+  ]);
+  try {
+    const cwd = join(f.directory, 'workspace');
+    await writeFile(
+      join(cwd, 'log'),
+      Array.from({ length: 1000 }, (_, n) => `event-${n + 1}`).join('\n'),
+    );
+    await writeFile(join(f.directory, 'sibling.txt'), 'OUTSIDE_READ_MARKER');
+    assert.deepEqual(await f.run(), { ok: true });
+    const excerpt = JSON.stringify(f.requests[1]);
+    assert.match(excerpt, /event-501\\nevent-502/);
+    assert.doesNotMatch(excerpt, /event-503/);
+    const rejected = JSON.stringify(f.requests[2]);
+    assert.match(rejected, /outside the authorized project/);
+    assert.doesNotMatch(rejected, /OUTSIDE_READ_MARKER/);
+  } finally {
+    await f.close();
+  }
 });

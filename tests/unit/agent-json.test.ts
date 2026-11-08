@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext } from '../../src/contracts/index.js';
@@ -38,7 +38,7 @@ async function fixture(replies: string[], chargeLimit = Infinity) {
                 index: 0,
                 id: 'read-1',
                 type: 'function',
-                function: { name: 'read_file', arguments: '{"path":"sample"}' },
+                function: { name: 'read', arguments: '{"path":"sample"}' },
               },
             ],
           },
@@ -56,6 +56,10 @@ async function fixture(replies: string[], chargeLimit = Infinity) {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('No address');
   const directory = await mkdtemp(join(tmpdir(), 'rsi-agent-json-'));
+  const cwd = join(directory, 'project');
+  await mkdir(cwd);
+  await writeFile(join(cwd, 'AGENTS.md'), 'Return JSON.');
+  await writeFile(join(cwd, 'sample'), 'authorized text');
   const previous = process.env.RSI_TEST_JSON_KEY;
   process.env.RSI_TEST_JSON_KEY = 'test-private-key';
   let charges = 0;
@@ -109,19 +113,17 @@ async function fixture(replies: string[], chargeLimit = Infinity) {
   return {
     requests,
     charges: () => charges,
-    run: (maxModelCalls?: number) =>
+    run: () =>
       operation.execute(
         {
-          prompt: 'Return JSON.',
+          cwd,
           goal: 'test',
-          files: { sample: 'authorized text' },
           outputSchema: {
             type: 'object',
             properties: { value: { type: 'integer' } },
             required: ['value'],
             additionalProperties: false,
           },
-          ...(maxModelCalls === undefined ? {} : { maxModelCalls }),
         },
         context.extend(services),
       ),
@@ -168,22 +170,22 @@ test('final JSON repairs malformed and schema-invalid replies with response and 
   }
 });
 
-test('read_file remains available and fenced final JSON needs no finish call', async () => {
+test('workspace read remains available and fenced final JSON needs no finish call', async () => {
   const f = await fixture(['READ', '```json\n{"value":2}\n```']);
   try {
     assert.deepEqual(await f.run(), { value: 2 });
     assert.equal(f.charges(), 2);
     assert.match(f.requests[1]!, /authorized text/);
-    assert.match(await f.log(), /read_file/);
+    assert.match(await f.log(), /"name":"read"/);
   } finally {
     await f.close();
   }
 });
 
-test('invalid output stops at the shared model-call limit and retains the last failure', async () => {
-  const f = await fixture(['{"value":"wrong"}', '{"value":"still wrong"}']);
+test('invalid output stops at the Manager model-call limit and retains the validation log', async () => {
+  const f = await fixture(['{"value":"wrong"}', '{"value":"still wrong"}'], 2);
   try {
-    await assert.rejects(f.run(2), /model-call limit.*integer/s);
+    await assert.rejects(f.run(), /Budget rejected/);
     assert.equal(f.requests.length, 2);
     assert.equal(f.charges(), 2);
     assert.match(await f.log(), /validation_failed/);
@@ -248,9 +250,10 @@ test('Manager budget denial prevents the next correction request', async () => {
 
 test('final output rejects prose and result envelopes without salvaging fragments', async () => {
   for (const reply of ['Here is JSON: {"value":1}', '{"result":{"value":1}}']) {
-    const f = await fixture([reply]);
+    const f = await fixture([reply], 1);
     try {
-      await assert.rejects(f.run(1), /last output validation failed/);
+      await assert.rejects(f.run(), /Budget rejected/);
+      assert.match(await f.log(), /validation_failed/);
       assert.equal(f.requests.length, 1);
     } finally {
       await f.close();
@@ -262,7 +265,7 @@ test('final JSON can exceed the former implicit output byte limit', async () => 
   const reply = `{"value":1}${' '.repeat(131073)}`;
   const f = await fixture([reply]);
   try {
-    assert.deepEqual(await f.run(1), { value: 1 });
+    assert.deepEqual(await f.run(), { value: 1 });
     assert.equal(f.charges(), 1);
   } finally {
     await f.close();

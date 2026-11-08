@@ -24,7 +24,7 @@
 | [contract.memory](../../../src/contracts/plugin-types/memory.ts)                                       | 将证据和观察整理成可复用的经验。             | `memoryContract`                  |
 | [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                               | 根据执行证据提出插件修订。                   | `reflectionContract`              |
 | [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)                         | 按网格搜索顺序生成参数候选。                 | `gridProposerContract`            |
-| [contract.proposer-parameter-search](../../../src/contracts/plugin-types/proposer-parameter-search.ts) | 管理参数搜索状态、提出参数并接收评测反馈。   | `parameterSearchProposerContract` |
+| [contract.search](../../../src/contracts/plugin-types/search.ts) | 管理有状态搜索、请求工作并接收反馈。 | `searchContract` |
 
 每个普通插件只实现一个公共契约。Application 等契约包含多种动作，由同一个 `execute` 按 `input.action` 区分。
 

@@ -16,7 +16,16 @@ export function nativeStatus(
 ): string {
   if (signal.aborted || value === 'cancelled') return 'cancelled';
   if (value === 'completed') return 'succeeded';
-  if (['error', 'timeout', 'unsupported', 'invalid'].includes(String(value)))
+  if (
+    [
+      'error',
+      'timeout',
+      'unsupported',
+      'invalid',
+      'failed',
+      'agent_timeout',
+    ].includes(String(value))
+  )
     return 'failed';
   return 'unknown';
 }
@@ -211,7 +220,7 @@ export async function archiveItemDetails(
     selected: record
       ? {
           key,
-          status: record.status ?? 'error',
+          status: record.executionStatus ?? 'unknown',
           executionStatus: record.executionStatus ?? null,
           scoreStatus: record.scoreStatus ?? null,
           cleanupStatus: record.cleanupStatus ?? null,
@@ -248,8 +257,29 @@ export async function archiveItemExecution(
   id: string,
   attemptId: string | null,
   solve: JsonObject | null,
+  task: JsonObject | null,
 ): Promise<JsonValue[]> {
   const entries: JsonValue[] = [];
+  if (task) {
+    const prompt = string(task.prompt, 'SDK task.prompt');
+    if (!prompt.trim())
+      throw new Error('SDK task.prompt: expected non-blank string');
+    const artifactRef = await context.artifacts.putJson({
+      event: 'task-input',
+      text: prompt,
+    });
+    entries.push({
+      id: `${id}/task-input`,
+      kind: 'trajectory',
+      artifactRef,
+      mediaType: 'application/json',
+      sizeBytes: Buffer.byteLength(prompt),
+      itemId: id,
+      attemptId,
+      access: 'execution',
+      integrity: 'complete',
+    });
+  }
   if (solve && typeof solve.finalText === 'string') {
     const ref = await context.artifacts.putJson({ text: solve.finalText });
     entries.push({

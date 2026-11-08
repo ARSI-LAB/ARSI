@@ -31,7 +31,7 @@ test('proposer edit anyOf preserves the exclusive tagged operation contract', ()
   const cases: [boolean, JsonObject][] = [
     [true, patch],
     [true, create],
-    [false, { ...create, op: 'replace' }],
+    [true, { ...create, op: 'replace' }],
     [false, { path: 'skill.md', content: 'Legacy edit' }],
     [false, { ...create, op: 'replace', content: null }],
     [true, remove],
@@ -41,7 +41,7 @@ test('proposer edit anyOf preserves the exclusive tagged operation contract', ()
     [false, { ...remove, op: 'unknown' }],
     [false, { ...create, content: null }],
     [false, { ...patch, changes: [] }],
-    [true, { ...patch, changes: [{ oldText: '', newText: 'new' }] }],
+    [false, { ...patch, changes: [{ oldText: '', newText: 'new' }] }],
     [false, { op: 'create', path: 'missing-content.md' }],
     [false, { op: 'delete' }],
   ];

@@ -316,30 +316,24 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
             await readFile(join(string(request.cwd), 'AGENTS.md'), 'utf8'),
             /Inspect source asset before editing/,
           );
-        const original = await readFile(
-          join(string(request.cwd), 'candidate', 'asset.md'),
-          'utf8',
-        );
         await writeFile(
           join(context.directory, 'diagnostics.jsonl'),
           JSON.stringify({
             event: 'read_file',
             path: 'asset.md',
-            result: original,
+            result: await readFile(
+              join(string(request.cwd), 'candidate', 'asset.md'),
+              'utf8',
+            ),
             observation: 'actual captured source read',
           }) + '\n',
         );
         return {
           edits: [
             {
-              op: 'patch',
+              op: 'replace',
               path: 'asset.md',
-              changes: [
-                {
-                  oldText: original,
-                  newText: `candidate revision ${proposals}`,
-                },
-              ],
+              content: `candidate revision ${proposals}`,
             },
           ],
           reason: `proposed revision ${proposals}`,

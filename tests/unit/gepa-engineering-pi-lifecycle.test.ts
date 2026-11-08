@@ -40,11 +40,11 @@ async function localModel(onRequest?: (count: number) => void) {
             id: 'read-' + requests + '-' + index,
             type: 'function',
             function: {
-              name: 'read_file',
+              name: 'read',
               arguments: JSON.stringify({
-                path: 'a.md',
-                startLine: 1,
-                lineCount: 1,
+                path: 'candidate/a.md',
+                offset: 1,
+                limit: 1,
               }),
             },
           })),
@@ -102,7 +102,7 @@ const common = {
   },
   proposals: { a: 'A1' },
 };
-test('actual Pi executes eight authorized paginated reads and final JSON within delivered 12-call session', async () => {
+test('actual Pi reads managed candidate files and respects the Manager model-call budget', async () => {
   const previous = process.env.GEPA_LOCAL_FIXTURE_KEY;
   process.env.GEPA_LOCAL_FIXTURE_KEY = 'localhost-fixture-only';
   const evidence: JsonObject[] = [];
@@ -117,14 +117,14 @@ test('actual Pi executes eight authorized paginated reads and final JSON within 
           await assert.rejects(
             runGepa({
               ...common,
-              maxModelCalls: cap,
+              modelCallBudget: cap,
               realAgentEndpoint: model.endpoint,
               onFailure: async (snapshot, calls) => {
                 terminal = snapshot;
                 evaluations = calls.evaluationCalls.length;
               },
             }),
-            /model-call limit/i,
+            /modelCalls/i,
           );
           assert.equal(terminal?.status, 'failed');
           assert.equal(evaluations, 2);
@@ -132,7 +132,7 @@ test('actual Pi executes eight authorized paginated reads and final JSON within 
         } else {
           run = await runGepa({
             ...common,
-            maxModelCalls: cap,
+            modelCallBudget: cap,
             realAgentEndpoint: model.endpoint,
           });
           const rounds = run.output.rounds as JsonObject[];
@@ -183,7 +183,7 @@ test('actual public Manager cancellation terminates in-flight Pi and starts no c
     await assert.rejects(
       runGepa({
         ...common,
-        maxModelCalls: 12,
+        modelCallBudget: 12,
         realAgentEndpoint: model.endpoint,
         signal: controller.signal,
         onFailure: async (snapshot) => {

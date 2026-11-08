@@ -7,6 +7,3 @@ properties:
   parameterFile: { type: string, minLength: 1, default: tuning.json }
   maxTrials: { type: integer, minimum: 1, maximum: 100, default: 8 }
   candidatesPerRound: { type: integer, minimum: 1, maximum: 6, default: 4 }
-  phaseTimeMs: { type: [integer, 'null'], minimum: 1, default: null }
-  proposalEstimateMs: { type: integer, minimum: 1, default: 120000 }
-  trialEstimateMs: { type: integer, minimum: 1, default: 600000 }

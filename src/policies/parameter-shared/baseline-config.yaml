@@ -3,6 +3,3 @@ default: {}
 additionalProperties: false
 properties:
   maxAttempts: { type: integer, minimum: 1, maximum: 20, default: 3 }
-  phaseTimeMs: { type: [integer, 'null'], minimum: 1, default: null }
-  trialEstimateMs: { type: integer, minimum: 1, default: 600000 }
-  repairEstimateMs: { type: integer, minimum: 1, default: 120000 }

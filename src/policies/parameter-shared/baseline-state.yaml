@@ -4,7 +4,7 @@ schema:
   properties:
     candidateRef: { type: [string, 'null'] }
     measurementRef: { type: [string, 'null'] }
-    status: { enum: [pending, ready, failed, time-budget] }
+    status: { enum: [pending, ready, failed] }
     reason: { type: [string, 'null'] }
   required: [candidateRef, measurementRef, status, reason]
 initial:

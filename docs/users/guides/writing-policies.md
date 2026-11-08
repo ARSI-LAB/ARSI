@@ -42,7 +42,8 @@ List steps in execution order under `steps`. Each step declares `id` and `type`,
 | `loop`       | Repeat a sequence of steps.                                | Supply the loop body in `steps` and required `maxIterations`, evaluating to an integer from 0 to 100,000. Optionally use `while` to end the loop early and `output` to define its return value.                                                                        |
 | `control`    | Exit a loop, skip the current iteration, or end the flow.  | Set `control` to `break`, `continue`, or `fail`; `fail` also requires `reason`.                                                                                                                                                                                        |
 | `reflection` | Use the built-in Reflection capability for self-evolution. | Set the step's `type: reflection` and declare the module in `defaults.reflection`. Requires serial execution; see the [Reflection guide](reflection.md) for configuration.                                                                                             |
-| `time-budget` | Check whether the next work fits the stage and experiment budgets. | Set `stage`, `limitMs`, and an `actions` list of bindings with `initialMs`. Use `status` on an action to match settled outputs such as `measured`. Put the guarded steps in `then` and the budget-denied steps in `else`. Both blocks can read `budget.reason`. |
+
+The Runtime enforces the [Recipe budget](configuration.md#limits-and-budgets) across the workflow.
 
 ### Read data with expressions
 

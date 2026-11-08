@@ -34,7 +34,7 @@ import {
 } from './definition-lock.js';
 import { ExperimentFacts } from './facts.js';
 import { readExperimentRecord } from './records.js';
-import { BudgetLedger } from './budget.js';
+import { BudgetLedger, ExperimentBudgetExceeded } from './budget.js';
 import {
   CleanupLifecycle,
   assertCleanupResolved,
@@ -45,7 +45,10 @@ import { reflect } from '../revisions/index.js';
 import { acquireResourceGate } from '../revisions/exclusion.js';
 import { RevisionApplication } from '../revisions/application.js';
 import { PolicyCheckpoints } from '../policy/checkpoint.js';
-import { executeControlledPolicy } from '../policy/executor.js';
+import {
+  executeControlledPolicy,
+  partialPolicyOutput,
+} from '../policy/executor.js';
 
 export interface RuntimeOptions {
   context?: RuntimeContext;
@@ -262,12 +265,14 @@ export class Manager {
     const started = Date.now();
     let experimentStartedAt = new Date(started).toISOString();
     const elapsedWallMs = recipe.budget.elapsedWallMs;
+    let wallDeadline =
+      elapsedWallMs === undefined || options.resume
+        ? undefined
+        : AbortSignal.timeout(elapsedWallMs);
     let signal = AbortSignal.any([
       controller.signal,
       stopping.signal,
-      ...(elapsedWallMs === undefined || options.resume
-        ? []
-        : [AbortSignal.timeout(elapsedWallMs)]),
+      ...(wallDeadline ? [wallDeadline] : []),
       ...(options.signal ? [options.signal] : []),
     ]);
     const registrations = new Map<string, () => void>();
@@ -692,26 +697,27 @@ export class Manager {
               'Legacy Reflection boundary records cannot resume through the explicit Reflection interface; use the original implementation and configuration',
             );
         const previous = resumedRecord!;
+        initial = object(previous.application);
         experimentStartedAt =
           typeof previous.startedAt === 'string'
             ? previous.startedAt
             : experimentStartedAt;
+        budget.restore(await this.facts.read('budgets', id));
         if (elapsedWallMs !== undefined) {
           const elapsed = Date.now() - Date.parse(experimentStartedAt);
           if (!Number.isFinite(elapsed))
             throw new Error('Invalid persisted experiment start time');
           const remaining = elapsedWallMs - Math.max(0, elapsed);
           if (remaining <= 0)
-            throw new Error('Experiment wall-time budget exceeded');
-          signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
+            throw new ExperimentBudgetExceeded('elapsedWallMs');
+          wallDeadline = AbortSignal.timeout(remaining);
+          signal = AbortSignal.any([signal, wallDeadline]);
         }
-        initial = object(previous.application);
         restore = await checkpoints.restore();
         await this.facts.write('controls', id, {
           cancel: false,
           clearedAt: new Date().toISOString(),
         });
-        budget.restore(await this.facts.read('budgets', id));
       }
       if (options.resume) await activation.restore();
       const experimentInfo = {
@@ -767,36 +773,6 @@ export class Manager {
           },
           invoke: async (binding, value, path) =>
             calls.invoke(binding, value, root, path),
-          timeBudget: (request) =>
-            budget.timeBudget(request, Date.parse(experimentStartedAt), root),
-          hasStartedStep: async (pathPrefix) => {
-            const receipts =
-              this.facts.scan?.('calls') ?? (await this.facts.list('calls'));
-            for await (const receipt of receipts) {
-              signal.throwIfAborted();
-              if (
-                receipt.experimentId === id &&
-                receipt.parentCallId === root.callId &&
-                typeof receipt.path === 'string' &&
-                receipt.path.startsWith(pathPrefix)
-              )
-                return true;
-            }
-            const reflections =
-              this.facts.scan?.('reflection') ??
-              (await this.facts.list('reflection'));
-            for await (const record of reflections) {
-              signal.throwIfAborted();
-              if (
-                record.experimentId === id &&
-                record.policyScopeId === root.callId &&
-                typeof record.stepPath === 'string' &&
-                record.stepPath.startsWith(pathPrefix)
-              )
-                return true;
-            }
-            return false;
-          },
           incrementalCheckpoint: checkpoints,
           reflect: (path, state, parallel) =>
             runReflection(root, path, state, parallel),
@@ -821,6 +797,13 @@ export class Manager {
       return complete;
     } catch (error) {
       const wasCancelled = signal.aborted;
+      const cause: unknown = wasCancelled ? signal.reason : error;
+      const budgetMetric =
+        cause instanceof ExperimentBudgetExceeded
+          ? cause.metric
+          : wallDeadline?.aborted && cause === wallDeadline.reason
+            ? 'elapsedWallMs'
+            : undefined;
       stopping.abort(error);
       try {
         await cleanup.within(drain(true));
@@ -849,12 +832,37 @@ export class Manager {
           : wasCancelled
             ? 'cancelled'
             : 'failed';
+      let partialOutput: JsonValue | undefined;
+      if (budgetMetric !== undefined) {
+        try {
+          const snapshot = await new PolicyCheckpoints(
+            this.facts,
+            id,
+          ).restoreOrdered();
+          if (snapshot)
+            partialOutput = partialPolicyOutput(
+              recipe.policy,
+              {
+                input: recipe.policyInput,
+                config: recipe.policyConfig,
+                application: { initialCandidate: initial.initialCandidateRef },
+              },
+              snapshot,
+            );
+        } catch (projectionError) {
+          diagnose('rsi/partial-policy-output', projectionError);
+        }
+      }
       await cleanup.markPending();
       terminalSaveAttempted = true;
       await this.facts.write('experiments', id, {
         ...previous,
         status,
         error: errorText(error),
+        ...(budgetMetric === undefined
+          ? {}
+          : { stopReason: 'budget-exhausted', budgetMetric }),
+        ...(partialOutput === undefined ? {} : { partialOutput }),
         usage: budget.usage,
         finishedAt: new Date().toISOString(),
       });

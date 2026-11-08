@@ -39,7 +39,7 @@ pnpm ember-rsi validate examples/artifacts/inference/vllm-optimization/recipe.ya
 pnpm ember-rsi run examples/artifacts/inference/vllm-optimization/recipe.yaml --id vllm-ascend-tuning
 ```
 
-A rejected startup can trigger repair of `tuning.json` within the enablement attempt and time limits. The first successful AISBench measurement anchors the search. In each tuning round the Proposer returns up to `candidatesPerRound` ranked alternatives from the same incumbent. The workflow checks time before starting each trial, skips repeated configurations, and measures the remaining candidates serially with AISBench. If the next trial cannot fit, it stops at that point. The next batch uses the selected incumbent and completed trial history. `maxTrials` caps candidate attempts across batches. The phase limits and initial duration estimates in the Recipe are starting values for this example. The Manager uses measured trial durations when available.
+A rejected startup can trigger repair of `tuning.json` within the baseline attempt limit. The first complete, comparable AISBench measurement anchors the search. In each tuning round the Proposer returns up to `candidatesPerRound` ranked alternatives from the same incumbent. The workflow skips repeated configurations and measures the remaining candidates serially with AISBench. The next batch uses the selected incumbent and completed trial history. `maxTrials` caps candidate attempts across batches. The Runtime enforces the Recipe's experiment budget. If the budget is exhausted, use `ember-rsi show <experiment-id>` to see the stop reason and any checkpointed result under `partialOutput`.
 
 The local launcher unit tests run without an NPU.
 

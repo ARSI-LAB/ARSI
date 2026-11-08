@@ -69,8 +69,8 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
             'inference-endpoint',
             async (execution) => {
               const size = Number(execution.size);
-              benchmarks.push(size);
               await context.charge('evaluationRuns', 1);
+              benchmarks.push(size);
               const measurement = await measurementFixture(context);
               const existingMetric = object(object(measurement.metrics).score);
               const definitionRef = await context.artifacts.putJson({
@@ -112,7 +112,10 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
         candidateParents.set(event.candidateRef, event.parentRef);
       });
       services.event.on('rsi/policy-boundary-completed', (event) => {
-        if (event.stepPath?.endsWith('/search') && event.iteration === 0)
+        if (
+          event.stepPath?.endsWith('/evaluate_batch') &&
+          event.iteration === 0
+        )
           interruption.abort(new Error('Pause between batch trials'));
         return undefined;
       });
@@ -237,12 +240,8 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
           id: 'parameter.agent',
           config: {
             maxTrials: 3,
-            trialEstimateMs: 1,
-            proposalEstimateMs: 1,
             baseline: {
               maxAttempts: 2,
-              trialEstimateMs: 1,
-              repairEstimateMs: 1,
             },
           },
         },
@@ -280,6 +279,7 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
     assert.equal(result.status, 'succeeded');
     const output = object(result.output);
     assert.equal(output.status, 'selected');
+    assert.equal(output.stopReason, 'max-trials');
     assert.notEqual(output.candidateRef, output.baselineCandidateRef);
     assert.deepEqual(launches, [32, 8, 16, 12]);
     assert.deepEqual(benchmarks, [8, 16, 12]);
@@ -294,6 +294,31 @@ test('Manager runs the Agent Policy from failed launch to repaired baseline and 
         candidateParents.get(string(object(trial).candidateRef)),
         output.baselineCandidateRef,
       );
+
+    const cappedRecipe = join(root, 'capped.json');
+    const capped = object(JSON.parse(await readFile(recipe, 'utf8')));
+    capped.budget = { ...object(capped.budget), evaluationRuns: 2 };
+    await writeFile(cappedRecipe, JSON.stringify(capped));
+    launches.length = 0;
+    benchmarks.length = 0;
+    modelCalls = 0;
+    await assert.rejects(
+      runtime.manager.run(cappedRecipe, { id: 'capped' }),
+      /Budget exceeded: evaluationRuns/,
+    );
+    const stopped = await runtime.manager.get('capped');
+    assert.equal(stopped.stopReason, 'budget-exhausted');
+    assert.equal(stopped.budgetMetric, 'evaluationRuns');
+    const partial = object(stopped.partialOutput);
+    assert.equal(partial.status, 'selected');
+    assert.ok(Array.isArray(partial.trials));
+    assert.equal(partial.trials.length, 2);
+    assert.equal(partial.candidateRef, object(partial.trials[0]).candidateRef);
+    assert.equal(
+      partial.measurementRef,
+      object(partial.trials[0]).measurementRef,
+    );
+    assert.deepEqual(benchmarks, [8, 16]);
   } finally {
     await runtime.dispose();
   }

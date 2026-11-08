@@ -16,12 +16,7 @@ state_schema:
     incumbent: { type: [string, 'null'] }
     incumbentMeasurement: { type: [string, 'null'] }
     incumbentFeasible: { type: boolean }
-    stopped: { type: boolean }
-    stopReason: { enum: [max-trials, time-budget, no-change] }
-    lastTrial: { type: [object, 'null'] }
-    lastSource: { type: [object, 'null'] }
-    batch: { type: array, items: { type: string } }
-    batchCursor: { type: integer, minimum: 0 }
+    stopReason: { enum: [max-trials, no-change] }
     sources: { type: array, items: { type: object } }
     trials:
       $ref: ./schemas/result.yaml#/properties/trials
@@ -31,13 +26,8 @@ state_schema:
       incumbent,
       incumbentMeasurement,
       incumbentFeasible,
-      stopped,
       stopReason,
       trials,
-      lastTrial,
-      lastSource,
-      batch,
-      batchCursor,
       sources,
     ]
 state:
@@ -46,13 +36,8 @@ state:
   incumbent: null
   incumbentMeasurement: null
   incumbentFeasible: false
-  stopped: false
   stopReason: max-trials
   trials: []
-  lastTrial: null
-  lastSource: null
-  batch: []
-  batchCursor: 0
   sources: []
 output_schema:
   $ref: ./schemas/result.yaml
@@ -104,74 +89,51 @@ steps:
         - id: search
           type: loop
           maxIterations: ${{ config.maxTrials }}
-          while: ${{ !state.stopped }}
+          while: ${{ state.stopReason != 'no-change' && length(state.trials) < config.maxTrials }}
           steps:
-            - id: refill_batch
+            - id: propose
+              type: invoke
+              use: proposer
+              with:
+                parent: ${{ state.incumbent }}
+                goal: Propose ranked inference parameter candidates that could improve serving performance within the benchmark constraints.
+                maxCandidates: >-
+                  ${{ if(config.candidatesPerRound < config.maxTrials - length(state.trials),
+                  config.candidatesPerRound, config.maxTrials - length(state.trials)) }}
+                evidenceRefs: ${{ compact(concat(append(range(0, 0), state.baseline.measurementRef), pluck(state.trials, 'measurementRef'))) }}
+                sources: ${{ state.sources }}
+                observations:
+                  baselineCandidateRef: ${{ state.baseline.candidateRef }}
+                  baselineMeasurementRef: ${{ state.baseline.measurementRef }}
+                  incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
+                  trials: ${{ state.trials }}
+                editConstraints:
+                  allowedPaths: ['${{ config.parameterFile }}']
+                  maxChangedFiles: 1
+            - id: candidates
               type: if
-              if: ${{ state.batchCursor >= length(state.batch) }}
+              if: ${{ steps.propose.output.status == 'no-change' }}
               then:
                 steps:
-                  - id: admit_proposal
-                    type: time-budget
-                    stage: framework
-                    limitMs: ${{ config.phaseTimeMs }}
-                    actions:
-                      - use: proposer
-                        initialMs: ${{ config.proposalEstimateMs }}
-                      - use: trial
-                        status: measured
-                        initialMs: ${{ config.trialEstimateMs }}
-                    then:
-                      steps:
-                        - id: propose
-                          type: invoke
-                          use: proposer
-                          with:
-                            parent: ${{ state.incumbent }}
-                            goal: Propose ranked inference parameter candidates that could improve serving performance within the benchmark constraints.
-                            maxCandidates: ${{ if(config.candidatesPerRound < config.maxTrials - loop.index, config.candidatesPerRound, config.maxTrials - loop.index) }}
-                            evidenceRefs: ${{ compact(concat(append(range(0, 0), state.baseline.measurementRef), pluck(state.trials, 'measurementRef'))) }}
-                            sources: ${{ state.sources }}
-                            observations:
-                              baselineCandidateRef: ${{ state.baseline.candidateRef }}
-                              baselineMeasurementRef: ${{ state.baseline.measurementRef }}
-                              incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
-                              trials: ${{ state.trials }}
-                            editConstraints:
-                              allowedPaths: ['${{ config.parameterFile }}']
-                              maxChangedFiles: 1
-                        - id: queue_candidates
-                          type: state
-                          state:
-                            batch: ${{ if(steps.propose.output.status == 'batch', pluck(steps.propose.output.candidates, 'candidateRef'), if(steps.propose.output.status == 'created', append(range(0, 0), steps.propose.output.candidateRef), range(0, 0))) }}
-                            batchCursor: 0
-                            stopped: ${{ steps.propose.output.status == 'no-change' }}
-                            stopReason: ${{ if(steps.propose.output.status == 'no-change', 'no-change', state.stopReason) }}
-                    else:
-                      steps:
-                        - $ref: ./trial-steps.yaml#/time_stop
-            - id: explore
-              type: if
-              if: ${{ !state.stopped }}
-              then:
-                steps:
-                  - id: admit_candidate
-                    type: time-budget
-                    stage: framework
-                    limitMs: ${{ config.phaseTimeMs }}
-                    actions:
-                      - use: trial
-                        status: measured
-                        initialMs: ${{ config.trialEstimateMs }}
-                    then:
-                      steps:
-                        $ref: ./trial-steps.yaml#/evaluate
-                    else:
-                      steps:
-                        - $ref: ./trial-steps.yaml#/time_stop
+                  - id: no_change
+                    type: state
+                    state: { stopReason: no-change }
+                output: []
+              else:
+                steps: []
+                output: >-
+                  ${{ if(steps.propose.output.status == 'batch',
+                  pluck(steps.propose.output.candidates, 'candidateRef'),
+                  append(range(0, 0), steps.propose.output.candidateRef)) }}
+            - id: evaluate_batch
+              type: loop
+              maxIterations: ${{ length(steps.candidates.output) }}
+              while: ${{ length(state.trials) < config.maxTrials }}
+              steps:
+                $ref: ./trial-steps.yaml#/evaluate
 output:
   status: ${{ if(state.baseline.status != 'ready', 'baseline-unavailable', if(state.incumbentFeasible, 'selected', 'no-feasible-configuration')) }}
-  stopReason: ${{ if(state.baseline.status == 'time-budget', 'time-budget', if(state.baseline.status == 'failed', 'baseline-failed', state.stopReason)) }}
+  stopReason: ${{ if(state.baseline.status == 'failed', 'baseline-failed', state.stopReason) }}
   baselineCandidateRef: ${{ state.baseline.candidateRef }}
   baselineMeasurementRef: ${{ if(state.baseline.status == 'ready', state.baseline.measurementRef, null) }}
   baselineReason: ${{ state.baseline.reason }}

@@ -452,7 +452,7 @@ for (const strategy of ['grid', 'optuna'] as const) {
             config: {
               ...recipe.policy.config,
               enableBaseline: true,
-              baseline: { maxAttempts: 1, trialEstimateMs: 1 },
+              baseline: { maxAttempts: 1 },
             },
           },
         }),

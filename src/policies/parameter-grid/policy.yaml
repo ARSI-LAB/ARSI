@@ -141,7 +141,7 @@ steps:
                 exhausted: true
 output:
   status: ${{ if(config.enableBaseline && state.baseline.status != 'ready', 'baseline-unavailable', if(state.bestCandidate == null, 'no-feasible-configuration', 'selected')) }}
-  stopReason: ${{ if(state.baseline.status == 'time-budget', 'time-budget', if(state.baseline.status == 'failed', 'baseline-failed', if(state.exhausted, 'search-exhausted', 'max-candidates'))) }}
+  stopReason: ${{ if(state.baseline.status == 'failed', 'baseline-failed', if(state.exhausted, 'search-exhausted', 'max-candidates')) }}
   baselineCandidateRef: ${{ state.baseline.candidateRef }}
   baselineMeasurementRef: ${{ if(state.baseline.status == 'ready', state.baseline.measurementRef, null) }}
   candidateRef: ${{ state.bestCandidate }}

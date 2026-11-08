@@ -11,15 +11,13 @@ import {
   applyEdits,
   editEvidenceRefs,
   requestEdit,
+  resourceFiles,
   validateEdits,
   type ReadOnlyEditContext,
 } from '../shared/agent-editing/index.js';
 import { proposerExecutionContext } from './execution-context.js';
-import {
-  collapseDuplicateEdits,
-  expandEdits,
-  proposerEditOutputSchema,
-} from './edits.js';
+import { mergeEdits } from './merge-edits.js';
+import { expandEdits, proposerEditOutputSchema } from './edits.js';
 
 export const createProposerAgent: OperationDefinition<
   ProposerInput,
@@ -81,7 +79,10 @@ export const createProposerAgent: OperationDefinition<
             constraints,
             true,
           );
-          result = collapseDuplicateEdits(result);
+          result = mergeEdits(
+            result,
+            await resourceFiles(parent.artifactRef, context),
+          );
         }
         await applyEdits(
           edit.directory,

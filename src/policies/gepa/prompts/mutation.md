@@ -19,7 +19,7 @@ the session on repeated reviews of a proposal you can already make.
 Revise only the module allowed by editConstraints. Preserve useful instructions
 and produce a nonempty instruction suitable for reuse on other tasks. Do not
 delete the module or edit other candidate files or read-only evidence files.
-Return edits and reason matching the supplied outputSchema. Use patch with exact
-oldText and newText. For a whole-file change, use the entire original content as
-oldText. Paths are relative to candidate/ without that prefix. If no useful change
-is supported, return an empty edits array with the reason.
+Return edits and reason matching the supplied outputSchema. Use replace with
+complete content or patch with exact oldText and newText. Paths are relative to
+candidate/ without that prefix. If no useful change is supported, return an empty
+edits array with the reason.

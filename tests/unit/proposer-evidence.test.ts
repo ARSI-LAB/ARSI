@@ -213,15 +213,7 @@ test('Proposer can read every non-thinking event and full arguments while only t
         assert.match(complete, /PUBLIC_TOOL_RESULT/);
         return {
           edits: forbidden
-            ? [
-                {
-                  op: 'patch',
-                  path,
-                  changes: [
-                    { oldText: 'evidence', newText: 'overwrite evidence' },
-                  ],
-                },
-              ]
+            ? [{ op: 'replace', path, content: 'overwrite evidence' }]
             : [],
           reason: 'No supported edit.',
         };

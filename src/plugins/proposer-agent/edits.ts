@@ -35,23 +35,23 @@ export const proposerEditOutputSchema: JsonSchema = {
                   additionalProperties: false,
                   required: ['oldText', 'newText'],
                   properties: {
-                    oldText: { type: 'string' },
+                    oldText: { type: 'string', minLength: 1 },
                     newText: { type: 'string' },
                   },
                 },
               },
             },
           },
-          {
-            type: 'object',
+          ...(['create', 'replace'] as const).map((op) => ({
+            type: 'object' as const,
             additionalProperties: false,
             required: ['op', 'path', 'content'],
             properties: {
-              op: { const: 'create' },
+              op: { const: op },
               path,
-              content: { type: 'string' },
+              content: { type: 'string' as const },
             },
-          },
+          })),
           {
             type: 'object',
             additionalProperties: false,
@@ -86,7 +86,7 @@ export function expandEdits(
     const op = string(edit.op);
     const previous = seen.get(path);
     if (previous !== undefined) {
-      // Repeated creates or deletes are reconciled after scope validation.
+      // Only whole-file changes can use the existing three-way merge.
       if (op === 'patch' || previous === 'patch')
         throw new Error(`Duplicate edit path: ${path}`);
       hasDuplicates = true;
@@ -100,6 +100,7 @@ export function expandEdits(
     }
     if (!file) throw new Error(`Cannot ${op} ${path}: file does not exist`);
     if (op === 'delete') return { path, content: null };
+    if (op === 'replace') return { path, content: edit.content };
 
     const bytes = Buffer.from(file.base64, 'base64');
     let original: string;
@@ -112,19 +113,14 @@ export function expandEdits(
     } catch {
       throw new Error(`Cannot patch ${path}: expected a UTF-8 text file`);
     }
-    const changes = edit.changes as JsonObject[];
-    const spans = changes
+    const spans = (edit.changes as JsonObject[])
       .map((raw, index) => {
         const change = object(raw);
-        const oldText = change.oldText as string;
-        const label = `Patch ${path}, change ${index + 1}`;
-        if (oldText === '' && (original !== '' || changes.length !== 1))
-          throw new Error(
-            `${label}: empty oldText requires one change to an empty file`,
-          );
+        const oldText = string(change.oldText);
         const start = original.indexOf(oldText);
+        const label = `Patch ${path}, change ${index + 1}`;
         if (start < 0) throw new Error(`${label}: oldText not found`);
-        if (oldText !== '' && original.indexOf(oldText, start + 1) >= 0)
+        if (original.indexOf(oldText, start + 1) >= 0)
           throw new Error(`${label}: ambiguous oldText; include more context`);
         return {
           start,
@@ -149,22 +145,4 @@ export function expandEdits(
     createOnly,
     hasDuplicates,
   };
-}
-
-/** Collapse identical creates or deletes and retain the parent on conflicting additions. */
-export function collapseDuplicateEdits(result: JsonObject): JsonObject {
-  const edits = new Map<string, JsonObject>();
-  const conflicts = new Set<string>();
-  for (const edit of result.edits as JsonObject[]) {
-    const path = string(edit.path);
-    const previous = edits.get(path);
-    if (!previous) edits.set(path, edit);
-    else if (previous.content !== edit.content) conflicts.add(path);
-  }
-  if (conflicts.size)
-    return {
-      edits: [],
-      reason: `Duplicate edit conflicts (different new-file additions): ${[...conflicts].join(', ')}. Retained the parent for the whole proposal. Original reason: ${result.reason}`,
-    };
-  return { edits: [...edits.values()], reason: result.reason };
 }

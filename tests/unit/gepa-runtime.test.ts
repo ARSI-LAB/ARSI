@@ -616,16 +616,16 @@ test('Proposer receives the existing training summary while Runtime retains full
 for (const [name, edit, reason] of [
   [
     'another module',
-    { op: 'patch', path: 'b.md', changes: [{ oldText: 'B0', newText: 'B1' }] },
+    { op: 'replace', path: 'b.md', content: 'B1' },
     /not authorized/,
   ],
   ['deleted module', { op: 'delete', path: 'a.md' }, /not authorized/],
   [
     'empty module',
-    { op: 'patch', path: 'a.md', changes: [{ oldText: 'A0', newText: '' }] },
+    { op: 'replace', path: 'a.md', content: '' },
     /content size/,
   ],
-] satisfies [string, JsonObject, RegExp][]) {
+] as const) {
   test(`the shared Proposer rejects ${name} before candidate evaluation`, async () => {
     await expectRunFailure(
       {
@@ -709,13 +709,7 @@ test('mutation treats module path metacharacters literally and rejects an expand
       ...(editSibling
         ? {
             agentOutput: {
-              edits: [
-                {
-                  op: 'patch',
-                  path: sibling,
-                  changes: [{ oldText: 'B0', newText: 'B1' }],
-                },
-              ],
+              edits: [{ op: 'replace', path: sibling, content: 'B1' }],
               reason: 'Try a sibling',
             },
           }
@@ -781,24 +775,10 @@ for (const entry of constraintCases) {
 test('malformed reflective outputs fail before committing or evaluating a proposal', async () => {
   const malformedOutputs: JsonObject[] = [
     {
-      edits: [
-        {
-          op: 'patch',
-          path: 'a.md',
-          changes: [{ oldText: 'A0', newText: 42 }],
-        },
-      ],
+      edits: [{ op: 'replace', path: 'a.md', content: 42 }],
       reason: 'Invalid replacement type',
     },
-    {
-      edits: [
-        {
-          op: 'patch',
-          path: 'a.md',
-          changes: [{ oldText: 'A0', newText: 'A1' }],
-        },
-      ],
-    },
+    { edits: [{ op: 'replace', path: 'a.md', content: 'A1' }] },
   ];
   for (const agentOutput of malformedOutputs) {
     await expectRunFailure(

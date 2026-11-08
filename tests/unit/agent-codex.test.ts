@@ -409,6 +409,7 @@ test('Codex forwards the production edit schema unchanged and accepts all edit o
         changes: [{ oldText: 'old', newText: 'new' }],
       },
       { op: 'create', path: 'new.md', content: 'New guidance' },
+      { op: 'replace', path: 'instructions.md', content: 'Updated guidance' },
       { op: 'delete', path: 'obsolete.md' },
     ],
     reason: 'Update guidance',
@@ -426,7 +427,7 @@ test('Codex forwards the production edit schema unchanged and accepts all edit o
       assert.deepEqual(execution.turn.outputSchema, proposerEditOutputSchema);
       const items = execution.turn.outputSchema.properties.edits.items;
       assert.equal(items.oneOf, undefined);
-      assert.equal(items.anyOf.length, 3);
+      assert.equal(items.anyOf.length, 4);
     }
     assert.deepEqual(proposerEditOutputSchema, original);
   } finally {

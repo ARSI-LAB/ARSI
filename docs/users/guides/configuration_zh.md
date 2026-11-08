@@ -126,11 +126,11 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 ## Proposer 文件编辑
 
-`proposer.agent` 使用一套 Agent 输出 Schema。`edits` 中的每一项都有路径和 `op`。`replace` 和 `create` 提供完整的 `content`，`patch` 在 `changes` 中提供精确的 `oldText` 和 `newText`，`delete` 只需提供路径。同一个提案可以对不同路径使用不同操作。Proposer 和 Application 会执行编辑约束和 Target 权限检查。
+`proposer.agent` 使用一套 Agent 输出 Schema。`edits` 中的每一项都有路径和 `op`。`patch` 在 `changes` 中提供精确的 `oldText` 和 `newText`，`create` 提供完整的 `content`，`delete` 只需提供路径。同一个提案可以对不同路径使用不同操作。Proposer 和 Application 会执行编辑约束和 Target 权限检查。
 
-如果路径使用了 `patch`，该路径只能有一条操作。同一路径上的多条整文件编辑仍按现有规则合并和处理冲突。
+如果路径使用了 `patch`，该路径只能有一条操作。每个 `oldText` 必须在父版本里唯一匹配，且匹配范围不能重叠。整份改写时，把完整原文放进 `oldText`。空 `oldText` 只用于对空文件提交一处修改。
 
-迁移自定义 Proposer prompt 时，从绑定配置删除 `editProtocol`，并为每条 edit 添加 `op`。整文件编辑中，已有文件用 `replace`，新文件用 `create`，删除用 `delete`。已有的带 `op` 的 patch 操作保留原有字段。
+迁移自定义 Proposer prompt 时，从绑定配置删除 `editProtocol`，并为每条 edit 添加 `op`。整份更新用 `patch` 并提供完整原文和新文本。新文件用 `create`，删除用 `delete`。
 
 ## 限制与预算
 

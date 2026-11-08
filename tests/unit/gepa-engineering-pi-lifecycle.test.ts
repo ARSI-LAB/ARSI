@@ -53,7 +53,13 @@ async function localModel(onRequest?: (count: number) => void, readTurns = 4) {
       : {
           role: 'assistant',
           content: JSON.stringify({
-            edits: [{ op: 'replace', path: 'a.md', content: 'A1' }],
+            edits: [
+              {
+                op: 'patch',
+                path: 'a.md',
+                changes: [{ oldText: 'A0', newText: 'A1' }],
+              },
+            ],
             reason: `Completed ${readTurns} tool turns, then final schema-valid JSON.`,
           }),
         };

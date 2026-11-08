@@ -26,15 +26,20 @@ The candidate is a proposal. Validation and acceptance are owned by Policy/runti
 
 ## Tools and submission
 
-Use only files in the supplied project. References in evidence do not authorize retrieval of full logs or private artifacts. Follow the provided `outputSchema`. Use `replace` with complete content for an existing file or `create` with complete content for a new file.
+Use only files in the supplied project. References in evidence do not authorize retrieval of full logs or private artifacts. Follow the provided `outputSchema`. Use `patch` with exact original text for an existing file or `create` with complete content for a new file.
 
 ```json
 {
   "edits": [
     {
-      "op": "replace",
+      "op": "patch",
       "path": "<authorized existing skill path>",
-      "content": "Complete skill content."
+      "changes": [
+        {
+          "oldText": "Exact original instruction.",
+          "newText": "Updated instruction."
+        }
+      ]
     }
   ],
   "reason": "The Wiki pattern and observed behavior motivating this single intervention, prior attempts if known, applicability, and the validation needed."

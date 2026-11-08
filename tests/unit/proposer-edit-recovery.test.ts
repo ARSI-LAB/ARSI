@@ -24,7 +24,7 @@ async function fixture(responses: JsonObject[]) {
   const initial = {
     'skill.md': 'one\nmiddle\nthree\n',
     'other.md': 'original',
-    'notes.md': 'original notes',
+    'notes.md': '',
   };
   const base = await artifacts.putJson({
     kind: 'file-tree',
@@ -154,14 +154,26 @@ test('Composer conflict retains the whole parent and the next proposal can commi
   const f = await fixture([
     {
       edits: [
-        { op: 'replace', path: 'other.md', content: 'must not be applied' },
-        { op: 'replace', path: 'skill.md', content: 'changed' },
-        { op: 'delete', path: 'skill.md' },
+        {
+          op: 'patch',
+          path: 'other.md',
+          changes: [{ oldText: 'original', newText: 'must not be applied' }],
+        },
+        { op: 'create', path: 'new.md', content: 'First addition' },
+        { op: 'create', path: 'new.md', content: 'Conflicting addition' },
       ],
       reason: 'Compose changes',
     },
     {
-      edits: [{ op: 'replace', path: 'skill.md', content: 'next proposal' }],
+      edits: [
+        {
+          op: 'patch',
+          path: 'skill.md',
+          changes: [
+            { oldText: 'one\nmiddle\nthree\n', newText: 'next proposal' },
+          ],
+        },
+      ],
       reason: 'Continue',
     },
   ]);
@@ -185,7 +197,7 @@ test('Composer conflict retains the whole parent and the next proposal can commi
     assert.deepEqual(await resourceFiles(candidate.artifactRef, f.execution), {
       'skill.md': 'next proposal',
       'other.md': 'original',
-      'notes.md': 'original notes',
+      'notes.md': '',
     });
     assert.equal(f.requests(), 2);
     assert.deepEqual(await readdir(join(f.root, 'workspaces')), []);
@@ -194,36 +206,24 @@ test('Composer conflict retains the whole parent and the next proposal can commi
   }
 });
 
-test('Composer merges duplicate paths before committing through the Application', async () => {
+test('identical creates and deletes are applied once', async () => {
+  const create = { op: 'create', path: 'new.md', content: 'New notes' };
+  const remove = { op: 'delete', path: 'other.md' };
   const f = await fixture([
     {
-      edits: [
-        { op: 'replace', path: 'skill.md', content: 'ONE\nmiddle\nthree\n' },
-        { op: 'replace', path: 'skill.md', content: 'one\nmiddle\nTHREE\n' },
-      ],
-      reason: 'Independent improvements',
-    },
-    {
-      edits: [
-        { op: 'create', path: 'new.md', content: 'First addition' },
-        { op: 'create', path: 'new.md', content: 'Conflicting addition' },
-      ],
-      reason: 'Independent additions',
+      edits: [create, create, remove, remove],
+      reason: 'Independent suggestions',
     },
   ]);
   try {
-    const result = object(await f.execute());
+    const result = await f.execute();
     assert.equal(result.status, 'created');
-    const candidate = await f.execution.readCandidate(
-      String(result.candidateRef),
-    );
-    assert.equal(
-      (await resourceFiles(candidate.artifactRef, f.execution))['skill.md'],
-      'ONE\nmiddle\nTHREE\n',
-    );
-    const conflicting = await f.execute();
-    assert.equal(conflicting.status, 'no-change');
-    assert.match(conflicting.rationale, /different new-file additions/);
+    const candidate = await f.execution.readCandidate(result.candidateRef);
+    assert.deepEqual(await resourceFiles(candidate.artifactRef, f.execution), {
+      'skill.md': f.initial['skill.md'],
+      'notes.md': '',
+      'new.md': 'New notes',
+    });
   } finally {
     await f.close();
   }
@@ -232,16 +232,20 @@ test('Composer merges duplicate paths before committing through the Application'
 test('Composer does not disguise unauthorized edits or cancellation as merge fallback', async () => {
   const response: JsonObject = {
     edits: [
-      { op: 'replace', path: 'other.md', content: 'unauthorized' },
-      { op: 'replace', path: 'skill.md', content: 'changed' },
-      { op: 'delete', path: 'skill.md' },
+      {
+        op: 'patch',
+        path: 'other.md',
+        changes: [{ oldText: 'original', newText: 'unauthorized' }],
+      },
+      { op: 'create', path: 'new.md', content: 'First addition' },
+      { op: 'create', path: 'new.md', content: 'Conflicting addition' },
     ],
     reason: 'Invalid scope',
   };
   const f = await fixture([response, response]);
   try {
     await assert.rejects(
-      f.execute({ allowedPaths: ['skill.md'] }),
+      f.execute({ allowedPaths: ['skill.md', 'new.md'] }),
       /authorized/,
     );
     f.controller.abort(new Error('cancelled by caller'));
@@ -252,7 +256,7 @@ test('Composer does not disguise unauthorized edits or cancellation as merge fal
   }
 });
 
-test('a single proposal can patch, replace, create and delete files', async () => {
+test('one proposal can patch an empty file, create and delete files', async () => {
   const f = await fixture([
     {
       edits: [
@@ -265,7 +269,11 @@ test('a single proposal can patch, replace, create and delete files', async () =
           ],
         },
         { op: 'create', path: 'new.md', content: '' },
-        { op: 'replace', path: 'notes.md', content: 'updated notes' },
+        {
+          op: 'patch',
+          path: 'notes.md',
+          changes: [{ oldText: '', newText: 'updated notes' }],
+        },
         { op: 'delete', path: 'other.md' },
       ],
       reason: 'Revise instructions',
@@ -320,22 +328,47 @@ test('edit operations enforce parent file existence and reject mixed edits to th
   };
   const f = await fixture([
     {
-      edits: [{ op: 'replace', path: 'new.md', content: '' }],
-      reason: 'Replace a missing file',
+      edits: [{ ...patch, path: 'new.md' }],
+      reason: 'Patch a missing file',
     },
     {
       edits: [{ op: 'create', path: 'skill.md', content: '' }],
       reason: 'Create an existing file',
     },
     {
-      edits: [patch, { op: 'replace', path: 'skill.md', content: '' }],
+      edits: [patch, { op: 'delete', path: 'skill.md' }],
       reason: 'Mix operations on the same file',
+    },
+    {
+      edits: [{ ...patch, changes: [{ oldText: '', newText: 'ambiguous' }] }],
+      reason: 'Use an empty anchor in a nonempty file',
+    },
+    {
+      edits: [
+        {
+          ...patch,
+          path: 'notes.md',
+          changes: [
+            { oldText: '', newText: 'one' },
+            { oldText: '', newText: 'two' },
+          ],
+        },
+      ],
+      reason: 'Use two empty anchors',
     },
   ]);
   try {
-    await assert.rejects(f.execute(), /Cannot replace new\.md/);
+    await assert.rejects(f.execute(), /Cannot patch new\.md/);
     await assert.rejects(f.execute(), /Cannot create skill\.md/);
     await assert.rejects(f.execute(), /Duplicate edit path: skill\.md/);
+    await assert.rejects(
+      f.execute(),
+      /empty oldText requires one change to an empty file/,
+    );
+    await assert.rejects(
+      f.execute(),
+      /empty oldText requires one change to an empty file/,
+    );
     assert.equal(f.commits(), 0);
   } finally {
     await f.close();

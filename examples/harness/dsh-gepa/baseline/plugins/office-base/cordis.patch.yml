@@ -1,0 +1,3 @@
+- insert:
+    - id: office-base
+      name: '@agentbundle/dsh-office-base'

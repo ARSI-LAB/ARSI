@@ -1,0 +1,7 @@
+schemaVersion: rsi.target/v1
+id: gepa-office-prompt
+entries:
+  - path: plugins/office-base/prompts/office-discipline.md
+    kind: file
+    description: The sole Office prompt optimized by GEPA.
+    changes: [modify]

@@ -20,9 +20,8 @@ type ProposedCandidate = {
   rationale: string;
 };
 
-export type ProposerOutput =
+export type SingleProposerOutput =
   | ({ status: 'created' } & ProposedCandidate)
-  | { status: 'batch'; candidates: ProposedCandidate[] }
   | {
       status: 'no-change';
       candidateRef: string;
@@ -30,87 +29,110 @@ export type ProposerOutput =
       rationale: string;
     };
 
+export type ProposerOutput =
+  | SingleProposerOutput
+  | { status: 'batch'; candidates: ProposedCandidate[] };
+
 const candidateProperties = {
   candidateRef: { type: 'string', minLength: 1 },
-  diffRef: { type: 'string', minLength: 1 },
   rationale: { type: 'string' },
-} as const;
+};
+const diffRefSchema = { type: 'string', minLength: 1 };
+
+function proposalOutputSchema(
+  status: 'created' | 'no-change',
+  diffRef: JsonObject,
+): JsonObject {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['status', 'candidateRef', 'diffRef', 'rationale'],
+    properties: { ...candidateProperties, status: { const: status }, diffRef },
+  };
+}
+
+const createdProposalSchema = proposalOutputSchema('created', diffRefSchema);
+const noChangeProposalSchema = proposalOutputSchema('no-change', {
+  type: 'null',
+});
+export const singleProposerOutputSchema = {
+  oneOf: [createdProposalSchema, noChangeProposalSchema],
+};
+
+export const singleProposerInputSchema: JsonObject & {
+  properties: JsonObject;
+} = {
+  additionalProperties: false,
+  properties: {
+    editConstraints: {
+      type: 'object',
+    },
+    evidenceRefs: {
+      items: {
+        minLength: 1,
+        type: 'string',
+      },
+      type: 'array',
+    },
+    goal: {
+      minLength: 1,
+      type: 'string',
+    },
+    memoryRef: {
+      anyOf: [
+        {
+          minLength: 1,
+          type: 'string',
+        },
+        {
+          type: 'null',
+        },
+      ],
+    },
+    parent: {
+      minLength: 1,
+      type: 'string',
+    },
+    sources: {
+      items: {
+        additionalProperties: false,
+        properties: {
+          candidateRef: {
+            minLength: 1,
+            type: 'string',
+          },
+          measurementRef: {
+            minLength: 1,
+            type: 'string',
+          },
+        },
+        required: ['candidateRef'],
+        type: 'object',
+      },
+      type: 'array',
+    },
+  },
+  required: ['parent', 'goal', 'evidenceRefs'],
+  type: 'object',
+};
 
 export const proposerContract = defineContract({
   id: 'contract.proposer',
   input_schema: {
-    additionalProperties: false,
+    ...singleProposerInputSchema,
     properties: {
-      editConstraints: {
-        type: 'object',
-      },
-      evidenceRefs: {
-        items: {
-          minLength: 1,
-          type: 'string',
-        },
-        type: 'array',
-      },
-      goal: {
-        minLength: 1,
-        type: 'string',
-      },
+      ...singleProposerInputSchema.properties,
       maxCandidates: {
         type: 'integer',
         minimum: 1,
         maximum: maxProposalBatchSize,
       },
-      memoryRef: {
-        anyOf: [
-          {
-            minLength: 1,
-            type: 'string',
-          },
-          {
-            type: 'null',
-          },
-        ],
-      },
       observations: { type: 'object' },
-      parent: {
-        minLength: 1,
-        type: 'string',
-      },
-      sources: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            candidateRef: {
-              minLength: 1,
-              type: 'string',
-            },
-            measurementRef: {
-              minLength: 1,
-              type: 'string',
-            },
-          },
-          required: ['candidateRef'],
-          type: 'object',
-        },
-        type: 'array',
-      },
     },
-    required: ['parent', 'goal', 'evidenceRefs'],
-    type: 'object',
   },
   output_schema: {
     oneOf: [
-      {
-        additionalProperties: false,
-        properties: {
-          ...candidateProperties,
-          status: {
-            const: 'created',
-          },
-        },
-        required: ['status', 'candidateRef', 'diffRef', 'rationale'],
-        type: 'object',
-      },
+      createdProposalSchema,
       {
         type: 'object',
         additionalProperties: false,
@@ -125,31 +147,12 @@ export const proposerContract = defineContract({
               type: 'object',
               additionalProperties: false,
               required: ['candidateRef', 'diffRef', 'rationale'],
-              properties: candidateProperties,
+              properties: { ...candidateProperties, diffRef: diffRefSchema },
             },
           },
         },
       },
-      {
-        additionalProperties: false,
-        properties: {
-          candidateRef: {
-            minLength: 1,
-            type: 'string',
-          },
-          diffRef: {
-            type: 'null',
-          },
-          rationale: {
-            type: 'string',
-          },
-          status: {
-            const: 'no-change',
-          },
-        },
-        required: ['status', 'candidateRef', 'diffRef', 'rationale'],
-        type: 'object',
-      },
+      noChangeProposalSchema,
     ],
   },
 });

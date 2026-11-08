@@ -4,7 +4,7 @@ The `vllm-optimization` Recipe uses `parameter.agent` to establish a baseline an
 
 ## Parameter selection
 
-The launcher reads the installed vLLM `serve` parser during Application initialization. The Proposer receives the resulting framework catalog and previous candidate settings alongside AISBench measurements. It can propose adjacent values, combine compatible levers, or remove an inherited option. Common families include scheduler, cache, graph compilation, and speculative decoding. The available keys depend on the installed release.
+The launcher reads the installed vLLM `serve` parser during Application initialization. The Proposer receives the resulting framework catalog and previous candidate settings alongside AISBench measurements. It can propose adjacent values, combine compatible levers, or remove an inherited option. Common families include scheduler, cache, graph compilation, and speculative decoding. The available keys depend on the installed release. Each proposed edit uses `op: replace` and supplies the complete contents of `tuning.json`.
 
 The launcher checks each proposal against the installed catalog before launch. The served model, endpoint, selected devices, TP/DP/PP topology, model length, and model precision remain deployment settings. `remote.memoryUtilization` supplies the initial memory fraction. A supported `gpu_memory_utilization` in `tuning.json` overrides it for that candidate when calibration is disabled. AISBench measures performance. Evaluate output quality separately before deploying changes that affect precision or decoding behavior.
 

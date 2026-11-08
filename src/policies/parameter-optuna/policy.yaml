@@ -66,7 +66,7 @@ require:
   agent:
     $ref: ../parameter-shared/bindings.yaml#/require/agent
   proposer:
-    contract: contract.proposer-parameter-search
+    contract: contract.search
   evaluator:
     contract: contract.inferencebench
   selector:
@@ -120,10 +120,25 @@ steps:
           stateRef: ${{ state.searchStateRef }}
       - id: handle_proposal
         type: if
-        if: ${{ steps.propose.output.status == 'candidate' }}
+        if: ${{ steps.propose.output.work != null }}
         then:
           steps:
-            - $ref: ../parameter-shared/evaluate-search-point.yaml
+            - id: evaluate
+              type: if
+              if: ${{ state.baseline.status == 'ready' && state.baseline.candidateRef == steps.propose.output.work.evaluations[0].candidateRef }}
+              then:
+                steps: []
+                output:
+                  measurementRef: ${{ state.baseline.measurementRef }}
+              else:
+                steps:
+                  - id: evaluate_candidate
+                    type: invoke
+                    use: evaluator
+                    with:
+                      candidateRef: ${{ steps.propose.output.work.evaluations[0].candidateRef }}
+                output:
+                  measurementRef: ${{ steps.evaluate_candidate.output.measurementRef }}
             - id: select
               type: invoke
               use: selector
@@ -139,9 +154,12 @@ steps:
               with:
                 action: observe
                 stateRef: ${{ steps.propose.output.stateRef }}
-                trialId: ${{ steps.propose.output.trialId }}
-                measurementRef: ${{ steps.evaluate.output.measurementRef }}
-                decisionRef: ${{ steps.select.output.decisionRef }}
+                workId: ${{ steps.propose.output.work.id }}
+                feedback:
+                  kind: evaluation
+                  measurementRefs:
+                    - ${{ steps.evaluate.output.measurementRef }}
+                  decisionRef: ${{ steps.select.output.decisionRef }}
             - id: record
               type: state
               state:
@@ -157,9 +175,9 @@ steps:
                   - id: save_best
                     type: state
                     state:
-                      bestCandidate: ${{ steps.propose.output.candidateRef }}
+                      bestCandidate: ${{ steps.propose.output.work.evaluations[0].candidateRef }}
                       bestMeasurement: ${{ steps.evaluate.output.measurementRef }}
-                      bestParameters: ${{ steps.propose.output.parameters }}
+                      bestParameters: ${{ steps.propose.output.work.parameters }}
         else:
           steps:
             - id: stop
@@ -167,7 +185,7 @@ steps:
               state:
                 searchStateRef: ${{ steps.propose.output.stateRef }}
                 stopped: true
-                stopReason: ${{ steps.propose.output.reason }}
+                stopReason: ${{ steps.propose.output.result.reason }}
 output:
   status: ${{ if(config.enableBaseline && state.baseline.status != 'ready', 'baseline-unavailable', if(state.bestCandidate == null, 'no-feasible-configuration', 'selected')) }}
   stopReason: ${{ if(state.baseline.status == 'time-budget', 'time-budget', if(state.baseline.status == 'failed', 'baseline-failed', state.stopReason)) }}

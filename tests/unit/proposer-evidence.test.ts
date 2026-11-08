@@ -107,7 +107,15 @@ test('Proposer can read every non-thinking event and full arguments while only t
       rootDirectory: root,
       dataDirectory: root,
       artifacts,
-      facts: { read: unused, write: unused, list: unused },
+      facts: {
+        read: async (kind, id) => {
+          assert.equal(kind, 'calls');
+          assert.equal(id, context.callId);
+          return { status: 'running' };
+        },
+        write: unused,
+        list: unused,
+      },
       workspaces: {
         create: async () => {
           creates++;
@@ -204,7 +212,9 @@ test('Proposer can read every non-thinking event and full arguments while only t
         );
         assert.match(complete, /PUBLIC_TOOL_RESULT/);
         return {
-          edits: forbidden ? [{ path, content: 'overwrite evidence' }] : [],
+          edits: forbidden
+            ? [{ op: 'replace', path, content: 'overwrite evidence' }]
+            : [],
           reason: 'No supported edit.',
         };
       },

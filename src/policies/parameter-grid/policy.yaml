@@ -10,6 +10,8 @@ config_schema:
 state_schema:
   type: object
   properties:
+    baseline:
+      $ref: ../parameter-shared/baseline-state.yaml#/schema
     cursor:
       type: integer
       minimum: 0
@@ -32,6 +34,7 @@ state_schema:
       items:
         type: string
   required:
+    - baseline
     - cursor
     - exhausted
     - bestCandidate
@@ -40,6 +43,8 @@ state_schema:
     - history
   additionalProperties: false
 state:
+  baseline:
+    $ref: ../parameter-shared/baseline-state.yaml#/initial
   cursor: 0
   exhausted: false
   bestCandidate: null
@@ -49,6 +54,12 @@ state:
 output_schema:
   $ref: ./schemas/result.yaml
 require:
+  trial:
+    $ref: ../parameter-shared/bindings.yaml#/require/trial
+  repair:
+    $ref: ../parameter-shared/bindings.yaml#/require/repair
+  agent:
+    $ref: ../parameter-shared/bindings.yaml#/require/agent
   proposer:
     contract: contract.proposer-grid
   evaluator:
@@ -57,6 +68,12 @@ require:
     contract: contract.selector-metrics
 defaults:
   bindings:
+    trial:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/trial
+    repair:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/repair
+    agent:
+      $ref: ../parameter-shared/bindings.yaml#/defaults/agent
     proposer:
       plugin: proposer.grid
     selector:
@@ -68,35 +85,32 @@ defaults:
           - metric: sloSatisfied
             min: 1
 steps:
+  - $ref: ../parameter-shared/baseline-step.yaml
+  - $ref: ../parameter-shared/select-baseline.yaml
   - id: search
     type: loop
     maxIterations: ${{ config.maxCandidates }}
-    while: ${{ !state.exhausted }}
+    while: ${{ (!config.enableBaseline || state.baseline.status == 'ready') && !state.exhausted }}
     steps:
       - id: propose
         type: invoke
         use: proposer
         with:
-          parent: ${{ input.candidateRef }}
+          parent: ${{ if(config.enableBaseline, state.baseline.candidateRef, input.candidateRef) }}
           cursor: ${{ state.cursor }}
       - id: handle_proposal
         type: if
         if: ${{ steps.propose.output.status == 'candidate' }}
         then:
           steps:
-            # A grid point equal to the baseline still needs measurement.
-            - id: evaluate
-              type: invoke
-              use: evaluator
-              with:
-                candidateRef: ${{ steps.propose.output.candidateRef }}
+            - $ref: ../parameter-shared/evaluate-search-point.yaml
             # Self-comparison checks constraints before the first feasible incumbent.
             - id: select
               type: invoke
               use: selector
               with:
                 incumbentMeasurementRef: ${{ if(state.bestMeasurement == null,
-                  steps.evaluate.output.measurementRef, state.bestMeasurement)
+                  if(state.baseline.measurementRef == null, steps.evaluate.output.measurementRef, state.baseline.measurementRef), state.bestMeasurement)
                   }}
                 candidateMeasurementRef: ${{ steps.evaluate.output.measurementRef }}
             - id: record
@@ -126,9 +140,10 @@ steps:
               state:
                 exhausted: true
 output:
-  status: ${{ if(state.bestCandidate == null, 'no-feasible-configuration',
-    'selected') }}
-  stopReason: ${{ if(state.exhausted, 'search-exhausted', 'max-candidates') }}
+  status: ${{ if(config.enableBaseline && state.baseline.status != 'ready', 'baseline-unavailable', if(state.bestCandidate == null, 'no-feasible-configuration', 'selected')) }}
+  stopReason: ${{ if(state.baseline.status == 'time-budget', 'time-budget', if(state.baseline.status == 'failed', 'baseline-failed', if(state.exhausted, 'search-exhausted', 'max-candidates'))) }}
+  baselineCandidateRef: ${{ state.baseline.candidateRef }}
+  baselineMeasurementRef: ${{ if(state.baseline.status == 'ready', state.baseline.measurementRef, null) }}
   candidateRef: ${{ state.bestCandidate }}
   measurementRef: ${{ state.bestMeasurement }}
   parameters: ${{ state.bestParameters }}

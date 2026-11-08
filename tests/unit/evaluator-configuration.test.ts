@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { JsonObject } from '../../src/contracts/index.js';
 import { nativeConfiguration as agentbenchConfiguration } from '../../src/plugins/evaluator-agentbench/configuration.js';
 import { nativeConfiguration as inferencebenchConfiguration } from '../../src/plugins/evaluator-inferencebench/configuration.js';
 import type { AgentbenchConfig as EvaluatorConfig } from '../../src/plugins/evaluator-agentbench/schema.js';
 import { object } from '../../src/shared/json.js';
 
-test('inferencebench rejects non-AgentX benchmarks before invoking the SDK', () => {
+test('inferencebench rejects unknown benchmarks before invoking the SDK', () => {
   assert.throws(
     () =>
       inferencebenchConfiguration(
@@ -20,8 +23,67 @@ test('inferencebench rejects non-AgentX benchmarks before invoking the SDK', () 
         { baseUrl: 'http://localhost', model: 'test' },
         '/call',
       ),
-    /requires benchmark.name=agentx/,
+    /requires benchmark.name=agentx or aisbench/,
   );
+});
+
+test('inferencebench resolves the bundled AISBench SSH profile with the owned endpoint', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'rsi-aisbench-config-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const solverConfig = {
+    tokenizerPath: '/model',
+    remote: {
+      ssh: { host: 'benchmark.internal', user: 'benchmark' },
+      pythonExecutable: '/opt/aisbench/bin/python',
+      aisbenchWorkPath: '/opt/aisbench',
+      aisbenchVersion: '1.0.0',
+      workRoot: '/tmp/aisbench',
+    },
+  };
+  const config: EvaluatorConfig = {
+    services: { workload: {} },
+    benchmark: {
+      name: 'aisbench',
+      config: { workload: { inputLength: 512, concurrency: 4 } },
+      solver: { service: 'workload', config: solverConfig },
+    },
+  };
+  const native = inferencebenchConfiguration(
+    config,
+    {},
+    {
+      baseUrl: 'http://ascend.internal:8000/v1',
+      model: 'served-model',
+      credentialRef: 'VLLM_API_KEY',
+    },
+    directory,
+  );
+  assert.deepEqual(object(native.benchmark).solver, {
+    name: 'aisbench-ssh',
+    service: 'workload',
+    config: solverConfig,
+  });
+  assert.deepEqual(object(native.services).workload, {
+    model: 'served-model',
+    base_url: 'http://ascend.internal:8000/v1',
+    api: 'openai-completions',
+    api_key: '${VLLM_API_KEY}',
+  });
+  assert.deepEqual(native.scheduler, { name: 'local', concurrency: 1 });
+  const configPath = join(directory, 'evaluator.json');
+  const networkConfigPath = join(directory, 'network.yaml');
+  await writeFile(configPath, JSON.stringify(native));
+  await writeFile(networkConfigPath, '{}');
+  const { loadConfig } = await import('ember-evaluator');
+  const resolved = await loadConfig(
+    configPath,
+    {},
+    { VLLM_API_KEY: 'EMPTY' },
+    { networkConfigPath },
+  );
+  assert.equal(resolved.experiment.benchmark.name, 'aisbench');
+  assert.equal(resolved.experiment.solver.name, 'aisbench-ssh');
+  assert.equal(resolved.experiment.solver.service, 'workload');
 });
 
 test('agentbench forwards only explicitly configured service output limits', () => {

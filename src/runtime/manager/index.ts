@@ -767,6 +767,36 @@ export class Manager {
           },
           invoke: async (binding, value, path) =>
             calls.invoke(binding, value, root, path),
+          timeBudget: (request) =>
+            budget.timeBudget(request, Date.parse(experimentStartedAt), root),
+          hasStartedStep: async (pathPrefix) => {
+            const receipts =
+              this.facts.scan?.('calls') ?? (await this.facts.list('calls'));
+            for await (const receipt of receipts) {
+              signal.throwIfAborted();
+              if (
+                receipt.experimentId === id &&
+                receipt.parentCallId === root.callId &&
+                typeof receipt.path === 'string' &&
+                receipt.path.startsWith(pathPrefix)
+              )
+                return true;
+            }
+            const reflections =
+              this.facts.scan?.('reflection') ??
+              (await this.facts.list('reflection'));
+            for await (const record of reflections) {
+              signal.throwIfAborted();
+              if (
+                record.experimentId === id &&
+                record.policyScopeId === root.callId &&
+                typeof record.stepPath === 'string' &&
+                record.stepPath.startsWith(pathPrefix)
+              )
+                return true;
+            }
+            return false;
+          },
           incrementalCheckpoint: checkpoints,
           reflect: (path, state, parallel) =>
             runReflection(root, path, state, parallel),

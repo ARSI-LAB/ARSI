@@ -6,7 +6,8 @@ import type {
   Operation,
   RuntimeContext,
 } from '../../contracts/index.js';
-import { object, string, unknownKeys } from '../../shared/json.js';
+import { inferencebenchContract } from '../../contracts/plugin-types/inferencebench.js';
+import { object } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { redact } from '../shared/evaluator-adapter/data.js';
 import {
@@ -25,11 +26,9 @@ export async function createInferencebench(
   validate(configSchema, config, 'evaluator config');
   return {
     async execute(input, context): Promise<InferencebenchOutput> {
-      object(input);
-      unknownKeys(input, ['candidateRef'], 'evaluator input');
-      string(input.candidateRef);
+      validate(inferencebenchContract.input_schema, input, 'evaluator input');
       return context.withInstance(
-        string(input.candidateRef),
+        input.candidateRef,
         'inference-endpoint',
         async (execution) => {
           context.signal.throwIfAborted();
@@ -99,15 +98,23 @@ export async function createInferencebench(
               new Error('Evaluator result has no confirmed collected snapshot'),
               { measurementRef, status: 'unknown' },
             );
-          if (raw.exitCode !== 0)
+          if (raw.exitCode !== 0) {
+            const status = evaluationStatus(raw, context);
+            if (
+              input.reportFailedMeasurement &&
+              Number.isInteger(raw.exitCode) &&
+              status === 'failed'
+            )
+              return { measurementRef };
             throw Object.assign(
               new Error('Evaluator completed with nonzero exitCode'),
               {
                 measurementRef,
-                status: evaluationStatus(raw, context),
+                status,
                 exitCode: raw.exitCode,
               },
             );
+          }
           return { measurementRef };
         },
       );

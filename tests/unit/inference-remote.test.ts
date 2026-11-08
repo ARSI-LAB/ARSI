@@ -12,7 +12,9 @@ import {
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stringify } from 'yaml';
 import type { Candidate } from '../../src/contracts/index.js';
+import { inferencebenchContract } from '../../src/contracts/plugin-types/inferencebench.js';
 import {
   FileArtifacts,
   FileFacts,
@@ -21,6 +23,9 @@ import {
 import { inferenceDefinition } from '../../src/plugins/application-inference/index.js';
 import type { RemoteInferenceConfig } from '../../src/plugins/application-inference/schema.js';
 import { createRemoteBackend } from '../../src/plugins/application-inference/remote.js';
+import { inferenceTrialDefinition } from '../../src/plugins/inference-trial/index.js';
+import { Manager } from '../../src/runtime/manager/index.js';
+import { Registry } from '../../src/runtime/registry/index.js';
 import { validate } from '../../src/shared/schema.js';
 import { digest, object } from '../../src/shared/json.js';
 
@@ -76,7 +81,10 @@ function call(
     cleanup: AbortSignal.timeout(10000),
   });
 }
-async function fixture(onHealth?: () => void): Promise<{
+async function fixture(
+  onHealth?: () => void,
+  startupFailure?: 'start' | 'poll' | 'cleanup',
+): Promise<{
   root: string;
   config: RemoteInferenceConfig;
   close: () => Promise<void>;
@@ -100,15 +108,23 @@ async function fixture(onHealth?: () => void): Promise<{
     `import {readFile,writeFile,appendFile} from 'node:fs/promises';
 let text='';for await(const chunk of process.stdin)text+=chunk;
 const r=JSON.parse(text), d={root:${JSON.stringify(root)}};
+const startupFailure=${JSON.stringify(startupFailure ?? null)};
 if('deployment' in r)throw Error('Unexpected deployment payload');
 await appendFile(d.root+'/requests.jsonl',JSON.stringify(r)+'\\n');
 let saved=null;try{saved=JSON.parse(await readFile(d.root+'/remote.json','utf8'))}catch(e){if(e.code!=='ENOENT')throw e}
 const identity={verified:true,host:'fixture',modelIdentity:'model-digest',software:'vllm-fixture',devices:['fixture-device']};
 let out;
-if(r.action==='start'){
- if(r.memoryUtilization>0.97)out={status:'capacity-rejected',instanceId:r.instanceId,parametersDigest:r.parametersDigest};
+if(r.action==='describe-parameters'){
+ out={parameters:{enable_prefix_caching:{flag:'--enable-prefix-caching',kind:'boolean'},gpu_memory_utilization:{flag:'--gpu-memory-utilization',kind:'number'}}};
+}else if(r.action==='start'){
+ if(startupFailure){
+  saved={status:'startup-failed',instanceId:r.instanceId,parametersDigest:r.parametersDigest,reason:'Configured launch diagnostic'};
+  await writeFile(d.root+'/remote.json',JSON.stringify(saved));
+  out=startupFailure==='poll'?{...saved,status:'starting'}:saved;
+ }
+ else if(r.memoryUtilization>0.97)out={status:'capacity-rejected',instanceId:r.instanceId,parametersDigest:r.parametersDigest};
  else {saved={status:'ready',instanceId:r.instanceId,parametersDigest:r.parametersDigest,resources:identity};await writeFile(d.root+'/remote.json',JSON.stringify(saved));out=saved}
-}else if(r.action==='stop'){if(saved&&saved.instanceId!==r.instanceId)throw Error('ownership mismatch');await writeFile(d.root+'/remote.json','null');out={status:'stopped',instanceId:r.instanceId};}
+}else if(r.action==='stop'){if(startupFailure==='cleanup')out={...saved,status:'unknown'};else {if(saved&&saved.instanceId!==r.instanceId)throw Error('ownership mismatch');await writeFile(d.root+'/remote.json','null');out={status:'stopped',instanceId:r.instanceId};}}
 else out=saved??{status:'stopped',instanceId:r.instanceId};
 process.stdout.write(JSON.stringify(out));`,
   );
@@ -154,6 +170,154 @@ process.stdout.write(JSON.stringify(out));`,
     },
   };
 }
+
+test('remote startup rejection is recoverable only after the owned service is released', async () => {
+  for (const failure of ['start', 'poll', 'cleanup'] as const) {
+    const f = await fixture(undefined, failure);
+    const services = servicesFor(f.root);
+    const config = {
+      ...f.config,
+      remote: { script: f.config.remote.script, executable: process.execPath },
+    };
+    const application = await inferenceDefinition.create(config, services);
+    try {
+      const initial = await application.execute(
+        { action: 'initialize' },
+        call(services),
+      );
+      assert.equal(initial.action, 'initialize');
+      await assert.rejects(
+        application.execute(
+          {
+            action: 'acquire',
+            candidateRef: initial.initialCandidateRef,
+            instanceId: 'rejected',
+            capability: 'inference-endpoint',
+          },
+          call(services),
+        ),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          if (failure === 'cleanup') {
+            assert.equal('status' in error && error.status, 'unknown');
+            assert.match(error.message, /cleanup could not confirm release/);
+          } else {
+            assert.equal(error.name, 'InferenceStartupError');
+            assert.match(error.message, /Configured launch diagnostic/);
+          }
+          return true;
+        },
+      );
+      const instance = await services.facts.read('instances', 'rejected');
+      assert.equal(
+        instance.status,
+        failure === 'cleanup' ? 'unknown' : 'released',
+      );
+    } finally {
+      try {
+        if (failure === 'cleanup') await assert.rejects(application.dispose());
+        else await application.dispose();
+      } finally {
+        await f.close();
+      }
+    }
+  }
+});
+
+test('a managed trial returns a cleaned remote startup rejection without running the evaluator', async () => {
+  const f = await fixture(undefined, 'start');
+  const registry = new Registry();
+  const manager = new Manager({ registry, rootDirectory: f.root });
+  try {
+    registry.registerOperation(inferenceDefinition);
+    registry.registerOperation(inferenceTrialDefinition);
+    registry.registerOperation({
+      id: 'test.inference-evaluator',
+      contract: inferencebenchContract,
+      configSchema: { type: 'object' },
+      async create() {
+        return {
+          async execute(input, context) {
+            return context.withInstance(
+              String(object(input).candidateRef),
+              'inference-endpoint',
+              async () =>
+                assert.fail('Evaluator cannot use a rejected instance'),
+            );
+          },
+          async dispose() {},
+        };
+      },
+    });
+    const policyPath = join(f.root, 'policy.yaml');
+    await writeFile(
+      policyPath,
+      stringify({
+        schemaVersion: 'rsi.policy/v1',
+        id: 'test.inference-trial',
+        input_schema: { type: 'object' },
+        output_schema: { type: 'object' },
+        require: {
+          trial: { contract: 'contract.inference-trial' },
+          evaluator: { contract: inferencebenchContract.id },
+        },
+        steps: [
+          {
+            id: 'check',
+            type: 'invoke',
+            use: 'trial',
+            with: {
+              candidateRef: '${{ application.initialCandidate }}',
+              evaluatorRef: 'evaluator',
+            },
+          },
+        ],
+        output: '${{ steps.check.output }}',
+      }),
+    );
+    registry.registerPolicy('test.inference-trial', policyPath);
+    const recipePath = join(f.root, 'recipe.yaml');
+    await writeFile(
+      recipePath,
+      stringify({
+        schemaVersion: 'rsi.recipe/v1',
+        id: 'trial',
+        application: {
+          plugin: inferenceDefinition.id,
+          config: {
+            ...f.config,
+            remote: {
+              script: f.config.remote.script,
+              executable: process.execPath,
+            },
+          },
+        },
+        policy: { id: 'test.inference-trial', config: {}, input: {} },
+        bindings: {
+          trial: { plugin: inferenceTrialDefinition.id, config: {} },
+          evaluator: { plugin: 'test.inference-evaluator', config: {} },
+        },
+        budget: { operations: 10, elapsedWallMs: 10000 },
+      }),
+    );
+    const result = await manager.run(recipePath, { id: 'trial' });
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(result.output, {
+      status: 'startup-failed',
+      measurementRef: null,
+      reason: 'Remote inference startup failed: Configured launch diagnostic',
+    });
+    const instances = await manager.facts.list('instances');
+    assert.deepEqual(
+      instances.map((record) => record.status),
+      ['released'],
+    );
+  } finally {
+    await manager.dispose();
+    await registry.dispose();
+    await f.close();
+  }
+});
 
 test('remote inference schema accepts script lifecycle and excludes local start', async () => {
   const f = await fixture();
@@ -643,6 +807,55 @@ test('remote acquisition failure before its first fact does not publish or retai
     );
   } finally {
     await backend.dispose();
+    await f.close();
+  }
+});
+
+test('remote discovery gives the proposer installed choices and treats memory as a candidate factor', async () => {
+  const f = await fixture();
+  try {
+    const services = servicesFor(f.root);
+    const context = call(services);
+    const { calibration: _calibration, ...remote } = f.config.remote;
+    const config = {
+      ...f.config,
+      remote: { ...remote, discoverParameters: true },
+    };
+    await writeFile(
+      join(f.root, 'baseline/tuning.json'),
+      '{"enable_prefix_caching":false,"gpu_memory_utilization":0.91}\n',
+    );
+    const app = await inferenceDefinition.create(config, services);
+    try {
+      const initialized = await app.execute({ action: 'initialize' }, context);
+      assert.equal(initialized.action, 'initialize');
+      assert.deepEqual(
+        Object.keys(object(initialized.target.parameterCatalog)),
+        ['enable_prefix_caching', 'gpu_memory_utilization'],
+      );
+      const output = await app.execute(
+        {
+          action: 'acquire',
+          candidateRef: initialized.initialCandidateRef,
+          capability: 'inference-endpoint',
+          instanceId: 'discovered',
+        },
+        context,
+      );
+      assert.equal(output.action, 'acquire');
+      assert.equal(output.execution.gpuMemoryUtilization, 0.91);
+      assert.equal(
+        object(output.execution.resources).gpuMemoryUtilization,
+        undefined,
+      );
+      await app.execute(
+        { action: 'release', instanceId: 'discovered' },
+        context,
+      );
+    } finally {
+      await app.dispose();
+    }
+  } finally {
     await f.close();
   }
 });

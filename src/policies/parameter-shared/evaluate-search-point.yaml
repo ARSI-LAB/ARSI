@@ -1,0 +1,16 @@
+id: evaluate
+type: if
+if: ${{ state.baseline.status == 'ready' && state.baseline.candidateRef == steps.propose.output.candidateRef }}
+then:
+  steps: []
+  output:
+    measurementRef: ${{ state.baseline.measurementRef }}
+else:
+  steps:
+    - id: evaluate_candidate
+      type: invoke
+      use: evaluator
+      with:
+        candidateRef: ${{ steps.propose.output.candidateRef }}
+  output:
+    measurementRef: ${{ steps.evaluate_candidate.output.measurementRef }}

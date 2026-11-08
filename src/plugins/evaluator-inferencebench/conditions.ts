@@ -1,4 +1,4 @@
-import type { JsonObject } from '../../contracts/index.js';
+import type { JsonObject, JsonValue } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import {
   clone,
@@ -17,22 +17,19 @@ export function conditions(
   const solver = nullableObject(run.solverProvenance);
   const fixed = object(clone(config));
   const unresolved: string[] = [];
+  const expand = (value: string): string =>
+    value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
+      const resolved = process.env[name];
+      if (resolved !== undefined) return resolved;
+      unresolved.push(name);
+      return `{unknown:${name}}`;
+    });
   for (const value of Object.values(plain(fixed.services))) {
     const service = object(value);
     delete service.api_key;
     for (const field of ['model', 'base_url'])
       if (typeof service[field] === 'string')
-        service[field] = string(service[field]).replace(
-          /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
-          (_match, name: string) => {
-            const resolved = process.env[name];
-            if (resolved === undefined) {
-              unresolved.push(name);
-              return `{unknown:${name}}`;
-            }
-            return resolved;
-          },
-        );
+        service[field] = expand(string(service[field]));
   }
   delete fixed.output;
   const r = plain(fixed.run);
@@ -47,12 +44,18 @@ export function conditions(
   delete sc.dshhome;
   delete sc.dshprofile;
   s.config = sc;
+  if (b.name === 'aisbench') {
+    const ssh = nullableObject(nullableObject(sc.remote)?.ssh);
+    if (ssh) delete ssh.identityFile;
+    // The load-generator host and tokenizer can be configured with environment references.
+    s.config = expandConfig(sc, expand);
+  }
   b.solver = s;
   for (const model of Object.values(plain(fixed.services))) {
     object(model).base_url = '{owned-endpoint}';
   }
   const reasons: string[] = unresolved.map(
-    (name) => `Service identity environment ${name} unavailable`,
+    (name) => `Inference identity environment ${name} unavailable`,
   );
   if (!source) reasons.push('SDK source identity unavailable');
   if (!identity)
@@ -92,6 +95,22 @@ export function conditions(
       'service endpoint',
     ],
   };
+}
+function expandConfig(
+  value: JsonValue,
+  expand: (text: string) => string,
+): JsonValue {
+  if (typeof value === 'string') return expand(value);
+  if (Array.isArray(value))
+    return value.map((entry) => expandConfig(entry, expand));
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        expandConfig(entry, expand),
+      ]),
+    );
+  return value;
 }
 function environmentConditions(raw: JsonObject): JsonObject {
   const result: JsonObject = {};

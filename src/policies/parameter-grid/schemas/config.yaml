@@ -1,6 +1,10 @@
 type: object
 additionalProperties: false
 properties:
+  enableBaseline: { type: boolean, default: false }
+  baseline:
+    $ref: ../../parameter-shared/baseline-config.yaml
+  parameterFile: { type: string, minLength: 1, default: tuning.json }
   maxCandidates:
     type: integer
     minimum: 1

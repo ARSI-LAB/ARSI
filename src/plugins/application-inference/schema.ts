@@ -23,6 +23,7 @@ export type RemoteInferenceConfig = InferenceCommonConfig & {
     executable?: string;
     parametersFile?: string;
     timeoutMs?: number;
+    discoverParameters?: boolean;
     memoryUtilization?: number;
     calibration?: {
       start: number;
@@ -47,6 +48,7 @@ export const configSchema: JsonSchema = {
         executable: { type: 'string', minLength: 1 },
         parametersFile: { type: 'string', minLength: 1 },
         timeoutMs: { type: 'integer', minimum: 1 },
+        discoverParameters: { type: 'boolean' },
         memoryUtilization: { type: 'number', exclusiveMinimum: 0, maximum: 1 },
         calibration: {
           type: 'object',

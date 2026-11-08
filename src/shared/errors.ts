@@ -19,3 +19,17 @@ export function errorText(error: unknown): string {
       message = message.replaceAll(value, '[REDACTED]');
   return message;
 }
+
+/** The candidate did not start. Expose this to the caller only after confirming cleanup. */
+export class InferenceStartupError extends Error {
+  override readonly name = 'InferenceStartupError';
+
+  constructor(reason: string) {
+    super(
+      errorText(reason)
+        .replace(/\p{Cc}/gu, ' ')
+        .trim()
+        .slice(0, 1024) || 'Inference service did not become ready',
+    );
+  }
+}

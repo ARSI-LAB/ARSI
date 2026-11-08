@@ -1,0 +1,11 @@
+schemaVersion: rsi.target/v1
+id: target.vllm-ascend-parameters
+entries:
+  - path: tuning.json
+    kind: file
+    description: vLLM Ascend framework parameters discovered from the installed serving CLI.
+    changes: [modify]
+    content: { encoding: utf-8, maxBytes: 4096 }
+constraints:
+  maxChangedFiles: 1
+  maxChangedBytes: 4096

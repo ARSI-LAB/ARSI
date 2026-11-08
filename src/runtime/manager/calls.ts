@@ -2,6 +2,7 @@ import { lstat, mkdir, realpath, rm } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   agentContract,
+  inferencebenchContract,
   memoryContract,
   reflectionContract,
 } from '../../contracts/index.js';
@@ -18,7 +19,7 @@ import type {
 } from '../../contracts/index.js';
 import { object, digest, json } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { errorText } from '../../shared/errors.js';
+import { errorText, InferenceStartupError } from '../../shared/errors.js';
 import type { Registry } from '../registry/index.js';
 
 interface CallExecutorOptions {
@@ -175,6 +176,21 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       // Receipt recovery does not reserve a version; pin it together with its lease.
       const binding = options.binding(bindingId);
       if (!binding) throw new Error(`Unknown binding ${bindingId}`);
+      const canReplayStartupFailure =
+        caller.scope !== undefined &&
+        (definition.contract.id === inferencebenchContract.id ||
+          (bindingId === '_application' && object(input).action === 'acquire'));
+      if (
+        canReplayStartupFailure &&
+        prior?.status === 'failed' &&
+        prior.failureKind === 'inference-startup' &&
+        prior.pluginId === binding.plugin &&
+        typeof prior.error === 'string'
+      ) {
+        // A confirmed startup failure is a terminal trial result. Replaying it
+        // must not start the candidate again if the enclosing trial is retried.
+        throw new InferenceStartupError(prior.error);
+      }
       const revisionRef = options.revisionRefs[bindingId];
       const info: CallEventInfo = {
         experimentId: id,
@@ -332,6 +348,11 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
             await commit({
               status,
               error: errorText(error),
+              ...(canReplayStartupFailure &&
+              status === 'failed' &&
+              error instanceof InferenceStartupError
+                ? { failureKind: 'inference-startup' }
+                : {}),
               measurementRef:
                 error && typeof error === 'object' && 'measurementRef' in error
                   ? String(error.measurementRef)

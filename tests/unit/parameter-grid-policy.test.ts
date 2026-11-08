@@ -3,6 +3,11 @@ import { optunaProposerDefinition } from '../../src/plugins/proposer-optuna/inde
 import { createOptunaProposer } from '../../src/plugins/proposer-optuna/service.js';
 import test from 'node:test';
 import { RuntimeContext } from '../../src/contracts/index.js';
+import {
+  agentContract,
+  inferenceTrialContract,
+  proposerContract,
+} from '../../src/contracts/plugin-types/index.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -21,6 +26,9 @@ import {
   typedArtifact,
 } from '../../src/contracts/models/measurement.js';
 import { gridProposerDefinition } from '../../src/plugins/proposer-grid/index.js';
+import { inferenceTrialDefinition } from '../../src/plugins/inference-trial/index.js';
+import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
+import { codexDefinition } from '../../src/plugins/agent-codex/index.js';
 import {
   createFileApplication,
   type FileApplicationConfig,
@@ -34,6 +42,9 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     registry.registerContract(gridProposerContract);
     registry.registerContract(inferencebenchContract);
     registry.registerContract(metricSelectorContract);
+    registry.registerContract(inferenceTrialContract);
+    registry.registerContract(proposerContract);
+    registry.registerContract(agentContract);
     const policy = await Policy.load(
       'src/policies/parameter-grid/policy.yaml',
       registry,
@@ -162,6 +173,9 @@ for (const strategy of ['grid', 'optuna'] as const) {
     let evaluationCount = 0;
     const evaluated: number[] = [];
     registry.registerOperation(gridProposerDefinition);
+    registry.registerOperation(inferenceTrialDefinition);
+    registry.registerOperation(proposerDefinition);
+    registry.registerOperation(codexDefinition);
     registry.registerOperation({
       ...optunaProposerDefinition,
       create: (config: OptunaConfig, services) =>
@@ -428,6 +442,33 @@ for (const strategy of ['grid', 'optuna'] as const) {
         strategy === 'grid' ? 'max-candidates' : 'max-trials',
       );
       assert.deepEqual(object(capped.output).parameters, { x: 1 });
+      const beforeEnabled = evaluationCount;
+      await writeFile(
+        recipePath,
+        stringify({
+          ...recipe,
+          policy: {
+            ...recipe.policy,
+            config: {
+              ...recipe.policy.config,
+              enableBaseline: true,
+              baseline: { maxAttempts: 1, trialEstimateMs: 1 },
+            },
+          },
+        }),
+      );
+      const enabled = await manager.run(recipePath, { id: 'with-baseline' });
+      assert.equal(object(enabled.output).status, 'selected');
+      assert.equal(
+        typeof object(enabled.output).baselineMeasurementRef,
+        'string',
+      );
+      assert.deepEqual(object(enabled.output).parameters, { x: 2 });
+      assert.equal(
+        evaluationCount - beforeEnabled,
+        4,
+        'reuses the baseline measurement for the same point',
+      );
     } finally {
       await manager.dispose();
       await registry.dispose();

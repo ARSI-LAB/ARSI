@@ -42,6 +42,7 @@ Policy 使用 `rsi.policy/v1`，与 `rsi.recipe/v1` 的 Recipe 配合使用。�
 | `loop`       | 循环执行一组步骤。                     | `steps` 填循环内容，`maxIterations` 必填，结果为 0 到 100,000 的整数；可用 `while` 提前结束循环、用 `output` 定义返回值。                                        |
 | `control`    | 退出循环、跳过当前轮或终止流程。       | `control` 填 `break`、`continue` 或 `fail`；使用 `fail` 时还需填写 `reason`。                                                                                    |
 | `reflection` | 使用内置的 Reflection 自进化能力       | 步骤填 `type: reflection`，并在 `defaults.reflection` 中声明模块；必须串行执行，配置方式见 [Reflection 指南](reflection_zh.md)。                                 |
+| `time-budget` | 检查下一步能否在阶段和实验预算内完成。 | 填写 `stage`、`limitMs` 和带 `initialMs` 的 `actions` 绑定列表。可用动作的 `status` 筛选已完成的输出，例如 `measured`。在 `then` 中放需要预算检查的步骤，在 `else` 中放预算不足时执行的步骤。两个分支都可以读取 `budget.reason`。 |
 
 ### 用表达式读取数据
 

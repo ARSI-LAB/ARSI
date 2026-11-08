@@ -1,0 +1,103 @@
+schemaVersion: rsi.recipe/v1
+id: vllm-optimization
+description: Tune vLLM Ascend serving parameters against a fixed AISBench workload.
+application:
+  plugin: application.inference
+  config:
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+    remote:
+      executable: python3
+      script: ./scripts/vllm-ascend.py
+      parametersFile: tuning.json
+      discoverParameters: true
+      timeoutMs: 120000
+      memoryUtilization: 0.90
+    endpoint:
+      { origin: 'http://127.0.0.1:8000', basePath: /v1, model: tuned-model }
+    healthcheck: { path: /health, timeoutMs: 600000, intervalMs: 1000 }
+    shutdown: { gracePeriodMs: 30000 }
+    credentials: { apiKeyEnv: VLLM_API_KEY }
+policy:
+  id: parameter.agent
+  config:
+    parameterFile: tuning.json
+    baseline:
+      maxAttempts: 3
+      phaseTimeMs: 1800000
+      trialEstimateMs: 600000
+      repairEstimateMs: 120000
+    maxTrials: 8
+    candidatesPerRound: 4
+    phaseTimeMs: 10800000
+    proposalEstimateMs: 120000
+    trialEstimateMs: 600000
+bindings:
+  agent:
+    plugin: agent.codex
+    config: { timeoutMs: 120000 }
+  proposer:
+    plugin: proposer.agent
+    config:
+      agentRef: agent
+      prompt: ./prompts/tuning.md
+      skills: [./skills/vllm-ascend-tuning]
+      evidenceView: training-summary
+      subagents:
+        - name: scheduler
+          description: Reason about batching, concurrency and the measured latency-throughput tradeoff.
+          prompt: ./roles/scheduler.md
+        - name: ascend-runtime
+          description: Check the supported framework flags and NPU runtime risks.
+          prompt: ./roles/ascend-runtime.md
+        - name: research-scout
+          description: Form tuning hypotheses from upstream source when searchable, workspace evidence, and prior trials.
+          prompt: ./roles/research-scout.md
+  repair:
+    plugin: proposer.agent
+    config:
+      agentRef: agent
+      prompt: ./prompts/enablement.md
+      skills: [./skills/vllm-ascend-tuning]
+      evidenceView: training-summary
+      subagents:
+        - name: enablement-reviewer
+          description: Distinguish recoverable parameter rejection from deployment or benchmark problems.
+          prompt: ./roles/enablement-reviewer.md
+  evaluator:
+    plugin: evaluator.inferencebench
+    config:
+      services: { default: {} }
+      benchmark:
+        name: aisbench
+        config:
+          workload:
+            inputLength: 2048
+            outputLength: 512
+            dataCount: 160
+            concurrency: 16
+            requestRate: 0
+            testType: stream
+        solver:
+          config:
+            remote:
+              ssh: { host: 127.0.0.1, user: ascend, port: 22 }
+              pythonExecutable: /opt/aisbench/bin/python
+              aisbenchWorkPath: /opt/aisbench
+              aisbenchVersion: '1.0.0'
+              workRoot: /var/tmp/ember-rsi-aisbench
+            tokenizerPath: /models/inference-model
+      run: { timeoutSeconds: 1800 }
+  selector:
+    plugin: selector.metric
+    config:
+      metric: requestThroughput
+      direction: maximize
+      constraints:
+        - { metric: ttftP90, max: 1000 }
+        - { metric: tpotP90, max: 100 }
+budget:
+  operations: 300
+  evaluationRuns: 16
+  elapsedWallMs: 14400000
+  cleanupReserveMs: 30000

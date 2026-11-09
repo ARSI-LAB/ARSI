@@ -10,7 +10,7 @@ import {
   measurementItemsSchema,
   validateMeasurement,
 } from '../../contracts/models/measurement.js';
-import { digest, object, string } from '../../shared/json.js';
+import { digest, object } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { typed } from '../shared/evaluator-adapter/measurement.js';
 import { definition } from '../shared/evaluator-adapter/metric.js';
@@ -18,7 +18,7 @@ import {
   sdkConditionsSchema,
   sdkProvenanceSchema,
   sdkDetailsSchema,
-} from './schema.js';
+} from './measurement-schema.js';
 import type { SdkOperatorResult } from './result.js';
 
 export async function recordSdkMeasurement(
@@ -240,65 +240,4 @@ export async function recordSdkMeasurement(
   validate(measurementItemsSchema, catalog);
   validateMeasurement(measurement);
   return context.recordMeasurement(measurement);
-}
-
-export async function readProfileAssessment(
-  ref: string,
-  candidateRef: string,
-  identity: {
-    taskDigest: string;
-    sdkBuildDigest: string;
-    adapterDigest: string;
-    caseId: string;
-    seed: number;
-  },
-  context: RuntimeContext,
-): Promise<{
-  conditions: JsonObject;
-  sourceDigest: string;
-  comparisonKey: string;
-}> {
-  const measurement = await context.readMeasurement(ref);
-  if (
-    measurement.experimentId !== context.experimentId ||
-    measurement.candidateRef !== candidateRef ||
-    measurement.status !== 'succeeded' ||
-    measurement.coverage !== 'complete' ||
-    object(object(object(measurement.metrics).candidateValid).value).value !== 1
-  )
-    throw new Error(
-      'Diagnostic assessment must be valid and belong to this candidate and experiment',
-    );
-  const conditions = object(
-    await context.artifacts.readJson(
-      string(object(measurement.conditions).artifactRef),
-    ),
-  );
-  const provenance = object(
-    await context.artifacts.readJson(
-      string(object(measurement.provenance).artifactRef),
-    ),
-  );
-  if (
-    conditions.taskDigest !== identity.taskDigest ||
-    conditions.sdkBuildDigest !== identity.sdkBuildDigest ||
-    conditions.adapterDigest !== identity.adapterDigest ||
-    provenance.cleanup !== 'confirmed'
-  )
-    throw new Error(
-      'Diagnostic assessment task, build or cleanup identity mismatch',
-    );
-  const evaluation = object(conditions.evaluation);
-  if (
-    object(evaluation.contract).caseId !== identity.caseId ||
-    digest(object(evaluation.protocol).seeds) !== digest([identity.seed])
-  )
-    throw new Error('Diagnostic assessment case or seed mismatch');
-  if (evaluation.operation === 'profile')
-    throw new Error('Diagnostic cannot certify another diagnostic');
-  return {
-    conditions: evaluation,
-    sourceDigest: string(provenance.sourceDigest),
-    comparisonKey: string(measurement.comparisonKey),
-  };
 }

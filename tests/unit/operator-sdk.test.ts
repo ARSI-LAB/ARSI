@@ -15,8 +15,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { Evaluator } from 'ember-evaluator';
-import { prepareSdkConfiguration } from '../../src/plugins/evaluator-operatorbench/sdk.js';
+import {
+  Evaluator,
+  parseKernelContract,
+  type EvaluatorRunOptions,
+  type EvaluationResult,
+} from 'ember-evaluator';
 import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';
 import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/service.js';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
@@ -42,21 +46,22 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   );
   await chmod(worker, 0o755);
   const config = {
-    mode: 'sdk' as const,
     task: { directory: taskDirectory },
-    protocol: {
-      warmup: 5,
-      repeat: 20,
-      rtol: 0,
-      atol: 0,
-      timingScope: 'all-device-kernels' as const,
+    benchmark: {
+      name: 'kernel',
+      config: {
+        warmup: 5,
+        repeat: 20,
+        rtol: 0,
+        atol: 0,
+        python: worker,
+        device: 0,
+        timeoutSeconds: 15,
+        profiling: { enabled: false },
+      },
     },
-    sdk: {
-      python: worker,
-      device: 0,
-      timeoutSeconds: 15,
-      profiling: { enabled: false },
-    },
+    reporter: 'markdown',
+    run: { timeoutSeconds: 45 },
   };
   const contract = {
     inputs: [{ shape: [4], dtype: 'float16' }],
@@ -68,140 +73,16 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     },
     inputUnmodified: true,
   };
-  const prepared = await prepareSdkConfiguration(
-    config,
-    contract,
-    { id: 'fixed', seed: 42 },
-    {
-      directory: sourceDirectory,
-      sourceDigest: createHash('sha256').update(source).digest('hex'),
-    },
-    join(directory, 'call'),
-  );
-  const result = await new Evaluator().run({
-    configPath: prepared.configPath,
-    env: { ...process.env, ...prepared.env },
-  });
-  assert.equal(result.kind, 'local');
-  if (result.kind !== 'local') throw new Error('Expected local SDK');
-  assert.equal(result.exitCode, 0, JSON.stringify(result.snapshot.records));
-  assert.equal(result.snapshot.records.length, 1);
-  assert.equal(result.snapshot.records[0]?.cleanupStatus, 'cleaned');
-  assert.equal(result.snapshot.records[0]?.verdict?.passed, true);
-  assert.equal(
-    object(result.snapshot.records[0]?.verdict?.details).candidateMs,
-    8,
-  );
-  const adapted = adaptSdkResult(result, prepared, config, 42);
-  assert.equal(adapted.status, 'completed');
-  assert.equal(adapted.valid, true);
-  assert.equal(adapted.candidateMs, 8);
-  assert.equal(adapted.referenceMs, 16);
-  assert.equal(adapted.profile, null);
-  const diagnostic = JSON.parse(JSON.stringify(result));
-  diagnostic.snapshot.records[0].verdict = {
-    passed: null,
-    details: {
-      protocol: 'kernel-profile/v1',
-      operation: 'profile',
-      candidateSha256: prepared.candidateSha256,
-      referenceKind: 'pytorch',
-      status: 'completed',
-      cleanup: 'confirmed',
-      diagnosticProtocol: {
-        caseId: 'fixed',
-        seeds: [42],
-        warmup: 25,
-        collection: 'PipeTimeline,Default',
-        capture: 'after-warmup-mstx-range',
-      },
-      profiling: {
-        schemaVersion: 1,
-        status: 'completed',
-        error: '',
-        metadata: {
-          collection: 'PipeTimeline,Default',
-          trace: { status: 'available', artifact: 'trace.json' },
-          sources: {
-            candidate: { sha256: prepared.candidateSha256 },
-            problem: { sha256: prepared.referenceSha256 },
-          },
-        },
-        kernels: [
-          { name: 'fixture', metrics: { '0': { aiv_vec_ratio: 0.5 } } },
-        ],
-        artifacts: [],
-      },
-    },
-  };
-  diagnostic.snapshot.records[0].scoreStatus = 'not-applicable';
-  if (
-    !diagnostic.snapshot.run.source.files.some(
-      (file: { path: string }) => file.path === 'runtime/msprof_replay.py',
-    )
-  )
-    diagnostic.snapshot.run.source.files.push({
-      path: 'runtime/msprof_replay.py',
-      sha256: 'a'.repeat(64),
-    });
-  const profilePrepared = { ...prepared, operation: 'profile' as const };
-  const profileResult = adaptSdkResult(diagnostic, profilePrepared, config, 42);
-  assert.equal(profileResult.status, 'completed');
-  assert.equal(profileResult.valid, null);
-  assert.equal(profileResult.candidateMs, null);
-  assert.equal(profileResult.profile?.status, 'completed');
-  const unavailable = structuredClone(diagnostic);
-  unavailable.snapshot.records[0].verdict.details.status = 'unavailable';
-  unavailable.snapshot.records[0].verdict.details.profiling.status = 'failed';
-  assert.equal(
-    adaptSdkResult(unavailable, profilePrepared, config, 42).status,
-    'completed',
-  );
-  const raw = JSON.parse(JSON.stringify(result));
-  raw.snapshot.records[0].verdict.details.assessment.checks.pop();
-  assert.throws(() => adaptSdkResult(raw, prepared, config, 42), /checks/);
-  const wrongCandidate = JSON.parse(JSON.stringify(result));
-  wrongCandidate.snapshot.records[0].verdict.details.candidateSha256 =
-    'b'.repeat(64);
-  assert.throws(
-    () => adaptSdkResult(wrongCandidate, prepared, config, 42),
-    /identity/,
-  );
-  const unconfirmed = JSON.parse(JSON.stringify(result));
-  unconfirmed.snapshot.records[0].cleanupStatus = 'unconfirmed';
-  assert.equal(
-    adaptSdkResult(unconfirmed, prepared, config, 42).status,
-    'unknown',
-  );
-  const cancelled = JSON.parse(JSON.stringify(result));
-  cancelled.snapshot.records[0].executionStatus = 'cancelled';
-  assert.equal(
-    adaptSdkResult(cancelled, prepared, config, 42).status,
-    'cancelled',
-  );
-  const profiled = JSON.parse(JSON.stringify(result));
-  profiled.snapshot.records[0].verdict.details.profiling = {
-    schemaVersion: 1,
-    status: 'failed',
-    error: 'Fixture profiling failed',
-    kernels: [],
-    metadata: { upstreamCommit: 'fixture' },
-    artifacts: [],
-  };
-  const withProfile = adaptSdkResult(profiled, prepared, config, 42);
-  assert.equal(withProfile.valid, true);
-  assert.equal(withProfile.candidateMs, 8);
-  assert.ok(
-    withProfile.diagnostics.some((d) => d.code === 'KERNEL_PROFILE_SUMMARY'),
-  );
-
   await writeFile(join(taskDirectory, 'test.py'), '# fixture provenance\n');
   await writeFile(
     join(taskDirectory, 'task.json'),
     JSON.stringify({
       schemaVersion: 'rsi.kernel-task/v1',
       id: 'fixture-copy',
-      cases: [{ id: 'fixed', seed: 42 }],
+      cases: [
+        { id: 'fixed', seed: 42 },
+        { id: 'alternate', seed: 7 },
+      ],
       contract,
     }),
   );
@@ -244,7 +125,17 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
       }
     },
   });
-  const operation = await createOperatorbench(config, context);
+  const calls: { options: EvaluatorRunOptions; result: EvaluationResult }[] =
+    [];
+  const operation = await createOperatorbench(
+    config,
+    context,
+    async (options) => {
+      const result = await new Evaluator().run(options);
+      calls.push({ options, result });
+      return result;
+    },
+  );
   const input = {
     action: 'evaluate' as const,
     candidateRef: 'candidate:fixture',
@@ -256,6 +147,134 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   );
   assert.equal(charges, 0);
   await operation.execute(input, context);
+  assert.equal(calls.length, 1);
+  const { options, result } = calls[0]!;
+  assert.equal(options.signal, context.signal);
+  const saved = JSON.parse(await readFile(options.configPath, 'utf8'));
+  assert.deepEqual(saved.reporter, { name: 'markdown', config: {} });
+  assert.equal(saved.run.timeoutSeconds, 45);
+  assert.deepEqual(saved.run.taskIds, ['fixed']);
+  assert.deepEqual(saved.benchmark.config.seeds, [42]);
+  assert.equal(saved.task, undefined);
+  assert.equal(config.benchmark.config.profiling.enabled, false);
+  const manifest = JSON.parse(
+    await readFile(saved.benchmark.config.manifest, 'utf8'),
+  );
+  const prepared = {
+    operation: input.action,
+    taskId: 'fixed',
+    seed: 42,
+    contract: parseKernelContract(manifest.tasks[0].contract),
+    candidateSha256: createHash('sha256').update(source).digest('hex'),
+  };
+  assert.equal(result.kind, 'local');
+  if (result.kind !== 'local') throw new Error('Expected local SDK');
+  assert.equal(result.exitCode, 0, JSON.stringify(result.snapshot.records));
+  assert.equal(result.snapshot.records.length, 1);
+  assert.equal(result.snapshot.records[0]?.cleanupStatus, 'cleaned');
+  assert.equal(result.snapshot.records[0]?.verdict?.passed, true);
+  assert.equal(
+    object(result.snapshot.records[0]?.verdict?.details).candidateMs,
+    8,
+  );
+  const adapted = adaptSdkResult(result, prepared);
+  assert.equal(adapted.status, 'completed');
+  assert.equal(adapted.valid, true);
+  assert.equal(adapted.candidateMs, 8);
+  assert.equal(adapted.referenceMs, 16);
+  assert.equal(adapted.profile, null);
+  const diagnostic = JSON.parse(JSON.stringify(result));
+  diagnostic.snapshot.records[0].verdict = {
+    passed: null,
+    details: {
+      protocol: 'kernel-profile/v1',
+      operation: 'profile',
+      candidateSha256: prepared.candidateSha256,
+      referenceKind: 'pytorch',
+      status: 'completed',
+      cleanup: 'confirmed',
+      diagnosticProtocol: {
+        caseId: 'fixed',
+        seeds: [42],
+        warmup: 25,
+        collection: 'PipeTimeline,Default',
+        capture: 'after-warmup-mstx-range',
+      },
+      profiling: {
+        schemaVersion: 1,
+        status: 'completed',
+        error: '',
+        metadata: {
+          collection: 'PipeTimeline,Default',
+          trace: { status: 'available', artifact: 'trace.json' },
+          sources: {
+            candidate: { sha256: prepared.candidateSha256 },
+            problem: {
+              sha256: createHash('sha256')
+                .update('# fixture reference\n')
+                .digest('hex'),
+            },
+          },
+        },
+        kernels: [
+          { name: 'fixture', metrics: { '0': { aiv_vec_ratio: 0.5 } } },
+        ],
+        artifacts: [],
+      },
+    },
+  };
+  diagnostic.snapshot.records[0].scoreStatus = 'not-applicable';
+  if (
+    !diagnostic.snapshot.run.source.files.some(
+      (file: { path: string }) => file.path === 'runtime/msprof_replay.py',
+    )
+  )
+    diagnostic.snapshot.run.source.files.push({
+      path: 'runtime/msprof_replay.py',
+      sha256: 'a'.repeat(64),
+    });
+  const profilePrepared = { ...prepared, operation: 'profile' as const };
+  const profileResult = adaptSdkResult(diagnostic, profilePrepared);
+  assert.equal(profileResult.status, 'completed');
+  assert.equal(profileResult.valid, null);
+  assert.equal(profileResult.candidateMs, null);
+  assert.equal(profileResult.profile?.status, 'completed');
+  const unavailable = structuredClone(diagnostic);
+  unavailable.snapshot.records[0].verdict.details.status = 'unavailable';
+  unavailable.snapshot.records[0].verdict.details.profiling.status = 'failed';
+  assert.equal(
+    adaptSdkResult(unavailable, profilePrepared).status,
+    'completed',
+  );
+  const raw = JSON.parse(JSON.stringify(result));
+  raw.snapshot.records[0].verdict.details.assessment.checks.pop();
+  assert.throws(() => adaptSdkResult(raw, prepared), /checks/);
+  const wrongCandidate = JSON.parse(JSON.stringify(result));
+  wrongCandidate.snapshot.records[0].verdict.details.candidateSha256 =
+    'b'.repeat(64);
+  assert.throws(() => adaptSdkResult(wrongCandidate, prepared), /identity/);
+  const unconfirmed = JSON.parse(JSON.stringify(result));
+  unconfirmed.snapshot.records[0].cleanupStatus = 'unconfirmed';
+  assert.equal(adaptSdkResult(unconfirmed, prepared).status, 'unknown');
+  const cancelled = JSON.parse(JSON.stringify(result));
+  cancelled.snapshot.records[0].executionStatus = 'cancelled';
+  assert.equal(adaptSdkResult(cancelled, prepared).status, 'cancelled');
+  const profiled = JSON.parse(JSON.stringify(result));
+  profiled.snapshot.records[0].verdict.details.profiling = {
+    schemaVersion: 1,
+    status: 'failed',
+    error: 'Fixture profiling failed',
+    kernels: [],
+    metadata: { upstreamCommit: 'fixture' },
+    artifacts: [],
+  };
+  const withProfile = adaptSdkResult(profiled, prepared);
+  assert.equal(withProfile.valid, true);
+  assert.equal(withProfile.candidateMs, 8);
+  assert.ok(
+    withProfile.diagnostics.some((d) => d.code === 'KERNEL_PROFILE_SUMMARY'),
+  );
+
   assert.equal(
     object(object(recorded[0]!.metrics).latencyMeanMs).status,
     'available',
@@ -378,14 +397,17 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   const profileOperation = await createOperatorbench(
     {
       ...config,
-      sdk: {
-        ...config.sdk,
-        profiling: {
-          enabled: true,
-          cacheEnabled: false,
-          msprofBin: msprof,
-          maxAttempts: 1,
-          attemptTimeoutSeconds: 5,
+      benchmark: {
+        ...config.benchmark,
+        config: {
+          ...config.benchmark.config,
+          profiling: {
+            enabled: true,
+            cacheEnabled: false,
+            msprofBin: msprof,
+            maxAttempts: 1,
+            attemptTimeoutSeconds: 5,
+          },
         },
       },
     },
@@ -460,6 +482,70 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(profileProvenance.cleanup, 'confirmed');
   assert.equal(charges, 6);
   assert.equal(releases, 6);
+  const alternateDirectory = join(directory, 'alternate-case');
+  await assert.rejects(
+    operation.execute(
+      { ...input, caseIds: ['alternate'] },
+      context.extend({
+        directory: alternateDirectory,
+        charge: async () => {
+          throw new Error('Stop before SDK execution');
+        },
+      }),
+    ),
+    /Stop before SDK execution/,
+  );
+  const alternate = JSON.parse(
+    await readFile(join(alternateDirectory, 'sdk-config.json'), 'utf8'),
+  );
+  assert.deepEqual(alternate.run.taskIds, ['alternate']);
+  assert.deepEqual(alternate.benchmark.config.seeds, [7]);
+  assert.equal(
+    alternate.benchmark.config.manifest,
+    join(alternateDirectory, 'sdk-input', 'manifest.json'),
+  );
+  assert.equal(
+    alternate.store.config.runIndexDirectory,
+    join(alternateDirectory, 'sdk-index'),
+  );
+  assert.equal(
+    alternate.output.directory,
+    join(alternateDirectory, 'sdk-output'),
+  );
+  const errors: unknown[] = [];
+  const invalid = await createOperatorbench(
+    {
+      ...config,
+      benchmark: {
+        ...config.benchmark,
+        config: {
+          ...config.benchmark.config,
+          profiling: { collection: 'Default,PipeTimeline' },
+        },
+      },
+    },
+    context,
+    async (options) => {
+      try {
+        return await new Evaluator().run(options);
+      } catch (error) {
+        errors.push(error);
+        throw error;
+      }
+    },
+  );
+  await assert.rejects(
+    invalid.execute(
+      input,
+      context.extend({
+        callId: 'invalid-profile',
+        directory: join(directory, 'invalid-profile'),
+      }),
+    ),
+    /assessment unknown/,
+  );
+  assert.match(String(errors[0]), /profiling.collection/);
+  await invalid.dispose();
   await profileOperation.dispose();
   await operation.dispose();
 });

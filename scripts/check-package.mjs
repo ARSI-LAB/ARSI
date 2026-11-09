@@ -401,6 +401,28 @@ async function packageResource(path){
 }
 const context=new RuntimeContext().extend({traceId:'consumer'});
 const runtime=await createRuntime({rootDirectory:${JSON.stringify(outside)},context});
+for(const [id,template] of [
+ ['evaluator.agentbench',{benchmark:'gsm8k',services:{default:{model:'consumer',base_url:'https://consumer.invalid'}}}],
+ ['evaluator.inferencebench',{benchmark:'agentx'}],
+]){
+ const definition=runtime.registry.get(id);
+ const config={hardware:'gpu',...template};
+ const bind=value=>Binding.resolve({name:'evaluator',registry:runtime.registry,required:definition.contract,override:{declaration:{plugin:id,config:value},directory:${JSON.stringify(outside)}}});
+ const binding=bind(config);
+ assert.deepEqual(binding.config,config,'installed bindings preserve native fields and instance templates');
+ const operation=await definition.create(binding.config,context);
+ await operation.dispose();
+ await assert.rejects(async()=>{
+  const invalid=await definition.create(bind({...config,unsupported:true}).config,context);
+  try{
+   await invalid.execute({candidateRef:'candidate:consumer',...(id==='evaluator.agentbench'?{taskIds:['task/a']}:{})},context.extend({
+    directory:resolve(${JSON.stringify(outside)},'invalid-evaluator'),signal:new AbortController().signal,
+    withInstance:async(_candidate,_capability,use)=>use({directory:resolve(${JSON.stringify(outside)},'candidate'),baseUrl:'http://127.0.0.1:8000/v1',model:'candidate'}),
+    charge:async()=>{throw new Error('Invalid configuration reached evaluation budget');},
+   }));
+  }finally{await invalid.dispose();}
+ },/configuration.*unsupported/,'installed evaluator delegates validation to its SDK before evaluation');
+}
 assert.equal(runtime.context.traceId,'consumer');
 const standalonePolicy=new Policy({schemaVersion:'rsi.policy/v1',id:'consumer.policy',input_schema:{type:'object'},output_schema:{type:'object'},steps:[],output:{value:7}});
 assert.deepEqual(await standalonePolicy.execute({application:{},context:context.extend({signal:new AbortController().signal}),invoke:async()=>{throw new Error('Unexpected plugin call');},checkpoint:async()=>{}}),{value:7},'installed Policy supports direct construction and execution');

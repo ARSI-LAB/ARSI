@@ -50,6 +50,8 @@ RSI 不会自动加载 `.env` 文件，需要在启动 CLI 的进程中导出变
 
 ### Evaluator
 
+Evaluator 插件使用已安装的 Evaluator SDK 的配置类型和解析器。RSI 绑定候选实例、选定任务和本次调用的输出目录，将 SDK 解析后的配置写入文件，再扣除评测预算。凭据使用环境变量引用。SDK 在评测启动时应用默认值并校验 benchmark 专属参数，此时出错会消耗一次 `evaluationRuns` 预算。
+
 `evaluator.agentbench` 的 `services` 配置被测 Agent 在基准任务中使用的模型服务，与优化流程中的 `agent` 绑定分别配置。下面以 TerminalBench 4.0 为例：
 
 ```yaml
@@ -70,7 +72,13 @@ bindings:
 
 `services.default` 中的 `model`、`base_url` 和 `api_key` 分别指定模型名称、服务地址和凭据环境变量引用。
 
+AgentBench 将候选 Bundle 绑定到 `agentbundle` solver，并用 Policy 指定的任务 ID 替换采样、偏移及任务数量限制。
+
 如果优化器需要任务的公开提示词，可在 Evaluator 配置中设置 `run.includeTaskAnswer: true`，使 SDK 保存任务数据。RSI 将其中的公开提示词作为 `task-input` 执行证据提供给后续插件，参考答案仍保留在私有原生记录中。
+
+InferenceBench 在本地执行 AgentX。省略 `services` 时，候选实例绑定到默认服务。如果通过 `benchmark.solver.service` 指定了其他服务名，Recipe 需要声明对应的服务条目。该条目可以配置 `retry`、`contextWindow` 等 SDK 选项。显式填写 `model`、`base_url` 或 `api_key` 都会报错。凭据引用在 Application 的 `credentials.apiKeyEnv` 中配置。其余服务条目按 SDK 要求填写。
+
+OperatorBench 使用 SDK 的 `kernel` benchmark 和 RSI 的 `task.directory`。选定 case 后，RSI 会在获取候选实例前生成并校验本次评测的完整 SDK 配置。kernel replay 所需的服务由 RSI 提供。Recipe 必须省略整个 `services` 字段，填写空对象也会报错。`repeat`、`python`、`profiling` 等算子参数直接写在 `benchmark.config` 下。RSI 用候选源码和参考实现生成清单，绑定选定的 case 和 seed，并在调用目录内保存索引和结果。执行 `profile` 时会开启采集并禁用缓存。迁移已有 Recipe 时，将 `protocol` 和 `sdk` 中的算子参数移到 `benchmark.config`，删除 `mode` 和 `protocol.timingScope`。要保留原有运行设置，请配置 `run.onError: abort`，并将 `run.timeoutSeconds` 设为原算子超时加 30 秒。参见[算子 Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml)。
 
 ### Pi 后端
 
@@ -151,8 +159,8 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | Operator Proposer                                     | `modelRequestTimeoutMs`                           | 一个完整模型阶段的共享时长上限，单位毫秒，包含工具续调与子 Agent。                                        | 120000 毫秒（2 分钟）。                                                           |
 | AgentBench Evaluator                                  | `services.<service>.maxTokens`                    | 被测 Agent 所用模型服务的每轮输出 Token 上限。                                                            | 由 Solver 或模型服务的默认设置决定。                                              |
 | AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                              | 单个基准任务一次执行的时长上限，单位秒。                                                                  | 使用 SDK 基准 profile 的值；profile 未指定时为 7200 秒（2 小时）。                |
-| OperatorBench Evaluator                               | `sdk.timeoutSeconds`                              | 单次算子评测或性能分析的时长上限，单位秒。                                                                | 必填，无默认值。                                                                  |
-| OperatorBench Evaluator                               | `sdk.profiling.attemptTimeoutSeconds`             | 一次性能分析尝试的时长上限，单位秒。                                                                      | SDK 默认 300 秒（5 分钟）。                                                       |
+| OperatorBench Evaluator                               | `benchmark.config.timeoutSeconds`                 | 单次算子评测或性能分析的时长上限，单位秒。                                                                | 默认 300 秒。启用性能分析时为 `maxAttempts × attemptTimeoutSeconds + 300` 秒。    |
+| OperatorBench Evaluator                               | `benchmark.config.profiling.attemptTimeoutSeconds` | 一次性能分析尝试的时长上限，单位秒。                                                                      | SDK 默认 300 秒（5 分钟）。                                                       |
 | Inference Application                                 | `remote.timeoutMs`                                | 一次远端脚本调用的时长上限，单位毫秒。                                                                    | 无远端调用的独立时长上限。                                                        |
 | Inference Application                                 | `healthcheck.timeoutMs`                           | 等待推理服务就绪的时长上限，单位毫秒。                                                                    | 远端模式继承 `remote.timeoutMs`；该值也未设置或使用本地模式时，不设就绪等待上限。 |
 | 提示词演化搜索 | `maxRounds` | 逻辑尝试轮数上限，包含无修改和被拒绝的尝试。 | 必填，无默认值。 |

@@ -5,7 +5,6 @@ import { agentbundleDefinition } from '../plugins/application-agentbundle/index.
 import { inferenceDefinition } from '../plugins/application-inference/index.js';
 import { piDefinition } from '../plugins/agent-pi/index.js';
 import { codexDefinition } from '../plugins/agent-codex/index.js';
-import { kernelDefinition } from '../plugins/agent-kernel/index.js';
 import { scriptedAgentDefinition } from '../plugins/agent-scripted/index.js';
 import { proposerDefinition } from '../plugins/proposer-agent/index.js';
 import { operatorProposerDefinition } from '../plugins/proposer-operator/index.js';
@@ -28,7 +27,6 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     inferenceDefinition,
     piDefinition,
     codexDefinition,
-    kernelDefinition,
     scriptedAgentDefinition,
     proposerDefinition,
     operatorProposerDefinition,
@@ -51,7 +49,6 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     'operator-search/policy.yaml',
     'parameter-grid/policy.yaml',
     'parameter-optuna/policy.yaml',
-    'operator-iter-agent/policy.yaml',
     'gepa/policy.yaml',
   ]) {
     const file = fileURLToPath(new URL(`../policies/${path}`, import.meta.url));

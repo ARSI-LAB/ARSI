@@ -135,40 +135,33 @@ output:
 
 ## 注册 Policy
 
-Recipe 通过已注册的 Policy ID 找到对应文件。内置 Policy 已由框架统一注册，可以直接使用；新增 Policy 时，选择以下一种注册方式：
+Recipe 通过已注册的 Policy ID 找到对应文件。内置 Policy 已由框架统一注册，可以直接使用。新增 Policy 时，需要通过已安装的 CLI 加载扩展入口进行注册。
 
-| 方式          | 适用情况                                                |
-| ------------- | ------------------------------------------------------- |
-| 修改源码      | 修改 RSI 源码，将新 Policy 随框架一起构建和提供。       |
-| 通过 CLI 加载 | 将 Policy 放在自己的扩展目录中，使用已安装的 CLI 加载。 |
+> 维护框架内置 Policy 时，也可将文件放在 `src/policies/`，加入[内置注册文件](../../../src/runtime/builtins.ts)的 Policy 文件列表，并执行 `pnpm build` 随框架构建。
 
-- 如果 Policy 使用自定义契约，两种方式都需先注册相应插件定义，再加载 Policy。
+1. 将上面的示例保存为 `~/.ember-rsi/plugins/my-extension/policy.yaml`。
 
-### 方式一：修改源码
-
-1. 将上面的示例保存为 `src/policies/baseline-check/policy.yaml`。
-2. 在[内置注册文件](../../../src/runtime/builtins.ts)的 `registerBuiltins` 函数中，找到 Policy 文件列表，加入 `'baseline-check/policy.yaml'`。现有循环会读取文件中的 `id` 并注册该 Policy。
-3. 在仓库根目录执行 `pnpm build`，更新 CLI 和 Policy 文件。随后使用仓库中的 `pnpm ember-rsi` 校验和运行，命令见下方共同步骤。
-
-### 方式二：通过 CLI 加载（启动时动态加载）
-
-1. 将上面的示例保存为 `my-extension/policy.yaml`。
-
-2. 在同一目录创建 `index.mjs`，导出 `register(registry)`。CLI 加载扩展时会调用它：
+2. 在同一目录创建 `index.mjs`，导出 `register(registry)`，登记 Policy ID 和文件的路径：
 
    ```js
    import { fileURLToPath } from 'node:url';
-   import { Policy } from 'ember-rsi';
-
-   export async function register(registry) {
-     const file = fileURLToPath(new URL('./policy.yaml', import.meta.url));
-     const policy = await Policy.load(file, registry);
-     registry.registerPolicy(policy.id, file);
+   
+   export function register(registry) {
+     registry.registerPolicy(
+       'policy.baseline-check',
+       fileURLToPath(new URL('./policy.yaml', import.meta.url)),
+     );
    }
    ```
 
-3. 校验和运行时传入 `--plugin-dir ./my-extension`，加载这个注册入口。
-   - 一个入口可以注册多个 Policy；已有入口时，将注册代码加入现有的 `register` 即可。
+3. CLI 启动时会按目录名称顺序扫描 `~/.ember-rsi/plugins/` 的直接子目录，加载各目录的 `index.mjs` 并调用 `register(registry)`，无需额外参数。
+
+   - 注册 ID 必须与 `policy.yaml` 中的 `id` 一致；Runtime 在加载 Recipe 时读取并校验该 Policy。
+
+   - 如果 Policy 使用自定义契约，需在加载它之前注册相应插件或契约。一个入口可以注册多个插件和 Policy；已有入口时，将注册代码加入现有的 `register` 即可。
+
+   - **如果希望将扩展保存在项目目录或其他位置，使用 `--plugin-dir ./my-extension` 指定包含 `index.mjs` 的扩展目录。**
+     - 相对路径以命令的工作目录为准，多个目录可重复使用该选项。
 
 ### 配置 Recipe 并运行
 
@@ -189,18 +182,18 @@ policy:
 
 #### 第二步：校验并运行
 
-**修改源码的方式**：在仓库根目录使用刚构建的 CLI：
+扩展已放在 `~/.ember-rsi/plugins/my-extension/` 时，在包含 `my-experiment/` 的工作目录直接使用已安装的 CLI：
 
 ```sh
-pnpm ember-rsi validate my-experiment/recipe.yaml
-pnpm ember-rsi run my-experiment/recipe.yaml --id baseline-01
+ember-rsi validate my-experiment/recipe.yaml
+ember-rsi run my-experiment/recipe.yaml --id baseline-01
 ```
 
-**通过 CLI 加载的方式**：在包含 `my-extension/` 和 `my-experiment/` 的工作目录执行，并在两条命令中加载同一扩展：
+如果扩展保存在工作目录下的 `my-extension/` 等其他位置，校验、运行和恢复时都传入同一扩展目录：
 
 ```sh
 ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id baseline-01 --plugin-dir ./my-extension
 ```
 
-更多扩展加载方式见[扩展注册](writing-plugins_zh.md#方式二为-cli-注册外部扩展)。修改未完成实验使用的 Policy 前，先核对[恢复要求](running-experiments_zh.md#取消与恢复)。
+更多扩展加载说明见[注册插件](writing-plugins_zh.md#第二步注册插件)。修改未完成实验使用的 Policy 前，先核对[恢复要求](running-experiments_zh.md#取消与恢复)。

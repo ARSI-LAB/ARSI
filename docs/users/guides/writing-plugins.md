@@ -10,21 +10,21 @@ This guide explains how to choose a plugin contract, define configuration, imple
 
 Choose a contract based on the work your plugin will do. The contract defines the call's input and output; the plugin supplies the implementation and its configuration. When an existing contract meets your needs, reuse its object and types:
 
-| Contract and field definitions                                                                         | Purpose                                                                                      | Contract object to import         |
-| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | --------------------------------- |
-| [contract.application](../../../src/contracts/plugin-types/application.ts)                             | Manage optimization targets, commit candidates, and acquire and release execution instances. | `applicationContract`             |
-| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                                         | Run model requests and tool calls.                                                           | `agentContract`                   |
-| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                                   | Generate candidates from goals and evidence.                                                 | `proposerContract`                |
-| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)                 | Modify and repair operators and summarize optimization history.                              | `operatorProposerContract`        |
-| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                               | Evaluate candidates against a task list.                                                     | `agentbenchContract`              |
-| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)                       | Evaluate inference application candidates.                                                   | `inferencebenchContract`          |
-| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)                         | Check operator correctness, measure performance, or collect profiling data.                  | `operatorbenchContract`           |
-| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)                   | Compare measurement metrics and select a candidate.                                          | `metricSelectorContract`          |
-| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts)               | Compare candidate content against supplied criteria and select a candidate.                  | `artifactSelectorContract`        |
-| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                                       | Consolidate evidence and observations into reusable experience.                              | `memoryContract`                  |
-| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                               | Propose plugin revisions based on execution evidence.                                        | `reflectionContract`              |
-| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)                         | Generate parameter candidates in grid-search order.                                          | `gridProposerContract`            |
-| [contract.search](../../../src/contracts/plugin-types/search.ts) | Manage stateful search, request work, and receive feedback. | `searchContract` |
+| Contract and field definitions                                                           | Purpose                                                                                      | Contract object to import  |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------- |
+| [contract.application](../../../src/contracts/plugin-types/application.ts)               | Manage optimization targets, commit candidates, and acquire and release execution instances. | `applicationContract`      |
+| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                           | Run model requests and tool calls.                                                           | `agentContract`            |
+| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                     | Generate candidates from goals and evidence.                                                 | `proposerContract`         |
+| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)   | Modify and repair operators and summarize optimization history.                              | `operatorProposerContract` |
+| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                 | Evaluate candidates against a task list.                                                     | `agentbenchContract`       |
+| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)         | Evaluate inference application candidates.                                                   | `inferencebenchContract`   |
+| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)           | Check operator correctness, measure performance, or collect profiling data.                  | `operatorbenchContract`    |
+| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)     | Compare measurement metrics and select a candidate.                                          | `metricSelectorContract`   |
+| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts) | Compare candidate content against supplied criteria and select a candidate.                  | `artifactSelectorContract` |
+| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                         | Consolidate evidence and observations into reusable experience.                              | `memoryContract`           |
+| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                 | Propose plugin revisions based on execution evidence.                                        | `reflectionContract`       |
+| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)           | Generate parameter candidates in grid-search order.                                          | `gridProposerContract`     |
+| [contract.search](../../../src/contracts/plugin-types/search.ts)                         | Manage stateful search, request work, and receive feedback.                                  | `searchContract`           |
 
 Each regular plugin implements one public contract. Contracts such as Application include multiple actions, handled by the same `execute` according to `input.action`.
 
@@ -188,23 +188,12 @@ export const keepParentDefinition: OperationDefinition<
 
 ### Step 2: Register the plugin
 
-Runtime finds plugins by registered ID. Creating a file or adding an ID to a Recipe does not load code automatically. Choose one of these registration methods:
+Runtime finds plugins by registered ID. Register custom plugins through an extension entrypoint loaded by the installed CLI, without modifying or rebuilding ember-rsi.
 
-| Method               | When to use it                                                           |
-| -------------------- | ------------------------------------------------------------------------ |
-| Modify the source    | Modify RSI source to build and provide the plugin with the framework.    |
-| Load through the CLI | Develop in your own extension project and load it with an installed CLI. |
+> When maintaining built-in framework plugins, you can place implementations in `src/plugins/`, register them in the [built-in registration file](../../../src/runtime/builtins.ts), and run `pnpm build` to build them with the framework.
 
-#### Method 1: Modify the source
-
-1. Place the three example files in `src/plugins/proposer-keep-parent/` and replace their `ember-rsi/contracts` imports with `../../contracts/index.js`.
-2. Import `keepParentDefinition` in the [built-in registration file](../../../src/runtime/builtins.ts) and add it to the `definitions` array in `registerBuiltins`.
-3. Run `pnpm build` from the repository root. Then validate and run through the repository's `pnpm ember-rsi` command, as shown in the shared steps below.
-
-#### Method 2: Register an external extension for the CLI
-
-1. Use `my-extension/` as the project containing the three example files. Run the project's build command to generate `dist/proposer-keep-parent/` and ensure runtime dependencies are installed.
-2. Create `index.mjs` in the `my-extension/` root, exporting `register(registry)`. The CLI calls it when loading the extension:
+1. Run your custom plugin project's own build command to generate `dist/proposer-keep-parent/`. Deploy the compiled files and runtime dependencies to `~/.ember-rsi/plugins/my-extension/`, preserving the relative directory structure.
+2. Create `index.mjs` in that extension directory, exporting `register(registry)`:
 
    ```js
    import { keepParentDefinition } from './dist/proposer-keep-parent/index.js';
@@ -214,8 +203,9 @@ Runtime finds plugins by registered ID. Creating a file or adding an ID to a Rec
    }
    ```
 
-3. Pass `--plugin-dir ./my-extension` when validating, running, or resuming to load the extension. One entrypoint can register multiple plugins; if one already exists, add the code to its existing `register` function.
-   - Alternatively, place the extension in `~/.ember-rsi/plugins/<name>/` so the CLI loads its `index.mjs` automatically. User-level extensions load in directory-name order, followed by directories passed through `--plugin-dir`; the option can be repeated.
+3. At startup, the CLI scans the immediate subdirectories of `~/.ember-rsi/plugins/` in directory-name order, loads each directory's `index.mjs`, and calls `register(registry)`. Extensions placed here need no extra arguments. One entrypoint can register multiple plugins and Policies; if one already exists, add the code to its existing `register` function.
+
+You can also keep an extension in your project or another location and load it explicitly with `--plugin-dir ./my-extension`. Point the option at the extension directory containing `index.mjs`; relative paths resolve against the command's working directory. Project directories such as `plugins/my-extension/` also require this option. The CLI loads user-level extensions first, then explicit directories in argument order; the option can be repeated.
 
 #### When you need a new contract
 
@@ -274,16 +264,14 @@ Omit `plugin` to keep the Policy's default implementation. A replacement must sa
 
 #### 3. Validate and run
 
-Once the complete Recipe is ready, run commands for your registration method.
-
-**After modifying the source**, use the newly built CLI from the repository root:
+With the extension in `~/.ember-rsi/plugins/my-extension/`, use the installed CLI directly from the working directory containing `my-experiment/`:
 
 ```sh
-pnpm ember-rsi validate my-experiment/recipe.yaml
-pnpm ember-rsi run my-experiment/recipe.yaml --id custom-run
+ember-rsi validate my-experiment/recipe.yaml
+ember-rsi run my-experiment/recipe.yaml --id custom-run
 ```
 
-**When loading through the CLI**, run from the working directory containing `my-extension/` and `my-experiment/`, loading the same extension in both commands:
+If the extension is elsewhere, such as `my-extension/` under the working directory, pass the same extension directory when validating, running, and resuming:
 
 ```sh
 ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
@@ -379,4 +367,4 @@ Common `createRuntime` options are listed below; see the [Runtime entrypoint](..
 | `homeDirectory`     | User-level extension home; set `false` to disable automatic loading.         | `~/.ember-rsi`.                  |
 | `pluginDirectories` | Additional extension directories, relative to the current process directory. | No extra directories are loaded. |
 
-Registrations in a host only apply to that Runtime. A separately started CLI still needs source registration or `--plugin-dir` to load the plugin.
+Registrations in a host only apply to that Runtime. A separately started CLI loads extensions from the default user-level directory, or from directories selected with `--plugin-dir`.

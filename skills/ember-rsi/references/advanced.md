@@ -31,7 +31,7 @@ For proposer-only use, run the complete [model-recipe.yaml](../assets/learning/m
 
 The complete learning Policy initializes `state.memory: null`, passes it as `memoryRef` to the proposer, calls `memory` with required `memoryRef`, `goal`, `evidenceRefs`, and stores the returned reference for the next iteration. Memory returns either `updated` with `memoryRef`, `changeRef`, `reason`, or `no-change` with unchanged/nullable `memoryRef`, null `changeRef`, `reason`. It does not automatically alter candidates or binding configuration.
 
-Editor config requires `prompt` (file). Optional `guidance` is a directory, `skills` is a directory list, `evidenceView` is `execution` (default) or `training-summary`, and `agentRef` defaults to `agent.default`. Use bounded `maxModelCalls`; context handling is internal. `agent.pi` exposes only `read_file` for the supplied virtual snapshot. Its `path: "."` lists filenames; this is **not** an editable directory. It has no write/edit/shell tool. Return the requested JSON `{ edits: [{ path, content }], reason }`; the business editor and Application apply and validate those edits afterward. Read an existing file when needed, but do not ask the model to read a new Memory file before creating it. Keep each edit path unique, relative and a file; never return `.` as an edit. Do not invent a `{ files: ... }` response when implementing a custom Agent.
+Editor config requires `prompt` (file). Optional `guidance` is a directory, `skills` is a directory list, `evidenceView` is `execution` (default) or `training-summary`, and `agentRef` defaults to `agent.default`. Set `budget.modelCalls` to bound model requests on backends that support accounting. Agent instructions are in `AGENTS.md`, input and evidence are under `context/`, and editable snapshots are under `candidate/`. Use the workspace tools to inspect files and express final edit paths relative to `candidate/`. Follow the supplied output schema. The business editor and Application apply and validate the returned edits. Read an existing file when needed, but do not ask the model to read a new Memory file before creating it. Keep each edit path unique, relative and a file; never return `.` as an edit. Do not invent a `{ files: ... }` response when implementing a custom Agent.
 
 Evidence references are measurement identities, not arbitrary local paths. Use `readEvidence(refs, { view, maxBytes })` to obtain authorized content. `execution`, `training-summary` and `delivery` have different data boundaries. Preserve an algorithm's train/validation/test split; never leak held-out evaluation into learning.
 
@@ -77,7 +77,12 @@ For Memory: identify the new memory artifact, the next proposer's input `memoryR
 
 The learning examples update Memory/Reflection only when another round will consume the result. They still run both proposer/evaluation rounds. Add a final update only when you explicitly need a saved result for later handoff; otherwise it spends budget without demonstrating additional online use. Consequently, `reflectionResults` has one entry for the default two-round example, not one entry per round.
 
-For custom Agents serving these editors, honor each request's outputSchema. The current editor response is `{ edits: [{ path, content }], reason }`, with string content for write and null for delete. Paths are relative to the supplied editable file tree; `context/` and `sources/` are read-only projections. Do not return an arbitrary files object or write directly into the original baseline.
+For custom Agents serving these editors, honor each request's `outputSchema`. The response contains `edits` and `reason`.
+
+- For `proposer.agent`, every edit has an `op` and a path. Use `replace` or `create` with complete `content`, `patch` with `changes` containing exact `oldText` and `newText`, or `delete` with just the operation and path.
+- For Memory and Reflection, edits have `path` and `content`. Use string content to write and null to delete an authorized file.
+
+Paths are relative to the supplied editable file tree. Treat the `context/` and `sources/` projections as read-only. Submit edits for the Application to validate and apply.
 
 ## Budgeting real editing calls
 

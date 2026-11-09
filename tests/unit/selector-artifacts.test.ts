@@ -11,6 +11,7 @@ import {
 } from '../../src/runtime/storage/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { artifactSelectorDefinition } from '../../src/plugins/selector-artifacts/index.js';
+import { string } from '../../src/shared/json.js';
 
 test('registered artifact selector explicitly requests delivery evidence', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-artifact-selector-'));
@@ -48,9 +49,24 @@ test('registered artifact selector explicitly requests delivery evidence', async
         reads++;
         return { delivery: 'public result' };
       },
-      invokeAgent: async (request) => {
-        assert.ok(Buffer.byteLength(String(request.prompt)) > 120000);
-        prompts.push(String(request.prompt));
+      invokeAgent: async (_binding, request) => {
+        const cwd = string(request.cwd);
+        assert.match(
+          await readFile(join(cwd, 'AGENTS.md'), 'utf8'),
+          /Read context\/instructions\.md/,
+        );
+        const instructions = await readFile(
+          join(cwd, 'context/instructions.md'),
+          'utf8',
+        );
+        assert.ok(Buffer.byteLength(instructions) > 120000);
+        prompts.push(instructions);
+        assert.deepEqual(
+          JSON.parse(
+            await readFile(join(cwd, 'context/candidates.json'), 'utf8'),
+          ),
+          [{ label: 0, delivery: { delivery: 'public result' } }],
+        );
         return { selectedIndex: 0, reason: 'Best delivery' };
       },
     });

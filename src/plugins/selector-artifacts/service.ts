@@ -1,8 +1,8 @@
 import type { AgentEditingConfig } from './schema.js';
 import type {
+  AgentInput,
   ArtifactSelectorInput,
   ArtifactSelectorOutput,
-  JsonObject,
   OperationDefinition,
 } from '../../contracts/index.js';
 import { digest, json, string } from '../../shared/json.js';
@@ -10,6 +10,7 @@ import {
   loadAgentPrompt,
   operationSchema,
 } from '../shared/agent-editing/index.js';
+import { prepareAgentProject } from '../shared/agent-editing/project.js';
 
 export const createArtifactSelector: OperationDefinition<
   ArtifactSelectorInput,
@@ -43,12 +44,16 @@ export const createArtifactSelector: OperationDefinition<
         })),
       );
       const prompt = await loadAgentPrompt(config);
-      const request: JsonObject = {
+      const cwd = await prepareAgentProject(
+        context,
+        `${prompt}\n\nRead context/candidates.json for the anonymized candidate views. Each entry has a numeric label and its delivery evidence.`,
+        { 'context/candidates.json': JSON.stringify(views, null, 2) },
+        config.skills ?? [],
+        [],
+      );
+      const request: AgentInput = {
         goal: string(input.rubric),
-        prompt,
-        agentRef: config.agentRef ?? 'agent.default',
-        input: { candidates: views },
-        files: {},
+        cwd,
         outputSchema: operationSchema(
           {
             selectedIndex: {
@@ -60,11 +65,11 @@ export const createArtifactSelector: OperationDefinition<
           },
           ['selectedIndex', 'reason'],
         ),
-        ...(config.maxModelCalls === undefined
-          ? {}
-          : { maxModelCalls: config.maxModelCalls }),
       };
-      const result = await context.invokeAgent(request);
+      const result = await context.invokeAgent(
+        config.agentRef ?? 'agent.default',
+        request,
+      );
       const selected = candidates[Number(result.selectedIndex)];
       if (!selected) throw new Error('Invalid selected index');
       const decisionRef = await services.artifacts.putJson({

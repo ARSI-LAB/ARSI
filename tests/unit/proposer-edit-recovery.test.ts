@@ -17,13 +17,14 @@ import { createFileApplication } from '../../src/plugins/shared/file-application
 import { createProposerAgent } from '../../src/plugins/proposer-agent/service.js';
 import { resourceFiles } from '../../src/plugins/shared/agent-editing/index.js';
 
-async function fixture(responses: JsonObject[], patch = false) {
+async function fixture(responses: JsonObject[]) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-proposer-recovery-'));
   const artifacts = new FileArtifacts(join(root, 'artifacts'));
   const workspaces = new FileWorkspaces(join(root, 'workspaces'), artifacts);
   const initial = {
     'skill.md': 'one\nmiddle\nthree\n',
     'other.md': 'original',
+    'notes.md': 'original notes',
   };
   const base = await artifacts.putJson({
     kind: 'file-tree',
@@ -121,7 +122,6 @@ async function fixture(responses: JsonObject[], patch = false) {
     {
       prompt: 'src/policies/harness2/prompts/compose.md',
       evidenceView: 'training-summary',
-      ...(patch ? { editProtocol: 'patch' } : {}),
     },
     execution,
   );
@@ -154,14 +154,14 @@ test('Composer conflict retains the whole parent and the next proposal can commi
   const f = await fixture([
     {
       edits: [
-        { path: 'other.md', content: 'must not be applied' },
-        { path: 'skill.md', content: 'changed' },
-        { path: 'skill.md', content: null },
+        { op: 'replace', path: 'other.md', content: 'must not be applied' },
+        { op: 'replace', path: 'skill.md', content: 'changed' },
+        { op: 'delete', path: 'skill.md' },
       ],
       reason: 'Compose changes',
     },
     {
-      edits: [{ path: 'skill.md', content: 'next proposal' }],
+      edits: [{ op: 'replace', path: 'skill.md', content: 'next proposal' }],
       reason: 'Continue',
     },
   ]);
@@ -185,6 +185,7 @@ test('Composer conflict retains the whole parent and the next proposal can commi
     assert.deepEqual(await resourceFiles(candidate.artifactRef, f.execution), {
       'skill.md': 'next proposal',
       'other.md': 'original',
+      'notes.md': 'original notes',
     });
     assert.equal(f.requests(), 2);
     assert.deepEqual(await readdir(join(f.root, 'workspaces')), []);
@@ -197,10 +198,17 @@ test('Composer merges duplicate paths before committing through the Application'
   const f = await fixture([
     {
       edits: [
-        { path: 'skill.md', content: 'ONE\nmiddle\nthree\n' },
-        { path: 'skill.md', content: 'one\nmiddle\nTHREE\n' },
+        { op: 'replace', path: 'skill.md', content: 'ONE\nmiddle\nthree\n' },
+        { op: 'replace', path: 'skill.md', content: 'one\nmiddle\nTHREE\n' },
       ],
       reason: 'Independent improvements',
+    },
+    {
+      edits: [
+        { op: 'create', path: 'new.md', content: 'First addition' },
+        { op: 'create', path: 'new.md', content: 'Conflicting addition' },
+      ],
+      reason: 'Independent additions',
     },
   ]);
   try {
@@ -213,17 +221,20 @@ test('Composer merges duplicate paths before committing through the Application'
       (await resourceFiles(candidate.artifactRef, f.execution))['skill.md'],
       'ONE\nmiddle\nTHREE\n',
     );
+    const conflicting = await f.execute();
+    assert.equal(conflicting.status, 'no-change');
+    assert.match(conflicting.rationale, /different new-file additions/);
   } finally {
     await f.close();
   }
 });
 
 test('Composer does not disguise unauthorized edits or cancellation as merge fallback', async () => {
-  const response = {
+  const response: JsonObject = {
     edits: [
-      { path: 'other.md', content: 'unauthorized' },
-      { path: 'skill.md', content: 'changed' },
-      { path: 'skill.md', content: null },
+      { op: 'replace', path: 'other.md', content: 'unauthorized' },
+      { op: 'replace', path: 'skill.md', content: 'changed' },
+      { op: 'delete', path: 'skill.md' },
     ],
     reason: 'Invalid scope',
   };
@@ -241,27 +252,25 @@ test('Composer does not disguise unauthorized edits or cancellation as merge fal
   }
 });
 
-test('patch hunks use the original file and commit together with creation and deletion', async () => {
-  const f = await fixture(
-    [
-      {
-        edits: [
-          {
-            op: 'patch',
-            path: 'skill.md',
-            changes: [
-              { oldText: 'one', newText: 'one three' },
-              { oldText: 'three', newText: 'THREE' },
-            ],
-          },
-          { op: 'create', path: 'new.md', content: '' },
-          { op: 'delete', path: 'other.md' },
-        ],
-        reason: 'Revise instructions',
-      },
-    ],
-    true,
-  );
+test('a single proposal can patch, replace, create and delete files', async () => {
+  const f = await fixture([
+    {
+      edits: [
+        {
+          op: 'patch',
+          path: 'skill.md',
+          changes: [
+            { oldText: 'one', newText: 'one three' },
+            { oldText: 'three', newText: 'THREE' },
+          ],
+        },
+        { op: 'create', path: 'new.md', content: '' },
+        { op: 'replace', path: 'notes.md', content: 'updated notes' },
+        { op: 'delete', path: 'other.md' },
+      ],
+      reason: 'Revise instructions',
+    },
+  ]);
   try {
     const result = await f.execute();
     assert.equal(result.status, 'created');
@@ -269,6 +278,7 @@ test('patch hunks use the original file and commit together with creation and de
     assert.deepEqual(await resourceFiles(candidate.artifactRef, f.execution), {
       'skill.md': 'one three\nmiddle\nTHREE\n',
       'new.md': '',
+      'notes.md': 'updated notes',
     });
   } finally {
     await f.close();
@@ -276,22 +286,19 @@ test('patch hunks use the original file and commit together with creation and de
 });
 
 test('an ambiguous patch prevents the whole batch from being submitted', async () => {
-  const f = await fixture(
-    [
-      {
-        edits: [
-          { op: 'create', path: 'new.md', content: 'uncommitted' },
-          {
-            op: 'patch',
-            path: 'skill.md',
-            changes: [{ oldText: 'e', newText: '' }],
-          },
-        ],
-        reason: 'Invalid edit batch',
-      },
-    ],
-    true,
-  );
+  const f = await fixture([
+    {
+      edits: [
+        { op: 'create', path: 'new.md', content: 'uncommitted' },
+        {
+          op: 'patch',
+          path: 'skill.md',
+          changes: [{ oldText: 'e', newText: '' }],
+        },
+      ],
+      reason: 'Invalid edit batch',
+    },
+  ]);
   try {
     await assert.rejects(f.execute(), /skill.md.*ambiguous/);
     assert.equal(f.commits(), 0);
@@ -300,6 +307,36 @@ test('an ambiguous patch prevents the whole batch from being submitted', async (
       await resourceFiles(parent.artifactRef, f.execution),
       f.initial,
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test('edit operations enforce parent file existence and reject mixed edits to the same path', async () => {
+  const patch = {
+    op: 'patch',
+    path: 'skill.md',
+    changes: [{ oldText: 'middle', newText: 'updated' }],
+  };
+  const f = await fixture([
+    {
+      edits: [{ op: 'replace', path: 'new.md', content: '' }],
+      reason: 'Replace a missing file',
+    },
+    {
+      edits: [{ op: 'create', path: 'skill.md', content: '' }],
+      reason: 'Create an existing file',
+    },
+    {
+      edits: [patch, { op: 'replace', path: 'skill.md', content: '' }],
+      reason: 'Mix operations on the same file',
+    },
+  ]);
+  try {
+    await assert.rejects(f.execute(), /Cannot replace new\.md/);
+    await assert.rejects(f.execute(), /Cannot create skill\.md/);
+    await assert.rejects(f.execute(), /Duplicate edit path: skill\.md/);
+    assert.equal(f.commits(), 0);
   } finally {
     await f.close();
   }

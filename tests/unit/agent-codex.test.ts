@@ -7,12 +7,12 @@ import {
   rm,
   writeFile,
   mkdir,
-  stat,
+  realpath,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
-import { patchEditOutputSchema } from '../../src/plugins/proposer-agent/patch-edits.js';
+import { proposerEditOutputSchema } from '../../src/plugins/proposer-agent/edits.js';
 import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { configSchema } from '../../src/plugins/agent-codex/schema.js';
 import { parseConfig } from '../../src/shared/schema.js';
@@ -27,18 +27,31 @@ const schema = {
   required: ['answer'],
   additionalProperties: false,
 };
+
+test('Codex directs role delegation through its native tool', async () => {
+  const f = await fixture(['{"answer":"ok"}']);
+  try {
+    await assert.rejects(f.run('scout'), /use native spawn_agent/);
+    assert.equal(f.requests.length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
 function events(reply: string, serial: number): string {
-  const item = reply.startsWith('READ:')
+  const spawn = reply.startsWith('SPAWN:');
+  const item = spawn
     ? {
         id: `fc_${serial}`,
-        type: 'function_call',
+        type: 'function_call' as const,
         call_id: `call_${serial}`,
-        name: 'read_file',
-        arguments: reply.slice(5),
+        name: 'spawn_agent',
+        namespace: 'multi_agent_v1',
+        arguments: reply.slice(6),
       }
     : {
         id: `msg_${serial}`,
-        type: 'message',
+        type: 'message' as const,
         role: 'assistant',
         status: 'completed',
         content: [{ type: 'output_text', text: reply, annotations: [] }],
@@ -121,15 +134,23 @@ async function fixture(
     approvalRequired?: boolean;
     rpcError?: boolean;
     turnFailure?: boolean;
-    files?: Record<string, string>;
     outputSchema?: JsonObject;
+    nativeDelegate?: boolean;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'codex-native-'));
   const home = join(directory, 'home');
+  const cwd = join(directory, 'project');
   await mkdir(home);
+  await mkdir(cwd);
+  await writeFile(join(cwd, 'AGENTS.md'), 'PROJECT_INSTRUCTIONS');
+  await writeFile(join(cwd, '.rsi-project'), '');
   const requests: JsonObject[] = [];
   const controller = new AbortController();
+  let childStarted = (): void => {};
+  const child = new Promise<void>((resolve) => {
+    childStarted = resolve;
+  });
   const server = createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/responses') {
       res.writeHead(404).end();
@@ -140,7 +161,24 @@ async function fixture(
     requests.push(JSON.parse(body));
     assert.equal(req.headers.authorization, 'Bearer test-key');
     assert.equal(req.headers['x-rsi-codex'], undefined);
-    const reply = replies[requests.length - 1] ?? 'invalid';
+    const serial = requests.length;
+    let reply = replies[serial - 1] ?? 'invalid';
+    if (options.nativeDelegate) {
+      if (serial === 1) {
+        reply =
+          'SPAWN:' +
+          JSON.stringify({
+            agent_type: 'scout',
+            message: 'Inspect the current project.',
+          });
+      } else if (body.includes('RSI_CHILD_INSTRUCTIONS')) {
+        reply = '{"answer":"child inspected"}';
+        childStarted();
+      } else {
+        await child;
+        reply = '{"answer":"ok"}';
+      }
+    }
     if (reply === 'WAIT') return;
     if (reply === 'CANCEL') {
       controller.abort(new Error('Test cancelled'));
@@ -154,7 +192,7 @@ async function fixture(
     }
     res
       .writeHead(200, { 'content-type': 'text/event-stream' })
-      .end(events(reply, requests.length));
+      .end(events(reply, serial));
   });
   await new Promise<void>((done, reject) => {
     server.once('error', reject);
@@ -232,15 +270,14 @@ async function fixture(
   return {
     directory,
     requests,
-    run: (maxModelCalls = 1) =>
+    cwd,
+    run: (role?: string) =>
       operation.execute(
         {
+          cwd,
           goal: 'Read authorized evidence',
-          prompt: 'Return a JSON answer.',
-          input: { example: true },
-          files: options.files ?? { 'evidence.txt': 'SNAPSHOT_CONTENT' },
           outputSchema: options.outputSchema ?? schema,
-          maxModelCalls,
+          ...(role === undefined ? {} : { role }),
         },
         context,
       ),
@@ -269,6 +306,45 @@ async function fixture(
     },
   };
 }
+
+test('Codex uses the managed project cwd and the native tool surface', async (t) => {
+  const native = Boolean(process.env.RSI_TEST_CODEX_EXECUTABLE);
+  const f = await fixture(
+    ['{"answer":"ok"}'],
+    native ? { nativeDelegate: true, timeoutMs: 8000 } : {},
+  );
+  t.after(() => f.close());
+  const project = f.cwd;
+  await mkdir(join(project, '.codex', 'agents'), { recursive: true });
+  await writeFile(
+    join(project, '.codex/agents/scout.toml'),
+    'name = "scout"\ndescription = "RSI_SCOUT_ROLE"\ndeveloper_instructions = "RSI_CHILD_INSTRUCTIONS"\n',
+  );
+  assert.deepEqual(await f.run(), { answer: 'ok' });
+  if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
+    const audit = object(
+      JSON.parse(await readFile(join(f.directory, 'execution.json'), 'utf8')),
+    );
+    assert.equal(object(audit.thread).cwd, await realpath(project));
+    assert.equal(object(audit.turn).cwd, await realpath(project));
+    assert.equal(object(audit.thread).dynamicTools, undefined);
+    assert.match(JSON.stringify(audit.args), /project_root_markers/);
+    assert.match(String(object(audit.thread).permissions), /^rsi-agent-/);
+    assert.match(JSON.stringify(audit.args), /workspace_roots/);
+  } else {
+    assert.match(JSON.stringify(f.requests[0]), /PROJECT_INSTRUCTIONS/);
+    const childRequest = f.requests.find((request) =>
+      JSON.stringify(request).includes('RSI_CHILD_INSTRUCTIONS'),
+    );
+    assert.ok(childRequest);
+    assert.match(JSON.stringify(childRequest), /PROJECT_INSTRUCTIONS/);
+    const tools = f.requests[0]!.tools as JsonObject[];
+    assert.ok(
+      JSON.stringify(tools).includes('RSI_SCOUT_ROLE'),
+      tools.map((tool) => [tool.type, tool.name]).join(' '),
+    );
+  }
+});
 
 test('Codex config defaults and validation follow its schema', async () => {
   assert.deepEqual(parseConfig(configSchema, {}, 'config'), {
@@ -302,7 +378,15 @@ for (const model of [undefined, 'selected-model'])
         const x = JSON.parse(
           await readFile(join(f.directory, 'execution.json'), 'utf8'),
         );
-        assert.deepEqual(x.args, ['app-server']);
+        assert.equal(x.args.at(-1), 'app-server');
+        assert.equal(x.dir, await realpath(f.cwd));
+        const tokenUsage = diagnostics
+          .trim()
+          .split('\n')
+          .map((line) => object(JSON.parse(line)))
+          .find((event) => event.type === 'token_usage');
+        assert.ok(tokenUsage);
+        assert.equal(object(object(tokenUsage.data).total).totalTokens, 13);
         for (const name of [
           'baseInstructions',
           'developerInstructions',
@@ -316,7 +400,7 @@ for (const model of [undefined, 'selected-model'])
       await f.close();
     }
   });
-test('Codex forwards the production patch schema unchanged and accepts all edit operations', async () => {
+test('Codex forwards the production edit schema unchanged and accepts all edit operations', async () => {
   const reply = {
     edits: [
       {
@@ -325,13 +409,14 @@ test('Codex forwards the production patch schema unchanged and accepts all edit 
         changes: [{ oldText: 'old', newText: 'new' }],
       },
       { op: 'create', path: 'new.md', content: 'New guidance' },
+      { op: 'replace', path: 'instructions.md', content: 'Updated guidance' },
       { op: 'delete', path: 'obsolete.md' },
     ],
     reason: 'Update guidance',
   };
-  const original = structuredClone(patchEditOutputSchema);
+  const original = structuredClone(proposerEditOutputSchema);
   const f = await fixture([JSON.stringify(reply)], {
-    outputSchema: object(patchEditOutputSchema),
+    outputSchema: object(proposerEditOutputSchema),
   });
   try {
     assert.deepEqual(await f.run(), reply);
@@ -339,12 +424,12 @@ test('Codex forwards the production patch schema unchanged and accepts all edit 
       const execution = JSON.parse(
         await readFile(join(f.directory, 'execution.json'), 'utf8'),
       );
-      assert.deepEqual(execution.turn.outputSchema, patchEditOutputSchema);
+      assert.deepEqual(execution.turn.outputSchema, proposerEditOutputSchema);
       const items = execution.turn.outputSchema.properties.edits.items;
       assert.equal(items.oneOf, undefined);
-      assert.equal(items.anyOf.length, 3);
+      assert.equal(items.anyOf.length, 4);
     }
-    assert.deepEqual(patchEditOutputSchema, original);
+    assert.deepEqual(proposerEditOutputSchema, original);
   } finally {
     await f.close();
   }
@@ -376,37 +461,10 @@ test('Codex overrides local reasoning effort for the session', async () => {
   }
 });
 
-test('Codex performs paged snapshot reads with independent numeric RPC IDs and no RSI model-call cap', async () => {
-  const f = await fixture(
-    [
-      'READ:' + JSON.stringify({ path: 'huge.json', maxBytes: 1024 }),
-      'READ:' + JSON.stringify({ path: 'one.txt' }),
-      'READ:' + JSON.stringify({ path: 'two.txt' }),
-      '{"answer":"ok"}',
-    ],
-    {
-      files: {
-        'huge.json':
-          'SNAPSHOT_START' + 'x'.repeat(4 * 1024 * 1024) + 'UNREAD_END',
-        'one.txt': 'one',
-        'two.txt': 'two',
-      },
-    },
-  );
-  try {
-    assert.deepEqual(await f.run(1), { answer: 'ok' });
-    assert.equal(f.requests.length, 4);
-    assert.ok(!JSON.stringify(f.requests[0].input).includes('SNAPSHOT_START'));
-    assert.ok(JSON.stringify(f.requests[1].input).includes('SNAPSHOT_START'));
-    assert.ok(!JSON.stringify(f.requests).includes('UNREAD_END'));
-  } finally {
-    await f.close();
-  }
-});
 test('Codex native provider retries are not disabled or latched by RSI', async () => {
   const f = await fixture(['HTTP500', '{"answer":"ok"}'], { retries: 1 });
   try {
-    assert.deepEqual(await f.run(1), { answer: 'ok' });
+    assert.deepEqual(await f.run(), { answer: 'ok' });
     assert.equal(f.requests.length, 2);
   } finally {
     await f.close();
@@ -449,17 +507,21 @@ for (const scenario of [
     error: /timed out/,
   },
 ])
-  test(`Codex propagates ${scenario.name} and releases temporary state`, async () => {
+  test(`Codex propagates ${scenario.name} and preserves the caller's project`, async () => {
     const f = await fixture([scenario.reply], {
       timeoutMs: scenario.timeoutMs,
     });
     try {
       await assert.rejects(f.run(), scenario.error);
+      assert.equal(
+        await readFile(join(f.cwd, 'AGENTS.md'), 'utf8'),
+        'PROJECT_INSTRUCTIONS',
+      );
       if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
-        const x = JSON.parse(
+        const audit = JSON.parse(
           await readFile(join(f.directory, 'execution.json'), 'utf8'),
         );
-        await assert.rejects(stat(x.dir), /ENOENT/);
+        assert.throws(() => process.kill(audit.pid, 0), { code: 'ESRCH' });
       }
     } finally {
       await f.close();

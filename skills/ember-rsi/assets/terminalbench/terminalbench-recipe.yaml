@@ -27,7 +27,6 @@ bindings:
     config:
       agentRef: agent
       prompt: ./terminalbench-proposer.md
-      maxModelCalls: 6
   evaluator:
     plugin: evaluator.agentbench
     config:

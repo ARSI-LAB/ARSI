@@ -9,5 +9,5 @@ export * from './proposer-grid.js';
 export * from './reflection.js';
 export * from './selector-artifacts.js';
 export * from './selector-metrics.js';
-export * from './proposer-parameter-search.js';
+export * from './search.js';
 export * from './proposer-operator.js';

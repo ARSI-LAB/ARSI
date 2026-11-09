@@ -44,10 +44,16 @@ import {
 
 useOperatorSdkTestEnvironment();
 
+type OperatorProject = {
+  input: JsonObject;
+  source: string;
+  instructions: string;
+};
+
 async function setup(
   scenario: (
     context: RuntimeContext,
-    requests: AgentInput[],
+    requests: OperatorProject[],
   ) => Promise<JsonObject>,
   noIssues = false,
   options: {
@@ -60,13 +66,14 @@ async function setup(
     invalidSummary?: boolean;
     promptsDirectory?: string;
     editRejection?: { stage: 'generate' | 'repair'; error: Error };
+    invalidEdits?: 'generate' | 'repair';
   } = {},
 ) {
   const fixture = await prepareOperatorProposerFixture();
   const runtime = await createRuntime({ rootDirectory: fixture.root });
   if (!runtime.registry.catalog().plugins.includes('proposer.operator'))
     runtime.registry.registerOperation(operatorProposerDefinition);
-  const requests: AgentInput[] = [];
+  const requests: OperatorProject[] = [];
   let generation = 0;
   const agent: OperationDefinition<AgentInput, AgentOutput, JsonObject> = {
     id: 'agent.operator-test',
@@ -75,9 +82,21 @@ async function setup(
     async create() {
       return {
         async execute(request, context): Promise<JsonObject> {
-          requests.push(structuredClone(request));
+          const input = object(
+            JSON.parse(
+              await readFile(join(request.cwd, 'context/input.json'), 'utf8'),
+            ),
+          );
+          requests.push({
+            input,
+            source: await readFile(join(request.cwd, 'input.py'), 'utf8'),
+            instructions: await readFile(
+              join(request.cwd, 'AGENTS.md'),
+              'utf8',
+            ),
+          });
           await context.charge('modelCalls', 1);
-          const stage = object(request.input).stage;
+          const stage = input.stage;
           if (stage === 'diagnose-metrics')
             return options.invalidMetrics
               ? { invalid: true }
@@ -118,6 +137,16 @@ async function setup(
           if (stage === options.editRejection?.stage) {
             await Promise.resolve();
             throw options.editRejection.error;
+          }
+          if (stage === options.invalidEdits) {
+            await Promise.resolve();
+            return {
+              edits: [
+                { path: 'input.py', content: 'first' },
+                { path: 'other.py', content: 'second' },
+              ],
+              reason: 'Invalid response',
+            };
           }
           const marker =
             options.metrics && options.initialValid
@@ -287,7 +316,9 @@ test('operator generation receives configured prompts and rejects analysis after
       const first = object(await context.invoke('proposer', input));
       assert.equal(first.status, 'created');
       assert.ok(
-        requests[1]!.prompt.startsWith('Configured generation sentinel\n'),
+        requests[1]!.instructions.startsWith(
+          'Configured generation sentinel\n',
+        ),
       );
       await writeFile(generate, 'Changed generation sentinel\n');
       const configured = await Recipe.load(
@@ -411,11 +442,11 @@ test('operator Proposer performs independent diagnosis/generation, repairs faile
     assert.match(JSON.stringify(nextInput.history), /Use one hypothesis/);
     assert.match(JSON.stringify(nextInput.history), /candidateMs.*12/);
     assert.equal(
-      requests[4]!.files?.['input.py'],
+      requests[4]!.source,
       operatorFixtureSource('fixture:latency=10'),
     );
     assert.equal(
-      requests[2]!.files?.['input.py'],
+      requests[2]!.source,
       operatorFixtureSource('fixture:incorrect'),
     );
     assert.match(
@@ -646,7 +677,7 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
         /candidateMs.*9/,
       );
       assert.equal(
-        generates[1]!.files?.['input.py'],
+        generates[1]!.source,
         operatorFixtureSource('fixture:latency=9'),
       );
       return { parent, historyRef };
@@ -714,7 +745,7 @@ test('metric repairs use the failed candidate and deliver the complete user hard
       );
       assert.ok(repairRequest);
       assert.equal(
-        repairRequest.files?.['input.py'],
+        repairRequest.source,
         operatorFixtureSource('fixture:incorrect'),
       );
       assert.equal(object(repairRequest.input).hardwareContext, hardwareText);
@@ -907,11 +938,6 @@ test('invalid static summary output preserves a fact-only summary with an explic
   );
 });
 
-const invalidEditResponse = () =>
-  new Error(
-    'Agent model-call limit reached; last output validation failed: agent output/edits must NOT have more than 1 items',
-  );
-
 for (const abortAt of ['summary', 'history'] as const)
   test(`cancelling while writing ${abortAt} artifacts keeps the summary call cancelled`, async (t) => {
     const controller = new AbortController();
@@ -1063,7 +1089,7 @@ test('asynchronous invalid generation retains error evidence and history for the
       return next;
     },
     false,
-    { editRejection: { stage: 'generate', error: invalidEditResponse() } },
+    { invalidEdits: 'generate' },
   );
   t.after(() => fixture.dispose());
   assert.equal(
@@ -1140,7 +1166,7 @@ test('asynchronous invalid repair retains the failed source and repair error wit
       return summary;
     },
     false,
-    { editRejection: { stage: 'repair', error: invalidEditResponse() } },
+    { invalidEdits: 'repair' },
   );
   t.after(() => fixture.dispose());
   assert.equal(

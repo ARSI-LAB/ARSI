@@ -135,40 +135,32 @@ output:
 
 ## Register a Policy
 
-A Recipe resolves a Policy file by its registered ID. Built-in Policies are already registered by the framework and ready to use. Choose one of these methods to register a new Policy:
+A Recipe resolves a Policy file by its registered ID. Built-in Policies are already registered by the framework and ready to use. Register new Policies through an extension entrypoint loaded by the installed CLI.
 
-| Method               | When to use it                                                                     |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| Modify the source    | Modify RSI source to build and provide the new Policy with the framework.          |
-| Load through the CLI | Keep the Policy in your own extension directory and load it with an installed CLI. |
+> When maintaining built-in framework Policies, you can place files in `src/policies/`, add them to the Policy file list in the [built-in registration file](../../../src/runtime/builtins.ts), and run `pnpm build` to build them with the framework.
 
-- If the Policy uses a custom contract, both methods require registering the corresponding plugin definition before loading the Policy.
+1. Save the example above as `~/.ember-rsi/plugins/my-extension/policy.yaml`.
 
-### Method 1: Modify the source
-
-1. Save the example above as `src/policies/baseline-check/policy.yaml`.
-2. Find the Policy file list in `registerBuiltins` in the [built-in registration file](../../../src/runtime/builtins.ts) and add `'baseline-check/policy.yaml'`. The existing loop reads the file's `id` and registers the Policy.
-3. Run `pnpm build` from the repository root to update the CLI and Policy files. Then validate and run through the repository's `pnpm ember-rsi` command, as shown in the shared steps below.
-
-### Method 2: Load through the CLI (dynamic loading at startup)
-
-1. Save the example above as `my-extension/policy.yaml`.
-
-2. Create `index.mjs` beside it, exporting `register(registry)`. The CLI calls this function when loading the extension:
+2. Create `index.mjs` beside it, exporting `register(registry)` to register the Policy ID and file path:
 
    ```js
    import { fileURLToPath } from 'node:url';
-   import { Policy } from 'ember-rsi';
 
-   export async function register(registry) {
-     const file = fileURLToPath(new URL('./policy.yaml', import.meta.url));
-     const policy = await Policy.load(file, registry);
-     registry.registerPolicy(policy.id, file);
+   export function register(registry) {
+     registry.registerPolicy(
+       'policy.baseline-check',
+       fileURLToPath(new URL('./policy.yaml', import.meta.url)),
+     );
    }
    ```
 
-3. Pass `--plugin-dir ./my-extension` when validating and running to load the registration entrypoint.
-   - One entrypoint can register multiple Policies; if one already exists, add the code to its existing `register` function.
+3. At startup, the CLI scans the immediate subdirectories of `~/.ember-rsi/plugins/` in directory-name order, loads each directory's `index.mjs`, and calls `register(registry)`, with no extra arguments needed.
+   - The registered ID must match `id` in `policy.yaml`. Runtime reads and validates the Policy when loading a Recipe.
+
+   - If the Policy uses a custom contract, register the corresponding plugin or contract before loading it. One entrypoint can register multiple plugins and Policies; if one already exists, add the registration code to its existing `register` function.
+
+   - **To keep an extension in your project or another location, use `--plugin-dir ./my-extension` to select the extension directory containing `index.mjs`.**
+     - Relative paths resolve against the command's working directory; repeat the option for multiple directories.
 
 ### Configure the Recipe and run
 
@@ -189,18 +181,18 @@ The example Policy's `input` already defaults to the Application's initial candi
 
 #### Step 2: Validate and run
 
-**After modifying the source**, use the newly built CLI from the repository root:
+With the extension in `~/.ember-rsi/plugins/my-extension/`, use the installed CLI directly from the working directory containing `my-experiment/`:
 
 ```sh
-pnpm ember-rsi validate my-experiment/recipe.yaml
-pnpm ember-rsi run my-experiment/recipe.yaml --id baseline-01
+ember-rsi validate my-experiment/recipe.yaml
+ember-rsi run my-experiment/recipe.yaml --id baseline-01
 ```
 
-**When loading through the CLI**, run from the working directory containing `my-extension/` and `my-experiment/`, loading the same extension in both commands:
+If the extension is elsewhere, such as `my-extension/` under the working directory, pass the same extension directory when validating, running, and resuming:
 
 ```sh
 ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id baseline-01 --plugin-dir ./my-extension
 ```
 
-See [extension registration](writing-plugins.md#method-2-register-an-external-extension-for-the-cli) for other loading options. Before changing a Policy used by an unfinished experiment, check the [recovery requirements](running-experiments.md#cancellation-and-resume).
+See [Register the plugin](writing-plugins.md#step-2-register-the-plugin) for more loading details. Before changing a Policy used by an unfinished experiment, check the [recovery requirements](running-experiments.md#cancellation-and-resume).

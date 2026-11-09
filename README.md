@@ -1,16 +1,33 @@
-# ![ember-rsi](docs/users/assets/ember-rsi-logo.png)
+<h1 align="center">
+  <img src="docs/users/assets/ember-rsi-logo.png" alt="ember-rsi" width="520">
+</h1>
 
-### Multiple self-improvement strategies in one framework · Make Everything RSI-able.
+<h3 align="center">Multiple self-improvement strategies in one framework · Make Everything RSI-able.</h3>
 
-Generate candidates, evaluate their performance, and iterate in one framework, from agent harnesses to AI infrastructure.
+<p align="center">
+  Generate candidates, evaluate their performance, and iterate in one framework, from agent harnesses to AI infrastructure.
+</p>
 
-![Node.js 24.x](https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&logoColor=white)![pnpm 11.22.0](https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&logoColor=white)![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&amp;logoColor=white" alt="Node.js 24.x">
+  <img src="https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&amp;logoColor=white" alt="pnpm 11.22.0">
+  <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License: Apache-2.0">
+</p>
 
-English | [中文](./README.zh-CN.md)
+<p align="center">
+  English | <a href="./README.zh-CN.md">中文</a>
+</p>
 
-[When to use](#when-to-use) · [Overview](#overview) · [How it works](#architecture) · [Everything is a plugin](#extensions) · [Installation](#installation) · [Using ember-rsi](#usage) · [Built-in RSI strategies](#built-in-rsi-strategies) · [User guides](#user-guide)
-
----
+<p align="center">
+  <a href="#when-to-use">When to use</a> ·
+  <a href="#overview">Overview</a> ·
+  <a href="#architecture">How it works</a> ·
+  <a href="#extensions">Everything is a plugin</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#usage">Using ember-rsi</a> ·
+  <a href="#built-in-rsi-strategies">Built-in RSI strategies</a> ·
+  <a href="#user-guide">User guides</a>
+</p>
 
 <a id="when-to-use"></a>
 

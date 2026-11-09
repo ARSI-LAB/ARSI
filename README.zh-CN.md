@@ -1,16 +1,33 @@
-# ![ember-rsi](docs/users/assets/ember-rsi-logo.png)
+<h1 align="center">
+  <img src="docs/users/assets/ember-rsi-logo.png" alt="ember-rsi" width="520">
+</h1>
 
-### 多种自演进策略，一个框架统一承载 · Make Everything RSI-able.
+<h3 align="center">多种自演进策略，一个框架统一承载 · Make Everything RSI-able.</h3>
 
-从 Agent Harness 到 AI 基础设施，用同一套框架生成候选方案、评测效果并持续迭代。
+<p align="center">
+  从 Agent Harness 到 AI 基础设施，用同一套框架生成候选方案、评测效果并持续迭代。
+</p>
 
-![Node.js 24.x](https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&logoColor=white)![pnpm 11.22.0](https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&logoColor=white)![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-24.x-339933?logo=nodedotjs&amp;logoColor=white" alt="Node.js 24.x">
+  <img src="https://img.shields.io/badge/pnpm-11.22.0-F69220?logo=pnpm&amp;logoColor=white" alt="pnpm 11.22.0">
+  <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License: Apache-2.0">
+</p>
 
-[English](./README.md) | 中文
+<p align="center">
+  <a href="./README.md">English</a> | 中文
+</p>
 
-[何时使用](#when-to-use) · [简介](#overview) · [工作原理](#architecture) · [一切皆插件](#extensions) · [安装与部署](#installation) · [使用 ember-rsi](#usage) · [内置 RSI 策略](#built-in-rsi-strategies) · [使用指南](#user-guide)
-
----
+<p align="center">
+  <a href="#when-to-use">何时使用</a> ·
+  <a href="#overview">简介</a> ·
+  <a href="#architecture">工作原理</a> ·
+  <a href="#extensions">一切皆插件</a> ·
+  <a href="#installation">安装与部署</a> ·
+  <a href="#usage">使用 ember-rsi</a> ·
+  <a href="#built-in-rsi-strategies">内置 RSI 策略</a> ·
+  <a href="#user-guide">使用指南</a>
+</p>
 
 <a id="when-to-use"></a>
 

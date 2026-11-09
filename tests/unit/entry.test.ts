@@ -18,7 +18,9 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
     const catalog = response.json();
     assert.deepEqual(catalog.plugins.sort(), [
       'agent.codex',
+      'agent.kernel',
       'agent.pi',
+      'agent.scripted',
       'application.agentbundle',
       'application.inference',
       'application.kernel',
@@ -36,6 +38,7 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
     ]);
     assert.deepEqual(catalog.policies.sort(), [
       'policy.harness2',
+      'policy.operator-iter-agent',
       'policy.operator-search',
       'policy.parameter-grid',
       'policy.parameter-optuna',

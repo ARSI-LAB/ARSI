@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "rsi.kernel-task/v1",
+  "id": "kernel-opt-vector-add",
+  "cases": [
+    { "id": "fp16-512", "seed": 42 },
+    { "id": "fp32-768", "seed": 7 },
+    { "id": "fp16-1024", "seed": 13 }
+  ],
+  "contract": {
+    "inputs": [
+      { "shape": [512, 256, 512], "dtype": "float16" },
+      { "shape": [512, 256, 512], "dtype": "float16" }
+    ],
+    "output": {
+      "shape": [512, 256, 512],
+      "dtype": "float16",
+      "contiguous": true,
+      "independent": true
+    },
+    "inputUnmodified": true
+  }
+}

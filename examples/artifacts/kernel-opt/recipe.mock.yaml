@@ -1,0 +1,90 @@
+# Synthetic smoke run only; no model, NPU or ngo_agent requests. Paths are
+# recipe-relative. Mirrors recipe.yaml component-for-component: the lifecycle,
+# evaluator and agent bindings are swapped for deterministic mocks
+# (scripts/mock-lifecycle.py, mock mode evaluator, agent.scripted +
+# scripts/mock-memory-bridge.py) so the full chain - lifecycle precheck
+# rejection -> failed measurement -> stale round -> convergence -> memory
+# persistence - is verifiable on a machine without an Ascend NPU.
+schemaVersion: rsi.recipe/v1
+id: kernel-opt-mock
+application:
+  # Same plugin and lifecycle wiring as recipe.yaml; the mock script stubs
+  # the NPU-facing steps (identity query, correctness precheck) and rejects
+  # candidates whose config.json sets BLOCK_SIZE to 256.
+  plugin: application.kernel
+  config:
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+    lifecycle:
+      executable: python3
+      script: ./scripts/mock-lifecycle.py
+      parametersFile: config.json
+      timeoutMs: 60000
+    healthcheck:
+      timeoutMs: 60000
+      intervalMs: 1000
+    shutdown:
+      gracePeriodMs: 10000
+policy:
+  # convergeRounds 1: the poisoned candidate is the first stale round, so the
+  # run converges right after it and the fixtures stay unambiguous.
+  id: policy.operator-iter-agent
+  config:
+    maxRounds: 8
+    convergeRounds: 1
+    goal: >
+      Mock smoke: adopt the valid tiling variant, then observe the poisoned
+      candidate rejected by the lifecycle precheck.
+    caseIds: [fp16-512, fp32-768, fp16-1024]
+bindings:
+  proposer:
+    plugin: proposer.agent
+    config:
+      # agent.scripted matches fixtures on the parent's input.py digest and
+      # requires training-summary evidence; the SDK recipe keeps 'execution'.
+      evidenceView: training-summary
+      agentRef: agentKernel
+      prompt: ./prompt.md
+      maxModelCalls: 24
+      seedDirectory: ${NGO_MEMORY_DIR}
+  memoryUpdater:
+    plugin: memory.agent
+    config:
+      agentRef: agent
+      prompt: ../../../src/policies/operator-iter-agent/memory.md
+      evidenceView: execution
+      maxModelCalls: 8
+      seedDirectory: ${NGO_MEMORY_DIR}
+      persistDirectory: ${NGO_MEMORY_DIR}
+  # Memory backend: the same bridge seam as agent.kernel, without a model.
+  agent:
+    plugin: agent.kernel
+    config:
+      script: ./scripts/mock-memory-bridge.py
+      executable: python3
+      env: []
+      timeoutMs: 60000
+  # Kernel-agent backend: scripted responses keyed by the parent input.py
+  # digest (agent.scripted's PR mock pattern).
+  agentKernel:
+    plugin: agent.scripted
+    config:
+      responses: ./fixtures/agent-responses.json
+  evaluator:
+    plugin: evaluator.operatorbench
+    config:
+      mode: mock
+      task:
+        directory: ./task
+      protocol:
+        warmup: 2
+        repeat: 3
+        timingScope: all-device-work
+        outputAllocation: excluded
+      fixtures: ./fixtures/evaluations.json
+budget:
+  operations: 100
+  evaluationRuns: 5
+  modelCalls: 5
+  elapsedWallMs: 300000
+  cleanupReserveMs: 30000

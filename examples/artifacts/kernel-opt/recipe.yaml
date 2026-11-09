@@ -1,0 +1,137 @@
+# Relative file paths are recipe-relative.
+schemaVersion: rsi.recipe/v1
+id: kernel-opt
+# Agent channel of the operator-iter loop (design 2026-10-31-02, option B):
+# RSI drives all loop mechanics in code; one agent invocation per round
+# proposes the next candidate inside the editable scope.
+application:
+  # Owns candidate files (kernel source input.py + tiling config.json) and the
+  # process-local lifecycle: sync -> build -> AST precheck scan -> optional
+  # correctness precheck, via the script below.
+  plugin: application.kernel
+  config:
+    # Editable scope and H0 baseline (the captured kernel snapshot).
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+    lifecycle:
+      # Interpreter on the machine with the NPU and build toolchain.
+      executable: python3
+      # Implement start/status/stop; keep build/scan settings in the script or
+      # local environment (RSI_NPU_STATE_ROOT, RSI_KERNEL_BUILD_CMD,
+      # RSI_NPU_OPEVAL).
+      script: ./scripts/kernel-opt-lifecycle.py
+      # Candidate JSON read by Application and sent as request.parameters.
+      # Keep this path aligned with the target's editable scope.
+      parametersFile: config.json
+      # Wide by default: covers the build plus the deterministic precheck.
+      timeoutMs: 600000
+    healthcheck:
+      # Readiness is the lifecycle status (ready with queried device/software
+      # identity) plus the start precheck; no HTTP endpoint.
+      timeoutMs: 600000
+      intervalMs: 5000
+    shutdown:
+      # Cleanup deadline (ms); the script removes the instance workdir.
+      gracePeriodMs: 60000
+policy:
+  # Agent-proposed candidates under the evaluator's validity gate until
+  # convergence or budget exhaustion.
+  id: policy.operator-iter-agent
+  config:
+    # Cap agent rounds; budget.evaluationRuns below covers it.
+    maxRounds: 8
+    # Stop after 3 consecutive rounds without an accepted improvement.
+    convergeRounds: 3
+    goal: >
+      Reduce p50 latency of the captured kernel(s) on the Ascend NPU without
+      changing any function name or signature; propose one structural change
+      or one tiling adjustment per round.
+    # Operator task case IDs (task/task.json) measured each round; the SDK
+    # flow measures every baseline case (ids/seeds carried over from
+    # baseline/cases.json).
+    caseIds: [fp16-512, fp32-768, fp16-1024]
+bindings:
+  proposer:
+    plugin: proposer.agent
+    config:
+      evidenceView: execution
+      agentRef: agentKernel
+      prompt: ./prompt.md
+      # Domain knowledge only; the loop mechanics are RSI's, so the workflow
+      # skill is not part of this binding (design P2, revised).
+      skills: [../../../src/policies/operator-iter-agent/skills/kernel-opt]
+      maxModelCalls: 24
+      # Cross-run memory: a null memoryRef seeds the wiki from this host
+      # directory so every round starts from accumulated experience.
+      seedDirectory: ${NGO_MEMORY_DIR}
+  # The proposer consumes the cross-run memory wiki (null on a fresh
+  # deployment; seeded from memoryUpdater's persisted directory afterwards).
+  memoryUpdater:
+    plugin: memory.agent
+    config:
+      agentRef: agent
+      prompt: ../../../src/policies/operator-iter-agent/memory.md
+      evidenceView: execution
+      # One consolidation call per run; bound it explicitly so a single
+      # reflection cannot exhaust the whole run's modelCalls budget.
+      maxModelCalls: 8
+      # Cross-run persistence: a fresh run seeds its wiki from this host
+      # directory and mirrors updated memory files back after the run.
+      seedDirectory: ${NGO_MEMORY_DIR}
+      persistDirectory: ${NGO_MEMORY_DIR}
+  # General agent backend for the memory reflection call: one provider call,
+  # model credentials from the process environment.
+  agent:
+    plugin: agent.pi
+    config:
+      model: ${NGO_LLM_MODEL}
+      base_url: ${NGO_LLM_BASE_URL}
+      api_key: ${LLM_API_KEY}
+      thinkingLevel: low
+      timeoutMs: 900000
+  # Kernel-agent backend: one Python bridge process per proposal, JSON
+  # stdin/stdout, model credentials from the process environment.
+  agentKernel:
+    plugin: agent.kernel
+    config:
+      script: ../../../src/plugins/agent-kernel/scripts/kernel-bridge.py
+      executable: python3
+      # Forward the model environment; values stay in the process environment
+      # and are never persisted to run artifacts or worklogs.
+      env: [NGO_LLM_BASE_URL, NGO_LLM_MODEL, LLM_API_KEY, NGO_LLM_TIMEOUT]
+      timeoutMs: 600000
+  evaluator:
+    plugin: evaluator.operatorbench
+    config:
+      # SDK mode: per case the evaluator stages input.py (+ tiling
+      # config.json) and task/problem.py into the evaluator SDK harness,
+      # which runs the correctness assessment and the timing protocol on the
+      # NPU. python must be the interpreter with torch_npu and triton-ascend
+      # installed on the NPU host.
+      mode: sdk
+      task:
+        directory: ./task
+      protocol:
+        warmup: 5
+        repeat: 20
+        rtol: 0.01
+        atol: 0.01
+        timingScope: all-device-kernels
+      sdk:
+        python: python3
+        device: 0
+        timeoutSeconds: 900
+        profiling:
+          enabled: false
+budget:
+  # Manager caps; aligned with policy maxRounds above (one evaluationRuns
+  # charge per evaluate call, covering every case in caseIds).
+  operations: 100
+  evaluationRuns: 9
+  # One bridge proposal per round (model-call consumption is reported by the
+  # bridge and charged to this budget) plus one bounded memory reflection
+  # call (memoryUpdater maxModelCalls: 8).
+  modelCalls: 24
+  # Total experiment wall time (24h) and reserved cleanup time (1min), ms.
+  elapsedWallMs: 86400000
+  cleanupReserveMs: 60000

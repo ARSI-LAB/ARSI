@@ -6,7 +6,6 @@ export type AgentEditingConfig = {
   guidance?: string;
   evidenceView?: 'execution' | 'training-summary';
   skills?: string[];
-  maxModelCalls?: number;
   seedDirectory?: string;
   persistDirectory?: string;
 };
@@ -26,7 +25,6 @@ export const agentConfigSchema = {
       items: { type: 'string', 'x-rsi-path': 'directory' },
       default: [],
     },
-    maxModelCalls: { type: 'integer', minimum: 1 },
     seedDirectory: { type: 'string', 'x-rsi-path': 'directory' },
     persistDirectory: { type: 'string', 'x-rsi-path': 'directory' },
   },

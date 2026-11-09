@@ -99,10 +99,19 @@ def evidence_feedback(evidence: object) -> str:
 
 
 def memory_block(memory: object) -> str:
-    """Cross-run memory wiki sections (`[{path, content}]`, newest first).
+    """Cross-run memory wiki sections (newest first).
+
+    Accepts both the flat ``{path: content}`` map the workspace metadata
+    carries and the legacy ``[{path, content}]`` list form.
 
     Sits between the strategy template and the skill pack so it informs the
     proposal without outranking the skill guidance or the task prompt."""
+    if isinstance(memory, dict):
+        memory = [
+            {"path": path, "content": content}
+            for path, content in sorted(memory.items())
+            if isinstance(content, str)
+        ]
     if not isinstance(memory, list):
         return ""
     sections = [

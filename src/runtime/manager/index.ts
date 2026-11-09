@@ -11,6 +11,7 @@ import type {
   JsonObject,
   JsonValue,
 } from '../../contracts/index.js';
+import { agentContract } from '../../contracts/plugin-types/agent.js';
 import { RuntimeContext } from '../../contracts/runtime/context.js';
 import { object, string, digest } from '../../shared/json.js';
 import { createCallExecutor, type CallExecutor } from './calls.js';
@@ -539,12 +540,17 @@ export class Manager {
         async invoke(this: RuntimeContext, binding, input) {
           return calls.invoke(binding, input, this);
         },
-        async invokeAgent(this: RuntimeContext, input) {
-          const ctx = this;
-          const ref = string(input.agentRef ?? 'agent.default');
-          if (!activation.bindings[ref])
-            throw new Error(`Unknown Agent ${ref}`);
-          return object(await calls.invoke(ref, input, ctx));
+        async invokeAgent(this: RuntimeContext, agentRef, input) {
+          const binding = activation.bindings[agentRef];
+          if (!binding) throw new Error(`Unknown Agent ${agentRef}`);
+          if (
+            manager.options.registry.get(binding.plugin).contract.id !==
+            agentContract.id
+          )
+            throw new Error(
+              `Binding ${agentRef} does not implement contract.agent`,
+            );
+          return object(await calls.invoke(agentRef, input, this));
         },
         async readEvidence(this: RuntimeContext, refs, options) {
           return experimentFacts.readEvidence(refs, options, this);

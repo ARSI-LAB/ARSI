@@ -45,7 +45,6 @@ bindings:
       evidenceView: training-summary
       agentRef: agentKernel
       prompt: ./prompt.md
-      maxModelCalls: 24
       seedDirectory: ${NGO_MEMORY_DIR}
   memoryUpdater:
     plugin: memory.agent
@@ -53,7 +52,6 @@ bindings:
       agentRef: agent
       prompt: ../../../src/policies/operator-iter-agent/memory.md
       evidenceView: execution
-      maxModelCalls: 8
       seedDirectory: ${NGO_MEMORY_DIR}
       persistDirectory: ${NGO_MEMORY_DIR}
   # Memory backend: the same bridge seam as agent.kernel, without a model.

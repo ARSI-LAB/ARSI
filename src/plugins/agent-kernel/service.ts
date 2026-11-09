@@ -1,4 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type {
   AgentInput,
   AgentOutput,
@@ -7,6 +9,7 @@ import type {
   RuntimeContext,
 } from '../../contracts/index.js';
 import { json, object } from '../../shared/json.js';
+import { projectMarker } from '../shared/agent-editing/project.js';
 import {
   parseConfig,
   validate,
@@ -18,19 +21,86 @@ import {
   type ResolvedAgentKernelConfig,
 } from './schema.js';
 
+/** Per-invocation bridge retry ceiling; the experiment budget (modelCalls)
+ * stays with the Manager, which charges the reported consumption. */
+const BRIDGE_MODEL_CALL_LIMIT = 24;
+
+/**
+ * Reconstruct the bridge's flat request document from the managed agent
+ * workspace: AGENTS.md carries the composed prompt, editable files live under
+ * candidate/ (stripped back to their workspace-relative paths), read-only
+ * comparison files keep their own paths, the caller's input metadata and the
+ * evidence view live in context/*.json, and skill packs are materialized under
+ * .agents/skills/.
+ */
+async function bridgeRequest(request: AgentInput): Promise<JsonObject> {
+  const files: JsonObject = {};
+  let input: JsonObject = {};
+  const skills: JsonObject[] = [];
+  const walk = async (relative: string): Promise<void> => {
+    for (const entry of await readdir(join(request.cwd, relative), {
+      withFileTypes: true,
+    })) {
+      const path = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        await walk(path);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const content = await readFile(join(request.cwd, path));
+      if (content.includes(0)) continue;
+      let text: string;
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(content);
+      } catch {
+        continue;
+      }
+      if (path === 'context/input.json') input = object(JSON.parse(text));
+      else if (path === 'context/measurements.json')
+        input.evidence = JSON.parse(text);
+      else if (path.startsWith('.agents/skills/'))
+        skills.push({
+          path: path.slice('.agents/skills/'.length),
+          content: text,
+        });
+      else if (
+        path === 'AGENTS.md' ||
+        path === projectMarker ||
+        path.startsWith('roles/') ||
+        path.startsWith('.codex/')
+      )
+        continue;
+      else
+        files[
+          path.startsWith('candidate/') ? path.slice('candidate/'.length) : path
+        ] = text;
+    }
+  };
+  await walk('');
+  return {
+    goal: request.goal,
+    prompt: await readFile(join(request.cwd, 'AGENTS.md'), 'utf8'),
+    input,
+    files,
+    outputSchema: request.outputSchema,
+    maxModelCalls: BRIDGE_MODEL_CALL_LIMIT,
+  };
+}
+
 /**
  * One bridge invocation proposes one candidate: the request is a single JSON
  * document on stdin, the response a single JSON document on stdout (the same
  * bounded one-shot seam as the lifecycle scripts). Bridge diagnostics may
  * contain host configuration; stderr is never relayed.
  */
-function bridge(
+async function bridge(
   config: ResolvedAgentKernelConfig,
   request: AgentInput,
   childEnv: Record<string, string>,
   signal: AbortSignal,
 ): Promise<JsonObject> {
   signal.throwIfAborted();
+  const document = await bridgeRequest(request);
   return new Promise<JsonObject>((resolveResult, reject) => {
     const child = spawn(config.executable, [config.script], {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -128,16 +198,7 @@ function bridge(
         reject(error);
       }
     });
-    child.stdin.end(
-      JSON.stringify({
-        goal: request.goal,
-        prompt: request.prompt,
-        input: request.input ?? {},
-        files: request.files ?? {},
-        outputSchema: request.outputSchema,
-        maxModelCalls: request.maxModelCalls ?? 24,
-      }),
-    );
+    child.stdin.end(JSON.stringify(document));
   });
 }
 
@@ -193,7 +254,7 @@ export const createAgentKernel: OperationDefinition<
       }
       const response = await bridge(config, request, childEnv, signal);
       const { output, modelCalls } = splitModelCalls(response);
-      const limit = request.maxModelCalls ?? 24;
+      const limit = BRIDGE_MODEL_CALL_LIMIT;
       if (modelCalls > limit)
         throw new Error(
           `agent.kernel bridge used ${modelCalls} model calls, exceeding the ${limit}-call budget`,

@@ -194,6 +194,7 @@ export async function createOperatorbench(
                     selectedCases[0]!.id,
                     string(key.attemptId),
                     null,
+                    null,
                   );
               }
               result = adaptSdkResult(
@@ -340,6 +341,7 @@ export async function createOperatorbench(
                       native,
                       selected.id,
                       string(key.attemptId),
+                      null,
                       null,
                     );
                 }

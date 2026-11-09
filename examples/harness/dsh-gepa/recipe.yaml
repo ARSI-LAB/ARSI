@@ -1,0 +1,103 @@
+schemaVersion: rsi.recipe/v1
+id: gepa-office-prompt
+description: GEPA v2 reflective prompt optimization of the sole Office
+  discipline prompt using ten WorkBuddy Office training tasks and five disjoint
+  validation tasks.
+application:
+  plugin: application.agentbundle
+  config:
+    target:
+      schema: ./target.yaml
+    baseline:
+      directory: ./baseline
+policy:
+  id: policy.gepa
+  input:
+    candidateRef: ${{ application.initialCandidate }}
+  config:
+    dataset:
+      trainTaskIds:
+        - workbuddy/invoice-email-archive-manifest
+        - workbuddy/furniture-refinish-L3-016
+        - workbuddy/health-quote-L2-003
+        - workbuddy/portfolio-valuation-limits-L4-009
+        - workbuddy/research-factor-table-extract-L3-016
+        - workbuddy/analyst-forecast-extract-L3-018
+        - workbuddy/fund-product-table-normalize-L3-017
+        - workbuddy/calendar-dida-sync-state
+        - workbuddy/effective-sop-reconstruction-L5-034
+        - workbuddy/rank-ic-topn-L4-001
+      validationTaskIds:
+        - workbuddy/news-event-multifile-extract-L4-013
+        - workbuddy/cloudagent-sdk-doc-validation-report
+        - workbuddy/static-strategy-signal-report-L3-015
+        - workbuddy/xiaohongshu-psychology-note-pack
+        - workbuddy/channel-period-compare-L4-017
+bindings:
+  search:
+    plugin: search.prompt-evolution
+    config:
+      maxRounds: 15
+      maxRollouts: 120
+      minibatchSize: 1
+      feedbackSampling: coverage-first
+      paretoSize: 5
+      seed: 20261105
+      crossoverEvery: 0 # Crossover is not recommended for single-module optimization.
+      modules:
+        - id: office-discipline
+          path: plugins/office-base/prompts/office-discipline.md
+      goal: Improve the Office discipline prompt so an agent reliably completes
+        mixed-format Office file and data workflows, preserves required
+        structure and evidence, and verifies the requested deliverables.
+  evaluator:
+    plugin: evaluator.agentbench
+    config:
+      services:
+        default:
+          model: deepseek-v4.1-flash
+          base_url: ${MODEL_ENDPOINT}
+          api_key: ${MODEL_API_KEY}
+          api: openai-completions
+      benchmark:
+        name: workbuddy
+        scenario: office
+        solver:
+          name: agentbundle
+        config:
+          dataset: wb-bench-office-v1.0
+          cacheDir: ${GEPA_WORKBUDDY_CACHE}
+          source:
+            kind: local
+            path: ${GEPA_WORKBUDDY_SOURCE}
+          tasks:
+            root: tasks
+            id: task.name
+      environment:
+        name: docker
+        platform: linux/amd64
+      scheduler:
+        name: local
+        concurrency: 5
+      run:
+        includeTaskAnswer: true
+        timeoutSeconds: 14400
+        preparation:
+          mode: pipeline
+          concurrency: 5
+          environmentTimeoutSeconds: 1800
+          roundTimeoutSeconds: 14400
+  agent:
+    plugin: agent.pi
+    config:
+      model: deepseek-v4.1-flash
+      base_url: ${MODEL_ENDPOINT}
+      api_key: ${MODEL_API_KEY}
+      contextWindow: 262144
+      thinkingLevel: low
+      retries: 1
+      retryBaseDelayMs: 1000
+      timeoutMs: 600000
+      executionTimeoutMs: 1800000
+budget:
+  elapsedWallMs: 86400000

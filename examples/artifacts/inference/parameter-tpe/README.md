@@ -27,8 +27,12 @@ python3.11 -m venv .scratch/optuna-venv
 
 Set `bindings.proposer.config.python.executable` in this recipe to the absolute
 path of that environment's Python interpreter. The Application's
-`remote.executable` is configured separately. See the [parameter search guide](../../../../docs/users/en/parameter-search.md)
-for installed-package dependency paths, constraints, sampling limits and recovery.
+`remote.executable` is configured separately. For an installed package, the worker
+dependencies are listed in
+`node_modules/ember-rsi/dist/src/plugins/proposer-optuna/python/requirements.txt`.
+See [limits and budgets](../../../../docs/users/guides/configuration.md#limits-and-budgets)
+and [stateful search](../../../../docs/users/guides/writing-plugins.md#stateful-search)
+for sampling limits and recovery.
 Validation checks schemas without starting Python or the remote server.
 
 ## Run

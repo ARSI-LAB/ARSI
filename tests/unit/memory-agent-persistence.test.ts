@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -11,10 +18,30 @@ import {
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { createMemoryAgent } from '../../src/plugins/memory-agent/service.js';
 
+/** The agent contract delivers a managed workspace; editable files live
+ * under candidate/ and read-only context keeps its own paths. */
+async function workspaceFiles(cwd: string): Promise<JsonObject> {
+  const files: JsonObject = {};
+  const walk = async (relative: string): Promise<void> => {
+    for (const entry of await readdir(join(cwd, relative), {
+      withFileTypes: true,
+    })) {
+      const path = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.isFile())
+        files[
+          path.startsWith('candidate/') ? path.slice('candidate/'.length) : path
+        ] = await readFile(join(cwd, path), 'utf8');
+    }
+  };
+  await walk('');
+  return files;
+}
+
 function servicesFor(
   root: string,
   artifacts: InstanceType<typeof FileArtifacts>,
-  invokeAgent: (request: JsonObject) => Promise<JsonObject>,
+  invokeAgent: (agentRef: string, request: JsonObject) => Promise<JsonObject>,
 ): RuntimeContext {
   return new RuntimeContext().extend({
     rootDirectory: root,
@@ -82,15 +109,22 @@ test('memory-agent seeds from the configured directory and persists the updated 
     await seedWiki(seed);
     const artifacts = new FileArtifacts(join(root, '.rsi/artifacts'));
     let seenFiles: JsonObject | null = null;
-    const services = servicesFor(root, artifacts, async (request) => {
-      seenFiles = request.files as JsonObject;
-      return {
-        edits: [
-          { path: 'wiki/log.md', content: '# log\n\nround 1: hivm failure\n' },
-        ],
-        reason: 'recorded the run',
-      };
-    });
+    const services = servicesFor(
+      root,
+      artifacts,
+      async (_agentRef, request) => {
+        seenFiles = await workspaceFiles(String(request.cwd));
+        return {
+          edits: [
+            {
+              path: 'wiki/log.md',
+              content: '# log\n\nround 1: hivm failure\n',
+            },
+          ],
+          reason: 'recorded the run',
+        };
+      },
+    );
     const operation = await createMemoryAgent(
       {
         prompt: 'src/policies/harness2/memory.md',
@@ -224,17 +258,21 @@ test('memory-agent keeps an existing memoryRef and never seeds over it', async (
       ],
     });
     let seededRefSeen: string | null = null;
-    const services = servicesFor(root, artifacts, async (request) => {
-      seededRefSeen = 'checked';
-      assert.equal(
-        (request.files as JsonObject)['wiki/index.md'],
-        '# existing wiki\n',
-      );
-      return {
-        edits: [{ path: 'wiki/log.md', content: '# log\n' }],
-        reason: 'append',
-      };
-    });
+    const services = servicesFor(
+      root,
+      artifacts,
+      async (_agentRef, request) => {
+        seededRefSeen = 'checked';
+        assert.equal(
+          (await workspaceFiles(String(request.cwd)))['wiki/index.md'],
+          '# existing wiki\n',
+        );
+        return {
+          edits: [{ path: 'wiki/log.md', content: '# log\n' }],
+          reason: 'append',
+        };
+      },
+    );
     const operation = await createMemoryAgent(
       { prompt: 'src/policies/harness2/memory.md', seedDirectory: seed },
       services,

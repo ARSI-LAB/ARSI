@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -95,7 +102,11 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
             assert.equal(request.maxModelCalls, undefined);
             assert.equal(context.scope?.limits.modelCalls, undefined);
             assert.equal(context.scope?.limits.elapsedWallMs, undefined);
-            assert.ok(string(request.prompt).trim());
+            assert.ok(
+              (
+                await readFile(join(string(request.cwd), 'AGENTS.md'), 'utf8')
+              ).trim(),
+            );
             for (let i = 0; i < 51; i++) await context.charge('modelCalls', 1);
             return {
               edits: [
@@ -107,7 +118,9 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
               reason: 'Deterministic guidance update',
             };
           }
-          prompts.push(string(request.prompt));
+          prompts.push(
+            await readFile(join(string(request.cwd), 'AGENTS.md'), 'utf8'),
+          );
           return { edits: [], reason: 'Keep the candidate' };
         },
         async dispose() {},
@@ -272,7 +285,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
   });
   let proposals = 0,
     reflections = 0;
-  const reflectionRequests: JsonObject[] = [];
+  const reflectionProjects: string[] = [];
   registry.registerOperation({
     id: 'comparison.agent',
     contract: agentContract,
@@ -283,7 +296,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
         await context.charge('modelCalls', 1);
         if (request.goal === 'Inspect proposer changes') {
           reflections++;
-          reflectionRequests.push(request);
+          reflectionProjects.push(string(request.cwd));
           return {
             edits:
               reflections === 1
@@ -300,7 +313,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
         proposals++;
         if (proposals === 2)
           assert.match(
-            string(request.prompt),
+            await readFile(join(string(request.cwd), 'AGENTS.md'), 'utf8'),
             /Inspect source asset before editing/,
           );
         await writeFile(
@@ -308,13 +321,20 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
           JSON.stringify({
             event: 'read_file',
             path: 'asset.md',
-            result: string(object(request.files)['asset.md']),
+            result: await readFile(
+              join(string(request.cwd), 'candidate', 'asset.md'),
+              'utf8',
+            ),
             observation: 'actual captured source read',
           }) + '\n',
         );
         return {
           edits: [
-            { path: 'asset.md', content: `candidate revision ${proposals}` },
+            {
+              op: 'replace',
+              path: 'asset.md',
+              content: `candidate revision ${proposals}`,
+            },
           ],
           reason: `proposed revision ${proposals}`,
         };
@@ -393,16 +413,22 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
   assert.equal(object(object(result.output).reflection).status, 'no-change');
   assert.equal(reflections, 2);
   assert.deepEqual(await manager.facts.list('measurements'), []);
-  const files = object(reflectionRequests[1]!.files);
-  const body = Object.values(files).join('\n');
+  const cwd = reflectionProjects[1]!;
+  const entries = await readdir(cwd, { recursive: true, withFileTypes: true });
+  const files = entries.filter(
+    (entry) => entry.isFile() && entry.parentPath !== cwd,
+  );
+  const body = (
+    await Promise.all(
+      files.map((file) => readFile(join(file.parentPath, file.name), 'utf8')),
+    )
+  ).join('\n');
   assert.match(body, /actual candidate patch: candidate revision 2/);
   assert.match(body, /actual captured source read/);
   assert.match(body, /Use the current evidence to propose a concrete edit/);
   assert.match(body, /retrospective-comparison/);
   assert.match(body, /Inspect source asset before editing/);
-  assert.ok(
-    Object.keys(files).some((path) => path.endsWith('-difference.patch')),
-  );
+  assert.ok(files.some((file) => file.name.endsWith('-difference.patch')));
   const calls = (await manager.facts.list('calls')).filter(
     (record) => record.bindingId === 'proposer',
   );

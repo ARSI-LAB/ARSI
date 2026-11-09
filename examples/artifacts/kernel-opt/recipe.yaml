@@ -60,7 +60,6 @@ bindings:
       # Domain knowledge only; the loop mechanics are RSI's, so the workflow
       # skill is not part of this binding (design P2, revised).
       skills: [../../../src/policies/operator-iter-agent/skills/kernel-opt]
-      maxModelCalls: 24
       # Cross-run memory: a null memoryRef seeds the wiki from this host
       # directory so every round starts from accumulated experience.
       seedDirectory: ${NGO_MEMORY_DIR}
@@ -72,9 +71,6 @@ bindings:
       agentRef: agent
       prompt: ../../../src/policies/operator-iter-agent/memory.md
       evidenceView: execution
-      # One consolidation call per run; bound it explicitly so a single
-      # reflection cannot exhaust the whole run's modelCalls budget.
-      maxModelCalls: 8
       # Cross-run persistence: a fresh run seeds its wiki from this host
       # directory and mirrors updated memory files back after the run.
       seedDirectory: ${NGO_MEMORY_DIR}
@@ -129,8 +125,7 @@ budget:
   operations: 100
   evaluationRuns: 9
   # One bridge proposal per round (model-call consumption is reported by the
-  # bridge and charged to this budget) plus one bounded memory reflection
-  # call (memoryUpdater maxModelCalls: 8).
+  # bridge and charged to this budget) plus the memory reflection calls.
   modelCalls: 24
   # Total experiment wall time (24h) and reserved cleanup time (1min), ms.
   elapsedWallMs: 86400000

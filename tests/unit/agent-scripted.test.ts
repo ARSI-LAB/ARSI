@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -93,17 +93,34 @@ async function fixture(responses: JsonObject[]) {
     cleanup: new AbortController().signal,
   });
   const operation = await createScriptedAgent({ responses: path }, services);
-  const request: AgentInput = {
-    goal: 'Optimize the supplied source.',
-    prompt: 'Apply the requested edit.',
-    files: { 'input.py': baseline },
-    input: { evidence: evidence([]) },
-    outputSchema: object(editOutputSchema),
+  // Build the managed workspace the new agent contract delivers: editable
+  // files under candidate/, the evidence view in context/measurements.json.
+  let workspaces = 0;
+  const workspace = async (
+    evidenceDoc: JsonObject,
+    source = baseline,
+  ): Promise<AgentInput> => {
+    const cwd = join(root, `workspace-${workspaces++}`);
+    await mkdir(join(cwd, 'candidate'), { recursive: true });
+    await mkdir(join(cwd, 'context'), { recursive: true });
+    await writeFile(join(cwd, 'candidate/input.py'), source);
+    await writeFile(
+      join(cwd, 'context/measurements.json'),
+      JSON.stringify(evidenceDoc),
+    );
+    await writeFile(join(cwd, 'AGENTS.md'), 'Apply the requested edit.');
+    return {
+      goal: 'Optimize the supplied source.',
+      cwd,
+      outputSchema: object(editOutputSchema),
+    };
   };
+  const request = await workspace(evidence([]));
   return {
     path,
     charges,
     request,
+    workspace,
     controller,
     context,
     run: (input: AgentInput = request) => operation.execute(input, context),
@@ -126,10 +143,7 @@ test('scripted Agent matches source bytes and semantic feedback with no model or
   ]);
   try {
     assert.deepEqual(
-      await f.run({
-        ...f.request,
-        input: { evidence: evidence(['COMPILE_ERROR']) },
-      }),
+      await f.run(await f.workspace(evidence(['COMPILE_ERROR']))),
       {
         edits: [{ path: 'input.py', content: repaired }],
         reason: 'Repair the reported compile error.',
@@ -137,7 +151,7 @@ test('scripted Agent matches source bytes and semantic feedback with no model or
     );
     assert.deepEqual(f.charges, []);
     await assert.rejects(
-      f.run({ ...f.request, files: { 'input.py': baseline + '\n' } }),
+      f.run(await f.workspace(evidence([]), `${baseline}\n`)),
       /matched 0 responses/,
     );
   } finally {
@@ -153,17 +167,13 @@ test('scripted Agent repeats no-change deterministically across calls and genera
     }),
   ]);
   try {
-    const first = await f.run({
-      ...f.request,
-      input: { evidence: evidence(['PERF_NO_GAIN'], 'measurement-1') },
-    });
+    const first = await f.run(await f.workspace(evidence(['PERF_NO_GAIN'])));
     first.reason = 'A caller mutated the returned value.';
     object(first).edits = [{ path: 'input.py', content: 'wrong' }];
     assert.deepEqual(
-      await f.run({
-        ...f.request,
-        input: { evidence: evidence(['PERF_NO_GAIN'], 'measurement-2') },
-      }),
+      await f.run(
+        await f.workspace(evidence(['PERF_NO_GAIN'], 'measurement-2')),
+      ),
       { edits: [], reason: 'No further supported edit.' },
     );
     assert.deepEqual(f.charges, []);
@@ -224,28 +234,17 @@ test('scripted Agent ignores diagnostic-looking text outside normalized training
     }),
   ]);
   try {
-    assert.deepEqual(
-      await f.run({
-        ...f.request,
-        prompt: 'COMPILE_ERROR',
-        input: {
-          evidence: evidence([]),
-          observations: { diagnostics: [{ code: 'COMPILE_ERROR' }] },
-        },
-        files: {
-          ...f.request.files,
-          'sources/0/input.py': 'COMPILE_ERROR',
-        },
-      }),
-      { edits: [], reason: 'No diagnostic was supplied.' },
-    );
+    assert.deepEqual(await f.run(await f.workspace(evidence([]))), {
+      edits: [],
+      reason: 'No diagnostic was supplied.',
+    });
     await assert.rejects(
-      f.run({
-        ...f.request,
-        input: {
-          evidence: { ...evidence(['COMPILE_ERROR']), view: 'execution' },
-        },
-      }),
+      f.run(
+        await f.workspace({
+          ...evidence(['COMPILE_ERROR']),
+          view: 'execution',
+        }),
+      ),
       /training-summary/,
     );
   } finally {

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type {
   AgentInput,
   AgentOutput,
@@ -20,19 +21,20 @@ import {
 } from './schema.js';
 
 /** Match only normalized training feedback, never arbitrary diagnostic-looking text. */
-function diagnosticCodes(request: AgentInput): Set<string> {
+async function diagnosticCodes(request: AgentInput): Promise<Set<string>> {
   const codes = new Set<string>();
-  if (request.input === undefined) return codes;
-  const input = object(request.input, 'agent.scripted input');
-  if (input.evidence === undefined) return codes;
-  const evidence = object(input.evidence, 'agent.scripted evidence');
+  const evidence: unknown = JSON.parse(
+    await readFile(join(request.cwd, 'context/measurements.json'), 'utf8'),
+  );
+  if (evidence === undefined || evidence === null) return codes;
+  const view = object(evidence, 'agent.scripted evidence');
   if (
-    evidence.schemaVersion !== 'rsi.evidence-view/v1' ||
-    evidence.view !== 'training-summary' ||
-    !Array.isArray(evidence.measurements)
+    view.schemaVersion !== 'rsi.evidence-view/v1' ||
+    view.view !== 'training-summary' ||
+    !Array.isArray(view.measurements)
   )
     throw new Error('agent.scripted requires training-summary evidence');
-  for (const rawMeasurement of evidence.measurements) {
+  for (const rawMeasurement of view.measurements) {
     const measurement = object(rawMeasurement, 'training-summary Measurement');
     if (!Array.isArray(measurement.items))
       throw new Error('training-summary Measurement requires items');
@@ -78,13 +80,30 @@ export const createScriptedAgent: OperationDefinition<
       context.signal.throwIfAborted();
       json(request);
       validateSchemaDefinition(request.outputSchema, 'Agent outputSchema');
-      const source = request.files?.['input.py'];
-      if (typeof source !== 'string')
-        throw new Error('agent.scripted requires the supplied input.py source');
+      // The proposer workspace carries editable files under candidate/ and
+      // read-only shadowed files at their own paths; accept both layouts.
+      let source: string;
+      try {
+        source = await readFile(
+          join(request.cwd, 'candidate/input.py'),
+          'utf8',
+        );
+      } catch (error) {
+        if (
+          !(
+            error &&
+            typeof error === 'object' &&
+            'code' in error &&
+            error.code === 'ENOENT'
+          )
+        )
+          throw error;
+        source = await readFile(join(request.cwd, 'input.py'), 'utf8');
+      }
       const sourceDigest = createHash('sha256')
         .update(source, 'utf8')
         .digest('hex');
-      const codes = diagnosticCodes(request);
+      const codes = await diagnosticCodes(request);
       const matches = fixture.responses.filter(
         (entry) =>
           entry.sourceDigest === sourceDigest &&

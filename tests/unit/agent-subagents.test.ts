@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { JsonObject, RuntimeContext } from '../../src/contracts/index.js';
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
 import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
 import { object, string } from '../../src/shared/json.js';
+import { prepareAgentProject } from '../../src/plugins/shared/agent-editing/project.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
 
 type Reply =
@@ -15,15 +16,12 @@ type Reply =
   | { error: string }
   | null;
 
-const delegated: JsonObject = {
-  goal: 'Investigate the chosen question',
-  prompt: 'Inspect the supplied files and report your findings as JSON.',
-  input: { custom: ['cross-target comparison', { hypothesis: 'inspect' }] },
-};
-const dispatch = (args: JsonObject = delegated): Reply => ({
-  tool: 'run_subagent',
-  arguments: args,
+const delegatedTask = 'Investigate the chosen question';
+const dispatch = (agent = 'scout'): Reply => ({
+  tool: 'subagent',
+  arguments: { agent, task: delegatedTask },
 });
+const finding: Reply = { result: { findings: 'Useful evidence' } };
 const final: Reply = { result: { ok: true } };
 
 async function fixture(
@@ -83,15 +81,6 @@ async function fixture(
   const previous = process.env.RSI_SUBAGENT_TEST_KEY;
   process.env.RSI_SUBAGENT_TEST_KEY = 'local-fixture-key';
   const controller = new AbortController();
-  const parent: JsonObject = {
-    agentRef: 'agent',
-    goal: 'Parent-only goal',
-    prompt: 'Parent-only instructions',
-    input: { privateToParent: 'not automatically inherited' },
-    files: { source: 'original source', other: 'other component evidence' },
-    maxModelCalls: 8,
-    outputSchema: { type: 'object' },
-  };
   let manager: Awaited<ReturnType<typeof managerFixture>>;
   try {
     manager = await managerFixture(
@@ -108,9 +97,21 @@ async function fixture(
             },
           },
         });
-        return options.execute
-          ? options.execute(scoped)
-          : scoped.invokeAgent(parent);
+        if (options.execute) return options.execute(scoped);
+        const prompt = join(context.directory, 'scout.md');
+        await writeFile(prompt, 'SPECIALIST_INSTRUCTIONS');
+        const cwd = await prepareAgentProject(
+          scoped,
+          'SHARED_INSTRUCTIONS',
+          { 'context/source.txt': 'Shared evidence' },
+          [],
+          [{ name: 'scout', description: 'Inspect the project', prompt }],
+        );
+        return scoped.invokeAgent('agent', {
+          cwd,
+          goal: 'Parent-only goal',
+          outputSchema: { type: 'object' },
+        });
       },
       {
         budget: { modelCalls: options.modelCalls ?? 20 },
@@ -166,93 +167,74 @@ async function fixture(
   };
 }
 
-function userInput(request: JsonObject): JsonObject {
-  assert.ok(Array.isArray(request.messages));
-  const message = request.messages
-    .map((v) => object(v))
-    .find((v) => v.role === 'user');
-  assert.ok(message);
-  const content = Array.isArray(message.content)
-    ? message.content.map((part) => string(object(part).text)).join('')
-    : string(message.content);
-  return object(JSON.parse(content));
-}
-
-test('main agent chooses child input and files, receives its result, and records nested calls', async (t) => {
-  const task = {
-    ...delegated,
-    filePaths: ['other'],
-    files: { prepared: 'main-agent supplied text' },
-    outputSchema: { type: 'object', required: ['finding'] },
-  };
-  const f = await fixture([
-    dispatch(task),
-    { tool: 'read_file', arguments: { path: 'prepared' } },
-    { result: { finding: 'useful evidence' } },
-    final,
-  ]);
+test('a configured Pi specialist shares the project cwd and Manager budget', async (t) => {
+  const f = await fixture(
+    [
+      {
+        tool: 'subagent',
+        arguments: { agent: 'scout', task: 'Inspect the shared measurement' },
+      },
+      { tool: 'read', arguments: { path: 'context/measurements.json' } },
+      { result: { findings: 'Shared evidence inspected' } },
+      final,
+    ],
+    {
+      scopeCalls: 4,
+      async execute(context) {
+        const prompt = join(context.directory, 'scout.md');
+        await writeFile(prompt, 'SPECIALIST_INSTRUCTIONS');
+        const cwd = await prepareAgentProject(
+          context,
+          'SHARED_INSTRUCTIONS',
+          { 'context/measurements.json': 'SHARED_MEASUREMENT' },
+          [],
+          [{ name: 'scout', description: 'Inspect measurements', prompt }],
+        );
+        const request = {
+          cwd,
+          goal: 'Coordinate',
+          outputSchema: { type: 'object' },
+        };
+        const result = await context.invokeAgent('agent', request);
+        await writeFile(
+          join(cwd, 'scratch', 'temporary.txt'),
+          'Temporary work',
+        );
+        assert.deepEqual(await context.invokeAgent('agent', request), result);
+        return result;
+      },
+    },
+  );
   t.after(() => f.close());
-  assert.equal((await f.run()).status, 'succeeded');
+  const result = await f.run();
+  assert.equal(result.status, 'succeeded');
   assert.equal(f.requests.length, 4);
-  const child = userInput(f.requests[1]!);
-  assert.deepEqual(child.input, delegated.input);
-  assert.deepEqual(child.files, ['other', 'prepared']);
+  assert.match(JSON.stringify(f.requests[0]), /SHARED_INSTRUCTIONS/);
+  assert.doesNotMatch(JSON.stringify(f.requests[0]), /SPECIALIST_INSTRUCTIONS/);
+  assert.match(JSON.stringify(f.requests[1]), /SPECIALIST_INSTRUCTIONS/);
+  assert.doesNotMatch(JSON.stringify(f.requests[1]), /Coordinate/);
   assert.doesNotMatch(
-    JSON.stringify(f.requests[1]),
-    /Parent-only|privateToParent/,
+    JSON.stringify(f.requests[1]!.tools),
+    /"name":"subagent"/,
   );
-  assert.match(JSON.stringify(f.requests[2]), /main-agent supplied text/);
-  assert.match(JSON.stringify(f.requests[3]), /useful evidence/);
+  assert.match(JSON.stringify(f.requests[2]), /SHARED_MEASUREMENT/);
+  assert.match(JSON.stringify(f.requests[3]), /Shared evidence inspected/);
   const calls = (await f.manager.facts.list('calls')).filter(
-    (c) => c.bindingId === 'agent',
+    (call) => call.bindingId === 'agent',
   );
-  const parent = calls.find((c) => object(c.input).goal === 'Parent-only goal');
-  const nested = calls.find((c) => c.parentCallId === parent?.callId);
-  assert.ok(parent && nested);
-  assert.equal(nested.status, 'succeeded');
-  assert.deepEqual(object(nested.input).files, {
-    other: 'other component evidence',
-    prepared: 'main-agent supplied text',
-  });
+  assert.equal(calls.length, 2);
+  const child = calls.find((call) => object(call.input).role === 'scout');
+  assert.ok(child);
+  const parent = calls.find((call) => call.callId === child.parentCallId);
+  assert.ok(parent);
+  assert.equal(object(child.input).cwd, object(parent.input).cwd);
   const budget = await f.manager.facts.read('budgets', 'test');
   assert.equal(budget.modelCalls, 4);
   assert.equal(object(object(budget.scopes)['reflection-scope']).modelCalls, 4);
-  assert.match(
-    await readFile(
-      join(
-        f.manager.directory,
-        'experiments/test/calls',
-        string(nested.callId),
-        'diagnostics.jsonl',
-      ),
-      'utf8',
-    ),
-    /tool_execution_end/,
-  );
-});
-
-test('delegation can share all files or only main-agent text without an imposed input packet', async (t) => {
-  const f = await fixture([
-    dispatch(),
-    final,
-    dispatch({
-      ...delegated,
-      filePaths: [],
-      input: 'free-form context',
-      files: { note: 'standalone' },
-    }),
-    final,
-    final,
-  ]);
-  t.after(() => f.close());
-  assert.equal((await f.run()).status, 'succeeded');
-  assert.deepEqual(userInput(f.requests[1]!).files, ['source', 'other']);
-  assert.deepEqual(userInput(f.requests[3]!).files, ['note']);
-  assert.equal(userInput(f.requests[3]!).input, 'free-form context');
 });
 
 test('identical delegated requests reuse the child receipt instead of repeating execution', async (t) => {
-  const f = await fixture([dispatch(), final, dispatch(), final]);
+  const f = await fixture([dispatch(), finding, dispatch(), final]);
   t.after(() => f.close());
   assert.equal((await f.run()).status, 'succeeded');
   const agents = (await f.manager.facts.list('calls')).filter(
@@ -262,67 +244,11 @@ test('identical delegated requests reuse the child receipt instead of repeating 
   assert.equal(f.requests.length, 4);
 });
 
-test('delegation is available by default without requiring the agent to use it', async (t) => {
-  const f = await fixture([final]);
+test('delegation rejects an unknown role before starting a child', async (t) => {
+  const f = await fixture([dispatch('unknown'), final]);
   t.after(() => f.close());
   assert.equal((await f.run()).status, 'succeeded');
-  assert.equal(f.requests.length, 1);
-  assert.match(JSON.stringify(f.requests[0]!.tools), /run_subagent/);
-  assert.equal(
-    (await f.manager.facts.list('calls')).filter((c) => c.bindingId === 'agent')
-      .length,
-    1,
-  );
-});
-
-test('children can delegate recursively with isolated context and linked receipts', async (t) => {
-  const task = { ...delegated, filePaths: ['other'] };
-  const f = await fixture([
-    dispatch(task),
-    dispatch(task),
-    { result: { finding: 'nested evidence' } },
-    { result: { summary: 'consolidated nested evidence' } },
-    final,
-  ]);
-  t.after(() => f.close());
-  assert.equal((await f.run()).status, 'succeeded');
-  assert.equal(f.requests.length, 5);
-  for (const request of f.requests)
-    assert.match(JSON.stringify(request.tools), /run_subagent/);
-  const grandchild = userInput(f.requests[2]!);
-  assert.deepEqual(grandchild.input, delegated.input);
-  assert.deepEqual(grandchild.files, ['other']);
-  assert.doesNotMatch(
-    JSON.stringify(f.requests[2]),
-    /Parent-only|privateToParent/,
-  );
-  assert.match(JSON.stringify(f.requests[3]), /nested evidence/);
-  assert.match(JSON.stringify(f.requests[4]), /consolidated nested evidence/);
-  const calls = (await f.manager.facts.list('calls')).filter(
-    (c) => c.bindingId === 'agent',
-  );
-  assert.equal(calls.length, 3);
-  const parent = calls.find((c) => object(c.input).goal === 'Parent-only goal');
-  const child = calls.find((c) => c.parentCallId === parent?.callId);
-  const nested = calls.find((c) => c.parentCallId === child?.callId);
-  assert.ok(parent && child && nested);
-  assert.ok(calls.every((c) => c.status === 'succeeded'));
-  assert.deepEqual(object(nested.input).files, {
-    other: 'other component evidence',
-  });
-  const budget = await f.manager.facts.read('budgets', 'test');
-  assert.equal(budget.modelCalls, 5);
-  assert.equal(object(object(budget.scopes)['reflection-scope']).modelCalls, 5);
-});
-
-test('delegation rejects unknown inherited file references before starting a child', async (t) => {
-  const f = await fixture([
-    dispatch({ ...delegated, filePaths: ['C:/private.txt'] }),
-    final,
-  ]);
-  t.after(() => f.close());
-  assert.equal((await f.run()).status, 'succeeded');
-  assert.match(JSON.stringify(f.requests[1]), /outside supplied snapshot/);
+  assert.match(JSON.stringify(f.requests[1]), /agent: expected one of/);
   assert.equal(
     (await f.manager.facts.list('calls')).filter((c) => c.bindingId === 'agent')
       .length,
@@ -342,25 +268,35 @@ test('child failures remain visible and repeated requests do not replay failed c
   assert.match(JSON.stringify(f.requests[2]), /Child unavailable/);
   assert.match(JSON.stringify(f.requests[3]), /Child unavailable/);
   const child = (await f.manager.facts.list('calls')).find(
-    (c) => object(c.input).goal === delegated.goal,
+    (c) => object(c.input).goal === delegatedTask,
   );
   assert.equal(child?.status, 'failed');
   assert.equal(child?.output, undefined);
   assert.equal(f.requests.length, 4);
 });
 
-test('recursive delegation exhausts one shared scope or experiment budget', async () => {
-  for (const limits of [{ scopeCalls: 3 }, { modelCalls: 3 }]) {
+test('a specialist and its parent share the scope and experiment budgets', async () => {
+  for (const limits of [{ scopeCalls: 2 }, { modelCalls: 2 }]) {
     const f = await fixture(
-      [dispatch(), dispatch(), final, final, final],
+      [dispatch(), { tool: 'read', arguments: { path: 'context/source.txt' } }],
       limits,
     );
     try {
-      await assert.rejects(f.run(), /budget exceeded|Budget exceeded/);
-      assert.equal(f.requests.length, 3);
+      await assert.rejects(f.run(), /budget exceeded/i);
+      assert.equal(f.requests.length, 2);
       assert.equal(
         (await f.manager.facts.read('budgets', 'test')).modelCalls,
-        3,
+        2,
+      );
+      const calls = (await f.manager.facts.list('calls')).filter(
+        (call) => call.bindingId === 'agent',
+      );
+      assert.equal(calls.length, 2);
+      assert.deepEqual(
+        calls.map((call) => call.status),
+        'scopeCalls' in limits
+          ? ['failed', 'failed']
+          : ['cancelled', 'cancelled'],
       );
     } finally {
       await f.close();
@@ -368,56 +304,36 @@ test('recursive delegation exhausts one shared scope or experiment budget', asyn
   }
 });
 
-test('scope exhaustion inside a grandchild stops its continuation and all ancestors', async (t) => {
-  const f = await fixture(
-    [
-      dispatch(),
-      dispatch(),
-      { tool: 'read_file', arguments: { path: 'source' } },
-      final,
-    ],
-    { scopeCalls: 3 },
-  );
-  t.after(() => f.close());
-  await assert.rejects(f.run(), /Reflection modelCalls budget exceeded/);
-  assert.equal(f.requests.length, 3);
-  const calls = (await f.manager.facts.list('calls')).filter(
-    (c) => c.bindingId === 'agent',
-  );
-  assert.equal(calls.length, 3);
-  assert.ok(calls.every((c) => c.status === 'failed'));
-});
-
-test('cancellation stops an active grandchild and prevents all ancestor continuations', async (t) => {
-  const f = await fixture([dispatch(), dispatch(), null, final, final]);
+test('cancellation stops the active specialist and parent', async (t) => {
+  const f = await fixture([dispatch(), null, final]);
   t.after(() => f.close());
   const pending = assert.rejects(f.run(), /Cancel delegated reflection/);
   const deadline = Date.now() + 5000;
-  while (f.requests.length < 3 && Date.now() < deadline)
+  while (f.requests.length < 2 && Date.now() < deadline)
     await new Promise((done) => setTimeout(done, 10));
-  assert.equal(f.requests.length, 3);
+  assert.equal(f.requests.length, 2);
   f.controller.abort(new Error('Cancel delegated reflection'));
   await pending;
-  assert.equal(f.requests.length, 3);
+  assert.equal(f.requests.length, 2);
   const calls = (await f.manager.facts.list('calls')).filter(
     (c) => c.bindingId === 'agent',
   );
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 2);
   assert.ok(calls.every((c) => c.status === 'cancelled'));
 });
 
-test('parent execution timeout cancels active descendants before their own deadlines', async (t) => {
-  const f = await fixture([dispatch(), dispatch(), null, final, final], {
+test('parent execution timeout cancels the active specialist before its own deadline', async (t) => {
+  const f = await fixture([dispatch(), null, final], {
     executionTimeoutMs: 2000,
   });
   t.after(() => f.close());
   await assert.rejects(f.run(), /Agent execution timed out/);
-  assert.equal(f.requests.length, 3);
+  assert.equal(f.requests.length, 2);
   assert.equal(f.controller.signal.aborted, false);
   const calls = (await f.manager.facts.list('calls')).filter(
     (c) => c.bindingId === 'agent',
   );
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 2);
   const parent = calls.find((c) => object(c.input).goal === 'Parent-only goal');
   assert.equal(parent?.status, 'failed');
   assert.ok(
@@ -427,13 +343,13 @@ test('parent execution timeout cancels active descendants before their own deadl
   );
 });
 
-test('Reflection retains its complete input and consolidates actual delegated edits', async (t) => {
+test('Reflection exposes its complete input in the project and applies the final edits', async (t) => {
   const path = 'bindings/proposer/resources/guidance/rules.md';
   const edit = {
     edits: [{ path, content: 'Inspect the source before editing.' }],
     reason: 'Delegated finding',
   };
-  const f = await fixture([dispatch(), { result: edit }, { result: edit }], {
+  const f = await fixture([{ result: edit }], {
     execute: async (context) => {
       const resourceRef = await context.artifacts.putJson({
         kind: 'file-tree',
@@ -471,19 +387,26 @@ test('Reflection retains its complete input and consolidates actual delegated ed
   assert.equal(result.status, 'succeeded');
   const output = object(result.output);
   assert.equal(output.status, 'proposed');
-  const files = object(
-    object(
-      (await f.manager.facts.list('calls')).find(
-        (c) =>
-          c.bindingId === 'agent' &&
-          object(c.input).goal === 'Reflect on supplied components',
-      )!.input,
-    ).files,
+  const call = (await f.manager.facts.list('calls')).find(
+    (call) =>
+      call.bindingId === 'agent' &&
+      object(call.input).goal === 'Reflect on supplied components',
   );
-  assert.equal(files[path], 'Original');
-  assert.equal(files['context/one.txt'], 'first component');
-  assert.equal(files['context/two.txt'], 'second component');
-  assert.ok(files['context/reflection/index.json']);
+  assert.ok(call);
+  const cwd = string(object(call.input).cwd);
+  assert.equal(
+    await readFile(join(cwd, 'candidate', path), 'utf8'),
+    'Original',
+  );
+  assert.equal(
+    await readFile(join(cwd, 'context/one.txt'), 'utf8'),
+    'first component',
+  );
+  assert.equal(
+    await readFile(join(cwd, 'context/two.txt'), 'utf8'),
+    'second component',
+  );
+  assert.ok(await readFile(join(cwd, 'context/reflection/index.json'), 'utf8'));
   const updated = object(
     await f.manager.artifacts.readJson(
       string(object(output.proposal).resourceRef),

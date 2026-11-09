@@ -46,8 +46,12 @@ const runtime=await createRuntime({rootDirectory:join(example,'search-workspace'
 const promptStages=['diagnose','generate','summarize'];
 const readPrompts=async directory=>Object.fromEntries(await Promise.all(promptStages.map(async stage=>[stage,await readFile(join(directory,stage+'.md'),'utf8')])));
 let expectedPrompts;
-runtime.registry.registerOperation({id:'agent.installed-operator-fixture',contract:agentContract,configSchema:{type:'object'},async create(){return{async execute(request,context){await context.charge('modelCalls',1);const stage=request.input.stage;stages.push(stage);
-assert.ok(request.prompt.startsWith(expectedPrompts[stage]),'the selected prompt reaches the Agent');
+runtime.registry.registerOperation({id:'agent.installed-operator-fixture',contract:agentContract,configSchema:{type:'object'},async create(){return{async execute(request,context){await context.charge('modelCalls',1);const input=JSON.parse(await readFile(join(request.cwd,'context/input.json'),'utf8'));const stage=input.stage;stages.push(stage);
+const instructions=await readFile(join(request.cwd,'AGENTS.md'),'utf8');
+assert.ok(instructions.startsWith(expectedPrompts[stage].trimEnd()),'the selected prompt reaches the Agent');
+assert.match(await readFile(join(request.cwd,'input.py'),'utf8'),/def kernel_function/);
+assert.ok(await readFile(join(request.cwd,'context/task/task.json'),'utf8'));
+assert.ok(await readFile(join(request.cwd,'roles/operator-reviewer.md'),'utf8'));
 if(stage==='diagnose')return{issues:[{issue_type:'loop_invariant_hoisting',issue_summary:'Invariant expression inside loop',problematic_code:['        y = x + 1'],evidence:['x does not change in the loop']}]};
 if(stage==='summarize')return{explanation:'Synthetic measured result',lessons:[],avoidPatterns:[],tryPatterns:[]};
 return{edits:[{path:'input.py',content:source('fixture:latency=8')}],reason:'Installed fixture change'};

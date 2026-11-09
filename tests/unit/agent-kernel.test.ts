@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
@@ -34,12 +34,31 @@ const outputSchema: JsonObject = {
 
 interface Fixture {
   root: string;
+  workspace: string;
   config: AgentKernelConfig;
   charges: number[];
 }
 
 async function fixture(mode = 'ok'): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), 'rsi-agent-kernel-'));
+  // Managed agent workspace: editable files under candidate/, the composed
+  // prompt in AGENTS.md, caller metadata and evidence in context/*.json.
+  const workspace = join(root, 'workspace');
+  await mkdir(join(workspace, 'candidate/kernels'), { recursive: true });
+  await mkdir(join(workspace, 'context'), { recursive: true });
+  await writeFile(
+    join(workspace, 'candidate/kernels/vector_add.py'),
+    'baseline = True\n',
+  );
+  await writeFile(join(workspace, 'AGENTS.md'), 'base prompt');
+  await writeFile(
+    join(workspace, 'context/input.json'),
+    JSON.stringify({ editConstraints: { bottleneck: 'memory' } }),
+  );
+  await writeFile(
+    join(workspace, 'context/measurements.json'),
+    JSON.stringify({ schemaVersion: 'rsi.evidence-view/v1' }),
+  );
   const stub = join(root, 'bridge.mjs');
   await writeFile(
     stub,
@@ -67,6 +86,7 @@ process.stdout.write(JSON.stringify(body));`,
   };
   return {
     root,
+    workspace,
     config,
     charges: [],
   };
@@ -81,13 +101,10 @@ function contextFor(f: Fixture): RuntimeContext {
   });
 }
 
-const request = (maxModelCalls = 24): JsonObject => ({
+const request = (f: Fixture): JsonObject => ({
   goal: 'Optimize the captured kernel',
-  prompt: 'base prompt',
-  input: {},
-  files: { 'kernels/vector_add.py': 'baseline = True\n' },
+  cwd: f.workspace,
   outputSchema,
-  maxModelCalls,
 });
 
 test('agent-kernel schema accepts the bridge config only', async () => {
@@ -113,7 +130,7 @@ test('agent-kernel returns validated proposals, charges reported model calls and
   try {
     const agent = await createAgentKernel(f.config, f as never);
     const output = object(
-      await agent.execute(request() as never, contextFor(f) as never),
+      await agent.execute(request(f) as never, contextFor(f) as never),
     );
     assert.deepEqual(output, {
       edits: [{ path: 'kernels/vector_add.py', content: 'optimized = True\n' }],
@@ -131,7 +148,7 @@ test('agent-kernel rejects a bridge that omits or exceeds the model-call account
     try {
       const agent = await createAgentKernel(f.config, f as never);
       await assert.rejects(
-        agent.execute(request() as never, contextFor(f) as never),
+        agent.execute(request(f) as never, contextFor(f) as never),
         mode === 'missing-calls'
           ? /must report modelCalls/
           : /exceeding the 24-call budget/,
@@ -158,7 +175,7 @@ test('agent-kernel maps bridge exit codes, malformed output and schema violation
     try {
       const agent = await createAgentKernel(f.config, f as never);
       await assert.rejects(
-        agent.execute(request() as never, contextFor(f) as never),
+        agent.execute(request(f) as never, contextFor(f) as never),
         pattern,
       );
       assert.deepEqual(f.charges, charges);
@@ -177,7 +194,7 @@ test('agent-kernel forwards only named environment variables to the bridge', asy
       { ...f.config, env: ['AGENT_KERNEL_TEST_TOKEN'] },
       f as never,
     );
-    await agent.execute(request() as never, contextFor(f) as never);
+    await agent.execute(request(f) as never, contextFor(f) as never);
     const { readFile } = await import('node:fs/promises');
     const bridgeRequest = JSON.parse(
       await readFile(join(f.root, 'request.json'), 'utf8'),

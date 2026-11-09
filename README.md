@@ -8,7 +8,21 @@ Generate candidates, evaluate their performance, and iterate in one framework, f
 
 English | [中文](./README.zh-CN.md)
 
-[Overview](#overview) · [How it works](#architecture) · [Everything is a plugin](#extensions) · [Installation](#installation) · [Using ember-rsi](#usage) · [Built-in RSI strategies](#built-in-rsi-strategies) · [User guides](#user-guide)
+[When to use](#when-to-use) · [Overview](#overview) · [How it works](#architecture) · [Everything is a plugin](#extensions) · [Installation](#installation) · [Using ember-rsi](#usage) · [Built-in RSI strategies](#built-in-rsi-strategies) · [User guides](#user-guide)
+
+---
+
+<a id="when-to-use"></a>
+
+## 🎯 When to use ember-rsi
+
+When you want AI to help continuously improve agents, models, or AI infrastructure, `ember-rsi` provides built-in strategies, an extensible plugin system, and a companion Skill to help you quickly start experiments in Agent Skill optimization, inference engine tuning, and more.
+
+| Typical scenario                                                          | Environment and integration setup                                                                                                                                                                                              | What to tell AI                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Evolve Harness Skills through task feedback**                           | Prepare a working Harness, tasks, and evaluation criteria, and reuse or implement [execution and evaluation plugins](docs/users/guides/writing-plugins.md).                                                                    | “Use ember-rsi to improve this Harness's Skills, edit only Skill files, iterate on my tasks within my budget, and test the results on new tasks.”                                                                                                                                                                  |
+| **Automatically search for configuration parameters that fit your needs** | Provide parameter ranges, optimization metrics, and constraints, and integrate plugins that apply configurations and evaluate their effects.                                                                                   | “Use ember-rsi to tune this configuration within the given ranges and budget, optimize the target metric while meeting constraints, and deliver the best configuration measured in this experiment with comparison results.”                                                                                       |
+| **Evolve an operator toward a correct implementation with lower latency** | Prepare the operator source and a test environment, integrate evaluation plugins, and extend the proposal plugin and Policy to invoke [Memory](docs/users/guides/memory.md) and [Reflection](docs/users/guides/reflection.md). | “Use ember-rsi to iterate on this operator: have Memory summarize effective optimizations and lessons from failures, and Reflection refine the proposing Agent's prompts and guidance for later rounds; check correctness and compare latency within budget, then independently re-evaluate against the baseline.” |
 
 <a id="overview"></a>
 

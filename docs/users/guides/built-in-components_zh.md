@@ -21,7 +21,7 @@
 | `policy.harness2`（[论文](https://arxiv.org/abs/2610.14224)）  | 尝试多种 Agent 改进方案，按最终交付质量选择结果。    | [README](../../../examples/harness/dsh-harness2/README.md)                  |
 | `policy.wikiskill`（[论文](https://arxiv.org/abs/2608.27454)） | 根据训练任务的经验持续改进 Agent 的 Skill。          | [README](../../../examples/harness/dsh-wikiskill/README.md)                 |
 | `policy.gepa` | 通过反馈驱动的变异和种群搜索优化模块化提示词。 | [README](../../../examples/harness/dsh-gepa/README.md) |
-| `parameter.agent` | 先建立可测量的基线，再由 Agent 提出并验证推理引擎参数。 | [README](../../../examples/artifacts/inference/vllm-optimization/README.md) |
+| `parameter.agent` | 先建立可测量的基线，再由 Agent 提出并验证推理引擎参数。 | [README](../../../examples/artifacts/inference/parameter-agent/README.md) |
 | `policy.parameter-grid`                                        | 逐一尝试预设参数组合，选择更好的推理服务配置。       | [README](../../../examples/artifacts/inference/parameter-grid/README.md)    |
 | `policy.parameter-optuna`                                      | 利用评测反馈搜索参数，在有限预算内优化推理服务性能。 | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)     |
 | `policy.operator-search`                                       | 结合正确性检查与性能反馈，优化 Triton-Ascend 算子。  | [README](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md) |

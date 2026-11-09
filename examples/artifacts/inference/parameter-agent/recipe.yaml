@@ -1,5 +1,5 @@
 schemaVersion: rsi.recipe/v1
-id: vllm-optimization
+id: parameter-agent
 description: Tune vLLM Ascend serving parameters against a fixed AISBench workload.
 application:
   plugin: application.inference
@@ -8,7 +8,7 @@ application:
     baseline: { directory: ./baseline }
     remote:
       executable: python3
-      script: ./scripts/vllm-ascend.py
+      script: ../shared/scripts/remote-vllm.py
       parametersFile: tuning.json
       discoverParameters: true
       timeoutMs: 120000

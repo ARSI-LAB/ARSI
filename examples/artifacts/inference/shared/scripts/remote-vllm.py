@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Remote inference lifecycle template. Implement the three functions below.
+"""Remote inference lifecycle template. Implement start, status and stop.
 
 Application invokes a new local process for each command, sends one JSON request
 on stdin and expects one JSON response on stdout. Write diagnostics to stderr.
-Keep host/model/device settings here; add SSH or another deployment method.
+Keep host, model and device settings here. Add SSH or another deployment method.
 
-LifecycleRequest defines the input: Application reads the candidate's tuning.json
-into parameters. LifecycleResponse defines the output: echo instanceId and the
-opaque parametersDigest from the request. A stopped response needs only status
-and instanceId; ready requires resources with queried identities, never invented
-values. Application polls status until ready, then checks the configured health URL.
+Recipes with remote.discoverParameters enabled also need describe_parameters.
+Application sends {"action": "describe-parameters"} before the lifecycle begins.
+
+Application reads the candidate's tuning.json into LifecycleRequest.parameters.
+Echo instanceId and the opaque parametersDigest in the response. A stopped
+response needs only status and instanceId. A ready response includes resources
+with queried identities. Application polls status until ready, then checks the
+configured health URL.
 """
 
 import json
@@ -43,6 +46,10 @@ class LifecycleRequest(TypedDict):
     parameters: dict[str, JsonValue]
     memoryUtilization: float
     endpoint: Endpoint
+
+
+class ParameterCatalogResponse(TypedDict):
+    parameters: dict[str, dict[str, JsonValue]]
 
 
 class Resources(TypedDict):
@@ -97,8 +104,7 @@ def json_value(value: object, field: str) -> JsonValue:
     return result
 
 
-def parse_request(value: object) -> LifecycleRequest:
-    raw = json_object(value, "request")
+def parse_request(raw: dict[str, object]) -> LifecycleRequest:
     endpoint = json_object(raw.get("endpoint"), "endpoint")
     utilization = float(number(raw.get("memoryUtilization"), "memoryUtilization"))
     if not 0 < utilization <= 1:
@@ -116,14 +122,33 @@ def parse_request(value: object) -> LifecycleRequest:
     )
 
 
+def describe_parameters() -> ParameterCatalogResponse:
+    """Return a nonempty catalog of installed, tunable engine options.
+
+    Query the deployment's serving CLI and limit the results to the options
+    intended for tuning. Describe each option's flags and accepted value shape.
+    A catalog with one supported option would look like this.
+
+        {"parameters": {
+            "max_num_seqs": {"flag": "--max-num-seqs", "kind": "integer"}
+        }}
+
+    Use the same set of supported options to validate a start request.
+    """
+    raise NotImplementedError(
+        "Implement describe_parameters() to query the installed serving CLI"
+    )
+
+
 def start(request: LifecycleRequest) -> LifecycleResponse:
     """Start this instance and report its readiness or confirmed rejection.
 
     Validate request["parameters"] and map JSON values to vLLM arguments (for example,
     max_num_seqs -> --max-num-seqs; booleans use the appropriate flags and
     structured values need explicit serialization). Null is a value, not omission.
-    Use request["memoryUtilization"] for
-    --gpu-memory-utilization, and request["endpoint"]["model"] as served name.
+    Use request["memoryUtilization"] for --gpu-memory-utilization. It already
+    includes a candidate override when allowed. Use request["endpoint"]["model"]
+    as the served name.
     Persist ownership and process identity remotely before returning. Never
     replace another instance, or launch a duplicate on a repeated start.
     Report capacity-rejected only for confirmed insufficient memory. Report
@@ -156,9 +181,14 @@ def stop(request: LifecycleRequest) -> LifecycleResponse:
 
 
 def main() -> None:
-    request = parse_request(json.load(sys.stdin))
-    handlers = {Action.START: start, Action.STATUS: status, Action.STOP: stop}
-    response = handlers[request["action"]](request)
+    raw = json_object(json.load(sys.stdin), "request")
+    response: LifecycleResponse | ParameterCatalogResponse
+    if raw.get("action") == "describe-parameters":
+        response = describe_parameters()
+    else:
+        request = parse_request(raw)
+        handlers = {Action.START: start, Action.STATUS: status, Action.STOP: stop}
+        response = handlers[request["action"]](request)
     print(json.dumps(response))
 
 

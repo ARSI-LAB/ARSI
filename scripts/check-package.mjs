@@ -290,7 +290,7 @@ export function register(registry) {
     'shared',
     'parameter-grid',
     'parameter-tpe',
-    'vllm-optimization',
+    'parameter-agent',
   ]) {
     await cp(
       join(root, 'examples/artifacts/inference', name),
@@ -298,7 +298,7 @@ export function register(registry) {
       { recursive: true },
     );
   }
-  for (const name of ['parameter-grid', 'parameter-tpe', 'vllm-optimization']) {
+  for (const name of ['parameter-grid', 'parameter-tpe', 'parameter-agent']) {
     const inferenceValidation = JSON.parse(
       execFileSync(
         process.execPath,
@@ -311,7 +311,7 @@ export function register(registry) {
       true,
       `installed package validates ${name} without source paths`,
     );
-    if (name === 'vllm-optimization') {
+    if (name === 'parameter-agent') {
       assert.equal(inferenceValidation.policyId, 'parameter.agent');
       assert.ok(inferenceValidation.plugins.includes('selector.inference'));
       assert.ok(

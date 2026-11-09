@@ -9,7 +9,14 @@ export type OperatorbenchInput =
       assessmentMeasurementRef: string;
     };
 export type OperatorbenchOutput =
-  | { action: 'evaluate'; measurementRef: string }
+  | {
+      action: 'evaluate';
+      measurementRef: string;
+      /** Mirrors the recorded measurement status so a policy can tell
+       * "evaluated and rejected" from "not evaluable" (e.g. the lifecycle
+       * precheck rejected the candidate) without re-reading the measurement. */
+      status?: 'succeeded' | 'failed' | 'unknown' | 'cancelled';
+    }
   | {
       action: 'profile';
       measurementRef: string;
@@ -54,7 +61,11 @@ export const operatorbenchContract = defineContract({
         measurementRef: { type: 'string', minLength: 1 },
         ...(action === 'profile'
           ? { collectionStatus: { enum: ['completed', 'unavailable'] } }
-          : {}),
+          : {
+              status: {
+                enum: ['succeeded', 'failed', 'unknown', 'cancelled'],
+              },
+            }),
       },
       required: [
         'action',

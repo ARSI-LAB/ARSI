@@ -252,10 +252,12 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   };
   await assert.rejects(
     operation.execute({ ...input, caseIds: ['fixed', 'other'] }, context),
-    /one case/,
+    /Unknown SDK operator case/,
   );
   assert.equal(charges, 0);
-  await operation.execute(input, context);
+  const outcome = await operation.execute(input, context);
+  assert.ok(outcome.action === 'evaluate');
+  assert.equal(outcome.status, 'succeeded');
   assert.equal(
     object(object(recorded[0]!.metrics).latencyMeanMs).status,
     'available',
@@ -264,7 +266,14 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     kind: 'scalar',
     value: 8,
   });
-  assert.equal(object(recorded[0]!.metrics).latencyMs, undefined);
+  assert.deepEqual(object(object(recorded[0]!.metrics).latencyMs).value, {
+    kind: 'distribution',
+    count: 1,
+    mean: 8,
+    p50: 8,
+    p95: 8,
+    p99: 8,
+  });
   const provenance = await artifacts.readJson(
     String(object(recorded[0]!.provenance).artifactRef),
   );
@@ -302,16 +311,18 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   );
   source += '# fixture:infrastructure\n';
   await writeFile(join(sourceDirectory, 'input.py'), source);
-  await assert.rejects(
-    operation.execute(
-      input,
-      context.extend({
-        directory: join(directory, 'plugin-call-4'),
-        callId: 'sdk-eval-4',
-      }),
-    ),
-    /assessment failed/,
+  // A recorded non-completed assessment is an evaluation outcome, not a
+  // runner crash: the call resolves with the failed measurement so the
+  // policy loop counts a stale round.
+  const failed = await operation.execute(
+    input,
+    context.extend({
+      directory: join(directory, 'plugin-call-4'),
+      callId: 'sdk-eval-4',
+    }),
   );
+  assert.ok(failed.action === 'evaluate');
+  assert.equal(failed.status, 'failed');
   assert.equal(recorded[3]!.status, 'failed');
   assert.equal(
     object(object(recorded[3]!.metrics).candidateValid).status,

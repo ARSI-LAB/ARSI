@@ -4,12 +4,47 @@ import {
   fileConfigProperties,
   type FileApplicationConfig,
 } from '../shared/file-application/files.js';
+import type { ScriptedLifecycle } from '../shared/scripted-lifecycle/index.js';
 
-export type KernelApplicationConfig = FileApplicationConfig;
+export type KernelApplicationConfig = FileApplicationConfig & {
+  /** Optional scripted lifecycle (start/status/stop) driving sync, build,
+   * and the correctness precheck on the target; absent means plain files. */
+  lifecycle?: ScriptedLifecycle;
+  healthcheck?: { intervalMs?: number; timeoutMs?: number };
+  shutdown?: { gracePeriodMs?: number };
+};
 
 export const configSchema: JsonSchema = {
   type: 'object',
-  properties: fileConfigProperties,
+  properties: {
+    ...fileConfigProperties,
+    lifecycle: {
+      type: 'object',
+      properties: {
+        script: { type: 'string', minLength: 1, 'x-rsi-path': 'file' },
+        executable: { type: 'string', minLength: 1 },
+        parametersFile: { type: 'string', minLength: 1 },
+        // Covers kernel compile/load plus the correctness precheck; calibrate
+        // from measured build timings per the design.
+        timeoutMs: { type: 'integer', minimum: 1 },
+      },
+      required: ['script'],
+      additionalProperties: false,
+    },
+    healthcheck: {
+      type: 'object',
+      properties: {
+        intervalMs: { type: 'integer', minimum: 1 },
+        timeoutMs: { type: 'integer', minimum: 1 },
+      },
+      additionalProperties: false,
+    },
+    shutdown: {
+      type: 'object',
+      properties: { gracePeriodMs: { type: 'integer', minimum: 1 } },
+      additionalProperties: false,
+    },
+  },
   required: ['target', 'baseline'],
   additionalProperties: false,
 };
@@ -51,6 +86,13 @@ export const kernelExecutionSchema: JsonSchema = {
   additionalProperties: false,
 };
 
+/**
+ * Parses a verified KernelExecution. A precheck-rejected acquire resolves a
+ * RAW execution-shaped object with extra `resources:{verified:false}` and
+ * `rejection` keys instead of throwing; consumers must run the evaluator's
+ * rejectionMessage(raw) BEFORE parseKernelExecution(raw) — the schema never
+ * sees a rejected execution, so additionalProperties stays closed.
+ */
 export function parseKernelExecution(value: unknown): KernelExecution {
   validate(kernelExecutionSchema, value, 'KernelExecution');
   const execution = value as KernelExecution;

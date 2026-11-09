@@ -1277,27 +1277,6 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
           );
           assert.equal(diagnostic.phase, 'collect');
         }
-        if (kind === 'inferencebench') {
-          controller = new AbortController();
-          call.signal = controller.signal;
-          measurements.length = 0;
-          const optedIn = op.execute(
-            { candidateRef: 'candidate:a', reportFailedMeasurement: true },
-            call,
-          );
-          if (outcome === 'nonzero-exit') {
-            assert.deepEqual(await optedIn, {
-              measurementRef: 'measurement:one',
-            });
-            assert.equal(measurements[0]?.status, 'failed');
-          } else {
-            await assert.rejects(optedIn, (error: unknown) => {
-              assert.ok(error instanceof Error);
-              assert.equal(Reflect.get(error, 'status'), expectedStatus);
-              return true;
-            });
-          }
-        }
       } finally {
         await rm(directory, { recursive: true, force: true });
       }

@@ -14,11 +14,10 @@ import {
   createFileApplication,
   type FileApplicationConfig,
 } from '../../src/plugins/shared/file-application/files.js';
-import { InferenceStartupError } from '../../src/shared/errors.js';
 import { object, string } from '../../src/shared/json.js';
 import { measurementFixture } from '../helpers/manager-fixture.js';
 
-test('Manager runs the Agent Policy with one baseline, resumable search, and no search after a failed baseline', async (t) => {
+test('Manager runs the Agent Policy with direct evaluation, bounded search, and no search after a failed baseline', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-agent-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runtime = await createRuntime({
@@ -27,8 +26,8 @@ test('Manager runs the Agent Policy with one baseline, resumable search, and no 
   });
   const launches: number[] = [];
   const benchmarks: number[] = [];
+  const releases: (number | null)[] = [];
   const candidateParents = new Map<string, string | null>();
-  const interruption = new AbortController();
   let modelCalls = 0;
   runtime.registry.registerOperation({
     id: 'test.parameter-application',
@@ -48,11 +47,14 @@ test('Manager runs the Agent Policy with one baseline, resumable search, and no 
         async acquire(_directory, config) {
           const size = Number(config.max_num_seqs);
           launches.push(size);
-          if (size === 32)
-            throw new InferenceStartupError('NPU memory pressure');
+          if (size === 32) throw new Error('NPU memory pressure');
           return { size };
         },
-        async release() {},
+        async release(instance) {
+          releases.push(
+            instance.execution ? Number(object(instance.execution).size) : null,
+          );
+        },
         async dispose() {},
       }),
   });
@@ -110,14 +112,6 @@ test('Manager runs the Agent Policy with one baseline, resumable search, and no 
     async create(_config, services) {
       services.event.on('rsi/candidate-recorded', (event) => {
         candidateParents.set(event.candidateRef, event.parentRef);
-      });
-      services.event.on('rsi/policy-boundary-completed', (event) => {
-        if (
-          event.stepPath?.endsWith('/evaluate_batch') &&
-          event.iteration === 0
-        )
-          interruption.abort(new Error('Pause between batch trials'));
-        return undefined;
       });
       return {
         async execute(input): Promise<JsonObject> {
@@ -240,7 +234,7 @@ test('Manager runs the Agent Policy with one baseline, resumable search, and no 
           },
           evaluator: { plugin: 'test.parameter-evaluator' },
         },
-        budget: { evaluationRuns: 3, elapsedWallMs: 30000 },
+        budget: { evaluationRuns: 4, elapsedWallMs: 30000 },
       }),
     );
     await assert.rejects(
@@ -249,31 +243,27 @@ test('Manager runs the Agent Policy with one baseline, resumable search, and no 
     );
     assert.deepEqual(launches, [32]);
     assert.deepEqual(benchmarks, []);
+    assert.deepEqual(releases, [null]);
     assert.equal(modelCalls, 0);
     await writeFile(join(root, 'baseline/tuning.json'), '{"max_num_seqs":8}');
     launches.length = 0;
+    releases.length = 0;
 
-    await assert.rejects(
-      runtime.manager.run(recipe, { id: 'tune', signal: interruption.signal }),
-      /Pause between batch trials/,
-    );
-    assert.deepEqual(benchmarks, [8, 16]);
-    assert.equal(modelCalls, 1);
-    const result = await runtime.manager.run(recipe, {
-      id: 'tune',
-      resume: true,
-    });
+    const result = await runtime.manager.run(recipe, { id: 'tune' });
     assert.equal(result.status, 'succeeded');
     const output = object(result.output);
     assert.equal(output.status, 'selected');
+    assert.equal(output.candidateFeasible, true);
     assert.equal(output.stopReason, 'max-trials');
     assert.notEqual(output.candidateRef, output.baselineCandidateRef);
-    assert.deepEqual(launches, [8, 16, 12]);
-    assert.deepEqual(benchmarks, [8, 16, 12]);
+    assert.deepEqual(launches, [8, 16, 8, 12]);
+    assert.deepEqual(benchmarks, [8, 16, 8, 12]);
+    assert.deepEqual(releases, [8, 16, 8, 12]);
     assert.equal(modelCalls, 1);
     assert.ok(Array.isArray(output.trials));
     const repeated = object(output.trials[1]);
-    assert.equal(repeated.status, 'duplicate');
+    assert.equal(repeated.status, 'measured');
+    assert.equal(repeated.accepted, false);
     assert.notEqual(repeated.candidateRef, output.baselineCandidateRef);
     assert.equal(output.candidateRef, object(output.trials[0]).candidateRef);
     for (const trial of output.trials)
@@ -288,6 +278,7 @@ test('Manager runs the Agent Policy with one baseline, resumable search, and no 
     await writeFile(cappedRecipe, JSON.stringify(capped));
     launches.length = 0;
     benchmarks.length = 0;
+    releases.length = 0;
     modelCalls = 0;
     await assert.rejects(
       runtime.manager.run(cappedRecipe, { id: 'capped' }),
@@ -299,13 +290,14 @@ test('Manager runs the Agent Policy with one baseline, resumable search, and no 
     const partial = object(stopped.partialOutput);
     assert.equal(partial.status, 'selected');
     assert.ok(Array.isArray(partial.trials));
-    assert.equal(partial.trials.length, 2);
+    assert.equal(partial.trials.length, 1);
     assert.equal(partial.candidateRef, object(partial.trials[0]).candidateRef);
     assert.equal(
       partial.measurementRef,
       object(partial.trials[0]).measurementRef,
     );
     assert.deepEqual(benchmarks, [8, 16]);
+    assert.deepEqual(releases, launches);
   } finally {
     await runtime.dispose();
   }

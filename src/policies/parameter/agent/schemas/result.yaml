@@ -5,8 +5,9 @@ properties:
   stopReason: { enum: [max-trials, no-change] }
   baselineCandidateRef: { type: string, minLength: 1 }
   baselineMeasurementRef: { type: string, minLength: 1 }
-  candidateRef: { type: [string, 'null'] }
-  measurementRef: { type: [string, 'null'] }
+  candidateRef: { type: string, minLength: 1 }
+  measurementRef: { type: string, minLength: 1 }
+  candidateFeasible: { type: boolean }
   trials:
     type: array
     items:
@@ -14,12 +15,20 @@ properties:
       additionalProperties: false
       properties:
         candidateRef: { type: string }
-        measurementRef: { type: [string, 'null'] }
-        status:
-          { enum: [measured, startup-failed, invalid-measurement, duplicate] }
-        reason: { type: [string, 'null'] }
+        measurementRef: { type: string, minLength: 1 }
+        status: { const: measured }
+        reason: { type: string }
         accepted: { type: boolean }
-      required: [candidateRef, measurementRef, status, reason, accepted]
+        candidateFeasible: { type: boolean }
+      required:
+        [
+          candidateRef,
+          measurementRef,
+          status,
+          reason,
+          accepted,
+          candidateFeasible,
+        ]
 required:
   [
     status,
@@ -28,5 +37,6 @@ required:
     baselineMeasurementRef,
     candidateRef,
     measurementRef,
+    candidateFeasible,
     trials,
   ]

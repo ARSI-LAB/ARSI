@@ -1,11 +1,8 @@
 # User hardware context
 
-This initial document is derived from the ngo-agent template. These values are not
-verified measurements of the current NPU. Review, edit, remove, or extend them
-before starting an experiment. Missing information must not be invented.
-
-Source: ngo-agent commit `e8bf53c0d9d70200d235c761f5e7472118b8e898`,
-`src/ngo_agent/kernel_agent/kernel_perf_agent/kernel_opt/diagnose_prompt/npu_specs_database.py`.
+These template values are not verified measurements of the current NPU. Review,
+edit, remove, or extend them before starting an experiment. Missing information
+must not be invented.
 
 | Template field | Template value    |
 | -------------- | ----------------- |

@@ -23,6 +23,23 @@ export type ProposerOutput =
       rationale: string;
     };
 
+function proposalOutputSchema(
+  status: ProposerOutput['status'],
+  diffRef: JsonObject,
+): JsonObject {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['status', 'candidateRef', 'diffRef', 'rationale'],
+    properties: {
+      status: { const: status },
+      candidateRef: { type: 'string', minLength: 1 },
+      diffRef,
+      rationale: { type: 'string' },
+    },
+  };
+}
+
 export const proposerContract = defineContract({
   id: 'contract.proposer',
   input_schema: {
@@ -81,47 +98,8 @@ export const proposerContract = defineContract({
   },
   output_schema: {
     oneOf: [
-      {
-        additionalProperties: false,
-        properties: {
-          candidateRef: {
-            minLength: 1,
-            type: 'string',
-          },
-          diffRef: {
-            minLength: 1,
-            type: 'string',
-          },
-          rationale: {
-            type: 'string',
-          },
-          status: {
-            const: 'created',
-          },
-        },
-        required: ['status', 'candidateRef', 'diffRef', 'rationale'],
-        type: 'object',
-      },
-      {
-        additionalProperties: false,
-        properties: {
-          candidateRef: {
-            minLength: 1,
-            type: 'string',
-          },
-          diffRef: {
-            type: 'null',
-          },
-          rationale: {
-            type: 'string',
-          },
-          status: {
-            const: 'no-change',
-          },
-        },
-        required: ['status', 'candidateRef', 'diffRef', 'rationale'],
-        type: 'object',
-      },
+      proposalOutputSchema('created', { type: 'string', minLength: 1 }),
+      proposalOutputSchema('no-change', { type: 'null' }),
     ],
   },
 });

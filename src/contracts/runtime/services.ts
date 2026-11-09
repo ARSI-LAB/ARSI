@@ -1,6 +1,7 @@
 import type { Candidate } from '../models/candidate.js';
 import type { JsonObject, JsonValue } from '../json.js';
 import type { EventPipeline } from './events.js';
+import type { AgentInput, AgentOutput } from '../plugin-types/agent.js';
 import type {} from './context.js';
 
 export interface ArtifactStore {
@@ -32,6 +33,8 @@ declare module './context.js' {
     rootDirectory: string;
     /** Stable local runtime data root; plugins own their subdirectories and cleanup. */
     dataDirectory: string;
+    /** The workspace authorized for a running Agent and its delegates. */
+    agentProject?: string;
     artifacts: ArtifactStore;
     facts: FactStore;
     workspaces: WorkspaceService;
@@ -48,8 +51,12 @@ declare module './context.js' {
     readMeasurement(this: RuntimeContext, ref: string): Promise<JsonObject>;
     application(this: RuntimeContext, input: JsonObject): Promise<JsonObject>;
     applicationMetadata(this: RuntimeContext): Promise<JsonObject>;
-    /** input.agentRef is a binding key, defaulting to the explicit agent.default binding. */
-    invokeAgent(this: RuntimeContext, input: JsonObject): Promise<JsonObject>;
+    /** Run an Agent using the specified Recipe binding. */
+    invokeAgent(
+      this: RuntimeContext,
+      agentRef: string,
+      input: AgentInput,
+    ): Promise<AgentOutput>;
     readEvidence(
       this: RuntimeContext,
       refs: string[],

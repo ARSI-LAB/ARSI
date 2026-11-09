@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.2",
-    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-coding-agent": "1.5.0",
     "@fastify/static": "10.1.7",
     "agent-bundle-core": "git+https://github.com/evolving-foundry/agentbundle.git#0.0.1&path:/packages/core",
     "ajv": "8.20.0",

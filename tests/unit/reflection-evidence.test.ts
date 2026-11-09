@@ -1,6 +1,13 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  writeFile,
+  rm,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
@@ -12,7 +19,6 @@ import {
 import { collectReflectionEvidence } from '../../src/runtime/revisions/evidence.js';
 import { object, string } from '../../src/shared/json.js';
 import { createReflectionAgent } from '../../src/plugins/reflection-agent/service.js';
-import { readVirtualFile } from '../../src/plugins/agent-pi/service.js';
 
 const at = (second: number): string =>
   new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
@@ -23,6 +29,7 @@ async function fixture(t: TestContext) {
   const artifacts = new FileArtifacts(join(root, 'artifacts'));
   const context = new RuntimeContext().extend({
     experimentId: 'experiment',
+    directory: root,
     facts,
     artifacts,
   });
@@ -187,7 +194,7 @@ test('late associated results are narrowly attributable, deduplicated and usable
   );
 });
 
-test('actual request, diagnostic trace and patch files are readable and scoring fields are projected out', async (t) => {
+test('actual request, workspace, diagnostic trace and patch files are readable and scoring fields are projected out', async (t) => {
   const f = await fixture(t);
   const patch = await f.artifacts.putJson({
     text: '--- before\n+++ after\n+useful actual patch',
@@ -201,9 +208,29 @@ test('actual request, diagnostic trace and patch files are readable and scoring 
       gradingDiagnostics: 'private grading marker',
     },
   });
+  const agentProjectArtifactRef = await f.artifacts.putJson({
+    kind: 'file-tree',
+    files: Object.entries({
+      'AGENTS.md': 'Inspect the proposed changes.',
+      'context/input.json': JSON.stringify({ privateAnswer: 'hidden answer' }),
+      'candidate/context.txt': JSON.stringify({
+        visible: 'project context marker',
+        returnedHints: 'hidden answer in a text file',
+      }),
+    }).map(([path, content]) => ({
+      path,
+      mode: 0o644,
+      base64: Buffer.from(content).toString('base64'),
+    })),
+  });
   await f.call('agent', 'agent', 1, {
     parentCallId: 'proposal',
-    input: { prompt: 'actual agent prompt', privateAnswer: 'hidden answer' },
+    input: {
+      cwd: join(f.root, 'project'),
+      goal: 'actual agent task',
+      outputSchema: {},
+    },
+    agentProjectArtifactRef,
     output: { edits: [] },
   });
   const callDirectory = join(f.root, 'experiments/experiment/calls/agent');
@@ -220,7 +247,20 @@ test('actual request, diagnostic trace and patch files are readable and scoring 
   const files = object(snapshot.files);
   assert.match(
     string(files['context/reflection/calls/proposal-descendant-agent.json']),
-    /actual agent prompt/,
+    /actual agent task/,
+  );
+  const workspace = JSON.parse(
+    string(
+      files['context/reflection/calls/proposal-workspace-agent/index.json'],
+    ),
+  ) as JsonObject[];
+  const instructions = workspace.find(
+    (file) => file.sourcePath === 'AGENTS.md',
+  );
+  assert.ok(instructions);
+  assert.match(
+    string(files[string(instructions.path)]),
+    /Inspect the proposed changes/,
   );
   assert.match(
     string(files['context/reflection/calls/proposal-trace-agent.jsonl']),
@@ -234,6 +274,7 @@ test('actual request, diagnostic trace and patch files are readable and scoring 
   assert.equal(delivered.includes('private grading marker'), false);
   assert.equal(delivered.includes('grading trace marker'), false);
   assert.equal(delivered.includes('hidden answer'), false);
+  assert.match(delivered, /project context marker/);
 });
 
 test('Memory snapshots are explicit, decoded and source-referenced', async (t) => {
@@ -654,14 +695,28 @@ test('authorized empty execution files remain readable by the Reflection Agent a
   const context = f.context.extend({
     signal: new AbortController().signal,
     workspaces: new FileWorkspaces(join(f.root, 'workspaces'), f.artifacts),
-    invokeAgent: async (request: JsonObject): Promise<JsonObject> => {
+    invokeAgent: async (
+      _binding: string,
+      request: JsonObject,
+    ): Promise<JsonObject> => {
       modelRequests++;
-      const files = object(request.files);
-      assert.equal(readVirtualFile(files, { path: emptyPath }), '');
-      assert.equal(readVirtualFile(files, { path: resourcePath }), '');
+      const cwd = string(request.cwd);
+      assert.equal(await readFile(join(cwd, emptyPath), 'utf8'), '');
       assert.equal(
-        Object.values(files).filter((content) => content === 'available output')
-          .length,
+        await readFile(join(cwd, 'candidate', resourcePath), 'utf8'),
+        '',
+      );
+      const files = await readdir(join(cwd, 'context'), {
+        recursive: true,
+        withFileTypes: true,
+      });
+      const contents = await Promise.all(
+        files
+          .filter((file) => file.isFile())
+          .map((file) => readFile(join(file.parentPath, file.name), 'utf8')),
+      );
+      assert.equal(
+        contents.filter((content) => content === 'available output').length,
         1,
       );
       return {
@@ -741,11 +796,19 @@ test('ASCII PDF delivery reaches the Reflection Agent as page previews through e
   const context = f.context.extend({
     signal: new AbortController().signal,
     workspaces: new FileWorkspaces(join(f.root, 'workspaces'), f.artifacts),
-    invokeAgent: async (request: JsonObject): Promise<JsonObject> => {
+    invokeAgent: async (
+      _binding: string,
+      request: JsonObject,
+    ): Promise<JsonObject> => {
       requests++;
-      const files = object(request.files);
+      const directory = string(request.cwd);
       const index = object(
-        JSON.parse(string(files['context/reflection/index.json'])),
+        JSON.parse(
+          await readFile(
+            join(directory, 'context/reflection/index.json'),
+            'utf8',
+          ),
+        ),
       );
       const previews = index.previews as JsonObject[];
       assert.equal(previews.length, 1);
@@ -756,13 +819,22 @@ test('ASCII PDF delivery reaches the Reflection Agent as page previews through e
         { page: 2, extractableText: true },
         { page: 3, extractableText: false },
       ]);
-      const preview = readVirtualFile(files, {
-        path: string(previews[0]!.path),
-      });
+      const preview = await readFile(
+        join(directory, string(previews[0]!.path)),
+        'utf8',
+      );
       assert.match(preview, /Page 1\nFirst page/);
       assert.match(preview, /Page 2\nSecond page/);
       assert.match(preview, /Page 3\n\[No extractable text/);
-      assert.doesNotMatch(JSON.stringify(files), /%PDF-/);
+      const files = await readdir(join(directory, 'context'), {
+        recursive: true,
+        withFileTypes: true,
+      });
+      for (const file of files.filter((file) => file.isFile()))
+        assert.doesNotMatch(
+          await readFile(join(file.parentPath, file.name), 'utf8'),
+          /%PDF-/,
+        );
       return { edits: [], reason: 'Read all three pages' };
     },
   });

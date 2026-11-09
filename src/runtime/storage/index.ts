@@ -23,6 +23,12 @@ import type {
 import { parseFileTree } from '../../contracts/index.js';
 import { canonical, digest, object, string, json } from '../../shared/json.js';
 
+export const excludedArtifactEntries: readonly string[] = [
+  'node_modules',
+  '.git',
+  '__pycache__',
+];
+
 export function safeId(id: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id))
     throw new Error(`Unsafe identifier ${id}`);
@@ -96,7 +102,7 @@ export class FileArtifacts implements ArtifactStore {
       const names = await readdir(root);
       names.sort();
       for (const name of names) {
-        if (['node_modules', '.git', '__pycache__'].includes(name)) continue;
+        if (excludedArtifactEntries.includes(name)) continue;
         const path = join(root, name);
         const stat = await lstat(path);
         if (stat.isSymbolicLink()) throw new Error('Symbolic link rejected');

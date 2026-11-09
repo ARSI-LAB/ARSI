@@ -94,6 +94,7 @@ output:
   stopReason: ${{ state.stopReason }}
   baselineCandidateRef: ${{ input.candidateRef }}
   baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
-  candidateRef: ${{ if(state.incumbentFeasible, state.incumbent, null) }}
-  measurementRef: ${{ if(state.incumbentFeasible, state.incumbentMeasurement, null) }}
+  candidateRef: ${{ state.incumbent }}
+  measurementRef: ${{ state.incumbentMeasurement }}
+  candidateFeasible: ${{ state.incumbentFeasible }}
   trials: ${{ state.trials }}

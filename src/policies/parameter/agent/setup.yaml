@@ -14,12 +14,20 @@ state_schema:
         additionalProperties: false
         properties:
           candidateRef: { type: string }
-          measurementRef: { type: [string, 'null'] }
-          status:
-            { enum: [measured, startup-failed, invalid-measurement, duplicate] }
-          reason: { type: [string, 'null'] }
+          measurementRef: { type: string, minLength: 1 }
+          status: { const: measured }
+          reason: { type: string }
           accepted: { type: boolean }
-        required: [candidateRef, measurementRef, status, reason, accepted]
+          candidateFeasible: { type: boolean }
+        required:
+          [
+            candidateRef,
+            measurementRef,
+            status,
+            reason,
+            accepted,
+            candidateFeasible,
+          ]
   required:
     [
       incumbent,
@@ -40,15 +48,13 @@ require:
   proposer: { contract: contract.proposer }
   evaluator: { contract: contract.inferencebench }
   selector: { contract: contract.selector-metrics }
-  trial: { contract: contract.inference-trial }
   agent: { contract: contract.agent }
 defaults:
   bindings:
-    trial: { plugin: inference.trial }
     agent: { plugin: agent.codex }
     proposer:
       plugin: proposer.agent
       config: { agentRef: agent }
     selector:
-      plugin: selector.metric
+      plugin: selector.inference
       config: { metric: requestThroughput, direction: maximize }

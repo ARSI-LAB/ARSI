@@ -100,12 +100,6 @@ export async function createInferencebench(
             );
           if (raw.exitCode !== 0) {
             const status = evaluationStatus(raw, context);
-            if (
-              input.reportFailedMeasurement &&
-              Number.isInteger(raw.exitCode) &&
-              status === 'failed'
-            )
-              return { measurementRef };
             throw Object.assign(
               new Error('Evaluator completed with nonzero exitCode'),
               {

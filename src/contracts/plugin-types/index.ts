@@ -2,7 +2,6 @@ export * from './agent.js';
 export * from './agentbench.js';
 export * from './application.js';
 export * from './inferencebench.js';
-export * from './inference-trial.js';
 export * from './memory.js';
 export * from './operatorbench.js';
 export * from './proposer.js';

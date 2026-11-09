@@ -226,7 +226,7 @@ export function register(registry) {
   for (const id of [
     'application.kernel',
     'evaluator.operatorbench',
-    'inference.trial',
+    'selector.inference',
     'proposer.operator',
   ])
     assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
@@ -313,7 +313,7 @@ export function register(registry) {
     );
     if (name === 'vllm-optimization') {
       assert.equal(inferenceValidation.policyId, 'parameter.agent');
-      assert.ok(inferenceValidation.plugins.includes('inference.trial'));
+      assert.ok(inferenceValidation.plugins.includes('selector.inference'));
       assert.ok(
         inferenceValidation.plugins.includes('evaluator.inferencebench'),
       );

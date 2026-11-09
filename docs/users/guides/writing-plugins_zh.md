@@ -10,21 +10,21 @@
 
 根据插件要完成的工作选择契约。契约规定调用的输入和输出，插件负责具体实现及其配置。已有契约符合需求时，直接复用对应的契约对象和类型：
 
-| 契约与字段定义                                                                                         | 用途                                         | 导入的契约对象                    |
-| ------------------------------------------------------------------------------------------------------ | -------------------------------------------- | --------------------------------- |
-| [contract.application](../../../src/contracts/plugin-types/application.ts)                             | 管理优化目标、提交候选、获取和释放运行实例。 | `applicationContract`             |
-| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                                         | 执行模型请求与工具调用。                     | `agentContract`                   |
-| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                                   | 根据目标和证据生成候选。                     | `proposerContract`                |
-| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)                 | 修改、修复算子并整理优化历史。               | `operatorProposerContract`        |
-| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                               | 按任务列表评测候选。                         | `agentbenchContract`              |
-| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)                       | 评测推理应用候选。                           | `inferencebenchContract`          |
-| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)                         | 检查算子正确性、测量性能或收集性能分析数据。 | `operatorbenchContract`           |
-| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)                   | 比较测量指标并选择候选。                     | `metricSelectorContract`          |
-| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts)               | 按给定标准比较候选内容并选择候选。           | `artifactSelectorContract`        |
-| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                                       | 将证据和观察整理成可复用的经验。             | `memoryContract`                  |
-| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                               | 根据执行证据提出插件修订。                   | `reflectionContract`              |
-| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)                         | 按网格搜索顺序生成参数候选。                 | `gridProposerContract`            |
-| [contract.search](../../../src/contracts/plugin-types/search.ts) | 管理有状态搜索、请求工作并接收反馈。 | `searchContract` |
+| 契约与字段定义                                                                           | 用途                                         | 导入的契约对象             |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------- | -------------------------- |
+| [contract.application](../../../src/contracts/plugin-types/application.ts)               | 管理优化目标、提交候选、获取和释放运行实例。 | `applicationContract`      |
+| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                           | 执行模型请求与工具调用。                     | `agentContract`            |
+| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                     | 根据目标和证据生成候选。                     | `proposerContract`         |
+| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)   | 修改、修复算子并整理优化历史。               | `operatorProposerContract` |
+| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                 | 按任务列表评测候选。                         | `agentbenchContract`       |
+| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)         | 评测推理应用候选。                           | `inferencebenchContract`   |
+| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)           | 检查算子正确性、测量性能或收集性能分析数据。 | `operatorbenchContract`    |
+| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)     | 比较测量指标并选择候选。                     | `metricSelectorContract`   |
+| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts) | 按给定标准比较候选内容并选择候选。           | `artifactSelectorContract` |
+| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                         | 将证据和观察整理成可复用的经验。             | `memoryContract`           |
+| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                 | 根据执行证据提出插件修订。                   | `reflectionContract`       |
+| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)           | 按网格搜索顺序生成参数候选。                 | `gridProposerContract`     |
+| [contract.search](../../../src/contracts/plugin-types/search.ts)                         | 管理有状态搜索、请求工作并接收反馈。         | `searchContract`           |
 
 每个普通插件只实现一个公共契约。Application 等契约包含多种动作，由同一个 `execute` 按 `input.action` 区分。
 
@@ -188,23 +188,13 @@ export const keepParentDefinition: OperationDefinition<
 
 ### 第二步：注册插件
 
-Runtime 通过注册 ID 查找插件。创建文件或在 Recipe 中填写 ID 都不会自动加载代码，需选择以下一种注册方式：
+Runtime 通过注册 ID 查找插件。创建文件或在 Recipe 中填写 ID 都不会自动加载代码，需要针对新增的插件进行注册操作。
 
-| 方式          | 适用情况                                        |
-| ------------- | ----------------------------------------------- |
-| 修改源码      | 修改 RSI 源码，将插件随框架一起构建和提供。     |
-| 通过 CLI 加载 | 在自己的扩展工程中开发，使用已安装的 CLI 加载。 |
+> 维护框架内置插件时，也可将实现放在 `src/plugins/`，在[内置注册文件](../../../src/runtime/builtins.ts)中注册，并执行 `pnpm build` 随框架构建。
 
-#### 方式一：修改源码
+1. 使用自定义插件工程自己的构建命令生成 `dist/proposer-keep-parent/`，将编译结果及运行时依赖部署到 `~/.ember-rsi/plugins/my-extension/`，保留相对目录结构。
 
-1. 将示例的三个文件放在 `src/plugins/proposer-keep-parent/`，将其中的 `ember-rsi/contracts` 导入改为 `../../contracts/index.js`。
-2. 在[内置注册文件](../../../src/runtime/builtins.ts)中导入 `keepParentDefinition`，并将它加入 `registerBuiltins` 的 `definitions` 数组。
-3. 在仓库根目录执行 `pnpm build`。随后使用仓库中的 `pnpm ember-rsi` 校验和运行，命令见下方共同步骤。
-
-#### 方式二：为 CLI 注册外部扩展
-
-1. 将包含三个示例文件的工程作为 `my-extension/`，使用该工程的构建命令生成 `dist/proposer-keep-parent/`，并确保运行时依赖已安装。
-2. 在 `my-extension/` 根目录创建 `index.mjs`，导出 `register(registry)`。CLI 加载扩展时会调用它：
+2. 在`~/.ember-rsi/plugins/my-extension/`下创建 `index.mjs`，导出 `register(registry)`：
 
    ```js
    import { keepParentDefinition } from './dist/proposer-keep-parent/index.js';
@@ -214,8 +204,12 @@ Runtime 通过注册 ID 查找插件。创建文件或在 Recipe 中填写 ID �
    }
    ```
 
-3. 校验、运行和恢复时传入 `--plugin-dir ./my-extension`，加载该扩展。一个入口可以注册多个插件；已有入口时，将代码加入现有的 `register` 即可。
-   - 也可以将扩展放在 `~/.ember-rsi/plugins/<name>/`，CLI 会自动加载其中的 `index.mjs`。用户级扩展按目录名称顺序加载，随后加载 `--plugin-dir` 指定的目录；该选项可以重复使用。
+3. CLI 启动时会自动按目录名称顺序扫描 `~/.ember-rsi/plugins/` 的直接子目录，加载各目录的 `index.mjs` 并调用 `register(registry)`。
+   - 放在此处的扩展无需额外参数；一个入口可以注册多个插件和 Policy，已有入口时将代码加入现有的 `register` 即可。
+
+   - 扩展也可以保留在项目目录或其他位置，通过 `--plugin-dir ./my-extension` 显式加载；
+     - 该选项应指向包含 `index.mjs` 的扩展目录，相对路径以命令的工作目录为准。
+     - CLI 先加载用户级扩展，再按参数顺序加载 `--plugin-dir` 指定的目录；
 
 #### 需要新契约时
 
@@ -274,16 +268,14 @@ bindings:
 
 #### 3. 校验并运行
 
-准备好完整的 Recipe 后，按所选注册方式执行命令。
-
-**修改源码的方式**：在仓库根目录使用刚构建的 CLI：
+扩展已放在 `~/.ember-rsi/plugins/my-extension/` 时，在包含 `my-experiment/` 的工作目录直接使用已安装的 CLI：
 
 ```sh
-pnpm ember-rsi validate my-experiment/recipe.yaml
-pnpm ember-rsi run my-experiment/recipe.yaml --id custom-run
+ember-rsi validate my-experiment/recipe.yaml
+ember-rsi run my-experiment/recipe.yaml --id custom-run
 ```
 
-**通过 CLI 加载的方式**：在包含 `my-extension/` 和 `my-experiment/` 的工作目录执行，两条命令加载同一扩展：
+如果扩展保存在工作目录下的 `my-extension/` 等其他位置，校验、运行和恢复时都传入同一扩展目录：
 
 ```sh
 ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
@@ -379,4 +371,4 @@ try {
 | `homeDirectory`     | 用户级扩展主目录；填 `false` 可禁用自动加载。    | `~/.ember-rsi`。         |
 | `pluginDirectories` | 额外加载的扩展目录数组，路径相对于当前进程目录。 | 不加载额外目录。         |
 
-宿主中的注册只对该 Runtime 生效。另行启动 CLI 时，仍需通过源码注册或 `--plugin-dir` 加载插件。
+宿主中的注册只对该 Runtime 生效。另行启动 CLI 时，将扩展放入默认用户级目录自动加载，或使用 `--plugin-dir` 指定扩展目录。

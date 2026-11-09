@@ -188,12 +188,13 @@ export const keepParentDefinition: OperationDefinition<
 
 ### Step 2: Register the plugin
 
-Runtime finds plugins by registered ID. Register custom plugins through an extension entrypoint loaded by the installed CLI, without modifying or rebuilding ember-rsi.
+Runtime finds plugins by registered ID. Creating a file or adding an ID to a Recipe does not load code automatically. Register each new plugin before using it.
 
 > When maintaining built-in framework plugins, you can place implementations in `src/plugins/`, register them in the [built-in registration file](../../../src/runtime/builtins.ts), and run `pnpm build` to build them with the framework.
 
 1. Run your custom plugin project's own build command to generate `dist/proposer-keep-parent/`. Deploy the compiled files and runtime dependencies to `~/.ember-rsi/plugins/my-extension/`, preserving the relative directory structure.
-2. Create `index.mjs` in that extension directory, exporting `register(registry)`:
+
+2. Create `index.mjs` in `~/.ember-rsi/plugins/my-extension/`, exporting `register(registry)`:
 
    ```js
    import { keepParentDefinition } from './dist/proposer-keep-parent/index.js';
@@ -203,9 +204,12 @@ Runtime finds plugins by registered ID. Register custom plugins through an exten
    }
    ```
 
-3. At startup, the CLI scans the immediate subdirectories of `~/.ember-rsi/plugins/` in directory-name order, loads each directory's `index.mjs`, and calls `register(registry)`. Extensions placed here need no extra arguments. One entrypoint can register multiple plugins and Policies; if one already exists, add the code to its existing `register` function.
+3. At startup, the CLI automatically scans the immediate subdirectories of `~/.ember-rsi/plugins/` in directory-name order, loads each directory's `index.mjs`, and calls `register(registry)`.
+   - Extensions placed here need no extra arguments. One entrypoint can register multiple plugins and Policies; if one already exists, add the code to its existing `register` function.
 
-You can also keep an extension in your project or another location and load it explicitly with `--plugin-dir ./my-extension`. Point the option at the extension directory containing `index.mjs`; relative paths resolve against the command's working directory. Project directories such as `plugins/my-extension/` also require this option. The CLI loads user-level extensions first, then explicit directories in argument order; the option can be repeated.
+   - You can also keep an extension in your project or another location and load it explicitly with `--plugin-dir ./my-extension`.
+     - Point the option at the extension directory containing `index.mjs`; relative paths resolve against the command's working directory.
+     - The CLI loads user-level extensions first, then explicit directories in argument order.
 
 #### When you need a new contract
 

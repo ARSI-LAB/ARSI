@@ -14,7 +14,7 @@ import { memoryDefinition } from '../plugins/memory-agent/index.js';
 import { reflectionDefinition } from '../plugins/reflection-agent/index.js';
 import { agentbenchDefinition } from '../plugins/evaluator-agentbench/index.js';
 import { inferencebenchDefinition } from '../plugins/evaluator-inferencebench/index.js';
-import { inferenceTrialDefinition } from '../plugins/inference-trial/index.js';
+import { inferenceSelectorDefinition } from '../plugins/selector-inference/index.js';
 import { metricSelectorDefinition } from '../plugins/selector-metrics/index.js';
 import { artifactSelectorDefinition } from '../plugins/selector-artifacts/index.js';
 import { kernelApplicationDefinition } from '../plugins/application-kernel/index.js';
@@ -36,7 +36,7 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     reflectionDefinition,
     agentbenchDefinition,
     inferencebenchDefinition,
-    inferenceTrialDefinition,
+    inferenceSelectorDefinition,
     metricSelectorDefinition,
     artifactSelectorDefinition,
     kernelApplicationDefinition,

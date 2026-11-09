@@ -26,26 +26,16 @@ class CandidateError(ValueError):
     """A rejected candidate never reaches the deployment command."""
 
 
-PERFORMANCE_GROUPS = {
-    "SchedulerConfig", "CacheConfig", "AttentionConfig", "MambaConfig",
-    "CompilationConfig", "SpeculativeConfig", "OffloadConfig",
-}
-# These options live outside the same argument groups across vLLM releases.
-PERFORMANCE_OPTIONS = {
-    "enforce_eager", "attention_backend", "compilation_config", "speculative_config",
-    "additional_config", "disable_custom_all_reduce", "enable_expert_parallel", "all2all_backend",
-}
-JSON_OPTIONS = {"compilation_config", "speculative_config", "additional_config"}
-FIXED_OPTIONS = {
-    "port", "host", "model", "model_tag", "served_model_name", "dtype", "max_model_len",
-    "tensor_parallel_size", "data_parallel_size", "pipeline_parallel_size", "quantization",
-    "config", "api_key", "trust_remote_code", "scheduler_cls",
-}
-CODE_OR_PATH_SUFFIXES = ("_path", "_module", "_class", "_cls", "_plugin")
-FIXED_JSON_KEYS = FIXED_OPTIONS | {
-    "backend", "custom_ops", "custom_passes", "pass_config", "model_revision",
-    "draft_tensor_parallel_size", "tokenizer", "plugin", "path",
-    "rejection_sample_method", "synthetic_acceptance_rates", "synthetic_acceptance_length",
+# Restrict this performance-only example to explicit scheduling, capacity and
+# graph controls. New engine options and structured configs require review before
+# they can enter the catalog; CLI support alone does not establish this boundary.
+TUNABLE_PARAMETERS = {
+    "max_num_seqs", "max_num_batched_tokens", "max_num_partial_prefills",
+    "max_long_partial_prefills", "long_prefill_token_threshold",
+    "enable_chunked_prefill", "enable_prefix_caching", "block_size",
+    "gpu_memory_utilization", "kv_cache_memory_bytes", "cpu_offload_gb", "swap_space",
+    "enforce_eager", "cuda_graph_sizes", "cudagraph_capture_sizes",
+    "max_cudagraph_capture_size",
 }
 
 
@@ -56,10 +46,9 @@ def parameter_catalog(parser):
             name = action.dest
             flag = "--" + name.replace("_", "-")
             if (
-                name in FIXED_OPTIONS or name.endswith(CODE_OR_PATH_SUFFIXES)
+                name not in TUNABLE_PARAMETERS
                 or flag not in action.option_strings
                 or action.help == argparse.SUPPRESS
-                or (group.title not in PERFORMANCE_GROUPS and name not in PERFORMANCE_OPTIONS)
             ):
                 continue
             option = {"flag": flag, "group": group.title, "description": str(action.help or "")}
@@ -72,8 +61,6 @@ def parameter_catalog(parser):
                 del option["flag"]
             elif action.nargs == 0:
                 continue
-            elif name in JSON_OPTIONS:
-                option.update(kind="object")
             else:
                 kind = {int: "integer", float: "number", str: "string"}.get(action.type, "scalar")
                 option.update(kind=kind)
@@ -92,17 +79,6 @@ def installed_catalog():
         capture_output=True, text=True, timeout=45, check=True,
     )
     return json.loads(result.stdout.splitlines()[-1])
-
-
-def check_json_options(value):
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key in FIXED_JSON_KEYS or key.endswith(CODE_OR_PATH_SUFFIXES):
-                raise CandidateError(f"Structured framework parameter cannot change {key}")
-            check_json_options(item)
-    elif isinstance(value, list):
-        for item in value:
-            check_json_options(item)
 
 
 def encode_parameter(name, value, option):
@@ -124,7 +100,7 @@ def tuning_flags(parameters, catalog):
     flags = []
     for name, value in sorted(parameters.items()):
         option = catalog.get(name)
-        if option is None:
+        if name not in TUNABLE_PARAMETERS or option is None:
             raise CandidateError(f"Unsupported framework parameter for the installed vLLM: {name}")
         kind = option["kind"]
         if kind == "boolean":
@@ -133,11 +109,6 @@ def tuning_flags(parameters, catalog):
             flag = option.get("flag" if value else "falseFlag")
             if flag:
                 flags.append(flag)
-        elif kind == "object":
-            if not isinstance(value, dict):
-                raise CandidateError(f"{name} must be a JSON object")
-            check_json_options(value)
-            flags.append(option["flag"] + "=" + json.dumps(value, separators=(",", ":"), allow_nan=False))
         elif "items" in option:
             if not isinstance(value, list) or not value:
                 raise CandidateError(f"{name} must be a nonempty array")

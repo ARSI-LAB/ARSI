@@ -1,49 +1,35 @@
 evaluate:
-  - id: trial
-    type: invoke
-    use: trial
-    with:
-      evaluatorRef: evaluator
-      candidateRef: ${{ steps.candidates.output[loop.index] }}
-      deduplicate:
-        parameterFile: ${{ config.parameterFile }}
-        candidateRefs: ${{ append(pluck(state.trials, 'candidateRef'), input.candidateRef) }}
-  - id: decide
+  - id: assess
     type: if
-    if: ${{ steps.trial.output.status == 'measured' }}
+    if: true
     then:
       steps:
+        - id: evaluate
+          type: invoke
+          use: evaluator
+          with:
+            candidateRef: ${{ steps.candidates.output[loop.index] }}
         - id: select
           type: invoke
           use: selector
           with:
             incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
-            candidateMeasurementRef: ${{ steps.trial.output.measurementRef }}
+            candidateMeasurementRef: ${{ steps.evaluate.output.measurementRef }}
       output:
         trial:
           candidateRef: ${{ steps.candidates.output[loop.index] }}
-          measurementRef: ${{ steps.trial.output.measurementRef }}
+          measurementRef: ${{ steps.evaluate.output.measurementRef }}
           status: measured
           reason: ${{ steps.select.output.reason }}
-          accepted: ${{ steps.select.output.candidateFeasible && (!state.incumbentFeasible || steps.select.output.accepted) }}
-        source:
-          candidateRef: ${{ steps.candidates.output[loop.index] }}
-    else:
-      steps: []
-      output:
-        trial:
-          candidateRef: ${{ steps.candidates.output[loop.index] }}
-          measurementRef: ${{ steps.trial.output.measurementRef }}
-          status: ${{ steps.trial.output.status }}
-          reason: ${{ steps.trial.output.reason }}
-          accepted: false
+          accepted: ${{ steps.select.output.accepted }}
+          candidateFeasible: ${{ steps.select.output.candidateFeasible }}
         source:
           candidateRef: ${{ steps.candidates.output[loop.index] }}
   - id: record_trial
     type: state
     state:
-      trials: ${{ append(state.trials, steps.decide.output.trial) }}
-      sources: ${{ if(steps.decide.output.trial.status == 'duplicate', state.sources, append(state.sources, steps.decide.output.source)) }}
-      incumbent: ${{ if(steps.decide.output.trial.accepted, steps.decide.output.trial.candidateRef, state.incumbent) }}
-      incumbentMeasurement: ${{ if(steps.decide.output.trial.accepted, steps.decide.output.trial.measurementRef, state.incumbentMeasurement) }}
-      incumbentFeasible: ${{ state.incumbentFeasible || steps.decide.output.trial.accepted }}
+      trials: ${{ append(state.trials, steps.assess.output.trial) }}
+      sources: ${{ append(state.sources, steps.assess.output.source) }}
+      incumbent: ${{ if(steps.assess.output.trial.accepted, steps.assess.output.trial.candidateRef, state.incumbent) }}
+      incumbentMeasurement: ${{ if(steps.assess.output.trial.accepted, steps.assess.output.trial.measurementRef, state.incumbentMeasurement) }}
+      incumbentFeasible: ${{ if(steps.assess.output.trial.accepted, steps.assess.output.trial.candidateFeasible, state.incumbentFeasible) }}

@@ -6,7 +6,7 @@ import { Policy } from '../../src/runtime/policy/index.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { object } from '../../src/shared/json.js';
 
-test('parameter.agent finishes a batch before proposing from the measured incumbent', async () => {
+test('parameter.agent follows selector decisions and returns the measured incumbent before constraints are met', async () => {
   const registry = new Registry();
   try {
     await registerBuiltins(registry);
@@ -30,22 +30,7 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
             `${binding}:${input.candidateRef ?? input.parent ?? input.candidateMeasurementRef}`,
           );
           if (binding === 'evaluator') {
-            assert.equal(input.candidateRef, 'baseline');
-            return { measurementRef: 'm-baseline' };
-          }
-          if (binding === 'trial') {
-            const candidate = String(input.candidateRef);
-            if (['bad', 'single'].includes(candidate))
-              return {
-                status: 'startup-failed',
-                measurementRef: null,
-                reason: 'Startup was rejected',
-              };
-            return {
-              status: 'measured',
-              measurementRef: `m-${candidate}`,
-              reason: null,
-            };
+            return { measurementRef: `m-${input.candidateRef}` };
           }
           if (binding === 'proposer') {
             if (input.parent === 'baseline') {
@@ -56,55 +41,66 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
                 status: 'batch',
                 candidates: [
                   {
-                    candidateRef: 'bad',
-                    diffRef: 'bad-diff',
+                    candidateRef: 'rejected',
+                    diffRef: 'rejected-diff',
                     rationale: 'Try a larger batch',
                   },
                   {
-                    candidateRef: 'best',
-                    diffRef: 'best-diff',
+                    candidateRef: 'progress',
+                    diffRef: 'progress-diff',
                     rationale: 'Try a smaller batch',
                   },
                 ],
               };
             }
-            assert.equal(input.parent, 'best');
-            assert.deepEqual(input.evidenceRefs, ['m-baseline', 'm-best']);
-            if (input.maxCandidates === 2)
+            if (input.maxCandidates === 2) {
+              assert.equal(input.parent, 'progress');
+              assert.deepEqual(input.evidenceRefs, [
+                'm-baseline',
+                'm-rejected',
+                'm-progress',
+              ]);
               return {
                 status: 'created',
                 candidateRef: 'single',
                 diffRef: 'single-diff',
                 rationale: 'Try one more parameter set',
               };
+            }
+            assert.equal(input.parent, 'single');
             assert.equal(input.maxCandidates, 1);
             assert.deepEqual(input.sources, [
               { candidateRef: 'baseline' },
-              { candidateRef: 'bad' },
-              { candidateRef: 'best' },
+              { candidateRef: 'rejected' },
+              { candidateRef: 'progress' },
               { candidateRef: 'single' },
             ]);
             assert.match(
               JSON.stringify(input.observations),
-              /Startup was rejected/,
+              /Constraints improved/,
             );
             return {
               status: 'no-change',
-              candidateRef: 'best',
+              candidateRef: 'single',
               diffRef: null,
               rationale: 'No untried options',
             };
           }
           assert.equal(binding, 'selector');
-          const candidate =
-            input.candidateMeasurementRef === 'm-best' ? 'best' : 'baseline';
+          const candidate = String(input.candidateMeasurementRef).slice(2);
+          const accepted = ['progress', 'single'].includes(candidate);
+          assert.equal(
+            input.incumbentMeasurementRef,
+            candidate === 'single' ? 'm-progress' : 'm-baseline',
+          );
+          const selected = accepted ? candidate : 'baseline';
           return {
-            accepted: false,
-            candidateFeasible: candidate === 'best',
-            selectedCandidateRef: 'baseline',
-            reason: 'Compared',
+            accepted,
+            candidateFeasible: candidate === 'rejected',
+            selectedCandidateRef: selected,
+            reason: accepted ? 'Constraints improved' : 'Retain incumbent',
             decisionRef: 'decision',
-            measurementRef: 'm-baseline',
+            measurementRef: `m-${selected}`,
             metric: 'requestThroughput',
             incumbentValue: 10,
             candidateValue: 9,
@@ -117,19 +113,31 @@ test('parameter.agent finishes a batch before proposing from the measured incumb
       'evaluator:baseline',
       'selector:m-baseline',
       'proposer:baseline',
-      'trial:bad',
-      'trial:best',
-      'selector:m-best',
-      'proposer:best',
-      'trial:single',
-      'proposer:best',
+      'evaluator:rejected',
+      'selector:m-rejected',
+      'evaluator:progress',
+      'selector:m-progress',
+      'proposer:progress',
+      'evaluator:single',
+      'selector:m-single',
+      'proposer:single',
     ]);
-    assert.equal(result.status, 'selected');
+    assert.equal(result.status, 'no-feasible-configuration');
+    assert.equal(result.candidateFeasible, false);
     assert.equal(result.stopReason, 'no-change');
     assert.equal(result.baselineCandidateRef, 'baseline');
     assert.equal(result.baselineMeasurementRef, 'm-baseline');
-    assert.equal(result.candidateRef, 'best');
-    assert.equal(result.measurementRef, 'm-best');
+    assert.equal(result.candidateRef, 'single');
+    assert.equal(result.measurementRef, 'm-single');
+    assert.ok(Array.isArray(result.trials));
+    assert.deepEqual(
+      result.trials.map((trial) => object(trial).accepted),
+      [false, true, true],
+    );
+    assert.deepEqual(
+      result.trials.map((trial) => object(trial).candidateFeasible),
+      [true, false, false],
+    );
   } finally {
     await registry.dispose();
   }

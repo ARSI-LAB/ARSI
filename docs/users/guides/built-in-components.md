@@ -28,6 +28,8 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 
 Agent, Grid, and Optuna each evaluate the initial configuration once before search. Supply a configuration that can start the service and reserve one evaluation run for the baseline. A baseline evaluation failure stops the experiment.
 
+`parameter.agent` invokes `evaluator.inferencebench` directly for each candidate, serially. A startup or evaluation failure stops the experiment and triggers instance cleanup. With its default `selector.inference`, the Policy can retain an improved candidate before all performance targets are met. Its output keeps the incumbent `candidateRef` and `measurementRef`; `candidateFeasible` reports whether it satisfies the configured constraints, including when `status` is `no-feasible-configuration`.
+
 ## Loop components
 
 | Role          | Built-in component                              | Purpose                                                                                                                  | Typical use                                                                             |
@@ -42,12 +44,14 @@ Agent, Grid, and Optuna each evaluate the initial configuration once before sear
 | Search | `search.prompt-evolution` | Evolve prompt modules through reflective proposals, Pareto sampling, and ancestry-aware crossover. | Optimize prompts using feedback and selection tasks. |
 | Evaluator     | `evaluator.agentbench`                          | Run Agent benchmark tasks and save scores and execution evidence.                                                        | Assess changes to prompts, skills, or code.                                             |
 | Evaluator     | `evaluator.inferencebench`                      | Benchmark inference services and measure throughput, latency, and other metrics.                                         | Compare the performance of service configurations.                                      |
-| Trial | `inference.trial` | Classify recoverable startup failures and require a complete, comparable benchmark result. | Agent-driven inference candidate trials. |
 | Evaluator     | `evaluator.operatorbench`                       | Use the Evaluator SDK to check correctness, measure latency, and optionally collect profiling data.                      | Check whether kernel changes are correct and faster.                                    |
 | Selector      | `selector.metric`                               | Compare candidates using specified metrics and constraints.                                                              | Select a better version by success rate, throughput, latency, or other numeric results. |
+| Selector      | `selector.inference`                            | Improve constraint violations before optimizing the primary metric within the targets.                                   | Tune inference performance while retaining useful progress toward latency targets.      |
 | Selector      | `selector.artifact`                             | Use a model to review anonymously presented reports or other deliverables against a rubric.                              | Select candidates by content quality.                                                   |
 | Agent backend | [`agent.pi`](configuration.md#pi-backend)       | Run proposal generation, content review, experience consolidation, and similar tasks through Pi.                         | Drive optimization with a model service of your choice.                                 |
 | Agent backend | [`agent.codex`](configuration.md#codex-backend) | Run proposal generation, content review, experience consolidation, and similar tasks through a local Codex installation. | Reuse an existing Codex login and configuration.                                        |
+
+`selector.inference` uses the same `contract.selector-metrics` interface and configuration fields as `selector.metric`. While constraints remain unmet, it accepts a candidate if no constraint violation increases and at least one decreases. Equal violations require improvement in the primary metric beyond the configured threshold. A satisfied constraint must remain satisfied; once all constraints are met, selection optimizes the primary metric without returning to an infeasible candidate. Configured `eligibility` checks remain hard requirements. Only complete, comparable measurements with the required metrics can be selected.
 
 ## Application
 

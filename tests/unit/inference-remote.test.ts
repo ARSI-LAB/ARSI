@@ -23,7 +23,6 @@ import {
 import { inferenceDefinition } from '../../src/plugins/application-inference/index.js';
 import type { RemoteInferenceConfig } from '../../src/plugins/application-inference/schema.js';
 import { createRemoteBackend } from '../../src/plugins/application-inference/remote.js';
-import { inferenceTrialDefinition } from '../../src/plugins/inference-trial/index.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { validate } from '../../src/shared/schema.js';
@@ -224,13 +223,12 @@ test('remote startup rejection is recoverable only after the owned service is re
   }
 });
 
-test('a managed trial returns a cleaned remote startup rejection without running the evaluator', async () => {
+test('a direct inference evaluation fails and releases a rejected remote instance', async () => {
   const f = await fixture(undefined, 'start');
   const registry = new Registry();
   const manager = new Manager({ registry, rootDirectory: f.root });
   try {
     registry.registerOperation(inferenceDefinition);
-    registry.registerOperation(inferenceTrialDefinition);
     registry.registerOperation({
       id: 'test.inference-evaluator',
       contract: inferencebenchContract,
@@ -254,28 +252,26 @@ test('a managed trial returns a cleaned remote startup rejection without running
       policyPath,
       stringify({
         schemaVersion: 'rsi.policy/v1',
-        id: 'test.inference-trial',
+        id: 'test.inference-evaluation',
         input_schema: { type: 'object' },
         output_schema: { type: 'object' },
         require: {
-          trial: { contract: 'contract.inference-trial' },
           evaluator: { contract: inferencebenchContract.id },
         },
         steps: [
           {
             id: 'check',
             type: 'invoke',
-            use: 'trial',
+            use: 'evaluator',
             with: {
               candidateRef: '${{ application.initialCandidate }}',
-              evaluatorRef: 'evaluator',
             },
           },
         ],
         output: '${{ steps.check.output }}',
       }),
     );
-    registry.registerPolicy('test.inference-trial', policyPath);
+    registry.registerPolicy('test.inference-evaluation', policyPath);
     const recipePath = join(f.root, 'recipe.yaml');
     await writeFile(
       recipePath,
@@ -292,21 +288,20 @@ test('a managed trial returns a cleaned remote startup rejection without running
             },
           },
         },
-        policy: { id: 'test.inference-trial', config: {}, input: {} },
+        policy: { id: 'test.inference-evaluation', config: {}, input: {} },
         bindings: {
-          trial: { plugin: inferenceTrialDefinition.id, config: {} },
           evaluator: { plugin: 'test.inference-evaluator', config: {} },
         },
         budget: { operations: 10, elapsedWallMs: 10000 },
       }),
     );
-    const result = await manager.run(recipePath, { id: 'trial' });
-    assert.equal(result.status, 'succeeded');
-    assert.deepEqual(result.output, {
-      status: 'startup-failed',
-      measurementRef: null,
-      reason: 'Remote inference startup failed: Configured launch diagnostic',
-    });
+    await assert.rejects(
+      manager.run(recipePath, { id: 'trial' }),
+      /Configured launch diagnostic/,
+    );
+    const result = await manager.get('trial');
+    assert.equal(result.status, 'failed');
+    assert.match(String(result.error), /Configured launch diagnostic/);
     const instances = await manager.facts.list('instances');
     assert.deepEqual(
       instances.map((record) => record.status),

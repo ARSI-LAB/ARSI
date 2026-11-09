@@ -128,9 +128,11 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 
 For inference optimization, `evaluator.inferencebench` supports `benchmark.name: aisbench` with the bundled SSH solver, or `agentx` with the replay solver. Use the same benchmark workload for the baseline and candidate trials. The Runtime enforces the experiment-wide limits in the Recipe’s `budget`.
 
-`policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy evaluates the batch serially and uses the latest incumbent when requesting the next batch. `maxTrials` caps candidate attempts across all batches, including skipped duplicates.
+For `parameter.agent`, `policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy invokes `evaluator.inferencebench` directly and serially, then uses the latest incumbent when requesting the next batch. `maxTrials` caps candidate attempts across all batches. Startup or evaluation failures stop the experiment and trigger instance cleanup.
 
-With `application.inference.config.remote.discoverParameters: true`, the launcher reports its installed parameter catalog at initialization. Agent proposals receive the catalog in `context/input.json` as `target.parameterCatalog`. This is enabled in the vLLM Ascend example.
+The default `selector.inference` uses `metric` and `direction` for the primary objective, `constraints` for performance targets, and optional `eligibility` for hard requirements. It can accept reduced constraint violations before every target is met, while preventing regressions in satisfied constraints. See [Built-in components](built-in-components.md#loop-components) for the selection rules. The Policy retains the incumbent and reports `candidateFeasible` separately from whether a candidate was accepted.
+
+With `application.inference.config.remote.discoverParameters: true`, the launcher reports its installed parameter catalog at initialization. Agent proposals receive the catalog in `context/input.json` as `target.parameterCatalog`. The vLLM Ascend example enables this feature and limits the catalog to an explicit performance-parameter allowlist; precision, quantization, speculative decoding, and structured configs are excluded.
 
 ## Proposer file edits
 
@@ -142,7 +144,7 @@ To migrate a custom Proposer prompt, remove `editProtocol` from the binding and 
 
 ## Limits and budgets
 
-When an experiment budget is exhausted, the Runtime records `stopReason: budget-exhausted` and the limit in `budgetMetric`. Use `ember-rsi show <experiment-id>` to inspect the record. If the Policy output can be evaluated and validated from the last committed checkpoint, the record includes it as `partialOutput`. For parameter search, this includes the best feasible candidate and its measurement when available. Use the experiment record’s top-level `stopReason` to determine why the run ended.
+When an experiment budget is exhausted, the Runtime records `stopReason: budget-exhausted` and the limit in `budgetMetric`. Use `ember-rsi show <experiment-id>` to inspect the record. If the Policy output can be evaluated and validated from the last committed checkpoint, the record includes it as `partialOutput`. For `parameter.agent`, this retains the incumbent candidate and its measurement when available, even when `candidateFeasible` is false. Use the experiment record’s top-level `stopReason` to determine why the run ended.
 
 Omitted Recipe binding settings first inherit Policy defaults. The “When omitted” column describes settings that remain unset; limits at other layers can still apply.
 

@@ -70,7 +70,7 @@ bindings:
             tokenizerPath: /models/inference-model
       run: { timeoutSeconds: 1800 }
   selector:
-    plugin: selector.metric
+    plugin: selector.inference
     config:
       metric: requestThroughput
       direction: maximize

@@ -8,8 +8,6 @@ const args = process.argv.slice(2);
 const send = (value) => process.stdout.write(JSON.stringify(value) + '\n');
 const history = [];
 let model = config.model;
-let pendingTool;
-let nextToolId = 0;
 let threadParams;
 const generate = async () => {
   if (config.turnFailure) {
@@ -26,7 +24,7 @@ const generate = async () => {
   }
   if (config.approvalRequired) {
     send({
-      id: nextToolId++,
+      id: 0,
       method: 'item/commandExecution/requestApproval',
       params: { threadId: 'thread', turnId: 'turn' },
     });
@@ -48,14 +46,7 @@ const generate = async () => {
         instructions: config.systemInstructions,
         developer_instructions: config.developerInstructions,
         reasoning: { effort: config.model_reasoning_effort },
-        tools: [
-          ...threadParams.dynamicTools.map((t) => ({
-            type: 'function',
-            name: t.name,
-            parameters: t.inputSchema,
-          })),
-          { type: 'function', name: 'exec_command' },
-        ],
+        tools: [{ type: 'function', name: 'exec_command' }],
         stream: true,
         store: true,
       }),
@@ -77,34 +68,38 @@ const generate = async () => {
     return;
   }
   const item = completed.response.output[0];
-  if (item.type === 'function_call') {
-    pendingTool = nextToolId++;
-    send({
-      id: pendingTool,
-      method: 'item/tool/call',
-      params: {
-        threadId: 'thread',
-        turnId: 'turn',
-        tool: item.name,
-        arguments: JSON.parse(item.arguments),
-      },
-    });
-  } else {
-    send({
-      method: 'item/completed',
-      params: {
-        item: {
-          type: 'agentMessage',
-          text: item.content[0].text,
-          phase: 'final_answer',
+  send({
+    method: 'thread/tokenUsage/updated',
+    params: {
+      threadId: 'thread',
+      tokenUsage: {
+        total: {
+          inputTokens: completed.response.usage.input_tokens,
+          outputTokens: completed.response.usage.output_tokens,
+          totalTokens: completed.response.usage.total_tokens,
+        },
+        last: {
+          inputTokens: completed.response.usage.input_tokens,
+          outputTokens: completed.response.usage.output_tokens,
+          totalTokens: completed.response.usage.total_tokens,
         },
       },
-    });
-    send({
-      method: 'turn/completed',
-      params: { turn: { status: 'completed' } },
-    });
-  }
+    },
+  });
+  send({
+    method: 'item/completed',
+    params: {
+      item: {
+        type: 'agentMessage',
+        text: item.content[0].text,
+        phase: 'final_answer',
+      },
+    },
+  });
+  send({
+    method: 'turn/completed',
+    params: { turn: { status: 'completed' } },
+  });
 };
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
@@ -137,6 +132,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         path.join(config.auditDirectory, 'execution.json'),
         JSON.stringify({
           dir: process.cwd(),
+          pid: process.pid,
           home: process.env.CODEX_HOME,
           args,
           thread: threadParams,
@@ -145,9 +141,6 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       );
       history.push(...request.params.input);
       send({ id: request.id, result: {} });
-      await generate();
-    } else if (pendingTool !== undefined && request.id === pendingTool) {
-      history.push(request.result);
       await generate();
     }
   })().catch(() => process.exit(1));

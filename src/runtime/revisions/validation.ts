@@ -226,9 +226,6 @@ export async function validateReflection(
         config.prompt = fileURLToPath(
           new URL('../../plugins/reflection-agent/prompt.md', import.meta.url),
         );
-      // Zero is rejected by the module before starting this model-backed generator.
-      if (budget.modelCalls !== undefined)
-        config.maxModelCalls = Math.max(1, budget.modelCalls);
     }
     validate(plugin.configSchema, config, 'implementation.config');
     const resolvedConfig = resolveConfig(

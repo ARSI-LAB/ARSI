@@ -1,89 +1,81 @@
+import { lstat, readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type {
-  AgentInput,
-  JsonObject,
-  RuntimeContext,
-} from '../../contracts/index.js';
-import { object, strings } from '../../shared/json.js';
-import { validate, validateSchemaDefinition } from '../../shared/schema.js';
+import type { AgentInput, RuntimeContext } from '../../contracts/index.js';
+import { object, string } from '../../shared/json.js';
+import { validate } from '../../shared/schema.js';
+import { roleNamePattern } from '../shared/agent-editing/project.js';
 
-/** Await one independent session through Manager so receipts and budgets stay shared. */
-export function createSubagentTool(
+export async function readProjectRole(
+  cwd: string,
+  role: string,
+): Promise<{ path: string; content: string }> {
+  if (!new RegExp(roleNamePattern).test(role))
+    throw new Error('Invalid agent role');
+  const path = join(cwd, 'roles', `${role}.md`);
+  if (!(await lstat(path)).isFile())
+    throw new Error(`Invalid agent role file: ${role}`);
+  return { path, content: await readFile(path, 'utf8') };
+}
+
+/** Role-based delegation shares the project while Manager owns the new session. */
+export async function createProjectSubagentTool(
   parent: AgentInput,
   context: RuntimeContext,
-): ToolDefinition {
+): Promise<ToolDefinition | undefined> {
+  const cwd = parent.cwd;
+  const roles = await readdir(join(cwd, 'roles'), {
+    withFileTypes: true,
+  }).catch((error: unknown) => {
+    if (
+      !(error instanceof Error) ||
+      !('code' in error) ||
+      error.code !== 'ENOENT'
+    )
+      throw error;
+    return [];
+  });
+  const names = roles
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => entry.name.slice(0, -3))
+    .filter((name) => new RegExp(roleNamePattern).test(name))
+    .sort();
+  if (names.length === 0) return undefined;
   const parameters = {
     type: 'object',
     properties: {
-      goal: { type: 'string', minLength: 1 },
-      prompt: { type: 'string', minLength: 1 },
-      input: {},
-      filePaths: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Names from your virtual files to share. Omit to share all; [] shares none.',
-      },
-      files: {
-        type: 'object',
-        additionalProperties: { type: 'string' },
-        description:
-          'Virtual text files you supply, added to or replacing the shared files.',
-      },
-      outputSchema: {
-        type: 'object',
-        description:
-          'Optional JSON output schema; defaults to any JSON object.',
-      },
+      agent: { enum: names },
+      task: { type: 'string', minLength: 1 },
     },
-    required: ['goal', 'prompt'],
+    required: ['agent', 'task'],
     additionalProperties: false,
   };
   return {
-    name: 'run_subagent',
-    label: 'Run subagent',
+    name: 'subagent',
+    label: 'Run a specialist',
     description:
-      'Delegate a task to an independent agent session and wait for its JSON result. ' +
-      'Choose its goal, instructions, arbitrary JSON input and virtual files yourself. ' +
-      "It can delegate further using the same tool and shares this call's Runtime budget and cancellation. " +
-      'There is no separate delegation depth or count limit. It receives no conversation history ' +
-      'and cannot access host files. Results are proposals, not applied edits. ' +
-      'Identical requests in this call reuse the recorded result; change the task input for a follow-up.',
+      'Ask a configured specialist to investigate a task in this project and return its findings.',
     parameters,
-    async execute(_id, value: unknown, toolSignal) {
+    async execute(_id, input, toolSignal) {
       const signal = toolSignal
         ? AbortSignal.any([context.signal, toolSignal])
         : context.signal;
       signal.throwIfAborted();
-      validate(parameters, value, 'run_subagent input');
-      const task = object(value);
-      const available = parent.files ?? {};
-      const selected =
-        task.filePaths === undefined
-          ? Object.keys(available)
-          : strings(task.filePaths);
-      const files: JsonObject = {};
-      for (const path of selected) {
-        if (!Object.hasOwn(available, path))
-          throw new Error(
-            `Subagent file is outside supplied snapshot: ${path}`,
-          );
-        files[path] = available[path]!;
-      }
-      Object.assign(files, object(task.files ?? {}));
-      const outputSchema = object(task.outputSchema ?? { type: 'object' });
-      validateSchemaDefinition(outputSchema, 'Subagent outputSchema');
-      const result = await context.extend({ signal }).invokeAgent({
-        agentRef: context.bindingId,
-        goal: task.goal!,
-        prompt: task.prompt!,
-        input: task.input ?? null,
-        files,
-        outputSchema,
-        ...(parent.maxModelCalls === undefined
-          ? {}
-          : { maxModelCalls: parent.maxModelCalls }),
-      });
+      validate(parameters, input, 'subagent input');
+      const task = object(input);
+      const result = await context
+        .extend({ signal })
+        .invokeAgent(context.bindingId, {
+          cwd,
+          role: string(task.agent),
+          goal: string(task.task),
+          outputSchema: {
+            type: 'object',
+            properties: { findings: { type: 'string' } },
+            required: ['findings'],
+            additionalProperties: false,
+          },
+        });
       signal.throwIfAborted();
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],

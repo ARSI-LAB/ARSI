@@ -1,6 +1,5 @@
 import type { AgentEditingConfig } from './schema.js';
 import type {
-  JsonObject,
   OperationDefinition,
   ProposerInput,
   ProposerOutput,
@@ -18,7 +17,7 @@ import {
 } from '../shared/agent-editing/index.js';
 import { proposerExecutionContext } from './execution-context.js';
 import { mergeEdits } from './merge-edits.js';
-import { expandPatchEdits, patchEditOutputSchema } from './patch-edits.js';
+import { expandEdits, proposerEditOutputSchema } from './edits.js';
 
 export const createProposerAgent: OperationDefinition<
   ProposerInput,
@@ -51,55 +50,46 @@ export const createProposerAgent: OperationDefinition<
         );
         execution = proposerExecutionContext(full);
       }
-      const patch = config.editProtocol === 'patch';
       const response = await requestEdit(
         config,
         { ...input, target: metadata.target },
         parent.artifactRef,
         context,
         execution,
-        patch ? patchEditOutputSchema : undefined,
+        proposerEditOutputSchema,
+        config.subagents ?? [],
       );
-      const patchResult = patch
-        ? expandPatchEdits(
-            response,
-            await context.artifacts.readJson(parent.artifactRef),
-          )
-        : undefined;
+      const expanded = expandEdits(
+        response,
+        await context.artifacts.readJson(parent.artifactRef),
+      );
       const edit = await services.workspaces.create(
         parent.artifactRef,
         parent.ref,
       );
       try {
         const constraints = input.editConstraints ?? {};
-        let result = patchResult;
-        if (!result) {
+        let result = expanded.result;
+        if (expanded.hasDuplicates) {
           // Check scope and raw bounds before a conflict can become a no-change.
           await validateEdits(
             edit.directory,
-            response,
+            result,
             context,
             constraints,
             true,
           );
           result = mergeEdits(
-            response,
+            result,
             await resourceFiles(parent.artifactRef, context),
           );
         }
-        const createOnly = patch
-          ? new Set(
-              (response.edits as JsonObject[])
-                .filter((entry) => entry.op === 'create')
-                .map((entry) => string(entry.path)),
-            )
-          : undefined;
         await applyEdits(
           edit.directory,
           result,
           context,
           constraints,
-          createOnly,
+          expanded.createOnly,
         );
         const committed = await context.application({
           action: 'commit',

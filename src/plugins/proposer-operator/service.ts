@@ -13,8 +13,8 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
-  type AgentInput,
   type Candidate,
   type JsonObject,
   type JsonValue,
@@ -39,6 +39,7 @@ import {
 } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { applyEdits } from '../shared/agent-editing/index.js';
+import { prepareAgentProject } from '../shared/agent-editing/project.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { loadOperatorTask } from '../shared/operator-task.js';
 import { readDecisionFeedback } from '../shared/metric-decision/index.js';
@@ -489,11 +490,26 @@ export async function readHistory(
 export class OperatorModelOutputError extends Error {}
 
 const operatorModelCallsPerStage = 24;
+const operatorReviewer = {
+  name: 'operator-reviewer',
+  description:
+    'Review operator source and supplied evidence for a focused question.',
+  prompt: fileURLToPath(new URL('./operator-reviewer.md', import.meta.url)),
+};
+
+type OperatorStageInput = {
+  goal: string;
+  prompt: string;
+  files: Record<string, string>;
+  input: JsonObject;
+  outputSchema: JsonObject;
+};
 
 /** A request and all delegated sessions share Manager-owned accounting. */
 export async function requestOperatorAgent(
   stage: OperatorAgentStage,
-  request: AgentInput,
+  agentRef: string,
+  request: OperatorStageInput,
   context: RuntimeContext,
   timeoutMs = defaultModelRequestTimeoutMs,
 ): Promise<JsonObject> {
@@ -524,28 +540,22 @@ export async function requestOperatorAgent(
     );
   let result: JsonObject;
   try {
-    result = await context
-      .extend({ scope, signal: context.signal })
-      .invokeAgent({
-        ...request,
-        prompt:
-          request.prompt +
-          `\n\nThe authorized snapshots are already in input.sourceFiles; use them directly without reading the same files again. This stage shares ${operatorModelCallsPerStage} total model calls across tool continuations and all delegates. Delegate when useful and complete the JSON response within this shared budget.`,
-        input: {
-          ...object(request.input ?? {}),
-          sourceFiles: request.files ?? {},
-        },
-        maxModelCalls: operatorModelCallsPerStage,
-      });
+    const cwd = await prepareAgentProject(
+      context,
+      request.prompt +
+        `\n\nRead context/input.json for the stage data. The authorized operator source is in input.py and the task snapshots are in context/task/. Treat all snapshots as read-only and return any proposed edits in the JSON response. This stage shares ${operatorModelCallsPerStage} total model calls across tool continuations and all delegates. Delegate when useful and complete the JSON response within this shared budget.`,
+      { ...request.files, 'context/input.json': JSON.stringify(request.input) },
+      [],
+      [operatorReviewer],
+    );
+    context.signal.throwIfAborted();
+    result = await context.extend({ scope }).invokeAgent(agentRef, {
+      cwd,
+      goal: request.goal,
+      outputSchema: request.outputSchema,
+    });
   } catch (error) {
     context.signal.throwIfAborted();
-    if (
-      error instanceof Error &&
-      error.message.startsWith(
-        'Agent model-call limit reached; last output validation failed:',
-      )
-    )
-      throw new OperatorModelOutputError(error.message, { cause: error });
     throw error;
   }
   context.signal.throwIfAborted();
@@ -799,7 +809,8 @@ async function proposalFailure(
 }
 
 async function summaryExplanation(
-  request: AgentInput,
+  agentRef: string,
+  request: OperatorStageInput,
   context: RuntimeContext,
   timeoutMs: number | undefined,
 ): Promise<
@@ -815,6 +826,7 @@ async function summaryExplanation(
   try {
     const response = await requestOperatorAgent(
       'summarize',
+      agentRef,
       request,
       context,
       timeoutMs,
@@ -1157,8 +1169,8 @@ export const createOperatorProposer: OperationDefinition<
       );
       const response = await requestOperatorAgent(
         'diagnose',
+        config.agentRef,
         {
-          agentRef: config.agentRef,
           goal: input.goal,
           prompt: loaded.prompts.diagnose,
           files: await operatorFiles(entry, config, context),
@@ -1363,8 +1375,8 @@ export const createOperatorProposer: OperationDefinition<
     if (input.action === 'propose') {
       const response = await requestOperatorAgent(
         'diagnose-metrics',
+        config.agentRef,
         {
-          agentRef: config.agentRef,
           goal: input.goal,
           prompt: loaded.prompts['diagnose-metrics'],
           files: await operatorFiles(parent, config, context),
@@ -1565,8 +1577,8 @@ export const createOperatorProposer: OperationDefinition<
       decisionRef: input.decisionRef,
       actionSummary,
       ...(await summaryExplanation(
+        config.agentRef,
         {
-          agentRef: config.agentRef,
           goal:
             input.phase === 'static'
               ? 'Summarize this completed operator optimization attempt using the confirmed facts.'
@@ -1659,8 +1671,8 @@ export const createOperatorProposer: OperationDefinition<
         const stage = input.action === 'propose' ? 'generate' : 'repair';
         const response = await requestOperatorAgent(
           stage,
+          config.agentRef,
           {
-            agentRef: config.agentRef,
             goal: input.goal,
             prompt:
               (stage === 'generate'

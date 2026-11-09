@@ -17,14 +17,14 @@ English | [中文](./README.zh-CN.md)
 `ember-rsi` is a pluggable framework for recursive self-improvement experiments on agents and AI infrastructure.
 
 - **Recipe-driven self-improvement.** A declarative Recipe (`recipe.yaml`) connects an optimization target (Application), a strategy (Policy), and an Evaluator. Each experiment runs within explicit edit boundaries and a fixed budget.
-- **Built-in strategies and extensions.** Run built-in strategies for agent harness optimization and inference parameter search. You can bring other targets into the same framework by defining allowed changes, generating candidates, and measuring their performance.
+- **Built-in strategies and extensions.** Built-in strategies include Harness², WikiSkill, and GEPA for agent harness optimization, plus inference parameter search and operator optimization. You can bring other targets into the same framework by defining allowed changes, generating candidates, and measuring their performance.
 - **For developers and coding agents.** Developers can configure and run experiments from the CLI and inspect the results in the web viewer. Coding agents can use the same tools through the RSI Skill. Our goal is for them to plan, validate, run, and diagnose experiments, then choose the next step based on evaluation results within the scope and budget a developer authorizes.
 
 <a id="architecture"></a>
 
 ## 🔄 How it works
 
-### Architecture Overview
+### Architecture overview
 
 ![Architecture animation showing Recipe selecting an Application that manages candidates and evaluation instances](docs/users/assets/rsi-architecture-handdrawn.gif)
 
@@ -38,13 +38,12 @@ English | [中文](./README.zh-CN.md)
 
 ![Animation of a Harness² Policy call resolving its Agent binding, invoking Pi, and invoking Codex after a Recipe change](docs/users/assets/rsi-plugin-mechanism.gif)
 
-*Harness² example · The Proposer references the `agent` binding. Changing that binding in the Recipe routes the same call from `agent.pi` to `agent.codex` on the next run.*
+_Harness² example · The Proposer references the `agent` binding. Changing that binding in the Recipe routes the same call from `agent.pi` to `agent.codex` on the next run._
 
-- **Application** is the core plugin selected under `application` in the Recipe. It defines what to optimize, what may change, and how to prepare and release candidate instances for evaluation. Built-in Applications manage Agent Bundles, inference service configurations, and Triton-Ascend kernels.
-- **Policy** defines the RSI loop, stopping conditions, and the contract each plugin binding requires.
+- **Application (optimization target and instantiation)** is the core plugin selected under `application` in the Recipe. It defines what to optimize, what may change, and how to prepare and release candidate instances for evaluation. Built-in Applications manage Agent Bundles, inference service configurations, and Triton-Ascend kernels.
+- **Policy (optimization strategy)** defines the RSI loop, stopping conditions, and the contract each plugin binding requires.
 - **Plugin** implements a contract. The contract specifies the inputs and outputs, and implementations that satisfy it can be swapped.
 - **Recipe** selects the Application and Policy, binds the plugins used by the flow, and supplies configuration and budgets.
-
 - [Choose an Application](docs/users/guides/built-in-components.md#application)
 - [Write a Policy](docs/users/guides/writing-policies.md)
 - [Write a plugin](docs/users/guides/writing-plugins.md)
@@ -54,9 +53,7 @@ English | [中文](./README.zh-CN.md)
 
 ## 📦 Installation and deployment
 
-
-
-### Agent Instruction
+### Installation instructions for coding agents
 
 Copy this instruction into your coding agent:
 
@@ -67,11 +64,7 @@ Copy the complete skills/ember-rsi directory, including references and templates
 Run ember-rsi --help and confirm that this agent can discover and read the skill. Complete installation only; do not start experiments or make model calls.
 ```
 
-
-
-### Manual Installation
-
-
+### Manual installation
 
 #### 1. Install the CLI
 
@@ -89,11 +82,9 @@ pnpm install --frozen-lockfile
 pnpm build
 pnpm add -g .
 
-# Verify that the built CLI is available.
+# Verify that the installed CLI is available.
 ember-rsi --help
 ```
-
-
 
 #### 2. Install the skill
 
@@ -107,17 +98,15 @@ Add `-g` for a user-wide installation. Reload or restart your agent as required,
 
 Load the RSI Skill in a coding agent and provide the optimization goal, permitted edits, and budget. The agent can choose or write a Recipe, validate the configuration, and, once authorized, run the experiment, inspect results, and diagnose failures.
 
-- The [RSI Skill entrypoint](skills/ember-rsi/SKILL.md) uses the reference material and templates in the full `skills/ember-rsi/` directory. Use the [minimal example](skills/ember-rsi/references/quickstart.md) to check that the Recipe and plugins work together.
+- **RSI Skill** starts at [SKILL.md](skills/ember-rsi/SKILL.md). Keep the complete `skills/ember-rsi/` directory when loading it so the agent can access its reference material and templates. Use the [minimal example](skills/ember-rsi/references/quickstart.md) to check that the Recipe and plugins work together.
+
+Run all subsequent commands from the `ember-rsi` repository root using the installed `ember-rsi` CLI.
 
 <a id="usage"></a>
 
 ## 🛠️ Using ember-rsi
 
-
-
 ### Quick start
-
-
 
 #### 1. Configure models and the evaluation environment
 
@@ -138,11 +127,9 @@ export MODEL_ENDPOINT="https://your-model-service.example/v1"
 export MODEL_API_KEY="your-api-key"
 ```
 
-
-
 #### 2. Validate, run, and resume an experiment
 
-The Harness² example optimizes an AgentBundle baseline across 10 tasks, with up to 40 evaluations and a 72-hour time budget. For a first run, keep just the first task in `policy.config.dataset.taskIds` in `[recipe.yaml](examples/harness/dsh-harness2/recipe.yaml)`.
+The Harness² example optimizes an AgentBundle baseline across 10 tasks, with up to 40 evaluations and a 72-hour time budget. For a first run, keep just the first task in `policy.config.dataset.taskIds` in [recipe.yaml](examples/harness/dsh-harness2/recipe.yaml).
 
 ```sh
 # Validate the Recipe without starting the experiment.
@@ -162,8 +149,6 @@ Resume an interrupted experiment from the original working directory using the s
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task --resume
 ```
 
-
-
 ### Check experiment progress
 
 Run both commands from the same directory where you ran `ember-rsi run`. They read experiment data from that directory's `.rsi/` folder.
@@ -182,16 +167,90 @@ ember-rsi dashboard
 
 <a id="built-in-rsi-strategies"></a>
 
-## Built-in RSI strategies
+## 🧩 Built-in RSI strategies
 
-
-| Policy                    | How it improves the target                                                                          | Example Recipe                                                                             | Replaceable plugins                                                                                                                                                                                                                                |
-| ------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `policy.harness2`         | Evaluates general, domain-specific, and combined edits, then compares deliverables anonymously.     | [DSH Harness²](examples/harness/dsh-harness2/README.md)                                    | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench), [`selector.artifact`](src/plugins/selector-artifacts), [`memory.agent`](src/plugins/memory-agent) |
-| `policy.wikiskill`        | Builds a wiki from training runs and independently tests skill edits that improve on validation.    | [DSH WikiSkill](examples/harness/dsh-wikiskill/README.md)                                  | [`agent.pi`](src/plugins/agent-pi), [`proposer.agent`](src/plugins/proposer-agent), [`memory.agent`](src/plugins/memory-agent), [`evaluator.agentbench`](src/plugins/evaluator-agentbench), [`selector.metric`](src/plugins/selector-metrics)     |
-| `policy.parameter-grid`   | Searches a parameter grid for the highest throughput within constraints such as latency SLOs.       | [Inference grid search](examples/artifacts/inference/parameter-grid/README.md)             | [`proposer.grid`](src/plugins/proposer-grid), [`evaluator.inferencebench`](src/plugins/evaluator-inferencebench), [`selector.metric`](src/plugins/selector-metrics)                                                                               |
-| `policy.parameter-optuna` | Searches inference parameters with Optuna TPE or random sampling.                                   | [Inference TPE search](examples/artifacts/inference/parameter-tpe/README.md)               | [`proposer.optuna`](src/plugins/proposer-optuna), [`evaluator.inferencebench`](src/plugins/evaluator-inferencebench), [`selector.metric`](src/plugins/selector-metrics)                                                                           |
-| `policy.operator-search`  | Searches for Triton-Ascend operator improvements and independently rechecks the selected candidate. | [Transpose-copy operator optimization](examples/artifacts/kernel/transpose-copy/README.md) | [`agent.pi`](src/plugins/agent-pi), [`proposer.operator`](src/plugins/proposer-operator), [`evaluator.operatorbench`](src/plugins/evaluator-operatorbench), [`selector.metric`](src/plugins/selector-metrics)                                   |
+<table>
+  <thead>
+    <tr>
+      <th>Optimization type</th>
+      <th>Policy</th>
+      <th>How it improves the target</th>
+      <th>Example Recipe</th>
+      <th>Replaceable plugins</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="3" align="center"><strong>Harness</strong></td>
+      <td><a href="src/policies/harness2/policy.yaml">harness2</a></td>
+      <td>Proposes general and domain-specific improvements, combines them, then compares deliverables anonymously.</td>
+      <td><a href="examples/harness/dsh-harness2/README.md">DSH Harness²</a></td>
+      <td>
+        <a href="src/plugins/agent-pi"><code>agent.pi</code></a><br>
+        <a href="src/plugins/proposer-agent"><code>proposer.agent</code></a><br>
+        <a href="src/plugins/evaluator-agentbench"><code>evaluator.agentbench</code></a><br>
+        <a href="src/plugins/selector-artifacts"><code>selector.artifact</code></a><br>
+        <a href="src/plugins/memory-agent"><code>memory.agent</code></a>
+      </td>
+    </tr>
+    <tr>
+      <td><a href="src/policies/wikiskill/policy.yaml">wikiskill</a></td>
+      <td>Builds a wiki from training experience, selects skill edits by validation performance, then independently tests the final candidate after the search.</td>
+      <td><a href="examples/harness/dsh-wikiskill/README.md">DSH WikiSkill</a></td>
+      <td>
+        <a href="src/plugins/agent-pi"><code>agent.pi</code></a><br>
+        <a href="src/plugins/proposer-agent"><code>proposer.agent</code></a><br>
+        <a href="src/plugins/memory-agent"><code>memory.agent</code></a><br>
+        <a href="src/plugins/evaluator-agentbench"><code>evaluator.agentbench</code></a><br>
+        <a href="src/plugins/selector-metrics"><code>selector.metric</code></a>
+      </td>
+    </tr>
+    <tr>
+      <td><a href="src/policies/gepa/policy.yaml">gepa</a></td>
+      <td>Generates prompt variants from execution feedback and selects improvements through Pareto-frontier sampling and population search.</td>
+      <td><a href="examples/harness/dsh-gepa/README.md">DSH GEPA</a></td>
+      <td>
+        <a href="src/plugins/agent-pi"><code>agent.pi</code></a><br>
+        <a href="src/plugins/proposer-agent"><code>proposer.agent</code></a><br>
+        <a href="src/plugins/search-prompt-evolution"><code>search.prompt-evolution</code></a><br>
+        <a href="src/plugins/evaluator-agentbench"><code>evaluator.agentbench</code></a>
+      </td>
+    </tr>
+    <tr>
+      <td rowspan="2" align="center"><strong>Inference engine parameters</strong></td>
+      <td><a href="src/policies/parameter-grid/policy.yaml">parameter-grid</a></td>
+      <td>Searches a parameter grid for the highest throughput within constraints such as latency SLOs.</td>
+      <td><a href="examples/artifacts/inference/parameter-grid/README.md">Inference grid search</a></td>
+      <td>
+        <a href="src/plugins/proposer-grid"><code>proposer.grid</code></a><br>
+        <a href="src/plugins/evaluator-inferencebench"><code>evaluator.inferencebench</code></a><br>
+        <a href="src/plugins/selector-metrics"><code>selector.metric</code></a>
+      </td>
+    </tr>
+    <tr>
+      <td><a href="src/policies/parameter-optuna/policy.yaml">parameter-optuna</a></td>
+      <td>Searches inference parameters with Optuna TPE or random sampling.</td>
+      <td><a href="examples/artifacts/inference/parameter-tpe/README.md">Inference TPE search</a></td>
+      <td>
+        <a href="src/plugins/proposer-optuna"><code>proposer.optuna</code></a><br>
+        <a href="src/plugins/evaluator-inferencebench"><code>evaluator.inferencebench</code></a><br>
+        <a href="src/plugins/selector-metrics"><code>selector.metric</code></a>
+      </td>
+    </tr>
+    <tr>
+      <td align="center"><strong>Operators</strong></td>
+      <td><a href="src/policies/operator-search/policy.yaml">operator-search</a></td>
+      <td>Searches for Triton-Ascend operator improvements and independently rechecks the selected candidate.</td>
+      <td><a href="examples/artifacts/kernel/transpose-copy/README.md">Transpose-copy operator optimization</a></td>
+      <td>
+        <a href="src/plugins/agent-pi"><code>agent.pi</code></a><br>
+        <a href="src/plugins/proposer-operator"><code>proposer.operator</code></a><br>
+        <a href="src/plugins/evaluator-operatorbench"><code>evaluator.operatorbench</code></a><br>
+        <a href="src/plugins/selector-metrics"><code>selector.metric</code></a>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 <a id="user-guide"></a>
 
@@ -209,13 +268,6 @@ ember-rsi dashboard
 - [Write a plugin](docs/users/guides/writing-plugins.md)
 - [Runtime events guide](docs/users/guides/runtime-events.md)
 
-
-
 ## 🙏 Acknowledgments
 
-Thanks to the Cordis maintainers and contributors. ember-rsi uses Cordis to register plugins, isolate experiment contexts, and dispatch runtime events. [Cordis project](https://github.com/cordiverse/cordis)
-
-## 🔗 Related Projects
-
-- [Ember RSI](https://github.com/evolving-foundry/ember-rsi): Tools for iterative optimization through measured experiments.
-- [AgentBundle](https://github.com/evolving-foundry/agentbundle): A unified CLI and SDK for validating, installing, and managing agent bundles across runtimes.
+Thanks to the maintainers and contributors of the [Cordis project](https://github.com/cordiverse/cordis). ember-rsi uses Cordis to register plugins, isolate experiment contexts, and dispatch runtime events.

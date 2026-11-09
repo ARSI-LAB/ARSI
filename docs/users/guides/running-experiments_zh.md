@@ -10,22 +10,22 @@
 
 使用 `ember-rsi --help` 或 `<command> --help` 查看当前安装版本的语法。在源码仓库中未全局安装时，可以使用 `pnpm ember-rsi`。
 
-| 命令                                                        | 用途                                                                                                                                                                                       |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ember-rsi catalog`                                         | 列出已注册插件和 Policy ID。                                                                                                                                                               |
-| `ember-rsi list plugins`                                    | 查看插件描述、契约、Schema 和兼容的 Policy 绑定。                                                                                                                                          |
-| `ember-rsi list policies`                                   | 查看 Policy 描述、Schema、依赖和兼容插件。                                                                                                                                                 |
-| `ember-rsi validate <recipe.yaml>`                          | 校验配置和组装关系，不运行实验。                                                                                                                                                           |
-| `ember-rsi run <recipe.yaml> --id <experiment-id>`          | 启动真实实验并保存记录。                                                                                                                                                                   |
-| `ember-rsi list`                                            | 列出已保存的实验。                                                                                                                                                                         |
-| `ember-rsi show <experiment-id>`                            | 输出已保存的实验状态、结果和错误信息。                                                                                                                                                     |
-| `ember-rsi cancel <experiment-id>`                          | 向指定实验发送取消请求。                                                                                                                                                                   |
-| `ember-rsi run <recipe.yaml> --id <experiment-id> --resume` | 从保存状态恢复指定实验。                                                                                                                                                                   |
-| `ember-rsi dashboard --port <端口号>`                       | 在本机提供网页版的实验观察界面。                                                                                                                                                           |
-| `ember-rsi reflection list [experiment-id]`                 | 列出持久化版本，可按实验筛选。                                                                                                                                                             |
-| `ember-rsi reflection show <revisionID>`                    | 检查版本内容与计划中的资源变更。                                                                                                                                                           |
-| `ember-rsi reflection apply <revisionID>`                   | 将快照写到记录的用户资源路径；参见 [Reflection 规则](reflection_zh.md#将版本应用到后续实验)。                                                                                              |
-| `ember-rsi validate <recipe.yaml> --plugin-dir <directory>` | 校验使用自定义插件或 Policy 的 Recipe。运行、恢复和启动工作台时也传入相同的扩展目录；多个目录可重复使用 `--plugin-dir`。参见 [扩展注册](writing-plugins_zh.md#方式二为-cli-注册外部扩展)。 |
+| 命令                                                        | 用途                                                                                                                                                                            |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ember-rsi catalog`                                         | 列出已注册插件和 Policy ID。                                                                                                                                                    |
+| `ember-rsi list plugins`                                    | 查看插件描述、契约、Schema 和兼容的 Policy 绑定。                                                                                                                               |
+| `ember-rsi list policies`                                   | 查看 Policy 描述、Schema、依赖和兼容插件。                                                                                                                                      |
+| `ember-rsi validate <recipe.yaml>`                          | 校验配置和组装关系，不运行实验。                                                                                                                                                |
+| `ember-rsi run <recipe.yaml> --id <experiment-id>`          | 启动真实实验并保存记录。                                                                                                                                                        |
+| `ember-rsi list`                                            | 列出已保存的实验。                                                                                                                                                              |
+| `ember-rsi show <experiment-id>`                            | 输出已保存的实验状态、结果和错误信息。                                                                                                                                          |
+| `ember-rsi cancel <experiment-id>`                          | 向指定实验发送取消请求。                                                                                                                                                        |
+| `ember-rsi run <recipe.yaml> --id <experiment-id> --resume` | 从保存状态恢复指定实验。                                                                                                                                                        |
+| `ember-rsi dashboard --port <端口号>`                       | 在本机提供网页版的实验观察界面。                                                                                                                                                |
+| `ember-rsi reflection list [experiment-id]`                 | 列出持久化版本，可按实验筛选。                                                                                                                                                  |
+| `ember-rsi reflection show <revisionID>`                    | 检查版本内容与计划中的资源变更。                                                                                                                                                |
+| `ember-rsi reflection apply <revisionID>`                   | 将快照写到记录的用户资源路径；参见 [Reflection 规则](reflection_zh.md#将版本应用到后续实验)。                                                                                   |
+| `ember-rsi validate <recipe.yaml> --plugin-dir <directory>` | 校验使用自定义插件或 Policy 的 Recipe。运行、恢复和启动工作台时也传入相同的扩展目录；多个目录可重复使用 `--plugin-dir`。参见 [扩展注册](writing-plugins_zh.md#第二步注册插件)。 |
 
 ## 校验与启动
 

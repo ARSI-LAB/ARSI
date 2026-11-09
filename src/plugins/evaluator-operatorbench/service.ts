@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -18,62 +18,54 @@ import { digest, object, string } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { archiveItemExecution } from '../shared/evaluator-adapter/measurement.js';
-import { prepareSdkConfiguration } from './sdk.js';
+import { prepareOperatorCase } from './kernel-input.js';
 import { loadOperatorTask } from '../shared/operator-task.js';
 import { EvaluatorRunError } from 'ember-evaluator';
-import { sdkRunner } from '../shared/evaluator-adapter/sdk.js';
-import type { PreparedSdkRun } from './sdk.js';
+import {
+  sdkRunner,
+  type EvaluatorRunner,
+} from '../shared/evaluator-adapter/sdk.js';
+import {
+  parseEvaluatorConfig,
+  type SdkEvaluatorConfig,
+} from '../shared/evaluator-adapter/configuration.js';
+import { plain } from '../shared/evaluator-adapter/data.js';
 import { adaptSdkResult, type SdkOperatorResult } from './result.js';
-import { readProfileAssessment, recordSdkMeasurement } from './measurement.js';
-import { configSchema, type SdkOperatorbenchConfig } from './schema.js';
-
-async function sdkBuildIdentity(): Promise<string> {
-  const directory = fileURLToPath(
-    new URL('.', import.meta.resolve('ember-evaluator')),
-  );
-  const files: { path: string; sha256: string }[] = [];
-  const walk = async (relative: string): Promise<void> => {
-    for (const file of await readdir(join(directory, relative), {
-      withFileTypes: true,
-    })) {
-      const path = relative ? `${relative}/${file.name}` : file.name;
-      if (file.isDirectory()) await walk(path);
-      else if (file.isFile())
-        files.push({
-          path,
-          sha256: createHash('sha256')
-            .update(await readFile(join(directory, path)))
-            .digest('hex'),
-        });
-      else throw new Error('SDK build identity requires ordinary files');
-    }
-  };
-  await walk('');
-  return digest(files.sort((a, b) => a.path.localeCompare(b.path)));
-}
+import { profileConditions, readProfileAssessment } from './conditions.js';
+import { recordSdkMeasurement } from './measurement.js';
+import {
+  operatorbenchConfigSchema,
+  type OperatorbenchConfig,
+} from './schema.js';
 
 export async function createOperatorbench(
   rawConfig: unknown,
-  _services: RuntimeContext,
+  _context: RuntimeContext,
+  runner: EvaluatorRunner = sdkRunner,
 ): Promise<Operation<OperatorbenchInput, OperatorbenchOutput>> {
-  const config = parseConfig<SdkOperatorbenchConfig>(
-    configSchema,
+  const config = parseConfig<OperatorbenchConfig>(
+    operatorbenchConfigSchema,
     rawConfig,
     'operatorbench config',
   );
-  const task = await loadOperatorTask(config.task.directory);
+  const taskDirectory = config.task.directory;
+  const task = await loadOperatorTask(taskDirectory);
   const adapterDigest = await sourceIdentity(import.meta.url, [
     './service',
     './schema',
-    './sdk',
+    './kernel-input',
+    './conditions',
     './result',
     './measurement',
+    './measurement-schema',
     '../shared/operator-task',
+    '../shared/evaluator-adapter/configuration',
+    '../shared/evaluator-adapter/data',
     '../application-kernel/schema',
   ]);
   const sdkBuildDigest = await sdkBuildIdentity();
   return {
-    async execute(input, context) {
+    async execute(input, context): Promise<OperatorbenchOutput> {
       validate(
         operatorbenchContract.input_schema,
         input,
@@ -83,6 +75,13 @@ export async function createOperatorbench(
         throw new Error('M1 SDK supports exactly one case per call');
       const selected = task.cases.find((c) => c.id === input.caseIds[0]);
       if (!selected) throw new Error('Unknown SDK operator case');
+      const manifest = join(context.directory, 'sdk-input', 'manifest.json');
+      const evaluationConfig = prepareEvaluationConfig(config, {
+        selected,
+        operation: input.action,
+        directory: context.directory,
+        manifest,
+      });
       if ((await sdkBuildIdentity()) !== sdkBuildDigest)
         throw new Error(
           'Operator SDK build changed after loading; start a new experiment',
@@ -104,34 +103,61 @@ export async function createOperatorbench(
           : null;
       context.signal.throwIfAborted();
       if (
-        (await loadOperatorTask(config.task.directory)).taskDigest !==
-        task.taskDigest
+        (await loadOperatorTask(taskDirectory)).taskDigest !== task.taskDigest
       )
         throw new Error('Operator task changed after loading');
       return context.withInstance(
         input.candidateRef,
         'kernel-source',
         async (raw) => {
+          context.signal.throwIfAborted();
           const execution = parseKernelExecution(raw);
           if (assessment && assessment.sourceDigest !== execution.sourceDigest)
             throw new Error(
               'Diagnostic source differs from its precision assessment',
             );
-          const prepared = await prepareSdkConfiguration(
-            config,
-            task.definition.contract,
+          const prepared = await prepareOperatorCase({
+            taskDirectory,
+            rawContract: task.definition.contract,
             selected,
             execution,
-            context.directory,
-            input.action,
-          );
+            manifest,
+            operation: input.action,
+          });
+          const configPath = join(context.directory, 'sdk-config.json');
+          await writeFile(configPath, JSON.stringify(evaluationConfig), {
+            mode: 0o600,
+          });
           context.signal.throwIfAborted();
           await context.charge('evaluationRuns', 1);
           let native: JsonObject = { status: 'not-returned' };
           let result: SdkOperatorResult;
           let entries: JsonValue[] = [];
           try {
-            native = object(await runOperatorSdk(prepared, context.signal));
+            try {
+              native = object(
+                await runner({
+                  configPath,
+                  signal: context.signal,
+                  env: {
+                    ...process.env,
+                    RSI_KERNEL_REPLAY_NO_MODEL_KEY:
+                      'not-a-secret-no-model-calls',
+                  },
+                }),
+              );
+            } catch (error) {
+              if (
+                !(error instanceof EvaluatorRunError) ||
+                error.result === null
+              )
+                throw error;
+              native = {
+                ...object(error.result),
+                exitCode: error.exitCode,
+                sdkFailure: { phase: error.phase, message: error.message },
+              };
+            }
             if ((await sdkBuildIdentity()) !== sdkBuildDigest)
               throw new Error('Operator SDK build changed during execution');
             const snapshot = object(native.snapshot);
@@ -150,38 +176,9 @@ export async function createOperatorbench(
                   null,
                 );
             }
-            result = adaptSdkResult(native, prepared, config, selected.seed);
-            if (input.action === 'profile' && result.status === 'completed') {
-              if (
-                digest(result.conditions?.pluginVersions) !==
-                  digest(assessment!.conditions.pluginVersions) ||
-                digest(result.conditions?.sdkIdentity) !==
-                  digest(assessment!.conditions.sdkIdentity)
-              )
-                throw new Error(
-                  'Diagnostic SDK identity differs from its assessment',
-                );
-              const assessedEnvironment = object(
-                assessment!.conditions.environment,
-              );
-              const replay = object(
-                object(result.profile?.metadata ?? {}).replay ?? {},
-              );
-              if (
-                result.profile?.status === 'completed' &&
-                digest(replay.environment) !== digest(assessedEnvironment)
-              )
-                throw new Error(
-                  'Diagnostic environment differs from its assessment',
-                );
-              result.conditions = {
-                ...result.conditions,
-                operation: 'profile',
-                assessmentMeasurementRef: input.assessmentMeasurementRef,
-                assessmentComparisonKey: assessment!.comparisonKey,
-                environment: assessedEnvironment,
-              };
-            }
+            result = adaptSdkResult(native, prepared);
+            if (assessment && result.status === 'completed')
+              result.conditions = profileConditions(result, assessment);
           } catch (error) {
             result = {
               status: context.signal.aborted ? 'cancelled' : 'unknown',
@@ -242,27 +239,105 @@ export async function createOperatorbench(
         },
       );
     },
-    async dispose() {},
+    async dispose(): Promise<void> {},
   };
 }
 
-async function runOperatorSdk(
-  prepared: PreparedSdkRun,
-  signal: AbortSignal,
-): Promise<unknown> {
-  try {
-    return await sdkRunner({
-      configPath: prepared.configPath,
-      env: { ...process.env, ...prepared.env },
-      signal,
-    });
-  } catch (error) {
-    if (!(error instanceof EvaluatorRunError) || error.result === null)
-      throw error;
-    return {
-      ...object(error.result),
-      exitCode: error.exitCode,
-      sdkFailure: { phase: error.phase, message: error.message },
-    };
+function prepareEvaluationConfig(
+  { task: _task, ...config }: OperatorbenchConfig,
+  {
+    selected,
+    operation,
+    directory,
+    manifest,
+  }: {
+    selected: { id: string; seed: number };
+    operation: OperatorbenchInput['action'];
+    directory: string;
+    manifest: string;
+  },
+): SdkEvaluatorConfig {
+  if (Object.hasOwn(config, 'services'))
+    throw new Error('services is owned by RSI for kernel replay');
+  const benchmark =
+    typeof config.benchmark === 'string'
+      ? { name: config.benchmark }
+      : object(config.benchmark, 'benchmark');
+  const kernel = { ...plain(benchmark.config) };
+  const store =
+    typeof config.store === 'string'
+      ? { name: config.store }
+      : plain(config.store);
+  const storeConfig = plain(store.config);
+  const output = plain(config.output);
+  if (benchmark.name !== 'kernel')
+    throw new Error('operatorbench requires benchmark.name=kernel');
+  if (config.deployment !== undefined)
+    throw new Error('operatorbench requires local SDK execution');
+  if (store.name !== undefined && store.name !== 'local')
+    throw new Error('operatorbench requires a local run store');
+  for (const field of ['manifest', 'operation', 'seeds']) {
+    if (field in kernel)
+      throw new Error(`benchmark.config.${field} is owned by RSI`);
   }
+  if (storeConfig.runIndexDirectory !== undefined)
+    throw new Error('store.config.runIndexDirectory is owned by RSI');
+  if (output.directory !== undefined)
+    throw new Error('output.directory is owned by RSI');
+  if (operation === 'profile')
+    kernel.profiling = {
+      ...plain(kernel.profiling),
+      enabled: true,
+      cacheEnabled: false,
+    };
+  const { sampling: _sampling, offset: _offset, ...run } = plain(config.run);
+  return parseEvaluatorConfig({
+    ...config,
+    // Kernel replay needs an SDK service declaration but never calls a model.
+    services: {
+      default: {
+        model: 'kernel-replay-no-model',
+        base_url: 'http://127.0.0.1:1',
+        api_key: '${RSI_KERNEL_REPLAY_NO_MODEL_KEY}',
+      },
+    },
+    benchmark: {
+      ...benchmark,
+      config: { ...kernel, manifest, operation, seeds: [selected.seed] },
+    },
+    store: {
+      ...store,
+      config: {
+        ...storeConfig,
+        runIndexDirectory: join(directory, 'sdk-index'),
+      },
+    },
+    run: { ...run, taskIds: [selected.id], maxTasks: null },
+    output: { ...output, directory: join(directory, 'sdk-output') },
+  });
+}
+
+async function sdkBuildIdentity(): Promise<string> {
+  const directory = fileURLToPath(
+    new URL('.', import.meta.resolve('ember-evaluator')),
+  );
+  const files: { path: string; sha256: string }[] = [];
+  const walk = async (relative: string): Promise<void> => {
+    for (const file of await readdir(join(directory, relative), {
+      withFileTypes: true,
+    })) {
+      const path = relative ? `${relative}/${file.name}` : file.name;
+      if (file.isDirectory()) await walk(path);
+      else if (file.isFile())
+        files.push({
+          path,
+          sha256: createHash('sha256')
+            .update(await readFile(join(directory, path)))
+            .digest('hex'),
+        });
+      else throw new Error('SDK build identity requires ordinary files');
+    }
+  };
+  await walk('');
+  return digest(files.sort((a, b) => a.path.localeCompare(b.path)));
 }

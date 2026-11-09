@@ -97,16 +97,16 @@ Manager 执行 Recipe 的操作数、模型调用数、评测次数和时间预�
 没有接受改进时，复用未改变候选的诊断证据。
 Profiling 不可用时停止指标阶段。两种模式都在结束时独立复测选中的源码。
 
-| Recipe 设置                                              | 示例值     | 含义                                                    |
-| -------------------------------------------------------- | ---------- | ------------------------------------------------------- |
-| `policy.config.maxAttempts`                              | `3`        | 静态尝试次数；Schema 允许 1–3。                         |
-| `policy.config.repairLimit`                              | `3`        | 每条无效候选链的修复次数；Schema 允许 0–3。             |
-| `policy.config.maxRounds`                                | `10`       | 指标阶段轮数；Schema 允许 1–10。                        |
-| `policy.config.maxNoImprovement`                         | `5`        | 上次接受改进后，未被接受的有效候选数；Schema 允许 1–5。 |
-| `bindings.proposer.config.modelRequestTimeoutMs`         | `120000`   | 一个完整模型阶段的时间上限，单位 ms。                   |
-| `bindings.proposer.config.embedding.similarityThreshold` | `0.6`      | 检索匹配分数下限。                                      |
-| `bindings.evaluator.config.protocol.warmup` / `repeat`   | `5` / `20` | 评测预热次数与计时重复次数。                            |
-| `bindings.selector.config.minRelativeImprovement`        | `0.02`     | 合格候选平均延迟所需的相对降低比例。                    |
+| Recipe 设置                                                    | 示例值     | 含义                                                    |
+| -------------------------------------------------------------- | ---------- | ------------------------------------------------------- |
+| `policy.config.maxAttempts`                                    | `3`        | 静态尝试次数；Schema 允许 1–3。                         |
+| `policy.config.repairLimit`                                    | `3`        | 每条无效候选链的修复次数；Schema 允许 0–3。             |
+| `policy.config.maxRounds`                                      | `10`       | 指标阶段轮数；Schema 允许 1–10。                        |
+| `policy.config.maxNoImprovement`                               | `5`        | 上次接受改进后，未被接受的有效候选数；Schema 允许 1–5。 |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`   | 一个完整模型阶段的时间上限，单位 ms。                   |
+| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`      | 检索匹配分数下限。                                      |
+| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20` | 评测预热次数与计时重复次数。                            |
+| `bindings.selector.config.minRelativeImprovement`              | `0.02`     | 合格候选平均延迟所需的相对降低比例。                    |
 
 本例 Manager 上限为 1,024 次操作、65 次评测、152 次模型调用、
 7,200,000 ms 总时长，以及 60,000 ms 清理预留时间。
@@ -120,13 +120,13 @@ SDK 与 CPU embedding 使用独立的 Python 环境，避免安装 embedding 依
 替换选定的 torch_npu/CANN 环境。外部检索 worker 的依赖与模型权重单独部署；
 RSI 包不会在搜索过程中安装知识提供方或下载权重。
 
-Recipe 选择 `sdk.profiling.collection: Default`，预热 25 次，最多采集两次，
-每次上限 300 秒。`sdk.profiling.enabled: false` 关闭普通评测中的自动诊断；
+Recipe 选择 `benchmark.config.profiling.collection: Default`，预热 25 次，最多采集两次，
+每次上限 300 秒。`benchmark.config.profiling.enabled: false` 关闭普通评测中的自动诊断；
 Policy 的显式 `profile` 操作仍会启用采集，并强制关闭磁盘缓存。
 
 详细采集要求所选 SDK Python 环境中具有可用的 `msprof` 和兼容的 `mstx` 模块。
 先加载匹配的 CANN 环境；使用独立安装的 profiler 时，显式配置
-`bindings.evaluator.config.sdk.profiling.msprofBin`。
+`bindings.evaluator.config.benchmark.config.profiling.msprofBin`。
 解释器、设备、采集模式及实际工具版本均须随运行证据保留。
 可编辑的 hardware-context 模板不能代替实际观测的设备事实。
 

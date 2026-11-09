@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Context, Events } from '@deepseek-ai/cordis';
+import type { SdkEvaluatorConfig } from '../../src/plugins/shared/evaluator-adapter/configuration.js';
 import type {
   AgentInput,
   AgentOutput,
@@ -113,19 +114,59 @@ export type ConcreteConfigChecks = [
     >
   >,
   Check<
-    Equal<Config<typeof agentbenchDefinition>['benchmark'], string | JsonObject>
+    Equal<
+      Config<typeof agentbenchDefinition>['benchmark'],
+      SdkEvaluatorConfig['benchmark'] & JsonValue
+    >
   >,
   Check<
     Equal<
       Config<typeof inferencebenchDefinition>['benchmark'],
-      string | JsonObject
+      SdkEvaluatorConfig['benchmark'] & JsonValue
     >
+  >,
+  // The same benchmark-only Recipe is sufficient only when the plugin binds its service.
+  Check<
+    Equal<
+      { benchmark: 'gsm8k' } extends Config<typeof agentbenchDefinition>
+        ? true
+        : false,
+      false
+    >
+  >,
+  Check<
+    Equal<
+      { benchmark: 'agentx' } extends Config<typeof inferencebenchDefinition>
+        ? true
+        : false,
+      true
+    >
+  >,
+  Check<
+    Equal<
+      { benchmark: 'kernel' } extends Config<typeof operatorbenchDefinition>
+        ? true
+        : false,
+      false
+    >
+  >,
+  Check<
+    { benchmark: 'kernel'; task: { directory: string } } extends Config<
+      typeof operatorbenchDefinition
+    >
+      ? true
+      : false
   >,
   Check<Equal<Config<typeof proposerDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof memoryDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof reflectionDefinition>['prompt'], string>>,
   Check<Equal<Config<typeof artifactSelectorDefinition>['prompt'], string>>,
-  Check<Equal<Config<typeof operatorbenchDefinition>['mode'], 'sdk'>>,
+  Check<
+    Equal<
+      Config<typeof operatorbenchDefinition>['benchmark'],
+      SdkEvaluatorConfig['benchmark'] & JsonValue
+    >
+  >,
   Check<
     Equal<
       Config<typeof kernelApplicationDefinition>['target'],

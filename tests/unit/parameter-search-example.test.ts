@@ -6,12 +6,14 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 import { loadConfig } from 'ember-evaluator';
 import { object } from '../../src/shared/json.js';
-import { nativeConfiguration } from '../../src/plugins/evaluator-inferencebench/configuration.js';
+import { RuntimeContext } from '../../src/contracts/index.js';
+import { createInferencebench } from '../../src/plugins/evaluator-inferencebench/service.js';
+import { captureEvaluatorConfiguration } from '../fixtures/evaluator-configuration.js';
 import { inferenceDefinition } from '../../src/plugins/application-inference/index.js';
 import { parseConfig, validate } from '../../src/shared/schema.js';
 import {
   configSchema as evaluatorConfigSchema,
-  type InferencebenchConfig,
+  type EvaluatorConfig,
 } from '../../src/plugins/evaluator-inferencebench/schema.js';
 
 test('vLLM tuning example uses AgentX against the Application endpoint with matching selection metrics', async () => {
@@ -25,16 +27,16 @@ test('vLLM tuning example uses AgentX against the Application endpoint with matc
   );
   const bindings = object(recipe.bindings);
   validate(inferenceDefinition.configSchema, object(recipe.application).config);
-  const evaluator = parseConfig<InferencebenchConfig>(
+  const evaluator = parseConfig<EvaluatorConfig>(
     evaluatorConfigSchema,
     object(bindings.evaluator).config,
   );
   assert.equal(object(evaluator.benchmark).name, 'agentx');
   const directory = await mkdtemp(join(tmpdir(), 'rsi-agentx-example-'));
   try {
-    const native = nativeConfiguration(
-      evaluator,
-      {},
+    const native = await captureEvaluatorConfiguration(
+      await createInferencebench(evaluator, new RuntimeContext()),
+      { candidateRef: 'candidate' },
       {
         baseUrl: 'http://127.0.0.1:8004/v1',
         model: 'owned-model',

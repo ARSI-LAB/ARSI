@@ -17,7 +17,7 @@
 | 项目                | 实际配置                                                                                                                                 |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | 来源                | RSI master `deb3ee94e4a358e406e6df45105d7f84f931636d`；实验源文件来自 RSIRunner master `b8b2372120a7af167512a2ef4c3eaec387265382`        |
-| Baseline            | 原完整空技能 [agentbundle](https://github.com/evolving-foundry/agentbundle)；12 份迁移源文件（含 Baseline）的 SHA 核对一致               |
+| Baseline            | 原完整空技能 AgentBundle；12 份迁移源文件（含 Baseline）的 SHA 核对一致                                                                  |
 | 数据划分            | train / validation / test = 10 / 11 / 0，互斥，沿用原实际启用题单；旧注释中的 19/19 不是实际启用数量                                     |
 | 流程                | baseline → train → Wiki → 提案 → validation → 严格改善才接受；并列保留原候选                                                             |
 | 停止                | 最多 8 轮，满分 1 提前停止；本次执行满 8 轮                                                                                              |

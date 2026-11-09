@@ -1,0 +1,27 @@
+type: object
+additionalProperties: false
+properties:
+  status:
+    enum: [selected, no-feasible-configuration]
+  stopReason:
+    enum: [converged, max-rounds]
+  candidateRef:
+    type: [string, 'null']
+  measurementRef:
+    type: [string, 'null']
+  bestValue:
+    type: [number, 'null']
+  measurementRefs:
+    type: array
+    items:
+      type: string
+  memoryRef:
+    type: [string, 'null']
+required:
+  - status
+  - stopReason
+  - candidateRef
+  - measurementRef
+  - bestValue
+  - measurementRefs
+  - memoryRef

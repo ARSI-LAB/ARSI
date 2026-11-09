@@ -198,14 +198,13 @@ Runtime 通过注册 ID 查找插件。创建文件或在 Recipe 中填写 ID �
 
    ```js
    import { keepParentDefinition } from './dist/proposer-keep-parent/index.js';
-   
+
    export function register(registry) {
      registry.registerOperation(keepParentDefinition);
    }
    ```
 
 3. CLI 启动时会自动按目录名称顺序扫描 `~/.ember-rsi/plugins/` 的直接子目录，加载各目录的 `index.mjs` 并调用 `register(registry)`。
-
    - 放在此处的扩展无需额外参数；一个入口可以注册多个插件和 Policy，已有入口时将代码加入现有的 `register` 即可。
 
    - 扩展也可以保留在项目目录或其他位置，通过 `--plugin-dir ./my-extension` 显式加载；

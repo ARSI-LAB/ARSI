@@ -145,7 +145,7 @@ Recipe 通过已注册的 Policy ID 找到对应文件。内置 Policy 已由框
 
    ```js
    import { fileURLToPath } from 'node:url';
-   
+
    export function register(registry) {
      registry.registerPolicy(
        'policy.baseline-check',
@@ -155,7 +155,6 @@ Recipe 通过已注册的 Policy ID 找到对应文件。内置 Policy 已由框
    ```
 
 3. CLI 启动时会按目录名称顺序扫描 `~/.ember-rsi/plugins/` 的直接子目录，加载各目录的 `index.mjs` 并调用 `register(registry)`，无需额外参数。
-
    - 注册 ID 必须与 `policy.yaml` 中的 `id` 一致；Runtime 在加载 Recipe 时读取并校验该 Policy。
 
    - 如果 Policy 使用自定义契约，需在加载它之前注册相应插件或契约。一个入口可以注册多个插件和 Policy；已有入口时，将注册代码加入现有的 `register` 即可。

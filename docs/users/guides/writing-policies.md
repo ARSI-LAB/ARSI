@@ -135,13 +135,13 @@ output:
 
 ## Register a Policy
 
-A Recipe resolves a Policy file by its registered ID. Built-in Policies are already registered by the framework and ready to use. Register custom Policies through an extension entrypoint loaded by the installed CLI, without modifying or rebuilding ember-rsi.
+A Recipe resolves a Policy file by its registered ID. Built-in Policies are already registered by the framework and ready to use. Register new Policies through an extension entrypoint loaded by the installed CLI.
 
 > When maintaining built-in framework Policies, you can place files in `src/policies/`, add them to the Policy file list in the [built-in registration file](../../../src/runtime/builtins.ts), and run `pnpm build` to build them with the framework.
 
 1. Save the example above as `~/.ember-rsi/plugins/my-extension/policy.yaml`.
 
-2. Create `index.mjs` beside it, exporting `register(registry)` to register the Policy ID and absolute file path:
+2. Create `index.mjs` beside it, exporting `register(registry)` to register the Policy ID and file path:
 
    ```js
    import { fileURLToPath } from 'node:url';
@@ -154,11 +154,13 @@ A Recipe resolves a Policy file by its registered ID. Built-in Policies are alre
    }
    ```
 
-3. At startup, the CLI scans the immediate subdirectories of `~/.ember-rsi/plugins/` in directory-name order, loads each directory's `index.mjs`, and calls `register(registry)`, with no extra arguments needed. The registered ID must match `id` in `policy.yaml`. Runtime reads and validates the Policy when loading a Recipe.
+3. At startup, the CLI scans the immediate subdirectories of `~/.ember-rsi/plugins/` in directory-name order, loads each directory's `index.mjs`, and calls `register(registry)`, with no extra arguments needed.
+   - The registered ID must match `id` in `policy.yaml`. Runtime reads and validates the Policy when loading a Recipe.
 
-If the Policy uses a custom contract, register the corresponding plugin or contract before loading it. One entrypoint can register multiple plugins and Policies; if one already exists, add the registration code to its existing `register` function.
+   - If the Policy uses a custom contract, register the corresponding plugin or contract before loading it. One entrypoint can register multiple plugins and Policies; if one already exists, add the registration code to its existing `register` function.
 
-To keep an extension in your project or another location, use `--plugin-dir ./my-extension` to select the extension directory containing `index.mjs`. Project directories such as `plugins/my-extension/` also require this option. Relative paths resolve against the command's working directory; repeat the option for multiple directories.
+   - **To keep an extension in your project or another location, use `--plugin-dir ./my-extension` to select the extension directory containing `index.mjs`.**
+     - Relative paths resolve against the command's working directory; repeat the option for multiple directories.
 
 ### Configure the Recipe and run
 

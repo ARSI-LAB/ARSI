@@ -8,24 +8,48 @@ Run commands from the workspace that should own the experiment's `.rsi/` directo
 
 ## CLI commands
 
-Use `ember-rsi --help` or `<command> --help` for the installed build's syntax. From a source checkout without a global install, use `pnpm ember-rsi`.
+Use `ember-rsi --help` to list commands and `ember-rsi <command> --help` for a command's syntax. From a source checkout without a global install, use `pnpm ember-rsi`.
 
-| Command                                                     | Purpose                                                                                                                                                                                                                                                                     |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ember-rsi catalog`                                         | List registered plugin and Policy IDs.                                                                                                                                                                                                                                      |
-| `ember-rsi list plugins`                                    | Inspect plugin descriptions, contracts, Schemas, and compatible Policy bindings.                                                                                                                                                                                            |
-| `ember-rsi list policies`                                   | Inspect Policy descriptions, Schemas, requirements, and compatible plugins.                                                                                                                                                                                                 |
-| `ember-rsi validate <recipe.yaml>`                          | Validate configuration and wiring without running the experiment.                                                                                                                                                                                                           |
-| `ember-rsi run <recipe.yaml> --id <experiment-id>`          | Start a real experiment and persist its records.                                                                                                                                                                                                                            |
-| `ember-rsi list`                                            | List saved experiments.                                                                                                                                                                                                                                                     |
-| `ember-rsi show <experiment-id>`                            | Print saved experiment status, output, and error information.                                                                                                                                                                                                               |
-| `ember-rsi cancel <experiment-id>`                          | Send a cancellation request to the specified experiment.                                                                                                                                                                                                                    |
-| `ember-rsi run <recipe.yaml> --id <experiment-id> --resume` | Recover the identified experiment from its saved state.                                                                                                                                                                                                                     |
-| `ember-rsi dashboard --port <port>`                         | Serve a local web dashboard for inspecting experiments.                                                                                                                                                                                                                     |
-| `ember-rsi reflection list [experiment-id]`                 | List persisted revisions, optionally for one experiment.                                                                                                                                                                                                                    |
-| `ember-rsi reflection show <revisionID>`                    | Inspect revision content and planned resource changes.                                                                                                                                                                                                                      |
-| `ember-rsi reflection apply <revisionID>`                   | Write the snapshot to its recorded user-resource paths; see the [Reflection rules](reflection.md#apply-a-revision-to-future-experiments).                                                                                                                                   |
-| `ember-rsi validate <recipe.yaml> --plugin-dir <directory>` | Validate a Recipe that uses custom plugins or Policies. Pass the same extension directories when running, resuming, or starting the dashboard; repeat `--plugin-dir` for multiple directories. See [extension registration](writing-plugins.md#step-2-register-the-plugin). |
+| Command                                     | Purpose                                                                                                                                   |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `ember-rsi catalog`                         | List registered plugin and Policy IDs.                                                                                                    |
+| `ember-rsi list plugins`                    | Inspect plugin descriptions, contracts, Schemas, and compatible Policy bindings.                                                          |
+| `ember-rsi list policies`                   | Inspect Policy descriptions, Schemas, requirements, and compatible plugins.                                                               |
+| `ember-rsi validate <recipe.yaml>`          | Validate configuration and wiring without running the experiment.                                                                         |
+| `ember-rsi run <recipe.yaml>`               | Start or resume an experiment and persist its records.                                                                                    |
+| `ember-rsi list`                            | List saved experiments.                                                                                                                   |
+| `ember-rsi show <experiment-id>`            | Print saved experiment status, output, and error information.                                                                             |
+| `ember-rsi cancel <experiment-id>`          | Send a cancellation request to the specified experiment.                                                                                  |
+| `ember-rsi dashboard`                       | Serve a local web dashboard for inspecting experiments.                                                                                   |
+| `ember-rsi reflection list [experiment-id]` | List persisted revisions, optionally for one experiment.                                                                                  |
+| `ember-rsi reflection show <revisionID>`    | Inspect revision content and planned resource changes.                                                                                    |
+| `ember-rsi reflection apply <revisionID>`   | Write the snapshot to its recorded user-resource paths; see the [Reflection rules](reflection.md#apply-a-revision-to-future-experiments). |
+| `ember-rsi help [command]`                  | Show the command list or help for a specific command.                                                                                     |
+
+## CLI parameters
+
+The basic syntax is shown below. Required positional arguments appear in the command table above.
+
+```text
+ember-rsi [global options] <command> [arguments] [command options]
+```
+
+### Global options
+
+These options apply across commands:
+
+| Option                     | Description                                                                                                                                                                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-h, --help`               | Display help and exit. `ember-rsi --help` lists commands; `ember-rsi <command> --help` shows that command's parameters.                                                                                                                                            |
+| `--plugin-dir <directory>` | Load custom plugins and Policies from a directory. Repeat the option for multiple directories; see [plugin registration](writing-plugins.md#step-2-register-the-plugin) and [Policy registration and Recipe configuration](writing-policies.md#register-a-policy). |
+
+### Command-specific options
+
+| Command     | Option                 | Description                                                                           |
+| ----------- | ---------------------- | ------------------------------------------------------------------------------------- |
+| `run`       | `--id <experiment-id>` | Set the experiment ID. New experiments generate one if omitted; resuming requires it. |
+| `run`       | `--resume`             | Resume from saved state; requires `--id`. Omitting it starts a new experiment.        |
+| `dashboard` | `--port <port>`        | Set the listening port. Defaults to `4317`; accepts values from `1` to `65535`.       |
 
 ## Validate and start
 

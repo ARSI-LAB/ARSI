@@ -6,6 +6,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { dirname, join, matchesGlob } from 'node:path';
 import type {
   RuntimeContext,
@@ -115,6 +116,36 @@ export async function resourceFiles(
     files[string(f.path)] = decoded;
   }
   return files;
+}
+// Recipe configs keep `${VAR}` references symbolic (the loader never
+// resolves them); resolve only at execution, matching agent.pi's semantics.
+const ENV_REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/** Seed a memory artifact from a host directory (cross-run memory wiki).
+ * A missing or empty directory is a normal first-run state, not a failure. */
+export async function seedMemoryRef(
+  config: AgentEditingConfig,
+  context: RuntimeContext,
+): Promise<string | null> {
+  const configured = config.seedDirectory;
+  if (configured === undefined) return null;
+  const directory = configured.replace(
+    ENV_REFERENCE,
+    (_match, name: string) => {
+      const replacement = process.env[name];
+      if (replacement === undefined)
+        throw new Error(
+          `seedDirectory references missing environment variable ${name}`,
+        );
+      return replacement;
+    },
+  );
+  if (!directory.trim())
+    throw new Error('seedDirectory resolved to an empty value');
+  if (!existsSync(directory)) return null;
+  const entries = await readdir(directory, { recursive: true });
+  if (entries.length === 0) return null;
+  return context.artifacts.capture(directory);
 }
 export async function requestEdit(
   config: AgentEditingConfig,

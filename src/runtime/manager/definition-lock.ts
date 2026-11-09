@@ -170,6 +170,10 @@ export async function lockDefinition(
       origins[field.pointer] = source;
       resourceOrigins[owner] = origins;
       if (isResourceUrl(source)) continue;
+      // `${VAR}` references resolve from the process environment at
+      // execution time (same convention as the recipe loader); they are not
+      // source-tree resources to snapshot.
+      if (source.includes('${')) continue;
       const info = await lstat(source);
       if (
         info.isSymbolicLink() ||

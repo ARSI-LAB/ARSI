@@ -17,7 +17,7 @@
 | 项目                | 实际配置                                                                                                                                 |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | 来源                | RSI master `deb3ee94e4a358e406e6df45105d7f84f931636d`；实验源文件来自 RSIRunner master `b8b2372120a7af167512a2ef4c3eaec387265382`        |
-| Baseline            | 原完整空技能 AgentBundle，36 份源文件 SHA 核对一致                                                                                       |
+| Baseline            | 原完整空技能 [agentbundle](https://github.com/evolving-foundry/agentbundle)，36 份源文件 SHA 核对一致                                    |
 | 数据划分            | train / validation / test = 10 / 10 / 0                                                                                                  |
 | 题单调整            | 原 validation 的重叠题 `workbuddy/safety-inspection-extract-L4-019` 保留在 train，从 validation 移除；运行前已披露                       |
 | 流程                | baseline → train → Wiki → 提案 → validation → 严格改善才接受；并列保留原候选                                                             |

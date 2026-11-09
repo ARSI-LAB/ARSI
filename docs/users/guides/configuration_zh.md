@@ -134,6 +134,8 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 设置 `application.inference.config.remote.discoverParameters: true` 后，启动器会在初始化时报告当前安装版本的参数目录。Agent 可在 `context/input.json` 的 `target.parameterCatalog` 中读取。vLLM Ascend 示例已启用此功能，并将目录限制为明确列出的性能参数；精度、量化、投机解码和结构化配置均不开放。
 
+RSI 也可以运行在本地 macOS/Linux 机器上，将 vLLM 和 AISBench 放在远端 Linux 主机。[SSH 示例 Recipe](../../../examples/artifacts/inference/vllm-optimization/recipe-ssh.yaml) 通过现有的 `remote.script` 字段选择本地 SSH 包装脚本，由脚本转发生命周期请求，并维护专用的回环隧道供本地健康检查使用。AISBench 在同一台远端主机直接访问 vLLM。两台机器必须使用相同且空闲的服务端口，包装脚本与 Evaluator 的 SSH 设置也应指向同一环境。配置和恢复步骤见[示例说明](../../../examples/artifacts/inference/vllm-optimization/README.md#run-rsi-locally-over-ssh)。这一适配位于示例层，不新增 Application 配置字段，也不改变 Runtime 或 Policy 行为。
+
 ## Proposer 文件编辑
 
 `proposer.agent` 使用一套 Agent 输出 Schema。`edits` 中的每一项都有路径和 `op`。`replace` 和 `create` 提供完整的 `content`，`patch` 在 `changes` 中提供精确的 `oldText` 和 `newText`，`delete` 只需提供路径。同一个提案可以对不同路径使用不同操作。Proposer 和 Application 会执行编辑约束和 Target 权限检查。

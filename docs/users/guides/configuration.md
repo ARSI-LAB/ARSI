@@ -134,6 +134,8 @@ The default `selector.inference` uses `metric` and `direction` for the primary o
 
 With `application.inference.config.remote.discoverParameters: true`, the launcher reports its installed parameter catalog at initialization. Agent proposals receive the catalog in `context/input.json` as `target.parameterCatalog`. The vLLM Ascend example enables this feature and limits the catalog to an explicit performance-parameter allowlist; precision, quantization, speculative decoding, and structured configs are excluded.
 
+RSI can also run on a local macOS/Linux machine while vLLM and AISBench run on a remote Linux host. The [SSH example Recipe](../../../examples/artifacts/inference/vllm-optimization/recipe-ssh.yaml) selects a local SSH wrapper through the existing `remote.script` field. The wrapper forwards lifecycle requests and maintains a dedicated loopback tunnel for local health checks. AISBench runs on the same remote host and accesses vLLM directly. Use the same free endpoint port on both machines, and keep the wrapper's SSH settings aligned with the Evaluator's SSH settings. See the [example setup and recovery instructions](../../../examples/artifacts/inference/vllm-optimization/README.md#run-rsi-locally-over-ssh). This is an example-level adapter; it adds no Application configuration fields or Runtime/Policy behavior.
+
 ## Proposer file edits
 
 `proposer.agent` uses one Agent output schema for file edits. Each entry in `edits` has a path and an `op`. Use `replace` or `create` with full `content`, `patch` with exact `oldText` and `newText` in `changes`, or `delete` with only the path. A proposal can combine operations on different paths. The Proposer and Application enforce the edit constraints and Target permissions.

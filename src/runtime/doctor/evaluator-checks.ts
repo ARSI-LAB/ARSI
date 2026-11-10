@@ -25,6 +25,7 @@ import { runCommand } from './process.js';
 import type { DoctorContext, DoctorScript } from './types.js';
 import { checkDockerDiskCapacity } from './docker-disk.js';
 import { dockerLayersAreLocal } from './docker-disk-probe.js';
+import { modelAccessScript, parseModelAccessResult } from './model-access.js';
 
 type Command = typeof runCommand;
 
@@ -130,6 +131,7 @@ async function containerProbe(
   script: string,
   signal: AbortSignal,
   input?: string,
+  env?: NodeJS.ProcessEnv,
 ): Promise<string> {
   const name = `rsi-doctor-${randomUUID()}`;
   try {
@@ -147,7 +149,7 @@ async function containerProbe(
         '-e',
         script,
       ],
-      { signal, input },
+      { signal, input, env },
     );
     return result.stdout;
   } finally {
@@ -190,6 +192,10 @@ async function checkDocker(
       ? 'docker'
       : undefined);
   if (selectedEnvironment !== 'docker' || loaded?.deployment) {
+    ctx.unchecked(
+      'gateway-model-access',
+      'Evaluation model access was not checked because no probe runs in the selected execution environment.',
+    );
     ctx.unchecked(
       'environment-readiness',
       'No bundled readiness probe applies to the selected SDK environment.',
@@ -361,51 +367,95 @@ async function checkDocker(
       'workspace-cache-mounts',
       'A selected local or cached dataset directory is unavailable.',
     );
-  if (!loaded || !servicesReady) {
+  if (!loaded || !servicesReady || !loaded.network) {
     ctx.unchecked(
       'gateway-model-access',
       'The SDK effective configuration or model service prerequisites are unavailable.',
     );
     return;
   }
-  await ctx.check('gateway-model-access', async (signal) => {
-    const name = loaded.experiment.solver.service;
-    const service = object(
-      plain(ctx.binding.config.services)[name],
-      `services.${name}`,
-    );
-    const endpoint = new URL(
-      expand(
-        string(service.base_url, `services.${name}.base_url`),
-        `services.${name}.base_url`,
-      ),
-    );
-    if (endpoint.username || endpoint.password)
-      throw new Error(`services.${name}.base_url must not contain credentials`);
-    if (['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname))
-      endpoint.hostname = 'host.docker.internal';
-    const key =
-      service.api_key === undefined
-        ? ''
-        : expand(string(service.api_key), `services.${name}.api_key`);
-    const model = expand(string(service.model), `services.${name}.model`);
-    const script =
-      "let t='';for await(const c of process.stdin)t+=c;const x=JSON.parse(t);const r=await fetch(x.endpoint.replace(/\\/$/,'')+'/models',{headers:{authorization:'Bearer '+x.key},signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('Model list returned HTTP '+r.status);const b=await r.json();if(!Array.isArray(b.data)||!b.data.some(m=>m.id===x.model))throw Error('Configured model is absent from model list');console.log('model visible');";
-    await containerProbe(
-      command,
-      executable,
-      gatewayImage,
-      [
-        ...platformArgs,
-        '-i',
-        '--add-host',
-        'host.docker.internal:host-gateway',
-      ],
-      script,
-      signal,
-      JSON.stringify({ endpoint: endpoint.href, key, model }),
-    );
-  });
+  const modelOptions: { reason?: string; details: JsonObject } = {
+    details: {},
+  };
+  const network = loaded.network;
+  await ctx.check(
+    'gateway-model-access',
+    async (signal) => {
+      const name = loaded.experiment.solver.service;
+      const service = object(
+        plain(ctx.binding.config.services)[name],
+        `services.${name}`,
+      );
+      const effective = loaded.experiment.services[name];
+      const endpoint = new URL(
+        string(effective.endpoint, `services.${name}.endpoint`),
+      );
+      if (endpoint.username || endpoint.password)
+        throw new Error(
+          `services.${name}.base_url must not contain credentials`,
+        );
+      if (['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname))
+        endpoint.hostname = 'host.docker.internal';
+      const key =
+        service.api_key === undefined
+          ? ''
+          : expand(string(service.api_key), `services.${name}.api_key`);
+      const model = effective.name;
+      // Match the SDK gateway's runtime proxy selection without putting proxy
+      // credentials in command arguments or inheriting the coordinator's route.
+      const proxy = network.settings.proxy.runtime;
+      const gatewayEnv: NodeJS.ProcessEnv = {
+        HTTP_PROXY: proxy.http ?? '',
+        HTTPS_PROXY: proxy.https ?? '',
+        NO_PROXY: proxy.noProxy.join(','),
+      };
+      for (const [name, value] of Object.entries(gatewayEnv))
+        gatewayEnv[name.toLowerCase()] = value;
+      if (gatewayEnv.HTTP_PROXY || gatewayEnv.HTTPS_PROXY)
+        gatewayEnv.NODE_USE_ENV_PROXY = '1';
+      let output: string;
+      try {
+        output = await containerProbe(
+          command,
+          executable,
+          gatewayImage,
+          [
+            ...platformArgs,
+            '-i',
+            '--add-host',
+            'host.docker.internal:host-gateway',
+            ...Object.keys(gatewayEnv).flatMap((key) => ['--env', key]),
+          ],
+          modelAccessScript,
+          signal,
+          JSON.stringify({
+            side: 'Evaluation',
+            baseUrl: endpoint.href,
+            apiKey: key,
+            model,
+          }),
+          { ...process.env, ...gatewayEnv },
+        );
+      } catch (error) {
+        signal.throwIfAborted();
+        modelOptions.reason =
+          'Evaluation could not run its model service check in Docker; check the selected Docker environment and gateway container diagnostics.';
+        throw error;
+      }
+      let result;
+      try {
+        result = parseModelAccessResult(JSON.parse(output));
+      } catch {
+        modelOptions.reason =
+          'Evaluation model service check returned an invalid result; check the selected Docker environment and gateway container diagnostics.';
+        throw new Error(modelOptions.reason);
+      }
+      modelOptions.reason = result.reason;
+      modelOptions.details = result.details;
+      if (result.status === 'failed') throw new Error(result.reason);
+    },
+    modelOptions,
+  );
 }
 
 async function cachedTasks(

@@ -1,6 +1,13 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -15,6 +22,7 @@ import {
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
 import { applicationChecks } from '../../src/runtime/doctor/application-checks.js';
+import { object } from '../../src/shared/json.js';
 import type {
   DoctorCheck,
   DoctorContext,
@@ -101,7 +109,7 @@ async function fixture(t: TestContext) {
       runtime,
       directory: root,
       signal: controller.signal,
-      async check(id, action) {
+      async check(id, action, options) {
         const deadline = new AbortController();
         const signal = AbortSignal.any([controller.signal, deadline.signal]);
         const timer =
@@ -113,13 +121,21 @@ async function fixture(t: TestContext) {
               );
         try {
           await action(signal);
-          checks.push({ id, status: 'passed' });
+          checks.push({
+            id,
+            status: 'passed',
+            ...(options?.reason ? { reason: options.reason } : {}),
+            ...(options?.details ? { details: options.details } : {}),
+          });
           return true;
         } catch (error) {
           checks.push({
             id,
             status: 'failed',
-            reason: error instanceof Error ? error.message : String(error),
+            reason:
+              options?.reason ??
+              (error instanceof Error ? error.message : String(error)),
+            ...(options?.details ? { details: options.details } : {}),
           });
           return false;
         } finally {
@@ -275,6 +291,26 @@ test('doctor checks local and remote inference launch inputs without starting th
 
 test('doctor resolves Pi model references and token limits without inference or secret output', async (t) => {
   const { run } = await fixture(t);
+  const requests: {
+    url: string;
+    method: string;
+    authorization: string | null;
+  }[] = [];
+  let status = 200;
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        method: init?.method ?? 'GET',
+        authorization: new Headers(init?.headers).get('authorization'),
+      });
+      return new Response(JSON.stringify({ data: [{ id: 'fixture' }] }), {
+        status,
+      });
+    },
+  );
   const name = 'RSI_DOCTOR_FIXTURE_KEY';
   const previous = process.env[name];
   process.env[name] = 'fixture-secret-never-print';
@@ -289,7 +325,33 @@ test('doctor resolves Pi model references and token limits without inference or 
     contextWindow: 100,
     maxTokens: 50,
   };
-  assert.equal((await run('agent.pi', config)).checks[0].status, 'passed');
+  const working = await run('agent.pi', config);
+  assert.equal(working.checks[0].status, 'passed');
+  assert.equal(
+    working.checks.find((check) => check.id === 'model-access')?.status,
+    'passed',
+  );
+  assert.match(
+    working.checks.find((check) => check.id === 'model-access')?.reason ?? '',
+    /Proposal.*fixture/,
+  );
+  assert.deepEqual(requests, [
+    {
+      url: 'http://localhost:8080/v1/models',
+      method: 'GET',
+      authorization: 'Bearer fixture-secret-never-print',
+    },
+  ]);
+  status = 403;
+  const denied = await run('agent.pi', config);
+  assert.equal(
+    denied.checks.find((check) => check.id === 'model-access')?.status,
+    'failed',
+  );
+  assert.match(
+    denied.checks.find((check) => check.id === 'model-access')?.reason ?? '',
+    /Proposal.*denied.*API key/,
+  );
   const tooLarge = await run('agent.pi', { ...config, maxTokens: 101 });
   assert.match(
     tooLarge.checks[0].reason ?? '',
@@ -299,24 +361,210 @@ test('doctor resolves Pi model references and token limits without inference or 
   const absent = await run('agent.pi', config);
   assert.match(absent.checks[0].reason ?? '', /RSI_DOCTOR_FIXTURE_KEY/);
   assert.ok(!JSON.stringify(absent).includes('fixture-secret-never-print'));
-});
-
-test('doctor executes only the Codex version probe and detects an unavailable executable', async (t) => {
-  const { root, run } = await fixture(t);
-  const executable = join(root, 'fake-codex.mjs');
-  await writeFile(
-    executable,
-    'if (process.argv[2] !== "--version") throw new Error("Agent must not start");\nprocess.stdout.write("codex-fixture 1.0\\n");\n',
+  assert.equal(
+    absent.checks.find((check) => check.id === 'model-access')?.status,
+    'unchecked',
   );
   assert.equal(
-    (await run('agent.codex', { executable })).checks[0].status,
+    requests.length,
+    2,
+    'invalid configuration must not send a model request',
+  );
+  assert.ok(
+    !JSON.stringify([working, denied]).includes('fixture-secret-never-print'),
+  );
+});
+
+test('doctor invokes native Codex diagnostics with configured model and inherited environment without claiming model discovery', async (t) => {
+  const { root, run } = await fixture(t);
+  const executable = join(root, 'fake-codex.mjs');
+  const calls = join(root, 'codex-calls.jsonl');
+  const report = {
+    schemaVersion: 1,
+    overallStatus: 'ok',
+    checks: {
+      'config.load': { status: 'ok' },
+      'network.provider_reachability': {
+        status: 'ok',
+        details: { credentials: 'private-native-store-secret' },
+      },
+    },
+  };
+  await writeFile(
+    executable,
+    `import { appendFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args, cwd: process.cwd(), marker: existsSync(join(process.cwd(), '.rsi-project')), path: process.env.PATH }) + '\\n');
+if (args[0] === '--help') process.stdout.write('Commands:\\n  doctor  Diagnose local health\\n');
+else if (args[0] === 'doctor' && args[1] === '--help') process.stdout.write('Options:\\n  --json Emit redacted JSON\\n  --network-only Probe provider connections\\n');
+else if (args.includes('doctor') && args.includes('--json')) process.stdout.write(${JSON.stringify(JSON.stringify(report))});
+else throw new Error('No model inference or session may start');
+`,
+  );
+  const result = await run('agent.codex', {
+    executable,
+    model: 'proposal-model',
+    thinkingLevel: 'high',
+  });
+  assert.equal(
+    result.checks.find((check) => check.id === 'doctor')?.status,
     'passed',
   );
+  assert.match(
+    result.checks.find((check) => check.id === 'doctor')?.reason ?? '',
+    /reached the configured model service/,
+  );
+  assert.equal(
+    result.checks.find((check) => check.id === 'model-access')?.status,
+    'unchecked',
+  );
+  assert.ok(!JSON.stringify(result).includes('private-native-store-secret'));
+  const invocations = (await readFile(calls, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => object(JSON.parse(line)));
+  assert.deepEqual(
+    invocations.map((call) => call.args),
+    [
+      ['--help'],
+      ['doctor', '--help'],
+      [
+        '-c',
+        'project_root_markers=[".rsi-project"]',
+        '-c',
+        'model="proposal-model"',
+        '-c',
+        'model_reasoning_effort="high"',
+        'doctor',
+        '--json',
+        '--network-only',
+      ],
+    ],
+  );
+  assert.ok(invocations.every((call) => call.path === process.env.PATH));
+  assert.ok(invocations.slice(0, 2).every((call) => call.cwd === root));
+  const directory = invocations[2].cwd;
+  assert.equal(typeof directory, 'string');
+  assert.ok(
+    typeof directory === 'string' &&
+      directory.startsWith(join(root, 'codex-doctor-')),
+  );
+  assert.equal(invocations[2].marker, true);
+  if (typeof directory === 'string')
+    await assert.rejects(readdir(directory), /ENOENT/);
   const absent = await run('agent.codex', {
     executable: join(root, 'missing-codex.exe'),
   });
   assert.equal(absent.checks[0].status, 'failed');
   assert.match(absent.checks[0].reason ?? '', /missing-codex/);
+});
+
+test('doctor never sends an unsupported Codex subcommand that could become a prompt', async (t) => {
+  const { root, run } = await fixture(t);
+  const executable = join(root, 'legacy-codex.mjs');
+  const calls = join(root, 'legacy-calls.jsonl');
+  await writeFile(
+    executable,
+    `import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + '\\n');
+if (args.length !== 1 || args[0] !== '--help') throw new Error('Must not send a prompt');
+process.stdout.write('Commands:\\n  exec  Run Codex\\n');
+`,
+  );
+  const result = await run('agent.codex', { executable });
+  assert.equal(
+    result.checks.find((check) => check.id === 'doctor')?.status,
+    'unchecked',
+  );
+  assert.equal(
+    result.checks.find((check) => check.id === 'model-access')?.status,
+    'unchecked',
+  );
+  assert.equal(await readFile(calls, 'utf8'), '["--help"]\n');
+});
+
+test('doctor reports Codex native failures and invalid output without exposing credential-store diagnostics', async (t) => {
+  const { root, run } = await fixture(t);
+  const executable = join(root, 'broken-codex.mjs');
+  for (const body of [
+    `process.stdout.write(JSON.stringify({ schemaVersion: 1, overallStatus: 'error', checks: { 'auth.credentials': { status: 'error', details: { token: 'private-native-store-secret' } } } }));`,
+    `process.stdout.write('invalid-json private-native-store-secret');`,
+    `process.stderr.write('private-native-store-secret'); process.exitCode = 1;`,
+  ]) {
+    await writeFile(
+      executable,
+      `const args = process.argv.slice(2);
+if (args[0] === '--help') process.stdout.write('Commands:\\n  doctor  Diagnose local health\\n');
+else if (args[1] === '--help') process.stdout.write('Options:\\n  --json Emit report\\n');
+else if (args.includes('doctor') && args.includes('--json')) { ${body} }
+else throw new Error('Must not run inference');
+`,
+    );
+    const result = await run('agent.codex', { executable });
+    assert.equal(
+      result.checks.find((check) => check.id === 'doctor')?.status,
+      'failed',
+    );
+    assert.ok(!JSON.stringify(result).includes('private-native-store-secret'));
+  }
+  await writeFile(
+    executable,
+    `process.stderr.write('private-native-store-secret'); process.exitCode = 1;`,
+  );
+  const unavailable = await run('agent.codex', { executable });
+  assert.equal(unavailable.checks[0].status, 'failed');
+  assert.ok(
+    !JSON.stringify(unavailable).includes('private-native-store-secret'),
+  );
+});
+
+test('doctor does not infer Codex network access from successful local-only diagnostics', async (t) => {
+  const { root, run } = await fixture(t);
+  const executable = join(root, 'local-codex.mjs');
+  await writeFile(
+    executable,
+    `const args = process.argv.slice(2);
+if (args[0] === '--help') process.stdout.write('Commands:\\n  doctor  Diagnose local health\\n');
+else if (args[1] === '--help') process.stdout.write('Options:\\n  --json Emit report\\n');
+else process.stdout.write(JSON.stringify({ schemaVersion: 1, overallStatus: 'ok', checks: { 'config.load': { status: 'ok' } } }));
+`,
+  );
+  const result = await run('agent.codex', { executable });
+  assert.match(
+    result.checks.find((check) => check.id === 'doctor')?.reason ?? '',
+    /native health checks/,
+  );
+  assert.equal(
+    result.checks.find((check) => check.id === 'model-access')?.status,
+    'unchecked',
+  );
+});
+
+test('doctor cancels the Codex diagnostic process at its check deadline', async (t) => {
+  const { root, run } = await fixture(t);
+  const executable = join(root, 'hanging-codex.mjs');
+  await writeFile(
+    executable,
+    `const args = process.argv.slice(2);
+if (args[0] === '--help') process.stdout.write('Commands:\\n  doctor  Diagnose local health\\n');
+else if (args[1] === '--help') process.stdout.write('Options:\\n  --json Emit report\\n');
+else setInterval(() => {}, 1000);
+`,
+  );
+  const result = await run('agent.codex', { executable }, 1000);
+  assert.equal(
+    result.checks.find((check) => check.id === 'doctor')?.status,
+    'failed',
+  );
+  assert.match(
+    result.checks.find((check) => check.id === 'doctor')?.reason ?? '',
+    /timed out|cancelled/,
+  );
+  assert.ok(
+    !(await readdir(root)).some((entry) => entry.startsWith('codex-doctor-')),
+  );
 });
 
 test('doctor disposes a cancelled application acquisition and leaves no workspace', async (t) => {

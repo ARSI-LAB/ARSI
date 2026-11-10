@@ -231,6 +231,7 @@ export async function doctorRecipe(
               id: scoped(id),
               ...identity,
               status: 'passed',
+              ...(checkOptions?.reason ? { reason: checkOptions.reason } : {}),
               ...(checkOptions?.details
                 ? { details: checkOptions.details }
                 : {}),
@@ -268,7 +269,9 @@ export async function doctorRecipe(
               id: scoped(id),
               ...identity,
               status: 'failed',
-              reason: `${errorText(error)}${completionError === undefined ? '' : ` Probe completion/cleanup: ${errorText(completionError)}`} Plugin availability is unknown unless established by another check.`,
+              reason: checkOptions?.reason
+                ? `${checkOptions.reason}${completionError === undefined ? '' : ` Probe completion/cleanup: ${errorText(completionError)}`}`
+                : `${errorText(error)}${completionError === undefined ? '' : ` Probe completion/cleanup: ${errorText(completionError)}`} Plugin availability is unknown unless established by another check.`,
               ...(checkOptions?.details
                 ? { details: checkOptions.details }
                 : {}),

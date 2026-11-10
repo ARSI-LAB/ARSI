@@ -51,7 +51,7 @@ export interface DoctorContext {
   check(
     id: string,
     action: (signal: AbortSignal) => Promise<void>,
-    options?: { timeoutMs?: number; details?: JsonObject },
+    options?: { timeoutMs?: number; reason?: string; details?: JsonObject },
   ): Promise<boolean>;
   unchecked(id: string, reason: string, details?: JsonObject): void;
   missing(resource: Omit<MissingResource, 'binding' | 'pluginId'>): void;

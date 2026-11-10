@@ -16,6 +16,7 @@ import { Registry } from '../../src/runtime/registry/index.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { createEvaluatorChecks } from '../../src/runtime/doctor/evaluator-checks.js';
+import { modelAccessScript } from '../../src/runtime/doctor/model-access.js';
 import { object } from '../../src/shared/json.js';
 import type {
   DoctorCheck,
@@ -117,6 +118,7 @@ async function fixture(t: test.TestContext): Promise<{
             checks.push({
               id,
               status: 'passed',
+              ...(options?.reason ? { reason: options.reason } : {}),
               ...(options?.details ? { details: options.details } : {}),
             });
             return true;
@@ -124,7 +126,9 @@ async function fixture(t: test.TestContext): Promise<{
             checks.push({
               id,
               status: 'failed',
-              reason: error instanceof Error ? error.message : String(error),
+              reason:
+                options?.reason ||
+                (error instanceof Error ? error.message : String(error)),
               ...(options?.details ? { details: options.details } : {}),
             });
             return false;
@@ -180,6 +184,16 @@ async function dataset(directory: string): Promise<void> {
   await writeFile(join(root, 'tests', 'test.sh'), 'exit 0\n');
 }
 
+function passedGateway(args: readonly string[]): string {
+  return args.at(-1) === modelAccessScript
+    ? JSON.stringify({
+        status: 'passed',
+        reason: 'Evaluation connected to the configured model service.',
+        details: { side: 'Evaluation', model: 'fixture' },
+      })
+    : '';
+}
+
 test('agentbench checks cached task metadata and gateway without downloads or inference', async (t) => {
   t.mock.method(globalThis, 'fetch', () => {
     throw new Error('Doctor attempted a host download or model request');
@@ -203,7 +217,7 @@ test('agentbench checks cached task metadata and gateway without downloads or in
               Architecture: 'x86_64',
               Driver: 'overlay2',
             })
-          : '',
+          : passedGateway(args),
       stderr: '',
     };
   };
@@ -247,6 +261,214 @@ test('agentbench checks cached task metadata and gateway without downloads or in
   );
 });
 
+test('gateway uses the selected evaluation service and runtime proxy without a host model request', async (t) => {
+  t.mock.method(globalThis, 'fetch', () => {
+    throw new Error('Evaluation must not probe the proposal process network');
+  });
+  const f = await fixture(t);
+  await dataset(f.directory);
+  const proxyNames = [
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'NO_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'no_proxy',
+  ];
+  const previous = Object.fromEntries(
+    proxyNames.map((name) => [name, process.env[name]]),
+  );
+  for (const name of proxyNames) delete process.env[name];
+  t.after(() => {
+    for (const name of proxyNames) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  });
+  const runtimeProxy = 'http://runtime-user:runtime-secret@runtime.proxy:8081';
+  await writeFile(
+    join(f.directory, 'network.yaml'),
+    JSON.stringify({
+      proxy: {
+        http: 'http://host.proxy:8080',
+        https: 'http://host.proxy:8080',
+        overrides: {
+          runtime: {
+            http: runtimeProxy,
+            https: runtimeProxy,
+            noProxy: ['internal.example'],
+          },
+        },
+      },
+    }),
+  );
+  const config = agentConfig(f.directory);
+  object(config.benchmark).solver = {
+    name: 'agentbundle',
+    service: 'evaluation',
+  };
+  config.services = {
+    default: {
+      model: 'proposal-model',
+      base_url: 'https://proposal.example/v1',
+    },
+    evaluation: {
+      model: 'evaluation-model',
+      base_url: 'http://127.0.0.1:2345/evaluation/v1',
+      api_key: '${DOCTOR_TEST_KEY}',
+    },
+  };
+  const { ctx, checks } = f.context(config);
+  let probes = 0;
+  const command: typeof runCommand = async (_command, args, options) => {
+    if (args.at(-1) === modelAccessScript) {
+      probes++;
+      const input = object(JSON.parse(options.input ?? 'null'));
+      assert.equal(input.side, 'Evaluation');
+      assert.equal(
+        input.baseUrl,
+        'http://host.docker.internal:2345/evaluation/v1',
+      );
+      assert.equal(input.model, 'evaluation-model');
+      assert.equal(input.apiKey, 'fixture-key-never-print');
+      assert.equal(options.env?.HTTP_PROXY, runtimeProxy);
+      assert.equal(options.env?.HTTPS_PROXY, runtimeProxy);
+      assert.equal(options.env?.NO_PROXY, 'internal.example');
+      assert.equal(options.env?.NODE_USE_ENV_PROXY, '1');
+      for (const name of proxyNames) {
+        assert.ok(
+          args.some(
+            (arg, index) => arg === '--env' && args[index + 1] === name,
+          ),
+        );
+      }
+      assert.equal(options.env?.http_proxy, runtimeProxy);
+      assert.equal(options.env?.https_proxy, runtimeProxy);
+      assert.equal(options.env?.no_proxy, 'internal.example');
+      assert.equal(JSON.stringify(args).includes('runtime-secret'), false);
+      assert.equal(
+        JSON.stringify(args).includes('fixture-key-never-print'),
+        false,
+      );
+      return {
+        stdout: JSON.stringify({
+          status: 'passed',
+          reason: 'Evaluation connected and found evaluation-model.',
+          details: { side: 'Evaluation', model: 'evaluation-model' },
+        }),
+        stderr: '',
+      };
+    }
+    return {
+      stdout:
+        args[0] === 'info'
+          ? JSON.stringify({
+              MemTotal: 1024 ** 3,
+              NCPU: 2,
+              OSType: 'linux',
+              Architecture: 'x86_64',
+              Driver: 'overlay2',
+            })
+          : '',
+      stderr: '',
+    };
+  };
+  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
+  assert.equal(probes, 1, JSON.stringify(checks));
+  const access = checks.find((check) => check.id === 'gateway-model-access');
+  assert.ok(access);
+  assert.equal(access?.status, 'passed', JSON.stringify(checks));
+  assert.equal(
+    access.reason,
+    'Evaluation connected and found evaluation-model.',
+  );
+  assert.equal(JSON.stringify(checks).includes('runtime-secret'), false);
+  assert.equal(
+    JSON.stringify(checks).includes('fixture-key-never-print'),
+    false,
+  );
+});
+
+test('gateway preserves a model service rejection and cleans up its container', async (t) => {
+  const f = await fixture(t);
+  await dataset(f.directory);
+  const { ctx, checks, missing } = f.context(agentConfig(f.directory));
+  const launched: string[] = [];
+  const removed: string[] = [];
+  const reason =
+    'Evaluation access to the model service was denied; check the evaluation API key and permissions.';
+  const command: typeof runCommand = async (_command, args) => {
+    if (args[0] === 'run') launched.push(args[args.indexOf('--name') + 1]);
+    if (args[0] === 'rm') removed.push(args.at(-1) ?? '');
+    return {
+      stdout:
+        args[0] === 'info'
+          ? JSON.stringify({
+              MemTotal: 1024 ** 3,
+              NCPU: 2,
+              OSType: 'linux',
+              Architecture: 'x86_64',
+              Driver: 'overlay2',
+            })
+          : args.at(-1) === modelAccessScript
+            ? JSON.stringify({
+                status: 'failed',
+                reason,
+                details: {
+                  side: 'Evaluation',
+                  model: 'fixture',
+                  failure: 'access-denied',
+                  httpStatus: 401,
+                },
+              })
+            : '',
+      stderr: '',
+    };
+  };
+  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
+  const access = checks.find((check) => check.id === 'gateway-model-access');
+  assert.ok(access);
+  assert.equal(access?.status, 'failed');
+  assert.equal(access.reason, reason);
+  assert.equal(access.details?.httpStatus, 401);
+  assert.equal(access.details?.failure, 'access-denied');
+  assert.ok(launched.length > 0);
+  assert.deepEqual(removed, launched);
+  assert.deepEqual(missing, []);
+});
+
+test('unsupported evaluation environment leaves model access unchecked without a host request', async (t) => {
+  t.mock.method(globalThis, 'fetch', () => {
+    throw new Error(
+      'Unsupported evaluation environment must not use host network',
+    );
+  });
+  const f = await fixture(t);
+  await dataset(f.directory);
+  const config = agentConfig(f.directory);
+  config.environment = 'local';
+  const { ctx, checks } = f.context(config);
+  let commands = 0;
+  const command: typeof runCommand = async () => {
+    commands++;
+    throw new Error(
+      'Unsupported evaluation environment must not invoke Docker',
+    );
+  };
+  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
+  assert.equal(
+    checks.find((check) => check.id === 'sdk-configuration')?.status,
+    'passed',
+    JSON.stringify(checks),
+  );
+  assert.equal(
+    checks.find((check) => check.id === 'gateway-model-access')?.status,
+    'unchecked',
+    JSON.stringify(checks),
+  );
+  assert.equal(commands, 0);
+});
+
 test('relative SDK source origins are not mistaken for caller-directory resources', async (t) => {
   const f = await fixture(t);
   const config = agentConfig(f.directory);
@@ -269,7 +491,7 @@ test('relative SDK source origins are not mistaken for caller-directory resource
             Architecture: 'x86_64',
             Driver: 'overlay2',
           })
-        : '',
+        : passedGateway(args),
     stderr: '',
   });
   await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
@@ -309,7 +531,7 @@ test('cached metadata retains the SDK source host-platform requirement', async (
             Architecture: 'x86_64',
             Driver: 'overlay2',
           })
-        : '',
+        : passedGateway(args),
     stderr: '',
   });
   await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
@@ -339,7 +561,7 @@ test('cold SDK gateway cache leaves dependent checks unchecked and never launche
               Architecture: 'x86_64',
               Driver: 'overlay2',
             })
-          : '',
+          : passedGateway(args),
       stderr: '',
     };
   };
@@ -387,7 +609,7 @@ test('missing local dataset fails while independent Docker checks still execute'
             Architecture: 'x86_64',
             Driver: 'overlay2',
           })
-        : '',
+        : passedGateway(args),
     stderr: '',
   });
   await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
@@ -447,7 +669,7 @@ test('gateway failure releases its owned container and does not report a missing
               Architecture: 'x86_64',
               Driver: 'overlay2',
             })
-          : '',
+          : passedGateway(args),
       stderr: '',
     };
   };
@@ -496,7 +718,7 @@ test('gateway cancellation releases its container using a live cleanup signal', 
               Architecture: 'x86_64',
               Driver: 'overlay2',
             })
-          : '',
+          : passedGateway(args),
       stderr: '',
     };
   };

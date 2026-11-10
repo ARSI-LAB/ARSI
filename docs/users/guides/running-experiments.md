@@ -64,6 +64,14 @@ ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
   - Doctor exits `1` when any check fails and `0` when no check fails, including reports with unchecked entries.
 - Checks use isolated temporary storage and bounded probes of cached metadata, containers and model availability. Doctor does not perform model inference, download resources or execute an optimization Policy. `run` remains independent and can start directly.
 
+### Model connectivity preflight
+
+Doctor checks proposal and evaluation access separately, using each side's own model, endpoint and API key. For `agent.pi`, it requests the effective `base_url` followed by `/models` from the RSI process where Pi runs. For `evaluator.agentbench` on the SDK's local Docker path, it makes the same request from a cached gateway-image container on the selected Docker daemon, using the selected solver service and the evaluation runtime's proxy settings. Docker host-loopback endpoints use `host.docker.internal`, matching the SDK gateway.
+
+These model-list checks pass only for HTTP `200` with a valid model list containing the configured model ID. Each result explains whether that side connected, was denied access, could not find the configured model, received an invalid reply, or encountered a timeout or network failure. Failures point to that side's service address, credentials, model name or network. Unsupported execution paths remain `unchecked`; the checks never ask a model to answer a question.
+
+For `agent.codex`, Doctor invokes the configured executable's native `codex doctor` with its own authentication and configuration, including the configured model override. Native installation, configuration, authentication or network health is reported separately from model visibility: a native report without a successful model-list check cannot establish that the selected model is available, so model access remains `unchecked`. A Codex version without a supported doctor command also remains `unchecked`.
+
 ### Docker disk preflight
 
 For `evaluator.agentbench` using the SDK's local Docker execution path, `evaluator.docker-disk-space` observes storage on the selected Docker daemon and `evaluator.docker-disk-capacity` evaluates the known demand. A cached helper reads filesystem availability on the daemon node, including a Docker Desktop VM or remote Docker host; the terminal's disk is not a substitute. An image-store location that cannot be established remains an explicit unknown. In particular, [containerd storage can be separate from DockerRootDir](https://docs.docker.com/engine/storage/containerd/#disk-space-usage). [`docker system df`](https://docs.docker.com/reference/cli/docker/system/df/) reports usage and reclaimable data, not available filesystem bytes. Other evaluators and remote SDK deployments are outside this probe's scope.

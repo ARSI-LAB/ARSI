@@ -1,5 +1,5 @@
 import type { JsonObject, RuntimeContext } from '../../contracts/index.js';
-import { compareFilePaths } from '../../shared/compare-file-paths.js';
+import { compareFilePaths } from '../../shared/paths.js';
 import { digest, object, string } from '../../shared/json.js';
 import type { SdkOperatorResult } from './result.js';
 import type { PreparedOperatorCase } from './kernel-input.js';

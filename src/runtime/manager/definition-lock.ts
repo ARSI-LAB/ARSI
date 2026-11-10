@@ -8,7 +8,7 @@ import type {
 } from '../../contracts/index.js';
 import { object, string, strings, digest } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { configPathFields, isResourceUrl } from '../../shared/config-paths.js';
+import { configPathFields, isResourceUrl } from '../../shared/paths.js';
 import type { Recipe } from '../loaders/recipe.js';
 import type { Registry } from '../registry/index.js';
 import type { ReflectionConfig } from '../revisions/validation.js';

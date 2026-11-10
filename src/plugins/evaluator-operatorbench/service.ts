@@ -18,7 +18,7 @@ import {
   type OperatorbenchOutput,
 } from '../../contracts/plugin-types/operatorbench.js';
 import { digest, object, string } from '../../shared/json.js';
-import { compareFilePaths } from '../../shared/compare-file-paths.js';
+import { compareFilePaths } from '../../shared/paths.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { archiveItemExecution } from '../shared/evaluator-adapter/measurement.js';
@@ -70,7 +70,7 @@ export async function createOperatorbench(
     '../shared/evaluator-adapter/configuration',
     '../shared/evaluator-adapter/data',
     '../application-kernel/schema',
-    '../../shared/compare-file-paths',
+    '../../shared/paths',
   ]);
   const sdkBuildDigest = await sdkBuildIdentity();
   return {

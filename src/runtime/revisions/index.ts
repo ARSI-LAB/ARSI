@@ -28,7 +28,7 @@ import {
   canonical,
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { configPathFields } from '../../shared/config-paths.js';
+import { configPathFields } from '../../shared/paths.js';
 import { inside, safeId } from '../storage/index.js';
 import {
   isTerminal,

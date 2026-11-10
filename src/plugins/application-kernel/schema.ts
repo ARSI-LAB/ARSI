@@ -1,5 +1,5 @@
 import type { JsonObject, JsonSchema } from '../../contracts/index.js';
-import { compareFilePaths } from '../../shared/compare-file-paths.js';
+import { compareFilePaths } from '../../shared/paths.js';
 import { digest } from '../../shared/json.js';
 import { safePath } from '../shared/file-application/target.js';
 import { validate } from '../../shared/schema.js';

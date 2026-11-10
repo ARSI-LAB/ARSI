@@ -17,7 +17,7 @@ import {
   unknownKeys,
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { configPathFields } from '../../shared/config-paths.js';
+import { configPathFields } from '../../shared/paths.js';
 import { readYaml } from '../loaders/yaml.js';
 import { resolveConfig } from '../loaders/config.js';
 import { safeId } from '../storage/index.js';

@@ -324,8 +324,6 @@ const result = await context.invokeAgent('agent', {
 });
 ```
 
-受管理快照包含 `AGENTS.md` 和 `CLAUDE.md`、`.agents/skills/` 与 `.claude/skills/` 中的 Skills，以及 Codex 和 Claude Code 原生角色定义。这些路径保留给生成的项目输入，不要传入与其冲突的文件。
-
 ### 调用与资源清理
 
 - 加载 Recipe 时只装配定义；运行时再调用 `create` 创建实例、调用 `execute` 执行业务。Runtime 负责校验输入输出并记录调用。

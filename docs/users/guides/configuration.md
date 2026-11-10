@@ -135,37 +135,18 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 
 ### Claude Code backend
 
-`agent.claudecode` runs a locally installed Claude Code CLI in a fresh, non-persistent session for each Agent call. Use Claude Code 2.1.319 or newer on macOS or Linux; Windows process-tree cleanup is not supported by this adapter yet. Install and authenticate the CLI, or supply its native gateway environment variables, before running RSI.
+`agent.claudecode` uses a locally installed Claude Code CLI (2.1.319 or newer, macOS/Linux). Prepare its login or gateway environment before running RSI:
 
 ```yaml
 bindings:
   agent:
     plugin: agent.claudecode
-    config:
-      executable: claude
-      timeoutMs: 240000
+    config: {}
 ```
 
-The [Claude Code Schema](../../../src/plugins/agent-claudecode/schema.ts) accepts only `executable` (default `claude`), optional `model`, `effort` (`low`, `medium`, `high`, `xhigh`, `max`), and `timeoutMs` (1–2,147,483,647 milliseconds for the whole call). Omitted model and effort use the CLI's effective defaults. A model may not support every effort level. The executable can also be a local launcher that injects gateway credentials into the CLI environment; keep credentials out of Recipes. RSI does not implement another provider client.
+The [Claude Code Schema](../../../src/plugins/agent-claudecode/schema.ts) accepts `executable` (default `claude`), optional `model`, `effort`, and `timeoutMs` for the whole call. Unlike Codex's `thinkingLevel`, this backend uses `effort` for reasoning strength. Authentication and model connections remain configured in the native client environment.
 
-RSI passes the managed project as the working directory. `prepareAgentProject` projects instructions to `CLAUDE.md`, Skills to `.claude/skills/`, and native role definitions to `.claude/agents/`, including these files in the input artifact. Use native `Agent` delegation; the optional contract-level `role` input is rejected. Supplied roles can read and use Skills but cannot delegate recursively.
-
-The adapter uses restricted, non-interactive execution with `Read`, `Glob`, `Grep`, `Skill`, and `Agent`. Direct editing and command tools are disabled; MCP configuration is empty, user/project/local settings are ignored, and ordinary Hooks and configured plugins are disabled. Skills requiring shell execution or write tools are outside this backend's supported read-only workflow. RSI validates the final `structured_output` against `outputSchema`; the Proposer applies the resulting edits through the Application. Ordinary assistant text is never treated as a substitute result. Permission denials, missing/invalid structured output and native errors fail the call without an RSI repair or replay loop.
-
-These are native tool restrictions, not an OS filesystem sandbox. Claude Code can still write its own runtime state. Administrator-managed settings and Hooks can take precedence; use an externally isolated execution environment if those must also be constrained. No arbitrary CLI options or permission-bypass configuration is exposed.
-
-Each call owns its process group. Cancellation, timeout and disposal terminate the CLI and descendants. Diagnostics record native token usage when supplied; interrupted calls may have unknown usage. Native estimated costs are not verified billing. The backend cannot enforce the RSI `modelCalls` budget and does not invent call counts.
-
-Run deterministic checks with `pnpm check`. The separate integration entrypoint makes real model requests and requires a configured CLI and an explicit workspace owning the `.rsi/` data directory:
-
-```sh
-RSI_CLAUDE_TEST_ROOT=/path/to/rsi-workspace \
-RSI_CLAUDE_EXECUTABLE=claude \
-pnpm test:integration:claudecode
-```
-
-It verifies proposal/application commits, Skill and native subagent use, and an attempted direct-write probe. It retains uniquely named experiment data under that workspace's `.rsi/`. It does not run an evaluator or deploy an inference service. The default unit suite never invokes a real model.
-
+Each call uses a fresh session, native Skills and subagents, and read-only tools; RSI applies the structured edit proposal. User/project settings, ordinary Hooks and MCP are disabled. These tool restrictions are not an OS sandbox and do not override administrator-managed Hooks. The backend cannot enforce `modelCalls` budgets.
 
 ## Proposer file edits
 

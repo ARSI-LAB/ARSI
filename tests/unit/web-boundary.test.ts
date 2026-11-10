@@ -6,12 +6,12 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { readObservation } from '../../web/api/observation-client.js';
 
-test('Web imports only public contract types and the pure execution path reader', async () => {
+test('Web imports only public contract types and the pure iteration scope reader', async () => {
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const web = resolve(root, 'web');
   const sourceRoot = resolve(root, 'src') + sep;
   const contracts = resolve(root, 'src/contracts') + sep;
-  const execution = resolve(root, 'src/shared/execution-path.js');
+  const execution = resolve(root, 'src/shared/iterations.js');
   const verify = (
     filename: string,
     specifier: string,
@@ -22,12 +22,12 @@ test('Web imports only public contract types and the pure execution path reader'
     if (target.startsWith(sourceRoot)) {
       assert.ok(
         (target.startsWith(contracts) && typeOnly) || target === execution,
-        `${filename} must use public contract types or the pure execution path reader: ${specifier}`,
+        `${filename} must use public contract types or the pure iteration scope reader: ${specifier}`,
       );
     }
   };
   const consumer = resolve(web, 'consumer.ts');
-  verify(consumer, '../src/shared/execution-path.js', false);
+  verify(consumer, '../src/shared/iterations.js', false);
   for (const specifier of [
     '../src/runtime/manager/index.js',
     '../src/plugins/agent-pi/index.js',

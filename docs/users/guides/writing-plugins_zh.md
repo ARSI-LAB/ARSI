@@ -373,4 +373,4 @@ try {
 
 宿主中的注册只对该 Runtime 生效。另行启动 CLI 时，将扩展放入默认用户级目录自动加载，或使用 `--plugin-dir` 指定扩展目录。
 
-`Recipe.load` 装配并检查定义的结构，不执行前提探测。需要完整 CLI 预检时，使用相同的扩展注册运行 `ember-rsi doctor`。
+`Recipe.load` 装配并检查定义的结构，不执行前提探测。需要 CLI 预检时，使用相同的扩展注册运行 `ember-rsi doctor`。自定义插件自动参与结构和路径检查，目前没有公开的自定义探针接口，详见[自定义组件如何接入 doctor](doctor_zh.md#4-自定义组件如何接入-doctor)。

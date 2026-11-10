@@ -226,6 +226,7 @@ Inspect the saved experiment status, Measurement status and coverage, and scores
 - [Understand how a Recipe runs](concepts/architecture.md) and how the Runtime coordinates the Application, Policy, and plugins.
 - [Choose a built-in Policy and its components](guides/built-in-components.md) for your optimization target and evaluation setup.
 - [Configure experiments](guides/configuration.md), including Recipe fields, plugin bindings, Agents, environment variables, and budgets.
+- [Diagnose an experiment with doctor](guides/doctor.md), including built-in checks, report interpretation and custom-component coverage.
 - [Run, observe, and recover experiments](guides/running-experiments.md) with the CLI and dashboard.
 - [Use Skills](guides/using-skills.md) with your personal coding Agent, the evaluated Agent, or the optimizer.
 - [Configure Memory](guides/memory.md) to consolidate execution experience and pass it to later optimization calls.

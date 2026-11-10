@@ -373,4 +373,4 @@ Common `createRuntime` options are listed below; see the [Runtime entrypoint](..
 
 Registrations in a host only apply to that Runtime. A separately started CLI loads extensions from the default user-level directory, or from directories selected with `--plugin-dir`.
 
-`Recipe.load` assembles and structurally validates the definition without running prerequisite probes. Use `ember-rsi doctor` with the same extension registrations for the full CLI preflight.
+`Recipe.load` assembles and structurally validates the definition without running prerequisite probes. Use `ember-rsi doctor` with the same extension registrations for CLI preflight. Custom plugins receive automatic structural/path checks but currently have no public custom-probe hook; see [Connecting custom components](doctor.md#4-connecting-custom-components).

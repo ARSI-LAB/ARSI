@@ -64,21 +64,7 @@ ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
   - 任一检查失败时 doctor 返回 `1`，无失败时返回 `0`，即使包含未检查项。
 - 检查使用隔离的临时存储，以及针对已缓存元数据、容器和模型可用性的有时限探测。Doctor 不执行模型推理、不下载资源，也不执行优化 Policy。`run` 保持独立，可以直接启动实验。
 
-### 模型连接预检
-
-Doctor 分别检查提案和评测的连接，使用各自的模型、地址和 API 密钥。对于 `agent.pi`，检查从 Pi 实际运行的 RSI 进程向生效 `base_url` 后的 `/models` 发送请求。对于使用 SDK 本地 Docker 路径的 `evaluator.agentbench`，检查在所选 Docker daemon 上用已缓存的网关镜像启动容器，使用选中的求解服务和评测运行时的代理设置发送相同请求。Docker 宿主机回环地址通过 `host.docker.internal` 访问，与 SDK 网关一致。
-
-只有服务返回 HTTP `200`、回复是有效模型列表且包含配置的模型 ID 时，模型列表检查才通过。每项结果说明该侧已连通、访问被拒绝、未找到配置的模型、收到无效回复，或遇到超时、网络错误，并提示检查该侧的服务地址、凭证、模型名称或网络。不支持的执行路径保留为 `unchecked`；检查不会让模型回答问题。
-
-对于 `agent.codex`，Doctor 使用配置的可执行文件调用原生 `codex doctor`，沿用其自身的认证和配置，并传入已配置的模型覆盖。原生安装、配置、认证或网络健康状态与模型可见性分别报告：原生报告没有成功检查模型列表时，不能证明所选模型可用，因此模型连接仍为 `unchecked`。Codex 版本不支持 doctor 命令时也保留为 `unchecked`。
-
-### Docker 磁盘预检
-
-当 `evaluator.agentbench` 使用 SDK 的本地 Docker 执行路径时，`evaluator.docker-disk-space` 观察所选 Docker daemon 的存储，`evaluator.docker-disk-capacity` 判断已知需求。已缓存的辅助镜像在 daemon 节点读取文件系统可用空间，覆盖 Docker Desktop 虚拟机或远程 Docker 主机；当前终端所在磁盘不能代替该测量。无法确认的镜像存储位置会明确保留为未知。尤其是 [containerd 存储可能与 DockerRootDir 分离](https://docs.docker.com/engine/storage/containerd/#disk-space-usage)。[`docker system df`](https://docs.docker.com/reference/cli/docker/system/df/) 提供已用量和可回收量，而非文件系统可用字节。其他 Evaluator 和远程 SDK deployment 不在此探测范围内。
-
-每项磁盘结果可以通过 `details` 保留已测可用量、按平台区分的已缓存镜像与层信息、分别核算的拉取、解包、构建和运行空间需求，以及未知原因。无法确定的数量保留为 `null`。原始镜像已缓存，并不代表 SDK 派生镜像构建无需额外空间。任务的 `resources.storage` 是声明的规划需求，不是已强制执行的配额或实测用量。其中最大的生效环境请求构成已知下界；准备、阶段和任务并发可能需要更多空间。
-
-已知需求已经超过可用空间时，容量结论为 `failed`，并报告可用字节、已知需求和缺口。尚未证明空间不足，而解包或构建大小、运行增长量或存储位置未知时，结论保留为 `unchecked`，同时保留已获得的观测值。磁盘辅助探针不拉取或构建镜像，也不使用网络。
+机制、报告解读、内置覆盖范围、模型与磁盘检查，以及自定义组件接入边界，参见 [doctor 指南](doctor_zh.md)。
 
 在同一工作区的另一终端中查看进度：
 

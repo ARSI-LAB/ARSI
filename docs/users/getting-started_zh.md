@@ -226,6 +226,7 @@ ember-rsi show terminal-skills-01 # Inspect the saved status and results
 - [了解 Recipe 如何执行](concepts/architecture_zh.md)，以及 Runtime 如何协调 Application、Policy 和插件。
 - [选择内置 Policy 和组件](guides/built-in-components_zh.md)，匹配你的优化目标和评测环境。
 - [配置实验](guides/configuration_zh.md)，了解 Recipe 字段、插件绑定、Agent 与环境变量及预算。
+- [使用 doctor 诊断实验](guides/doctor_zh.md)，了解内置检查、报告含义和自定义组件的覆盖范围。
 - [运行、观察与恢复实验](guides/running-experiments_zh.md)，使用 CLI 和工作台。
 - [使用 Skill](guides/using-skills_zh.md)，为个人编程 Agent、被评测的 Agent 或优化器配置 Skill。
 - [配置 Memory](guides/memory_zh.md)，整理执行经验并传给后续优化调用。

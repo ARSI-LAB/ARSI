@@ -215,7 +215,7 @@ ember-rsi show terminal-skills-01 # Inspect the saved status and results
 
 - Use `ember-rsi list` to find saved experiments.
 - Use `ember-rsi cancel terminal-skills-01` to request cancellation.
-- Use `ember-rsi doctor my-experiment/recipe.yaml` to check schemas, bindings, contracts, declared Reflection resources, local inputs and runtime prerequisites. Its bounded probes can inspect cached task metadata, containers and model availability without model inference, resource downloads or optimization runs.
+- Use `ember-rsi doctor my-experiment/recipe.yaml` to check schemas, bindings, contracts, declared Reflection resources, local inputs and supported runtime prerequisites. Evaluators delegate to the SDK's full doctor, including its download and Docker build probes; no model inference or optimization run is performed. See the [doctor guide](guides/doctor.md) for coverage and side effects.
 - Use `ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01 --resume` to resume an interrupted experiment, reusing the original Recipe, working directory, and experiment ID.
 - Use `ember-rsi dashboard --port <port>` to inspect candidates, measurements, and calls. Run it from the same working directory containing `.rsi/` and open the address printed by the command. The `Reflection & Memory` tab also lets you inspect experience and revisions, and preview and apply Reflection changes; see [Dashboard](guides/running-experiments.md#dashboard). Start, resume, and cancel through the CLI.
 

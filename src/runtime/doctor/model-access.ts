@@ -1,5 +1,4 @@
 import type { JsonObject } from '../../contracts/json.js';
-import { object } from '../../shared/json.js';
 
 export interface ModelAccessInput {
   side: 'Proposal' | 'Evaluation';
@@ -15,29 +14,7 @@ export interface ModelAccessResult {
   details: JsonObject;
 }
 
-export function parseModelAccessResult(value: unknown): ModelAccessResult {
-  try {
-    const result = object(value);
-    if (
-      (result.status !== 'passed' && result.status !== 'failed') ||
-      typeof result.reason !== 'string' ||
-      result.reason.trim().length === 0
-    ) {
-      throw new Error('Invalid probe result');
-    }
-    return {
-      status: result.status,
-      reason: result.reason,
-      details: object(result.details),
-    };
-  } catch {
-    throw new Error(
-      'Model access probe returned an invalid diagnostic result.',
-    );
-  }
-}
-
-/** Self-contained so the same request and validation run on the execution host. */
+/** Check model discovery without issuing an inference request. */
 export async function probeModelAccess(
   input: ModelAccessInput,
   signal?: AbortSignal,
@@ -180,28 +157,3 @@ export async function probeModelAccess(
     clearTimeout(timer);
   }
 }
-
-/** Credentials travel only over stdin, and diagnostic failures still exit zero. */
-export const modelAccessScript: string = `
-const probe = (${probeModelAccess.toString()});
-(async () => {
-  let text = '';
-  process.stdin.setEncoding('utf8');
-  for await (const chunk of process.stdin) {
-    text += chunk;
-    if (Buffer.byteLength(text) > 64 * 1024) throw new Error('Probe input too large');
-  }
-  const input = JSON.parse(text);
-  if (!input || typeof input !== 'object' ||
-      !['Proposal', 'Evaluation'].includes(input.side) ||
-      !['model', 'baseUrl', 'apiKey'].every(key => typeof input[key] === 'string') ||
-      (input.timeoutMs !== undefined &&
-       (!Number.isFinite(input.timeoutMs) || input.timeoutMs <= 0 || input.timeoutMs > 2147483647))) {
-    throw new Error('Invalid probe input');
-  }
-  process.stdout.write(JSON.stringify(await probe(input)) + '\\n');
-})().catch(() => {
-  process.stderr.write('Model access probe could not execute.\\n');
-  process.exitCode = 1;
-});
-`;

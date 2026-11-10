@@ -16,15 +16,14 @@ import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { doctorRecipe } from '../../src/runtime/doctor/index.js';
 import { doctorScripts } from '../../src/runtime/doctor/scripts.js';
 import { createEvaluatorChecks } from '../../src/runtime/doctor/evaluator-checks.js';
-import {
-  modelAccessScript,
-  type ModelAccessInput,
-} from '../../src/runtime/doctor/model-access.js';
+import type {
+  SdkDoctorOptions,
+  SdkDoctorRunner,
+} from '../../src/runtime/doctor/evaluator-sdk.js';
 import type {
   DoctorReport,
   DoctorScript,
 } from '../../src/runtime/doctor/types.js';
-import type { runCommand } from '../../src/runtime/doctor/process.js';
 import { object } from '../../src/shared/json.js';
 
 function selectedTasks(value: JsonValue): string[] {
@@ -47,8 +46,8 @@ async function fixture(
   runtime: Runtime;
   recipe: Recipe;
   data: JsonObject;
-  calls: string[][];
-  command: typeof runCommand;
+  calls: { config: JsonObject; options: SdkDoctorOptions }[];
+  runner: SdkDoctorRunner;
   scripts: Readonly<Record<string, DoctorScript>>;
 }> {
   const root = await mkdtemp(join(tmpdir(), `rsi-doctor-${name}-`));
@@ -129,37 +128,30 @@ async function fixture(
   };
   const path = join(root, 'recipe.json');
   await writeFile(path, JSON.stringify(data));
-  const calls: string[][] = [];
-  const command: typeof runCommand = async (_executable, args, options) => {
-    calls.push([...args]);
-    if (args.at(-1) === modelAccessScript) {
-      const input = object(JSON.parse(options.input ?? '{}'));
-      return {
-        stdout: JSON.stringify({
-          status: 'passed',
-          reason: `Evaluation connected to the model service and found configured model ${input.model}.`,
-          details: {
-            side: 'Evaluation',
-            model: input.model,
-            httpStatus: 200,
-            modelCount: 1,
-          },
-        }),
-        stderr: '',
-      };
-    }
+  const calls: { config: JsonObject; options: SdkDoctorOptions }[] = [];
+  const runner: SdkDoctorRunner = async (options) => {
+    calls.push({
+      config: object(JSON.parse(await readFile(options.configPath, 'utf8'))),
+      options,
+    });
     return {
-      stdout:
-        args[0] === 'info'
-          ? JSON.stringify({
-              MemTotal: 8 * 1024 ** 3,
-              NCPU: 8,
-              OSType: 'linux',
-              Architecture: 'x86_64',
-              Driver: 'overlay2',
-            })
-          : '',
-      stderr: '',
+      checks: [
+        {
+          name: 'SDK prerequisites',
+          status: 'passed',
+          detail: 'SDK received the selected evaluation configuration.',
+        },
+      ],
+      network: {
+        status: 'passed',
+        probes: [
+          {
+            name: 'runtime model route',
+            status: 'passed',
+            evidence: 'HTTP 200',
+          },
+        ],
+      },
     };
   };
   return {
@@ -169,8 +161,8 @@ async function fixture(
     recipe,
     data,
     calls,
-    command,
-    scripts: { ...doctorScripts, ...createEvaluatorChecks(command) },
+    runner,
+    scripts: { ...doctorScripts, ...createEvaluatorChecks(runner) },
   };
 }
 
@@ -223,9 +215,10 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
       'application.acquire-instance',
       'agent.model-config',
       'agent.model-access',
-      'evaluator.task-metadata',
-      'evaluator.docker-capacity',
-      'evaluator.gateway-model-access',
+      'evaluator.configuration',
+      'evaluator.sdk-doctor',
+      'evaluator.sdk.check-0',
+      'evaluator.sdk.network',
       independentChecks[name],
     ])
       assert.equal(
@@ -256,19 +249,25 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
     assert.deepEqual(await f.runtime.manager.list(), []);
     assert.deepEqual(await f.runtime.context.facts.list('measurements'), []);
     await assert.rejects(access(join(f.root, '.rsi')));
-    assert.ok(
-      f.calls
-        .filter((args) => args[0] === 'run')
-        .every((args) => args.includes('--pull=never')),
+    assert.equal(f.calls.length, 1);
+    assert.deepEqual(object(f.calls[0].config.run).taskIds, [
+      ...new Set(selectedTasks(f.recipe.policyConfig)),
+    ]);
+    assert.equal(
+      f.calls[0].options.env.MODEL_API_KEY,
+      'doctor-harness-fixture-key-never-print',
     );
-    assert.ok(
-      f.calls.every(
-        (args) => !args.includes('pull') && !args.includes('build'),
-      ),
+    const evaluatorConfig = object(
+      object(object(f.data.bindings).evaluator).config,
+    );
+    assert.deepEqual(
+      object(f.calls[0].config.services),
+      evaluatorConfig.services,
     );
     assert.equal(
-      f.calls.filter((args) => args[0] === 'run').length,
-      f.calls.filter((args) => args[0] === 'rm').length,
+      report.checks.find((check) => check.id === 'evaluator.model-access')
+        ?.status,
+      'unchecked',
     );
     verifyReport(report);
   });
@@ -308,7 +307,8 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
         'passed',
       );
       assert.equal(
-        report.checks.find((check) => check.id === 'evaluator.docker')?.status,
+        report.checks.find((check) => check.id === 'evaluator.sdk-doctor')
+          ?.status,
         'passed',
       );
       assert.ok(
@@ -369,42 +369,45 @@ test('proposal success does not hide an evaluation key failure for the same mode
       return new Response(JSON.stringify({ data: [{ id: 'shared-model' }] }));
     },
   );
-  let evaluation: ModelAccessInput | undefined;
-  const command: typeof runCommand = async (executable, args, options) => {
-    if (args.at(-1) === modelAccessScript) {
-      const input = object(JSON.parse(options.input ?? '{}'));
-      assert.deepEqual(input, {
-        side: 'Evaluation',
-        baseUrl: 'http://evaluation.example/v1',
-        apiKey: 'evaluation-only-secret',
-        model: 'shared-model',
-      });
-      evaluation = {
-        side: 'Evaluation',
-        baseUrl: String(input.baseUrl),
-        apiKey: String(input.apiKey),
-        model: String(input.model),
-      };
-      return {
-        stdout: JSON.stringify({
+  let evaluation: JsonObject | undefined;
+  const runner: SdkDoctorRunner = async (options) => {
+    const config = object(
+      JSON.parse(await readFile(options.configPath, 'utf8')),
+    );
+    evaluation = object(object(config.services).default);
+    assert.deepEqual(evaluation, {
+      base_url: 'http://evaluation.example/v1',
+      api_key: '${DOCTOR_EVALUATION_TEST_KEY}',
+      model: 'shared-model',
+    });
+    assert.equal(
+      options.env.DOCTOR_EVALUATION_TEST_KEY,
+      'evaluation-only-secret',
+    );
+    return {
+      checks: [
+        {
+          name: 'SDK model service',
           status: 'failed',
-          reason:
-            'Evaluation access to the model service was denied; check the evaluation API key and permissions.',
-          details: {
-            side: 'Evaluation',
-            model: 'shared-model',
-            httpStatus: 401,
-            failure: 'access-denied',
+          detail:
+            'Evaluation access was denied; check its API key (evaluation-only-secret) and permissions.',
+        },
+      ],
+      network: {
+        status: 'failed',
+        probes: [
+          {
+            name: 'runtime model route',
+            status: 'failed',
+            evidence: 'HTTP 401; credential evaluation-only-secret',
           },
-        }),
-        stderr: '',
-      };
-    }
-    return f.command(executable, args, options);
+        ],
+      },
+    };
   };
   await writeFile(f.path, JSON.stringify(f.data));
   const report = await doctorRecipe(f.runtime, f.path, {
-    scripts: { ...doctorScripts, ...createEvaluatorChecks(command) },
+    scripts: { ...doctorScripts, ...createEvaluatorChecks(runner) },
   });
   assert.equal(
     report.checks.find((check) => check.id === 'agent.model-access')?.status,
@@ -412,14 +415,15 @@ test('proposal success does not hide an evaluation key failure for the same mode
     JSON.stringify(report),
   );
   const failed = report.checks.find(
-    (check) => check.id === 'evaluator.gateway-model-access',
+    (check) => check.id === 'evaluator.sdk.check-0',
   );
   assert.equal(failed?.status, 'failed');
   assert.match(failed?.reason ?? '', /Evaluation.*API key/);
+  assert.match(failed?.reason ?? '', /\[redacted\]/);
   assert.ok(!failed?.reason?.includes('Plugin availability'));
-  assert.equal(report.summary.failed, 1);
+  assert.equal(report.summary.failed, 2);
   assert.deepEqual(hostRequests, ['http://proposal.example/v1/models']);
-  assert.equal(evaluation?.apiKey, 'evaluation-only-secret');
+  assert.equal(evaluation?.api_key, '${DOCTOR_EVALUATION_TEST_KEY}');
   assert.ok(!JSON.stringify(report).includes('only-secret'));
   assert.deepEqual(await f.runtime.context.facts.list('measurements'), []);
   verifyReport(report);

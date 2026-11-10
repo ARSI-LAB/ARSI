@@ -2,36 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { RequestListener } from 'node:http';
-import {
-  modelAccessScript,
-  parseModelAccessResult,
-  probeModelAccess,
-} from '../../src/runtime/doctor/model-access.js';
+import { probeModelAccess } from '../../src/runtime/doctor/model-access.js';
 import type { ModelAccessInput } from '../../src/runtime/doctor/model-access.js';
-import { runCommand } from '../../src/runtime/doctor/process.js';
-
-test('model access result parsing validates the diagnostic boundary without echoing input', () => {
-  const valid = {
-    status: 'passed',
-    reason: 'Proposal connected to its configured model.',
-    details: { side: 'Proposal', model: 'fixture-model', httpStatus: 200 },
-  };
-  assert.deepEqual(parseModelAccessResult(valid), valid);
-  for (const value of [
-    null,
-    [],
-    { ...valid, status: 'unchecked' },
-    { ...valid, status: 'sensitive-value' },
-    { ...valid, reason: '' },
-    { ...valid, reason: 7 },
-    { ...valid, details: [] },
-    { ...valid, details: { invalid: Infinity } },
-  ]) {
-    assert.throws(parseModelAccessResult.bind(null, value), {
-      message: 'Model access probe returned an invalid diagnostic result.',
-    });
-  }
-});
 
 async function serve(
   t: test.TestContext,
@@ -256,39 +228,4 @@ test('model access rejects credential-bearing service URLs without echoing them'
   assert.equal(result.details.failure, 'invalid-url');
   assert.match(result.reason, /invalid.*base_url/);
   assert.doesNotMatch(JSON.stringify(result), /password|localhost/);
-});
-
-test('serialized execution uses the same probe and emits one JSON result for pass and failure', async (t) => {
-  let denied = false;
-  const baseUrl = await serve(t, (request, response) => {
-    assert.equal(
-      request.headers.authorization,
-      'Bearer proposal-fixture-secret',
-    );
-    response.statusCode = denied ? 403 : 200;
-    response.end(JSON.stringify({ data: [{ id: 'fixture-model' }] }));
-  });
-  for (const failure of [false, true]) {
-    denied = failure;
-    const configuration: ModelAccessInput = {
-      ...input(baseUrl),
-      side: 'Evaluation',
-    };
-    const expected = await probeModelAccess(configuration);
-    const output = await runCommand(
-      process.execPath,
-      ['-e', modelAccessScript],
-      {
-        signal: AbortSignal.timeout(5_000),
-        input: JSON.stringify(configuration),
-      },
-    );
-    assert.equal(output.stderr, '');
-    assert.deepEqual(
-      parseModelAccessResult(JSON.parse(output.stdout)),
-      expected,
-    );
-    assert.equal(output.stdout.trim().split('\n').length, 1);
-    assert.doesNotMatch(output.stdout, /fixture-secret/);
-  }
 });

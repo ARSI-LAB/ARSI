@@ -282,7 +282,7 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`doctor` 检查契约、绑定和配置，再对已选择的实现运行可用的内置前提探测。没有随 RSI 打包检查脚本的自定义插件会标为 `unchecked`。Doctor 不执行模型推理、资源下载或优化实验。实验运行后检查 `propose` 的输出是否包含 `status: no-change` 和预期的 `rationale`；查看步骤结果的方法见[运行与检查实验](running-experiments_zh.md)。
+`doctor` 检查契约、绑定和配置，再对已选择的实现运行可用的内置前提探测。没有随 RSI 打包检查脚本的自定义插件会标为 `unchecked`。Doctor 不执行模型推理或优化实验；Evaluator 委托完整 SDK doctor，包括其下载和构建探针。实验运行后检查 `propose` 的输出是否包含 `status: no-change` 和预期的 `rationale`；查看步骤结果的方法见[运行与检查实验](running-experiments_zh.md)。
 
 ## 使用 RuntimeContext
 

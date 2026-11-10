@@ -282,7 +282,7 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`doctor` checks contracts, bindings and configuration, then runs the bundled prerequisite probes available for the selected implementations. A custom plugin without a bundled check is reported as `unchecked`. Doctor performs no model inference, resource downloads or optimization run. After running the experiment, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
+`doctor` checks contracts, bindings and configuration, then runs the bundled prerequisite probes available for the selected implementations. A custom plugin without a bundled check is reported as `unchecked`. Doctor performs no model inference or optimization run; Evaluators delegate to the full SDK doctor, including its download and build probes. After running the experiment, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
 
 ## Use RuntimeContext
 

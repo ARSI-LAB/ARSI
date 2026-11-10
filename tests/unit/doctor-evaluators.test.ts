@@ -1,64 +1,56 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { PINNED_NODE_IMAGE } from 'ember-evaluator';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { createEvaluatorChecks } from '../../src/runtime/doctor/evaluator-checks.js';
-import { modelAccessScript } from '../../src/runtime/doctor/model-access.js';
+import type { SdkDoctorRunner } from '../../src/runtime/doctor/evaluator-sdk.js';
 import { object } from '../../src/shared/json.js';
 import type {
   DoctorCheck,
   DoctorContext,
-  MissingResource,
 } from '../../src/runtime/doctor/types.js';
-import type { runCommand } from '../../src/runtime/doctor/process.js';
 
-async function fixture(t: test.TestContext): Promise<{
-  directory: string;
-  registry: Registry;
-  recipe: Recipe;
-  context(
-    config: JsonObject,
-    pluginId?: string,
-  ): {
-    ctx: DoctorContext;
-    checks: DoctorCheck[];
-    missing: Omit<MissingResource, 'binding' | 'pluginId'>[];
+const nativeReport = () => ({
+  checks: [
+    {
+      name: 'SDK prerequisites',
+      status: 'passed',
+      detail: 'SDK prerequisites are available.',
+    },
+  ],
+  network: { status: 'passed', probes: [] },
+});
+
+async function fixture(t: test.TestContext) {
+  const directory = await mkdtemp(join(tmpdir(), 'rsi-doctor-sdk-'));
+  const networkConfigPath = join(directory, 'network.yaml');
+  await writeFile(networkConfigPath, '{}\n');
+  const previous = {
+    network: process.env.EVALUATOR_NETWORK_CONFIG,
+    key: process.env.DOCTOR_TEST_KEY,
   };
-}> {
-  const directory = await mkdtemp(join(tmpdir(), 'rsi-doctor-evaluator-'));
-  const previousNetwork = process.env.EVALUATOR_NETWORK_CONFIG;
-  const previousKey = process.env.DOCTOR_TEST_KEY;
-  process.env.DOCTOR_TEST_KEY = 'fixture-key-never-print';
-  process.env.EVALUATOR_NETWORK_CONFIG = join(directory, 'network.yaml');
-  await writeFile(process.env.EVALUATOR_NETWORK_CONFIG, '{}\n');
+  process.env.EVALUATOR_NETWORK_CONFIG = networkConfigPath;
+  process.env.DOCTOR_TEST_KEY = 'evaluator-fixture-key-never-print';
   const registry = new Registry();
+  await registerBuiltins(registry);
   t.after(async () => {
-    if (previousNetwork === undefined)
+    if (previous.network === undefined)
       delete process.env.EVALUATOR_NETWORK_CONFIG;
-    else process.env.EVALUATOR_NETWORK_CONFIG = previousNetwork;
-    if (previousKey === undefined) delete process.env.DOCTOR_TEST_KEY;
-    else process.env.DOCTOR_TEST_KEY = previousKey;
+    else process.env.EVALUATOR_NETWORK_CONFIG = previous.network;
+    if (previous.key === undefined) delete process.env.DOCTOR_TEST_KEY;
+    else process.env.DOCTOR_TEST_KEY = previous.key;
     await registry.dispose();
     await rm(directory, { recursive: true, force: true });
   });
-  await registerBuiltins(registry);
   const recipe = await Recipe.fromJSON(
     {
       schemaVersion: 'rsi.recipe/v1',
-      id: 'doctor-evaluator',
+      id: 'doctor-sdk-fixture',
       application: {
         plugin: 'application.agentbundle',
         config: {
@@ -72,665 +64,379 @@ async function fixture(t: test.TestContext): Promise<{
       },
       policy: {
         id: 'policy.harness2',
-        config: { dataset: { taskIds: ['fixture'] } },
+        config: { dataset: { taskIds: ['fixture-task'] } },
       },
       bindings: {
-        evaluator: {
-          plugin: 'evaluator.agentbench',
-          config: {
-            benchmark: 'workbuddy',
-            services: {
-              default: {
-                model: 'fixture',
-                base_url: 'http://localhost:1234/v1',
-                api_key: '${DOCTOR_TEST_KEY}',
-              },
-            },
-          },
-        },
+        evaluator: { plugin: 'evaluator.agentbench', config: agentConfig() },
       },
     },
     registry,
-    { sourcePath: join(directory, 'recipe.yaml') },
+    { sourcePath: join(directory, 'recipe.json') },
   );
-  return {
-    directory,
-    registry,
-    recipe,
-    context(config, pluginId = 'evaluator.agentbench') {
-      const checks: DoctorCheck[] = [];
-      const missing: Omit<MissingResource, 'binding' | 'pluginId'>[] = [];
-      const ctx: DoctorContext = {
-        binding: {
-          name: 'evaluator',
-          pluginId,
-          definition: registry.get(pluginId),
-          config,
-        },
-        recipe,
-        registry,
-        directory,
-        runtime: new RuntimeContext(),
-        signal: new AbortController().signal,
-        async check(id, action, options) {
-          try {
-            await action(ctx.signal);
-            checks.push({
-              id,
-              status: 'passed',
-              ...(options?.reason ? { reason: options.reason } : {}),
-              ...(options?.details ? { details: options.details } : {}),
-            });
-            return true;
-          } catch (error) {
-            checks.push({
-              id,
-              status: 'failed',
-              reason:
-                options?.reason ||
-                (error instanceof Error ? error.message : String(error)),
-              ...(options?.details ? { details: options.details } : {}),
-            });
-            return false;
-          }
-        },
-        unchecked(id, reason, details) {
+  const context = (config: JsonObject, pluginId = 'evaluator.agentbench') => {
+    const checks: DoctorCheck[] = [];
+    const ctx: DoctorContext = {
+      binding: {
+        name: 'evaluator',
+        pluginId,
+        config,
+        definition: registry.get(pluginId),
+      },
+      recipe,
+      registry,
+      directory,
+      runtime: new RuntimeContext(),
+      signal: new AbortController().signal,
+      async check(id, action, options) {
+        try {
+          await action(ctx.signal);
           checks.push({
             id,
-            status: 'unchecked',
-            reason,
-            ...(details ? { details } : {}),
+            status: 'passed',
+            ...(options?.reason ? { reason: options.reason } : {}),
+            ...(options?.details ? { details: options.details } : {}),
           });
-        },
-        missing(resource) {
-          missing.push(resource);
-        },
-      };
-      return { ctx, checks, missing };
-    },
+          return true;
+        } catch (error) {
+          ctx.signal.throwIfAborted();
+          checks.push({
+            id,
+            status: 'failed',
+            reason:
+              options?.reason ||
+              (error instanceof Error ? error.message : String(error)),
+            ...(options?.details ? { details: options.details } : {}),
+          });
+          return false;
+        }
+      },
+      unchecked(id, reason, details) {
+        checks.push({
+          id,
+          status: 'unchecked',
+          reason,
+          ...(details ? { details } : {}),
+        });
+      },
+      missing() {
+        throw new Error(
+          'SDK results must not fabricate RSI missing-resource dependencies',
+        );
+      },
+    };
+    return { ctx, checks };
   };
+  return { directory, registry, recipe, context, networkConfigPath };
 }
 
-function agentConfig(directory: string): JsonObject {
+function agentConfig(): JsonObject {
   return {
-    benchmark: {
-      name: 'harbor',
-      solver: { name: 'agentbundle' },
-      config: {
-        dataset: 'fixture-dataset',
-        source: { kind: 'local', path: join(directory, 'dataset') },
-        tasks: { root: '.', id: 'directory', expectedCount: 1 },
-      },
-    },
+    benchmark: 'workbuddy',
     services: {
       default: {
-        model: 'fixture',
-        base_url: 'http://localhost:1234/v1',
+        model: 'evaluation-model',
+        base_url: 'http://evaluation.example/v1',
         api_key: '${DOCTOR_TEST_KEY}',
       },
     },
+    run: { sampling: { count: 1 }, offset: 3 },
   };
 }
 
-async function dataset(directory: string): Promise<void> {
-  const root = join(directory, 'dataset', 'fixture');
-  await mkdir(join(root, 'tests'), { recursive: true });
-  await mkdir(join(root, 'environment'));
-  await writeFile(
-    join(root, 'task.toml'),
-    '[environment]\ndocker_image="fixture:cached"\nworkdir="/app"\ncpus=1\nmemory="32m"\n',
-  );
-  await writeFile(join(root, 'instruction.md'), 'Fixture instruction.');
-  await writeFile(join(root, 'tests', 'test.sh'), 'exit 0\n');
-}
-
-function passedGateway(args: readonly string[]): string {
-  return args.at(-1) === modelAccessScript
-    ? JSON.stringify({
-        status: 'passed',
-        reason: 'Evaluation connected to the configured model service.',
-        details: { side: 'Evaluation', model: 'fixture' },
-      })
-    : '';
-}
-
-test('agentbench checks cached task metadata and gateway without downloads or inference', async (t) => {
-  t.mock.method(globalThis, 'fetch', () => {
-    throw new Error('Doctor attempted a host download or model request');
-  });
+test('agentbench delegates effective task and service configuration to SDK doctor without host probes', async (t) => {
   const f = await fixture(t);
-  await dataset(f.directory);
-  const inventory = await readdir(join(f.directory, 'dataset'), {
-    recursive: true,
+  t.mock.method(globalThis, 'fetch', () => {
+    throw new Error('RSI must not probe evaluator services');
   });
-  const { ctx, checks, missing } = f.context(agentConfig(f.directory));
-  const calls: { args: readonly string[]; input?: string }[] = [];
-  const command: typeof runCommand = async (_command, args, options) => {
-    calls.push({ args, input: options.input });
-    return {
-      stdout:
-        args[0] === 'info'
-          ? JSON.stringify({
-              MemTotal: 1024 ** 3,
-              NCPU: 2,
-              OSType: 'linux',
-              Architecture: 'x86_64',
-              Driver: 'overlay2',
-            })
-          : passedGateway(args),
-      stderr: '',
-    };
+  const { ctx, checks } = f.context(agentConfig());
+  let calls = 0;
+  const runner: SdkDoctorRunner = async (options) => {
+    calls++;
+    assert.equal(options.signal.aborted, false);
+    assert.equal(await readFile(options.networkConfigPath, 'utf8'), '{}\n');
+    assert.equal(
+      options.env.DOCTOR_TEST_KEY,
+      'evaluator-fixture-key-never-print',
+    );
+    const config = object(
+      JSON.parse(await readFile(options.configPath, 'utf8')),
+    );
+    const benchmark = object(config.benchmark);
+    const solver = object(benchmark.solver);
+    assert.equal(solver.name, 'agentbundle');
+    assert.equal(
+      object(solver.config).path,
+      object(f.recipe.application.config.baseline).directory,
+    );
+    assert.deepEqual(object(config.run).taskIds, ['fixture-task']);
+    assert.equal(object(config.run).maxTasks, null);
+    assert.equal(object(config.run).sampling, undefined);
+    assert.equal(object(config.run).offset, undefined);
+    assert.ok(String(object(config.output).directory).startsWith(f.directory));
+    assert.deepEqual(
+      object(config.services).default,
+      object(agentConfig().services).default,
+    );
+    return nativeReport();
   };
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
+  await createEvaluatorChecks(runner)['evaluator.agentbench'](ctx);
+  assert.equal(calls, 1);
   assert.equal(
-    checks.some((check) => check.status === 'failed'),
-    false,
-    JSON.stringify(checks),
-  );
-  for (const id of [
-    'configuration',
-    'sdk-configuration',
-    'task-metadata',
-    'docker-capacity',
-    'workspace-cache-mounts',
-    'gateway-model-access',
-  ])
-    assert.equal(checks.find((check) => check.id === id)?.status, 'passed', id);
-  assert.deepEqual(missing, []);
-  const launches = calls.filter((call) => call.args[0] === 'run');
-  assert.equal(launches.length, 2);
-  assert.ok(launches.every((call) => call.args.includes('--pull=never')));
-  assert.ok(
-    calls.every(
-      (call) => !call.args.includes('pull') && !call.args.includes('build'),
-    ),
+    checks.find((check) => check.id === 'configuration')?.status,
+    'passed',
   );
   assert.equal(
-    calls.filter((call) => call.args[0] === 'rm').length,
-    launches.length,
+    checks.find((check) => check.id === 'sdk-doctor')?.status,
+    'passed',
   );
-  assert.match(launches[1].input ?? '', /host\.docker\.internal/);
+  assert.equal(
+    checks.find((check) => check.id === 'sdk.check-0')?.status,
+    'passed',
+  );
+  assert.equal(
+    checks.find((check) => check.id === 'sdk.network')?.status,
+    'passed',
+  );
+  assert.equal(
+    checks.find((check) => check.id === 'model-access')?.status,
+    'unchecked',
+  );
+  assert.equal(
+    checks.find((check) => check.id === 'docker-disk-capacity')?.status,
+    'unchecked',
+  );
   assert.ok(
-    calls.every(
-      (call) => !JSON.stringify(call.args).includes('fixture-key-never-print'),
+    !checks.some(
+      (check) =>
+        check.id === 'gateway-model-access' || check.id === 'docker-disk-space',
     ),
-  );
-  assert.deepEqual(
-    await readdir(join(f.directory, 'dataset'), { recursive: true }),
-    inventory,
   );
 });
 
-test('gateway uses the selected evaluation service and runtime proxy without a host model request', async (t) => {
-  t.mock.method(globalThis, 'fetch', () => {
-    throw new Error('Evaluation must not probe the proposal process network');
-  });
+test('SDK diagnostics preserve failures, unsupported checks and incomplete network evidence', async (t) => {
   const f = await fixture(t);
-  await dataset(f.directory);
-  const proxyNames = [
-    'HTTP_PROXY',
-    'HTTPS_PROXY',
-    'NO_PROXY',
-    'http_proxy',
-    'https_proxy',
-    'no_proxy',
-  ];
-  const previous = Object.fromEntries(
-    proxyNames.map((name) => [name, process.env[name]]),
-  );
-  for (const name of proxyNames) delete process.env[name];
-  t.after(() => {
-    for (const name of proxyNames) {
-      if (previous[name] === undefined) delete process.env[name];
-      else process.env[name] = previous[name];
-    }
-  });
-  const runtimeProxy = 'http://runtime-user:runtime-secret@runtime.proxy:8081';
-  await writeFile(
-    join(f.directory, 'network.yaml'),
-    JSON.stringify({
-      proxy: {
-        http: 'http://host.proxy:8080',
-        https: 'http://host.proxy:8080',
-        overrides: {
-          runtime: {
-            http: runtimeProxy,
-            https: runtimeProxy,
-            noProxy: ['internal.example'],
-          },
-        },
+  const { ctx, checks } = f.context(agentConfig());
+  await createEvaluatorChecks(async () => ({
+    checks: [
+      {
+        name: 'Model credentials',
+        status: 'failed',
+        detail: 'Evaluation service rejected its API key.',
       },
-    }),
-  );
-  const config = agentConfig(f.directory);
-  object(config.benchmark).solver = {
-    name: 'agentbundle',
-    service: 'evaluation',
-  };
-  config.services = {
-    default: {
-      model: 'proposal-model',
-      base_url: 'https://proposal.example/v1',
+      {
+        name: 'Disk capacity',
+        status: 'not-checked',
+        detail: 'SDK cannot locate the execution-node image store.',
+      },
+    ],
+    network: {
+      status: 'incomplete',
+      probes: [
+        {
+          name: 'runtime model route',
+          status: 'not-checked',
+          evidence: 'remote node unavailable',
+          observed: { route: 'runtime' },
+        },
+      ],
     },
-    evaluation: {
-      model: 'evaluation-model',
-      base_url: 'http://127.0.0.1:2345/evaluation/v1',
-      api_key: '${DOCTOR_TEST_KEY}',
-    },
-  };
-  const { ctx, checks } = f.context(config);
-  let probes = 0;
-  const command: typeof runCommand = async (_command, args, options) => {
-    if (args.at(-1) === modelAccessScript) {
-      probes++;
-      const input = object(JSON.parse(options.input ?? 'null'));
-      assert.equal(input.side, 'Evaluation');
-      assert.equal(
-        input.baseUrl,
-        'http://host.docker.internal:2345/evaluation/v1',
-      );
-      assert.equal(input.model, 'evaluation-model');
-      assert.equal(input.apiKey, 'fixture-key-never-print');
-      assert.equal(options.env?.HTTP_PROXY, runtimeProxy);
-      assert.equal(options.env?.HTTPS_PROXY, runtimeProxy);
-      assert.equal(options.env?.NO_PROXY, 'internal.example');
-      assert.equal(options.env?.NODE_USE_ENV_PROXY, '1');
-      for (const name of proxyNames) {
-        assert.ok(
-          args.some(
-            (arg, index) => arg === '--env' && args[index + 1] === name,
-          ),
-        );
-      }
-      assert.equal(options.env?.http_proxy, runtimeProxy);
-      assert.equal(options.env?.https_proxy, runtimeProxy);
-      assert.equal(options.env?.no_proxy, 'internal.example');
-      assert.equal(JSON.stringify(args).includes('runtime-secret'), false);
-      assert.equal(
-        JSON.stringify(args).includes('fixture-key-never-print'),
-        false,
-      );
-      return {
-        stdout: JSON.stringify({
-          status: 'passed',
-          reason: 'Evaluation connected and found evaluation-model.',
-          details: { side: 'Evaluation', model: 'evaluation-model' },
-        }),
-        stderr: '',
-      };
-    }
-    return {
-      stdout:
-        args[0] === 'info'
-          ? JSON.stringify({
-              MemTotal: 1024 ** 3,
-              NCPU: 2,
-              OSType: 'linux',
-              Architecture: 'x86_64',
-              Driver: 'overlay2',
-            })
-          : '',
-      stderr: '',
-    };
-  };
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
-  assert.equal(probes, 1, JSON.stringify(checks));
-  const access = checks.find((check) => check.id === 'gateway-model-access');
-  assert.ok(access);
-  assert.equal(access?.status, 'passed', JSON.stringify(checks));
+  }))['evaluator.agentbench'](ctx);
   assert.equal(
-    access.reason,
-    'Evaluation connected and found evaluation-model.',
-  );
-  assert.equal(JSON.stringify(checks).includes('runtime-secret'), false);
-  assert.equal(
-    JSON.stringify(checks).includes('fixture-key-never-print'),
-    false,
-  );
-});
-
-test('gateway preserves a model service rejection and cleans up its container', async (t) => {
-  const f = await fixture(t);
-  await dataset(f.directory);
-  const { ctx, checks, missing } = f.context(agentConfig(f.directory));
-  const launched: string[] = [];
-  const removed: string[] = [];
-  const reason =
-    'Evaluation access to the model service was denied; check the evaluation API key and permissions.';
-  const command: typeof runCommand = async (_command, args) => {
-    if (args[0] === 'run') launched.push(args[args.indexOf('--name') + 1]);
-    if (args[0] === 'rm') removed.push(args.at(-1) ?? '');
-    return {
-      stdout:
-        args[0] === 'info'
-          ? JSON.stringify({
-              MemTotal: 1024 ** 3,
-              NCPU: 2,
-              OSType: 'linux',
-              Architecture: 'x86_64',
-              Driver: 'overlay2',
-            })
-          : args.at(-1) === modelAccessScript
-            ? JSON.stringify({
-                status: 'failed',
-                reason,
-                details: {
-                  side: 'Evaluation',
-                  model: 'fixture',
-                  failure: 'access-denied',
-                  httpStatus: 401,
-                },
-              })
-            : '',
-      stderr: '',
-    };
-  };
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
-  const access = checks.find((check) => check.id === 'gateway-model-access');
-  assert.ok(access);
-  assert.equal(access?.status, 'failed');
-  assert.equal(access.reason, reason);
-  assert.equal(access.details?.httpStatus, 401);
-  assert.equal(access.details?.failure, 'access-denied');
-  assert.ok(launched.length > 0);
-  assert.deepEqual(removed, launched);
-  assert.deepEqual(missing, []);
-});
-
-test('unsupported evaluation environment leaves model access unchecked without a host request', async (t) => {
-  t.mock.method(globalThis, 'fetch', () => {
-    throw new Error(
-      'Unsupported evaluation environment must not use host network',
-    );
-  });
-  const f = await fixture(t);
-  await dataset(f.directory);
-  const config = agentConfig(f.directory);
-  config.environment = 'local';
-  const { ctx, checks } = f.context(config);
-  let commands = 0;
-  const command: typeof runCommand = async () => {
-    commands++;
-    throw new Error(
-      'Unsupported evaluation environment must not invoke Docker',
-    );
-  };
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
-  assert.equal(
-    checks.find((check) => check.id === 'sdk-configuration')?.status,
-    'passed',
-    JSON.stringify(checks),
-  );
-  assert.equal(
-    checks.find((check) => check.id === 'gateway-model-access')?.status,
-    'unchecked',
-    JSON.stringify(checks),
-  );
-  assert.equal(commands, 0);
-});
-
-test('relative SDK source origins are not mistaken for caller-directory resources', async (t) => {
-  const f = await fixture(t);
-  const config = agentConfig(f.directory);
-  config.benchmark = {
-    name: 'harbor',
-    solver: { name: 'agentbundle' },
-    config: {
-      source: { kind: 'local', path: '.' },
-      tasks: { root: '.', id: 'directory' },
-    },
-  };
-  const { ctx, checks, missing } = f.context(config);
-  const command: typeof runCommand = async (_command, args) => ({
-    stdout:
-      args[0] === 'info'
-        ? JSON.stringify({
-            MemTotal: 1024 ** 3,
-            NCPU: 2,
-            OSType: 'linux',
-            Architecture: 'x86_64',
-            Driver: 'overlay2',
-          })
-        : passedGateway(args),
-    stderr: '',
-  });
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
-  assert.equal(
-    checks.find((check) => check.id === 'task-metadata')?.status,
-    'unchecked',
-  );
-  assert.match(
-    checks.find((check) => check.id === 'task-metadata')?.reason ?? '',
-    /per-evaluation SDK configuration directory/,
-  );
-  assert.equal(
-    checks.some((check) => check.status === 'failed'),
-    false,
-    JSON.stringify(checks),
-  );
-  assert.deepEqual(missing, []);
-});
-
-test('cached metadata retains the SDK source host-platform requirement', async (t) => {
-  const f = await fixture(t);
-  await dataset(f.directory);
-  const config = agentConfig(f.directory);
-  object(object(config.benchmark).config).source = {
-    kind: 'local',
-    path: join(f.directory, 'dataset'),
-    hostPlatform: process.platform === 'linux' ? 'win32' : 'linux',
-  };
-  const { ctx, checks } = f.context(config);
-  const command: typeof runCommand = async (_command, args) => ({
-    stdout:
-      args[0] === 'info'
-        ? JSON.stringify({
-            MemTotal: 1024 ** 3,
-            NCPU: 2,
-            OSType: 'linux',
-            Architecture: 'x86_64',
-            Driver: 'overlay2',
-          })
-        : passedGateway(args),
-    stderr: '',
-  });
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
-  assert.match(
-    checks.find((check) => check.id === 'task-metadata')?.reason ?? '',
-    /Source materialization requires/,
-  );
-  assert.equal(checks.find((check) => check.id === 'docker')?.status, 'passed');
-});
-
-test('cold SDK gateway cache leaves dependent checks unchecked and never launches containers', async (t) => {
-  const f = await fixture(t);
-  await dataset(f.directory);
-  const { ctx, checks, missing } = f.context(agentConfig(f.directory));
-  const mutableCalls: string[][] = [];
-  const command: typeof runCommand = async (_command, args) => {
-    mutableCalls.push([...args]);
-    if (args.includes(PINNED_NODE_IMAGE))
-      throw new Error('docker exited 1: No such image: gateway');
-    return {
-      stdout:
-        args[0] === 'info'
-          ? JSON.stringify({
-              MemTotal: 1024 ** 3,
-              NCPU: 2,
-              OSType: 'linux',
-              Architecture: 'x86_64',
-              Driver: 'overlay2',
-            })
-          : passedGateway(args),
-      stderr: '',
-    };
-  };
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
-  assert.equal(
-    checks.some((check) => check.status === 'failed'),
-    false,
-    JSON.stringify(checks),
-  );
-  assert.equal(
-    checks.find((check) => check.id === 'docker-capacity')?.status,
-    'passed',
-  );
-  assert.equal(
-    checks.find((check) => check.id === 'gateway-model-access')?.status,
-    'unchecked',
-  );
-  assert.equal(
-    missing.find((item) => item.kind === 'image')?.reference,
-    PINNED_NODE_IMAGE,
-  );
-  assert.ok(
-    mutableCalls.every(
-      (args) => !args.includes('run') && !args.includes('pull'),
-    ),
-  );
-  for (const item of missing)
-    for (const id of item.checksNotRun)
-      assert.equal(
-        checks.find((check) => check.id === id)?.status,
-        'unchecked',
-      );
-});
-
-test('missing local dataset fails while independent Docker checks still execute', async (t) => {
-  const f = await fixture(t);
-  const { ctx, checks, missing } = f.context(agentConfig(f.directory));
-  const command: typeof runCommand = async (_command, args) => ({
-    stdout:
-      args[0] === 'info'
-        ? JSON.stringify({
-            MemTotal: 1024 ** 3,
-            NCPU: 2,
-            OSType: 'linux',
-            Architecture: 'x86_64',
-            Driver: 'overlay2',
-          })
-        : passedGateway(args),
-    stderr: '',
-  });
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
-  assert.equal(
-    checks.find((check) => check.id === 'dataset-source')?.status,
+    checks.find((check) => check.id === 'sdk.check-0')?.status,
     'failed',
   );
-  assert.equal(checks.find((check) => check.id === 'docker')?.status, 'passed');
-  assert.equal(
-    checks.find((check) => check.id === 'task-metadata')?.status,
-    'unchecked',
-  );
-  assert.equal(missing[0].reference, join(f.directory, 'dataset'));
-});
-
-test('agentbench rejects solver and owned path conflicts before metadata preparation', async (t) => {
-  const f = await fixture(t);
-  const config = agentConfig(f.directory);
-  config.benchmark = {
-    name: 'workbuddy',
-    solver: { name: 'simpleagent', config: { path: '/external' } },
-  };
-  const { ctx, checks } = f.context(config);
-  const command: typeof runCommand = async () => {
-    throw new Error('Docker unavailable');
-  };
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
   assert.match(
-    checks.find((check) => check.id === 'configuration')?.reason ?? '',
-    /must be agentbundle/,
+    checks.find((check) => check.id === 'sdk.check-0')?.reason ?? '',
+    /rejected its API key/,
   );
   assert.equal(
-    checks.find((check) => check.id === 'task-metadata')?.status,
+    checks.find((check) => check.id === 'sdk.check-1')?.status,
     'unchecked',
+  );
+  const network = checks.find((check) => check.id === 'sdk.network');
+  assert.equal(network?.status, 'unchecked');
+  assert.match(JSON.stringify(network?.details), /remote node unavailable/);
+});
+
+test('relative SDK network configuration follows the launch directory rather than probe storage', async (t) => {
+  const f = await fixture(t);
+  const { ctx, checks } = f.context(agentConfig());
+  ctx.directory = join(f.directory, 'probe');
+  await mkdir(ctx.directory);
+  const originalDirectory = process.cwd();
+  const previousNetwork = process.env.EVALUATOR_NETWORK_CONFIG;
+  let calls = 0;
+  try {
+    process.chdir(f.directory);
+    process.env.EVALUATOR_NETWORK_CONFIG = 'network.yaml';
+    await createEvaluatorChecks(async (options) => {
+      calls++;
+      assert.equal(
+        options.networkConfigPath,
+        join(f.directory, 'network.yaml'),
+      );
+      assert.equal(options.configPath, join(ctx.directory, 'evaluator.json'));
+      assert.equal(await readFile(options.networkConfigPath, 'utf8'), '{}\n');
+      return nativeReport();
+    })['evaluator.agentbench'](ctx);
+  } finally {
+    process.chdir(originalDirectory);
+    if (previousNetwork === undefined)
+      delete process.env.EVALUATOR_NETWORK_CONFIG;
+    else process.env.EVALUATOR_NETWORK_CONFIG = previousNetwork;
+  }
+  assert.equal(calls, 1);
+  assert.equal(
+    checks.find((check) => check.id === 'sdk-doctor')?.status,
+    'passed',
   );
 });
 
-test('gateway failure releases its owned container and does not report a missing resource', async (t) => {
+test('SDK transport errors fail delegation without inventing component readiness', async (t) => {
   const f = await fixture(t);
-  await dataset(f.directory);
-  const { ctx, checks, missing } = f.context(agentConfig(f.directory));
-  let starts = 0;
-  let removals = 0;
-  const command: typeof runCommand = async (_command, args) => {
-    if (args[0] === 'run') {
-      starts++;
-      throw new Error('Gateway probe timed out');
-    }
-    if (args[0] === 'rm') removals++;
-    return {
-      stdout:
-        args[0] === 'info'
-          ? JSON.stringify({
-              MemTotal: 1024 ** 3,
-              NCPU: 2,
-              OSType: 'linux',
-              Architecture: 'x86_64',
-              Driver: 'overlay2',
-            })
-          : passedGateway(args),
-      stderr: '',
-    };
-  };
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
+  const { ctx, checks } = f.context(agentConfig());
+  await createEvaluatorChecks(async () => {
+    throw new Error('SDK subprocess could not complete');
+  })['evaluator.agentbench'](ctx);
   assert.equal(
-    checks.find((check) => check.id === 'gateway-model-access')?.status,
+    checks.find((check) => check.id === 'sdk-doctor')?.status,
     'failed',
   );
-  assert.equal(starts, removals);
-  assert.deepEqual(missing, []);
+  assert.ok(!checks.some((check) => check.id.startsWith('sdk.check-')));
 });
 
-test('gateway cancellation releases its container using a live cleanup signal', async (t) => {
+test('invalid SDK reports fail instead of producing successful readiness', async (t) => {
   const f = await fixture(t);
-  await dataset(f.directory);
-  const { ctx, checks } = f.context(agentConfig(f.directory));
+  for (const report of [
+    null,
+    {},
+    {
+      checks: [{ name: 'broken', status: 'healthy', detail: 'invalid' }],
+      network: { status: 'passed', probes: [] },
+    },
+    { checks: [], network: { status: 'healthy', probes: [] } },
+    ...['failed', 'not-checked'].map((status) => ({
+      checks: nativeReport().checks,
+      network: {
+        status: 'passed',
+        probes: [
+          {
+            name: 'runtime model route',
+            status,
+            evidence: 'Runtime route was not established.',
+          },
+        ],
+      },
+    })),
+  ]) {
+    const { ctx, checks } = f.context(agentConfig());
+    await createEvaluatorChecks(async () => report)['evaluator.agentbench'](
+      ctx,
+    );
+    assert.ok(
+      checks.some((check) => check.status === 'failed'),
+      JSON.stringify(checks),
+    );
+    assert.ok(
+      !checks.some(
+        (check) =>
+          check.id.startsWith('sdk.check-') && check.status === 'passed',
+      ),
+    );
+  }
+});
+
+test('cancelling evaluator doctor reaches the SDK boundary and propagates interruption', async (t) => {
+  const f = await fixture(t);
+  const { ctx } = f.context(agentConfig());
   const controller = new AbortController();
   ctx.signal = controller.signal;
-  let starts = 0;
-  let removals = 0;
-  const command: typeof runCommand = async (_command, args, options) => {
-    if (args[0] === 'run') {
-      starts++;
-      if (args.includes('-i')) {
-        queueMicrotask(() => controller.abort(new Error('Interrupted')));
-        await new Promise<never>((_done, reject) => {
-          options.signal.addEventListener(
-            'abort',
-            () => reject(options.signal.reason),
-            { once: true },
-          );
-        });
-      }
-    }
-    if (args[0] === 'rm') {
-      assert.equal(options.signal.aborted, false);
-      removals++;
-    }
-    return {
-      stdout:
-        args[0] === 'info'
-          ? JSON.stringify({
-              MemTotal: 1024 ** 3,
-              NCPU: 2,
-              OSType: 'linux',
-              Architecture: 'x86_64',
-              Driver: 'overlay2',
-            })
-          : passedGateway(args),
-      stderr: '',
-    };
-  };
-  await createEvaluatorChecks(command)['evaluator.agentbench'](ctx);
-  assert.equal(
-    checks.find((check) => check.id === 'gateway-model-access')?.status,
-    'failed',
-  );
-  assert.equal(starts, removals);
+  let observed: AbortSignal | undefined;
+  const task = createEvaluatorChecks(async (options) => {
+    observed = options.signal;
+    return new Promise((_resolve, reject) => {
+      options.signal.addEventListener(
+        'abort',
+        () => reject(options.signal.reason),
+        { once: true },
+      );
+      controller.abort(new Error('Interrupted'));
+    });
+  })['evaluator.agentbench'](ctx);
+  await assert.rejects(task, /Interrupted/);
+  assert.equal(observed?.aborted, true);
 });
 
-test('inferencebench detects missing service and Application-owned overrides without launching', async (t) => {
+test('agentbench rejects Application-owned solver and output overrides before SDK invocation', async (t) => {
+  const f = await fixture(t);
+  let calls = 0;
+  const invalidConfigs: JsonObject[] = [
+    {
+      ...agentConfig(),
+      benchmark: { name: 'workbuddy', solver: { name: 'other-solver' } },
+    },
+    {
+      ...agentConfig(),
+      benchmark: {
+        name: 'workbuddy',
+        solver: { name: 'agentbundle', config: { path: '/unowned' } },
+      },
+    },
+    { ...agentConfig(), output: { directory: '/unowned' } },
+  ];
+  for (const config of invalidConfigs) {
+    const { ctx, checks } = f.context(config);
+    await createEvaluatorChecks(async () => {
+      calls++;
+      return nativeReport();
+    })['evaluator.agentbench'](ctx);
+    assert.equal(
+      checks.find((check) => check.id === 'configuration')?.status,
+      'failed',
+    );
+  }
+  assert.equal(calls, 0);
+});
+
+test('inferencebench delegates SDK configuration while the future Application endpoint remains unchecked', async (t) => {
+  const f = await fixture(t);
+  const data = f.recipe.toJSON();
+  data.application = {
+    plugin: 'application.inference',
+    config: {
+      target: { schema: resolve('examples/harness/dsh-harness2/target.yaml') },
+      baseline: { directory: f.directory },
+      start: { argv: [process.execPath] },
+      endpoint: { model: 'application-model' },
+    },
+  };
+  const recipe = await Recipe.fromJSON(data, f.registry, {
+    sourcePath: join(f.directory, 'recipe.json'),
+  });
+  const { ctx, checks } = f.context(
+    { benchmark: 'agentx', services: { default: {} } },
+    'evaluator.inferencebench',
+  );
+  ctx.recipe = recipe;
+  let calls = 0;
+  await createEvaluatorChecks(async (options) => {
+    calls++;
+    const config = object(
+      JSON.parse(await readFile(options.configPath, 'utf8')),
+    );
+    const service = object(object(config.services).default);
+    assert.equal(service.model, 'application-model');
+    assert.equal(service.base_url, 'http://127.0.0.1:1');
+    return nativeReport();
+  })['evaluator.inferencebench'](ctx);
+  assert.equal(calls, 1);
+  assert.equal(
+    checks.find((check) => check.id === 'inference-endpoint')?.status,
+    'unchecked',
+  );
+});
+
+test('inferencebench rejects service fields owned by its Application before SDK invocation', async (t) => {
   const f = await fixture(t);
   const data = f.recipe.toJSON();
   data.application = {
@@ -743,44 +449,32 @@ test('inferencebench detects missing service and Application-owned overrides wit
     },
   };
   const recipe = await Recipe.fromJSON(data, f.registry, {
-    sourcePath: join(f.directory, 'recipe.yaml'),
+    sourcePath: join(f.directory, 'recipe.json'),
   });
-  for (const [services, reason] of [
-    [{ alternate: {} }, /services.default must be declared/],
-    [
-      { default: { model: 'external' } },
-      /model is supplied by the Application/,
-    ],
-  ] as const) {
+  let calls = 0;
+  const invalidServices: JsonObject[] = [
+    { alternate: {} },
+    { default: { model: 'external' } },
+  ];
+  for (const services of invalidServices) {
     const { ctx, checks } = f.context(
       { benchmark: 'agentx', services },
       'evaluator.inferencebench',
     );
     ctx.recipe = recipe;
-    await createEvaluatorChecks()['evaluator.inferencebench'](ctx);
-    assert.match(
-      checks.find((check) => check.id === 'configuration')?.reason ?? '',
-      reason,
+    await createEvaluatorChecks(async () => {
+      calls++;
+      return nativeReport();
+    })['evaluator.inferencebench'](ctx);
+    assert.equal(
+      checks.find((check) => check.id === 'configuration')?.status,
+      'failed',
     );
   }
-  const { ctx, checks } = f.context(
-    { benchmark: 'agentx', services: { default: {} } },
-    'evaluator.inferencebench',
-  );
-  ctx.recipe = recipe;
-  await createEvaluatorChecks()['evaluator.inferencebench'](ctx);
-  assert.equal(
-    checks.find((check) => check.id === 'configuration')?.status,
-    'passed',
-  );
-  assert.equal(
-    checks.find((check) => check.id === 'sdk-configuration')?.status,
-    'passed',
-    JSON.stringify(checks),
-  );
+  assert.equal(calls, 0);
 });
 
-test('operatorbench loads task files and rejects duplicate case identities without kernel execution', async (t) => {
+test('operatorbench delegates first-case SDK assessment configuration and rejects invalid task identities', async (t) => {
   const f = await fixture(t);
   const source = resolve('examples/artifacts/kernel/transpose-copy/task');
   for (const name of ['task.json', 'problem.py', 'test.py'])
@@ -790,34 +484,45 @@ test('operatorbench loads task files and rejects duplicate case identities witho
     );
   const config = { task: { directory: f.directory }, benchmark: 'kernel' };
   const positive = f.context(config, 'evaluator.operatorbench');
-  await createEvaluatorChecks()['evaluator.operatorbench'](positive.ctx);
+  let calls = 0;
+  await createEvaluatorChecks(async (options) => {
+    calls++;
+    const prepared = object(
+      JSON.parse(await readFile(options.configPath, 'utf8')),
+    );
+    assert.equal(object(prepared.benchmark).name, 'kernel');
+    assert.equal(
+      object(object(prepared.benchmark).config).operation,
+      'evaluate',
+    );
+    const selected = object(prepared.run).taskIds;
+    assert.ok(Array.isArray(selected));
+    assert.equal(selected.length, 1);
+    assert.ok(
+      String(object(object(prepared.benchmark).config).manifest).startsWith(
+        f.directory,
+      ),
+    );
+    return nativeReport();
+  })['evaluator.operatorbench'](positive.ctx);
+  assert.equal(calls, 1);
   assert.equal(
-    positive.checks.find((check) => check.id === 'operator-task')?.status,
+    positive.checks.find((check) => check.id === 'sdk-doctor')?.status,
     'passed',
-  );
-  assert.equal(
-    positive.checks.find((check) => check.id === 'sdk-configuration')?.status,
-    'passed',
-    JSON.stringify(positive.checks),
   );
   const path = join(f.directory, 'task.json');
-  const definition: unknown = JSON.parse(await readFile(path, 'utf8'));
-  assert.ok(
-    definition &&
-      typeof definition === 'object' &&
-      'cases' in definition &&
-      Array.isArray(definition.cases),
-  );
+  const definition = object(JSON.parse(await readFile(path, 'utf8')));
+  assert.ok(Array.isArray(definition.cases));
   definition.cases.push(definition.cases[0]);
   await writeFile(path, JSON.stringify(definition));
   const broken = f.context(config, 'evaluator.operatorbench');
-  await createEvaluatorChecks()['evaluator.operatorbench'](broken.ctx);
-  assert.match(
-    broken.checks.find((check) => check.id === 'operator-task')?.reason ?? '',
-    /case IDs must be unique/,
-  );
+  await createEvaluatorChecks(async () => {
+    calls++;
+    return nativeReport();
+  })['evaluator.operatorbench'](broken.ctx);
   assert.equal(
-    broken.checks.find((check) => check.id === 'sdk-configuration')?.status,
-    'unchecked',
+    broken.checks.find((check) => check.id === 'configuration')?.status,
+    'failed',
   );
+  assert.equal(calls, 1);
 });

@@ -62,7 +62,7 @@ ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
 
 - `doctor` 检查 Recipe、插件配置、契约兼容性、Policy 编译和已声明的 Reflection 资源，再对每个生效绑定运行内置的前提检查。单份 JSON 报告包含 `recipeId`、`summary`、`checks` 和 `missingResources`。状态为 `passed`（通过）、`failed`（失败）或 `unchecked`（未检查）；
   - 任一检查失败时 doctor 返回 `1`，无失败时返回 `0`，即使包含未检查项。
-- 检查使用隔离的临时存储，以及针对已缓存元数据、容器和模型可用性的有时限探测。Doctor 不执行模型推理、不下载资源，也不执行优化 Policy。`run` 保持独立，可以直接启动实验。
+- RSI 检查使用隔离临时存储。Evaluator 检查委托 SDK 的完整 doctor，由 SDK 负责下载、镜像获取和 Docker 构建探针及其时限。Doctor 不执行模型推理或优化 Policy。`run` 保持独立，可以直接启动实验。
 
 机制、报告解读、内置覆盖范围、模型与磁盘检查，以及自定义组件接入边界，参见 [doctor 指南](doctor_zh.md)。
 

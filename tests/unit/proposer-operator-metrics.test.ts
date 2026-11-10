@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { operatorProposerContract } from '../../src/contracts/plugin-types/proposer-operator.js';
 import { operatorEditOutputSchema } from '../../src/plugins/proposer-operator/schema.js';
+import { parseMetricsBottleneck as parse } from '../../src/plugins/shared/operator-attempt/service.js';
 import { validate } from '../../src/shared/schema.js';
 
 test('metrics proposal contract requires current evidence and a positive round', () => {
@@ -45,19 +46,7 @@ test('invalid model output is an explicit business failure with retained analysi
   );
 });
 
-async function metricAnalysisModule(): Promise<Record<string, unknown>> {
-  const loaded: unknown = await import(
-    new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
-      .href
-  );
-  assert.ok(loaded && typeof loaded === 'object');
-  return loaded as Record<string, unknown>;
-}
 test('metric analysis requires measured numeric evidence and keeps model inference distinct', async () => {
-  const loaded = await metricAnalysisModule();
-  const parse = loaded.parseMetricsBottleneck;
-  assert.equal(typeof parse, 'function');
-  if (typeof parse !== 'function') throw new Error('Missing metrics parser');
   const profile = { kernels: [{ metrics: { '0': { aiv_vec_ratio: 0.8 } } }] };
   const reply = {
     category: 'vector',

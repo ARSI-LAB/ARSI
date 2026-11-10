@@ -11,7 +11,7 @@ import {
   parseStaticDiagnosis,
   readAnalysis,
   readHistory,
-} from '../../src/plugins/proposer-operator/service.js';
+} from '../../src/plugins/shared/operator-attempt/service.js';
 import {
   configSchema,
   type OperatorProposerConfig,

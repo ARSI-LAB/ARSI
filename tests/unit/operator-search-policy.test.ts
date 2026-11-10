@@ -148,6 +148,15 @@ test('operator search inherits policy prompt paths while resolving recipe overri
     ),
   );
   assert.equal(
+    recipe.bindings.summarizer!.config.promptFile,
+    fileURLToPath(
+      new URL(
+        '../../src/policies/operator-search/prompts/summarize.md',
+        import.meta.url,
+      ),
+    ),
+  );
+  assert.equal(
     object(recipe.bindings.proposer!.config.task).directory,
     join(f.root, 'example/task'),
   );

@@ -27,15 +27,12 @@ import {
   type OperatorProposerInput,
 } from '../../src/contracts/index.js';
 import { object, string } from '../../src/shared/json.js';
-import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
 import { parseKernelExecution } from '../../src/plugins/application-kernel/schema.js';
 import { loadOperatorTask } from '../../src/plugins/shared/operator-task.js';
 import { prepareOperatorCase } from '../../src/plugins/evaluator-operatorbench/kernel-input.js';
 import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';
-import {
-  createOperatorProposer,
-  readHistory,
-} from '../../src/plugins/proposer-operator/service.js';
+import { createOperatorProposer } from '../../src/plugins/proposer-operator/service.js';
+import { readHistory } from '../../src/plugins/shared/operator-attempt/service.js';
 import {
   configSchema,
   type OperatorProposerConfig,
@@ -106,8 +103,6 @@ async function setup(
     );
   }
   const runtime = await createRuntime({ rootDirectory: fixture.root });
-  if (!runtime.registry.catalog().plugins.includes('proposer.operator'))
-    runtime.registry.registerOperation(operatorProposerDefinition);
   const requests: OperatorProject[] = [];
   let generation = 0;
   const agent: OperationDefinition<AgentInput, AgentOutput, JsonObject> = {
@@ -247,6 +242,7 @@ async function setup(
         evaluator: { contract: 'contract.operatorbench' },
         selector: { contract: 'contract.selector-metrics' },
         proposer: { contract: 'contract.proposer-operator' },
+        summarizer: { contract: 'contract.summarizer-operator' },
         agent: { contract: 'contract.agent' },
       },
       state_schema: { type: 'object', additionalProperties: false },
@@ -261,6 +257,18 @@ async function setup(
   const bindings = object(recipe.bindings);
   bindings.driver = { plugin: 'operator.driver', config: {} };
   bindings.agent = { plugin: agent.id, config: {} };
+  bindings.summarizer = {
+    plugin: 'summarizer.operator',
+    config: {
+      agentRef: 'agent',
+      promptFile: fileURLToPath(
+        new URL(
+          '../../src/policies/operator-search/prompts/summarize.md',
+          import.meta.url,
+        ),
+      ),
+    },
+  };
   bindings.proposer = {
     plugin: 'proposer.operator',
     config: {
@@ -498,7 +506,16 @@ test('helper-only candidates retain comparison conditions and profile the matchi
   assert.equal(result.status, 'succeeded');
 });
 
-test('static summaries deliver and reread the complete action rationale beyond four thousand characters', async (t) => {
+test('standalone summaries preserve the complete rationale after proposal resources become unavailable', async (t) => {
+  const promptsDirectory = await mkdtemp(
+    join(tmpdir(), 'summary-without-proposer-'),
+  );
+  t.after(() => rm(promptsDirectory, { recursive: true, force: true }));
+  await cp(
+    new URL('../../src/policies/operator-search/prompts/', import.meta.url),
+    promptsDirectory,
+    { recursive: true },
+  );
   const rationale =
     'Detailed invariant evidence. '.repeat(200) + 'Final rationale detail.';
   const fixture = await setup(
@@ -517,9 +534,12 @@ test('static summaries deliver and reread the complete action rationale beyond f
         }),
       );
       assert.equal(proposal.status, 'no-change');
+      await rm(join(promptsDirectory, 'generate.md'));
+      await rm(fixture.resourcesDirectory, { recursive: true });
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [proposal],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: proposal.analysisRef,
@@ -540,7 +560,7 @@ test('static summaries deliver and reread the complete action rationale beyond f
       return summary;
     },
     false,
-    { noChange: true, outputReason: rationale },
+    { noChange: true, outputReason: rationale, promptsDirectory },
   );
   t.after(() => fixture.dispose());
   assert.equal(
@@ -550,6 +570,50 @@ test('static summaries deliver and reread the complete action rationale beyond f
       })
     ).status,
     'succeeded',
+  );
+});
+
+test('the summarizer rejects a measurement belonging to the parent instead of the proposed candidate', async (t) => {
+  const fixture = await setup(async (context) => {
+    const { entry, baselineRef } = await baseline(context);
+    const proposal = object(
+      await context.invoke('proposer', {
+        action: 'propose',
+        phase: 'static',
+        entryCandidateRef: entry,
+        baselineMeasurementRef: baselineRef,
+        analysisRef: null,
+        historyRef: null,
+        attempt: 1,
+        goal: 'Optimize',
+      }),
+    );
+    assert.equal(proposal.status, 'created');
+    return object(
+      await context.invoke('summarizer', {
+        action: 'summarize',
+        actions: [proposal],
+        phase: 'static',
+        entryCandidateRef: entry,
+        analysisRef: proposal.analysisRef,
+        historyRef: null,
+        attempt: 1,
+        candidateRefs: [proposal.candidateRef],
+        measurementRefs: [baselineRef],
+        decisionRef: null,
+        outcome: 'verification-failed',
+      }),
+    );
+  });
+  t.after(() => fixture.dispose());
+  await assert.rejects(
+    fixture.runtime.manager.run(fixture.recipePath, {
+      id: 'foreign-assessment',
+    }),
+    /assessment candidate, source or cleanup mismatch/,
+  );
+  assert.ok(
+    fixture.requests.every((request) => request.input.stage !== 'summarize'),
   );
 });
 
@@ -670,8 +734,9 @@ test('operator Proposer repairs a failed multi-file candidate and delivers the m
         }),
       );
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [first, repaired],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: first.analysisRef,
@@ -816,8 +881,9 @@ test('operator summary model failure preserves completed effects and blocks repl
         }),
       );
       return object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [proposed],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: proposed.analysisRef,
@@ -917,15 +983,15 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
           }),
         );
         const summarized = object(
-          await context.invoke('proposer', {
+          await context.invoke('summarizer', {
             action: 'summarize',
+            actions: [proposed],
             phase: 'metrics',
             parentCandidateRef: parent,
             incumbentMeasurementRef: incumbent,
             analysisRef: proposed.analysisRef,
             round,
             historyRef,
-            staticHistoryRef: null,
             candidateRefs: [proposed.candidateRef],
             measurementRefs: [assessed.measurementRef],
             decisionRef: selected.decisionRef,
@@ -944,6 +1010,14 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
       const analyses = requests.filter(
         (request) => object(request.input).stage === 'diagnose-metrics',
       );
+      const summaries = requests.filter(
+        (request) => request.input.stage === 'summarize',
+      );
+      assert.equal(summaries.length, 2);
+      for (const { input } of summaries) {
+        assert.equal(input.history, undefined);
+        assert.equal(input.staticHistory, undefined);
+      }
       assert.equal(generates.length, 2);
       assert.equal(analyses.length, 2);
       assert.equal(object(generates[0]!.input).hardwareContext, hardwareText);
@@ -1041,15 +1115,15 @@ test('metric repairs use the failed candidate and deliver the complete user hard
         }),
       );
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [proposed, repaired],
           phase: 'metrics',
           parentCandidateRef: entry,
           incumbentMeasurementRef: baselineRef,
           analysisRef: proposed.analysisRef,
           round: 1,
           historyRef: null,
-          staticHistoryRef: null,
           candidateRefs: [proposed.candidateRef, repaired.candidateRef],
           measurementRefs: [failed.measurementRef, assessed.measurementRef],
           decisionRef: selection.decisionRef,
@@ -1120,15 +1194,15 @@ test('invalid metric analysis rereads fact history through twelve rounds beyond 
           'metrics',
         );
         const summary = object(
-          await context.invoke('proposer', {
+          await context.invoke('summarizer', {
             action: 'summarize',
+            actions: [result],
             phase: 'metrics',
             parentCandidateRef: entry,
             incumbentMeasurementRef: baselineRef,
             analysisRef: result.analysisRef,
             round,
             historyRef,
-            staticHistoryRef: null,
             candidateRefs: [],
             measurementRefs: [],
             decisionRef: null,
@@ -1249,8 +1323,9 @@ test('invalid static summary output preserves a fact-only summary with an explic
         }),
       );
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [proposal],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: proposal.analysisRef,
@@ -1321,8 +1396,9 @@ for (const abortAt of ['summary', 'history'] as const)
         };
         try {
           return object(
-            await context.invoke('proposer', {
+            await context.invoke('summarizer', {
               action: 'summarize',
+              actions: [proposal],
               phase: 'static',
               entryCandidateRef: entry,
               analysisRef: proposal.analysisRef,
@@ -1352,7 +1428,7 @@ for (const abortAt of ['summary', 'history'] as const)
     const calls = await fixture.runtime.manager.facts.list('calls');
     const summarized = calls.filter(
       (call) =>
-        call.pluginId === 'proposer.operator' &&
+        call.pluginId === 'summarizer.operator' &&
         object(call.input).action === 'summarize',
     );
     assert.equal(summarized.length, 1);
@@ -1394,8 +1470,9 @@ test('asynchronous invalid generation retains error evidence and history for the
         /edits\/0\/path must be equal to one of the allowed values/,
       );
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [first],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: first.analysisRef,
@@ -1497,8 +1574,9 @@ test('asynchronous invalid repair retains the failed source and repair error wit
       assert.equal(error.stage, 'repair');
       assert.equal(error.phase, 'static');
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [first, repair],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: first.analysisRef,

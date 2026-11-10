@@ -36,6 +36,8 @@ await writeFile(join(resourcesDirectory,'knowledge/manifest.json'),JSON.stringif
 const recipe=parse(await readFile(join(example,'recipe.search.yaml'),'utf8'));
 const examplePromptsDirectory=recipe.bindings.proposer.config.promptsDirectory;
 assert.equal(typeof examplePromptsDirectory,'string','the example explicitly selects its local prompts');
+const exampleSummaryBinding=recipe.bindings.summarizer;
+delete recipe.bindings.summarizer;
 const evaluator=recipe.bindings.evaluator.config;
 evaluator.benchmark.config.python=join(example,'sdk-fixture-worker.mjs');
 evaluator.benchmark.config.timeoutSeconds=15;
@@ -53,7 +55,7 @@ runtime.registry.registerOperation({id:'agent.installed-operator-fixture',contra
 const instructions=await readFile(join(request.cwd,'AGENTS.md'),'utf8');
 assert.ok(instructions.startsWith(expectedPrompts[stage].trimEnd()),'the selected prompt reaches the Agent');
 assert.match(await readFile(join(request.cwd,'context/sources',input.sourcePath),'utf8'),/def kernel_function/);
-assert.ok(await readFile(join(request.cwd,'context/task/task.json'),'utf8'));
+if(stage!=='summarize')assert.ok(await readFile(join(request.cwd,'context/task/task.json'),'utf8'));
 assert.ok(await readFile(join(request.cwd,'roles/operator-reviewer.md'),'utf8'));
 if(stage==='diagnose')return{issues:[{issue_type:'loop_invariant_hoisting',issue_summary:'Invariant expression inside loop',problematic_code:['        y = x + 1'],evidence:['x does not change in the loop']}]};
 if(stage==='summarize')return{explanation:'Synthetic measured result',lessons:[],avoidPatterns:[],tryPatterns:[]};
@@ -69,6 +71,7 @@ assert.equal(result.usage.evaluationRuns,3);assert.deepEqual(stages,['diagnose',
 const calls=await runtime.manager.facts.list('calls');await runtime.manager.run(path,{id:result.id,resume:true});assert.deepEqual(await runtime.manager.facts.list('calls'),calls);
 assert.ok((await runtime.manager.facts.list('instances')).every(i=>i.status==='released'));
 recipe.bindings.proposer.config.promptsDirectory=examplePromptsDirectory;
+recipe.bindings.summarizer=exampleSummaryBinding;
 await writeFile(path,stringify(recipe));expectedPrompts=examplePrompts;stages.length=0;
 const configured=await runtime.manager.run(path,{id:'installed-ascend-search'});
 assert.equal(configured.status,'succeeded');assert.equal(configured.output.finalValidity,'valid');

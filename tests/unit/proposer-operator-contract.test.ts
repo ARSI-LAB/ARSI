@@ -1,18 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as contracts from '../../src/contracts/plugin-types/index.js';
-import { defineContract } from '../../src/contracts/contract.js';
+import {
+  operatorProposerContract,
+  operatorSummarizerContract,
+} from '../../src/contracts/plugin-types/index.js';
 import { validate } from '../../src/shared/schema.js';
-
-function contract() {
-  const value: unknown = Reflect.get(contracts, 'operatorProposerContract');
-  assert.notEqual(
-    value,
-    undefined,
-    'The operator Proposer contract must be exported',
-  );
-  return defineContract(value);
-}
 
 const propose = {
   action: 'propose',
@@ -35,22 +27,34 @@ const repair = {
   repairIndex: 1,
   goal: 'Repair the recorded compile failure',
 };
+const actions = [
+  {
+    action: 'propose',
+    status: 'no-change',
+    candidateRef: 'candidate:baseline',
+    diffRef: null,
+    rationale: 'No supported change',
+    analysisRef: 'artifact:analysis',
+    reasonCode: 'no-supported-change',
+  },
+];
 const summarize = {
+  actions,
   action: 'summarize',
   phase: 'static',
   entryCandidateRef: 'candidate:baseline',
   analysisRef: 'artifact:analysis',
   historyRef: null,
   attempt: 1,
-  candidateRefs: ['candidate:attempt'],
+  candidateRefs: ['candidate:baseline'],
   measurementRefs: [],
   decisionRef: null,
   outcome: 'no-change',
 };
 
-test('operator Proposer accepts all three actions with explicit nullable references', () => {
-  const schema = contract().input_schema;
-  for (const input of [propose, repair, summarize]) validate(schema, input);
+test('operator Proposer accepts proposals and repairs with explicit nullable references', () => {
+  const schema = operatorProposerContract.input_schema;
+  for (const input of [propose, repair]) validate(schema, input);
   validate(schema, {
     ...propose,
     attempt: 3,
@@ -58,7 +62,7 @@ test('operator Proposer accepts all three actions with explicit nullable referen
     historyRef: 'h',
   });
   validate(schema, { ...repair, attempt: 3, repairIndex: 3 });
-  validate(schema, {
+  validate(operatorSummarizerContract.input_schema, {
     ...summarize,
     candidateRefs: ['c1', 'c2', 'c3', 'c4'],
     measurementRefs: ['m1', 'm2', 'm3', 'm4'],
@@ -67,7 +71,7 @@ test('operator Proposer accepts all three actions with explicit nullable referen
 });
 
 test('operator Proposer rejects unknown actions, extra fields and missing action-specific evidence', () => {
-  const schema = contract().input_schema;
+  const schema = operatorProposerContract.input_schema;
   const { baselineMeasurementRef: _baseline, ...missingBaseline } = propose;
   const { historyRef: _history, ...missingHistory } = propose;
   const { decisionRef: _decision, ...missingDecision } = summarize;
@@ -77,19 +81,24 @@ test('operator Proposer rejects unknown actions, extra fields and missing action
     { ...repair, entryCandidateRef: 'c' },
     missingBaseline,
     missingHistory,
-    missingDecision,
     { ...propose, baselineMeasurementRef: '' },
     { ...repair, analysisRef: null },
-    { ...summarize, outcome: 'model-claims-success' },
   ])
     assert.throws(() => validate(schema, input));
+  for (const input of [
+    missingDecision,
+    { ...summarize, outcome: 'model-claims-success' },
+  ])
+    assert.throws(() =>
+      validate(operatorSummarizerContract.input_schema, input),
+    );
 });
 
 test('operator Proposer accepts configured search counts beyond former ceilings', () => {
-  const schema = contract().input_schema;
+  const schema = operatorProposerContract.input_schema;
   validate(schema, { ...propose, attempt: 4 });
   validate(schema, { ...repair, attempt: 4, repairIndex: 4 });
-  validate(schema, {
+  validate(operatorSummarizerContract.input_schema, {
     ...summarize,
     attempt: 4,
     candidateRefs: ['c1', 'c2', 'c3', 'c4', 'c5'],
@@ -109,19 +118,29 @@ test('operator Proposer accepts configured search counts beyond former ceilings'
 });
 
 test('operator Proposer requires positive integer counts and unique candidate chains', () => {
-  const schema = contract().input_schema;
+  const schema = operatorProposerContract.input_schema;
   for (const attempt of [0, 1.5])
     assert.throws(() => validate(schema, { ...propose, attempt }));
   for (const repairIndex of [0, 1.5])
     assert.throws(() => validate(schema, { ...repair, repairIndex }));
   for (const candidateRefs of [[], ['c', 'c']])
-    assert.throws(() => validate(schema, { ...summarize, candidateRefs }));
+    assert.throws(() =>
+      validate(operatorSummarizerContract.input_schema, {
+        ...summarize,
+        candidateRefs,
+      }),
+    );
   for (const measurementRefs of [['m', 'm']])
-    assert.throws(() => validate(schema, { ...summarize, measurementRefs }));
+    assert.throws(() =>
+      validate(operatorSummarizerContract.input_schema, {
+        ...summarize,
+        measurementRefs,
+      }),
+    );
 });
 
 test('operator Proposer output distinguishes committed candidates from valid no-change outcomes', () => {
-  const schema = contract().output_schema;
+  const schema = operatorProposerContract.output_schema;
   const created = {
     action: 'propose',
     status: 'created',
@@ -143,11 +162,6 @@ test('operator Proposer output distinguishes committed candidates from valid no-
     unchanged,
     { ...unchanged, reasonCode: 'no-supported-change' },
     { ...unchanged, action: 'repair', reasonCode: 'no-supported-change' },
-    {
-      action: 'summarize',
-      historyRef: 'artifact:history',
-      summaryRef: 'artifact:summary',
-    },
   ])
     validate(schema, output);
   for (const output of [
@@ -158,7 +172,30 @@ test('operator Proposer output distinguishes committed candidates from valid no-
     { ...unchanged, action: 'repair' },
     { ...created, analysisRef: null },
     { ...created, unsupported: true },
-    { action: 'summarize', historyRef: null, summaryRef: 's' },
   ])
     assert.throws(() => validate(schema, output));
+});
+
+test('summaries have their own contract and require the ordered proposal results', () => {
+  const { actions: _actions, ...missingActions } = summarize;
+  validate(operatorSummarizerContract.input_schema, summarize);
+  assert.throws(() =>
+    validate(operatorSummarizerContract.input_schema, missingActions),
+  );
+  assert.throws(() =>
+    validate(operatorProposerContract.input_schema, summarize),
+  );
+  const output = {
+    action: 'summarize',
+    historyRef: 'history',
+    summaryRef: 'summary',
+  };
+  validate(operatorSummarizerContract.output_schema, output);
+  assert.throws(() => validate(operatorProposerContract.output_schema, output));
+  assert.throws(() =>
+    validate(operatorSummarizerContract.output_schema, {
+      ...output,
+      historyRef: null,
+    }),
+  );
 });

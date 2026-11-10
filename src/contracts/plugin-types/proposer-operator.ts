@@ -1,17 +1,7 @@
-import type { JsonObject } from '../json.js';
 import { defineContract } from '../contract.js';
 
-export const operatorAttemptOutcomes = [
-  'adopted',
-  'verified-no-gain',
-  'verification-failed',
-  'no-change',
-  'proposal-failed',
-] as const;
-export type OperatorAttemptOutcome = (typeof operatorAttemptOutcomes)[number];
-
 /** Policy passes immutable analysis/history references between independent actions. */
-export type StaticOperatorProposerInput =
+export type OperatorProposerInput =
   | {
       action: 'propose';
       phase: 'static';
@@ -34,20 +24,6 @@ export type StaticOperatorProposerInput =
       goal: string;
     }
   | {
-      action: 'summarize';
-      phase: 'static';
-      entryCandidateRef: string;
-      analysisRef: string;
-      historyRef: string | null;
-      attempt: number;
-      candidateRefs: string[];
-      measurementRefs: string[];
-      decisionRef: string | null;
-      outcome: OperatorAttemptOutcome;
-    };
-
-export type MetricsOperatorProposerInput =
-  | {
       action: 'propose';
       phase: 'metrics';
       parentCandidateRef: string;
@@ -69,193 +45,272 @@ export type MetricsOperatorProposerInput =
       historyRef: string | null;
       staticHistoryRef: string | null;
       goal: string;
-    }
-  | {
-      action: 'summarize';
-      phase: 'metrics';
-      parentCandidateRef: string;
-      incumbentMeasurementRef: string;
-      analysisRef: string;
-      round: number;
-      historyRef: string | null;
-      staticHistoryRef: string | null;
-      candidateRefs: string[];
-      measurementRefs: string[];
-      decisionRef: string | null;
-      candidateDiagnosticMeasurementRef: string | null;
-      outcome: OperatorAttemptOutcome;
     };
-export type OperatorProposerInput =
-  | StaticOperatorProposerInput
-  | MetricsOperatorProposerInput;
-export type OperatorProposalFailure = {
-  action: 'propose' | 'repair';
-  status: 'failed';
-  candidateRef: string;
-  diffRef: null;
-  analysisRef: string;
-  errorRef: string;
-  rationale: string;
-  reasonCode: 'invalid-model-output';
-};
 
-type CandidateOutput<Action extends 'propose' | 'repair'> = {
-  action: Action;
-  candidateRef: string;
-  rationale: string;
-  analysisRef: string;
-} & (
-  | { status: 'created'; diffRef: string; reasonCode: 'created' }
-  | {
-      status: 'no-change';
-      diffRef: null;
-      reasonCode:
-        | 'no-supported-change'
-        | (Action extends 'propose' ? 'no-static-issues' : never);
-    }
-);
 export type OperatorProposerOutput =
-  | CandidateOutput<'propose'>
-  | CandidateOutput<'repair'>
-  | OperatorProposalFailure
-  | { action: 'summarize'; historyRef: string; summaryRef: string };
-
-const ref: JsonObject = { type: 'string', minLength: 1 };
-const nullableRef: JsonObject = { anyOf: [ref, { type: 'null' }] };
-const attempt: JsonObject = { type: 'integer', minimum: 1 };
-const shape = (properties: JsonObject): JsonObject => ({
-  type: 'object',
-  additionalProperties: false,
-  properties,
-  required: Object.keys(properties),
-});
-const refs = (minimum: number): JsonObject => ({
-  type: 'array',
-  minItems: minimum,
-  uniqueItems: true,
-  items: ref,
-});
-const candidateOutput = (
-  action: 'propose' | 'repair',
-  created: boolean,
-): JsonObject =>
-  shape({
-    action: { const: action },
-    status: { const: created ? 'created' : 'no-change' },
-    candidateRef: ref,
-    diffRef: created ? ref : { type: 'null' },
-    rationale: { type: 'string' },
-    analysisRef: ref,
-    reasonCode: created
-      ? { const: 'created' }
-      : {
-          enum:
-            action === 'propose'
-              ? ['no-static-issues', 'no-supported-change']
-              : ['no-supported-change'],
-        },
-  });
+  | {
+      action: 'propose';
+      status: 'created';
+      candidateRef: string;
+      analysisRef: string;
+      rationale: string;
+      diffRef: string;
+      reasonCode: 'created';
+    }
+  | {
+      action: 'repair';
+      status: 'created';
+      candidateRef: string;
+      analysisRef: string;
+      rationale: string;
+      diffRef: string;
+      reasonCode: 'created';
+    }
+  | {
+      action: 'propose';
+      status: 'no-change';
+      candidateRef: string;
+      analysisRef: string;
+      rationale: string;
+      diffRef: null;
+      reasonCode: 'no-supported-change' | 'no-static-issues';
+    }
+  | {
+      action: 'repair';
+      status: 'no-change';
+      candidateRef: string;
+      analysisRef: string;
+      rationale: string;
+      diffRef: null;
+      reasonCode: 'no-supported-change';
+    }
+  | {
+      action: 'propose' | 'repair';
+      status: 'failed';
+      candidateRef: string;
+      analysisRef: string;
+      rationale: string;
+      diffRef: null;
+      errorRef: string;
+      reasonCode: 'invalid-model-output';
+    };
 
 export const operatorProposerContract = defineContract({
   id: 'contract.proposer-operator',
   input_schema: {
     oneOf: [
-      shape({
-        action: { const: 'propose' },
-        phase: { const: 'static' },
-        entryCandidateRef: ref,
-        baselineMeasurementRef: ref,
-        attempt,
-        goal: ref,
-        analysisRef: nullableRef,
-        historyRef: nullableRef,
-      }),
-      shape({
-        action: { const: 'repair' },
-        phase: { const: 'static' },
-        failedCandidateRef: ref,
-        measurementRef: ref,
-        analysisRef: ref,
-        historyRef: nullableRef,
-        attempt,
-        repairIndex: attempt,
-        goal: ref,
-      }),
-      shape({
-        action: { const: 'summarize' },
-        phase: { const: 'static' },
-        entryCandidateRef: ref,
-        analysisRef: ref,
-        historyRef: nullableRef,
-        attempt,
-        candidateRefs: refs(1),
-        measurementRefs: refs(0),
-        decisionRef: nullableRef,
-        outcome: { enum: [...operatorAttemptOutcomes] },
-      }),
-      shape({
-        action: { const: 'propose' },
-        phase: { const: 'metrics' },
-        parentCandidateRef: ref,
-        incumbentMeasurementRef: ref,
-        diagnosticMeasurementRef: ref,
-        round: { type: 'integer', minimum: 1 },
-        historyRef: nullableRef,
-        staticHistoryRef: nullableRef,
-        goal: ref,
-      }),
-      shape({
-        action: { const: 'repair' },
-        phase: { const: 'metrics' },
-        failedCandidateRef: ref,
-        measurementRef: ref,
-        analysisRef: ref,
-        round: { type: 'integer', minimum: 1 },
-        repairIndex: attempt,
-        historyRef: nullableRef,
-        staticHistoryRef: nullableRef,
-        goal: ref,
-      }),
-      shape({
-        action: { const: 'summarize' },
-        phase: { const: 'metrics' },
-        parentCandidateRef: ref,
-        incumbentMeasurementRef: ref,
-        analysisRef: ref,
-        round: { type: 'integer', minimum: 1 },
-        historyRef: nullableRef,
-        staticHistoryRef: nullableRef,
-        candidateRefs: refs(0),
-        measurementRefs: refs(0),
-        decisionRef: nullableRef,
-        candidateDiagnosticMeasurementRef: nullableRef,
-        outcome: { enum: [...operatorAttemptOutcomes] },
-      }),
+      {
+        type: 'object',
+        properties: {
+          action: { const: 'propose' },
+          phase: { const: 'static' },
+          entryCandidateRef: { type: 'string', minLength: 1 },
+          baselineMeasurementRef: { type: 'string', minLength: 1 },
+          attempt: { type: 'integer', minimum: 1 },
+          goal: { type: 'string', minLength: 1 },
+          analysisRef: {
+            anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }],
+          },
+          historyRef: {
+            anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }],
+          },
+        },
+        required: [
+          'action',
+          'phase',
+          'entryCandidateRef',
+          'baselineMeasurementRef',
+          'attempt',
+          'goal',
+          'analysisRef',
+          'historyRef',
+        ],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          action: { const: 'repair' },
+          phase: { const: 'static' },
+          failedCandidateRef: { type: 'string', minLength: 1 },
+          measurementRef: { type: 'string', minLength: 1 },
+          analysisRef: { type: 'string', minLength: 1 },
+          historyRef: {
+            anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }],
+          },
+          attempt: { type: 'integer', minimum: 1 },
+          repairIndex: { type: 'integer', minimum: 1 },
+          goal: { type: 'string', minLength: 1 },
+        },
+        required: [
+          'action',
+          'phase',
+          'failedCandidateRef',
+          'measurementRef',
+          'analysisRef',
+          'historyRef',
+          'attempt',
+          'repairIndex',
+          'goal',
+        ],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          action: { const: 'propose' },
+          phase: { const: 'metrics' },
+          parentCandidateRef: { type: 'string', minLength: 1 },
+          incumbentMeasurementRef: { type: 'string', minLength: 1 },
+          diagnosticMeasurementRef: { type: 'string', minLength: 1 },
+          round: { type: 'integer', minimum: 1 },
+          historyRef: {
+            anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }],
+          },
+          staticHistoryRef: {
+            anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }],
+          },
+          goal: { type: 'string', minLength: 1 },
+        },
+        required: [
+          'action',
+          'phase',
+          'parentCandidateRef',
+          'incumbentMeasurementRef',
+          'diagnosticMeasurementRef',
+          'round',
+          'historyRef',
+          'staticHistoryRef',
+          'goal',
+        ],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          action: { const: 'repair' },
+          phase: { const: 'metrics' },
+          failedCandidateRef: { type: 'string', minLength: 1 },
+          measurementRef: { type: 'string', minLength: 1 },
+          analysisRef: { type: 'string', minLength: 1 },
+          round: { type: 'integer', minimum: 1 },
+          repairIndex: { type: 'integer', minimum: 1 },
+          historyRef: {
+            anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }],
+          },
+          staticHistoryRef: {
+            anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }],
+          },
+          goal: { type: 'string', minLength: 1 },
+        },
+        required: [
+          'action',
+          'phase',
+          'failedCandidateRef',
+          'measurementRef',
+          'analysisRef',
+          'round',
+          'repairIndex',
+          'historyRef',
+          'staticHistoryRef',
+          'goal',
+        ],
+        additionalProperties: false,
+      },
     ],
   },
   output_schema: {
     oneOf: [
-      candidateOutput('propose', true),
-      candidateOutput('propose', false),
-      candidateOutput('repair', true),
-      candidateOutput('repair', false),
-      ...(['propose', 'repair'] as const).map((action) =>
-        shape({
-          action: { const: action },
-          status: { const: 'failed' },
-          candidateRef: ref,
-          diffRef: { type: 'null' },
-          analysisRef: ref,
-          errorRef: ref,
+      {
+        type: 'object',
+        properties: {
+          candidateRef: { type: 'string', minLength: 1 },
+          analysisRef: { type: 'string', minLength: 1 },
           rationale: { type: 'string' },
+          action: { enum: ['propose', 'repair'] },
+          status: { const: 'created' },
+          diffRef: { type: 'string', minLength: 1 },
+          reasonCode: { const: 'created' },
+        },
+        required: [
+          'candidateRef',
+          'analysisRef',
+          'rationale',
+          'action',
+          'status',
+          'diffRef',
+          'reasonCode',
+        ],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          candidateRef: { type: 'string', minLength: 1 },
+          analysisRef: { type: 'string', minLength: 1 },
+          rationale: { type: 'string' },
+          action: { const: 'propose' },
+          status: { const: 'no-change' },
+          diffRef: { type: 'null' },
+          reasonCode: { enum: ['no-supported-change', 'no-static-issues'] },
+        },
+        required: [
+          'candidateRef',
+          'analysisRef',
+          'rationale',
+          'action',
+          'status',
+          'diffRef',
+          'reasonCode',
+        ],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          candidateRef: { type: 'string', minLength: 1 },
+          analysisRef: { type: 'string', minLength: 1 },
+          rationale: { type: 'string' },
+          action: { const: 'repair' },
+          status: { const: 'no-change' },
+          diffRef: { type: 'null' },
+          reasonCode: { const: 'no-supported-change' },
+        },
+        required: [
+          'candidateRef',
+          'analysisRef',
+          'rationale',
+          'action',
+          'status',
+          'diffRef',
+          'reasonCode',
+        ],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          candidateRef: { type: 'string', minLength: 1 },
+          analysisRef: { type: 'string', minLength: 1 },
+          rationale: { type: 'string' },
+          action: { enum: ['propose', 'repair'] },
+          status: { const: 'failed' },
+          diffRef: { type: 'null' },
+          errorRef: { type: 'string', minLength: 1 },
           reasonCode: { const: 'invalid-model-output' },
-        }),
-      ),
-      shape({
-        action: { const: 'summarize' },
-        historyRef: ref,
-        summaryRef: ref,
-      }),
+        },
+        required: [
+          'candidateRef',
+          'analysisRef',
+          'rationale',
+          'action',
+          'status',
+          'diffRef',
+          'errorRef',
+          'reasonCode',
+        ],
+        additionalProperties: false,
+      },
     ],
   },
 });

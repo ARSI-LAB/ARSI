@@ -5,6 +5,7 @@
 本例使用 `policy.operator-search` 评测已封存的 Triton-Ascend 基线，生成并修复候选，
 选择改进结果，再独立复测选中的源码。可选的硬件诊断用于驱动后续搜索轮次。
 `application.kernel` 管理源码工作区，`proposer.operator` 提出修改，
+`summarizer.operator` 记录每次尝试的结果，
 Recipe 将评测绑定到 RSI 插件 `evaluator.operatorbench`。该插件处理 `evaluate` 和 `profile`
 时，都通过 Evaluator SDK 调用 `kernel` benchmark 和 `kernel-replay` solver，并将结果记录为 RSI Measurement。
 
@@ -30,14 +31,13 @@ Recipe 将评测绑定到 RSI 插件 `evaluator.operatorbench`。该插件处理
 路径、模型目录、身份文件、外部知识包和外部检索脚本的占位值。
 [hardware-context.md](./hardware-context.md) 中的硬件描述应与所选设备一致。
 
-Policy 包为六个阶段提供通用提示词，并通过默认 Proposer 绑定配置 `promptsDirectory`。
-本 Recipe 使用 `bindings.proposer.config.promptsDirectory: ./prompts` 显式选择本地
-[prompts 目录](./prompts)，采用本例的六份 Triton-Ascend 模板。
+Policy 通过 `bindings.proposer.config.promptsDirectory` 提供五份默认提案提示词，
+通过 `bindings.summarizer.config.promptFile` 提供独立的总结提示词。
+本 Recipe 选择本地 [prompts 目录](./prompts)和[总结提示词](./prompts/summarize.md)。
 相对路径以 Recipe 所在目录为基准解析。
 
-自定义提示词目录必须包含完整的六个文件：`diagnose.md`、`diagnose-metrics.md`、
-`generate.md`、`generate-metrics.md`、`repair.md` 和 `summarize.md`。
-独立使用 `proposer.operator` 时也必须配置完整目录。复制或部署本例时，
+自定义提案提示词目录必须包含 `diagnose.md`、`diagnose-metrics.md`、
+`generate.md`、`generate-metrics.md` 和 `repair.md`。复制或部署本例时，
 将 `prompts/` 与 Recipe 一同保留。已安装的 RSI 包提供自己的默认提示词，
 不依赖仓库中的 `examples/` 目录。
 

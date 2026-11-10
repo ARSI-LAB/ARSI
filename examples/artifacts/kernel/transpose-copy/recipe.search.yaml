@@ -47,6 +47,11 @@ bindings:
         similarityThreshold: 0.6
         resourcesDirectory: REPLACE_WITH_EXTERNAL_KNOWLEDGE_BUNDLE
         retrievalScript: REPLACE_WITH_EXTERNAL_RETRIEVAL_WORKER
+  summarizer:
+    plugin: summarizer.operator
+    config:
+      agentRef: agent
+      promptFile: ./prompts/summarize.md
   evaluator:
     plugin: evaluator.operatorbench
     config:

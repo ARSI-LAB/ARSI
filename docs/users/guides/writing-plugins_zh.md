@@ -10,21 +10,22 @@
 
 根据插件要完成的工作选择契约。契约规定调用的输入和输出，插件负责具体实现及其配置。已有契约符合需求时，直接复用对应的契约对象和类型：
 
-| 契约与字段定义                                                                           | 用途                                         | 导入的契约对象             |
-| ---------------------------------------------------------------------------------------- | -------------------------------------------- | -------------------------- |
-| [contract.application](../../../src/contracts/plugin-types/application.ts)               | 管理优化目标、提交候选、获取和释放运行实例。 | `applicationContract`      |
-| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                           | 执行模型请求与工具调用。                     | `agentContract`            |
-| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                     | 根据目标和证据生成候选。                     | `proposerContract`         |
-| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)   | 修改、修复算子并整理优化历史。               | `operatorProposerContract` |
-| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                 | 按任务列表评测候选。                         | `agentbenchContract`       |
-| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)         | 评测推理应用候选。                           | `inferencebenchContract`   |
-| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)           | 检查算子正确性、测量性能或收集性能分析数据。 | `operatorbenchContract`    |
-| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)     | 比较测量指标并选择候选。                     | `metricSelectorContract`   |
-| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts) | 按给定标准比较候选内容并选择候选。           | `artifactSelectorContract` |
-| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                         | 将证据和观察整理成可复用的经验。             | `memoryContract`           |
-| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                 | 根据执行证据提出插件修订。                   | `reflectionContract`       |
-| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)           | 按网格搜索顺序生成参数候选。                 | `gridProposerContract`     |
-| [contract.search](../../../src/contracts/plugin-types/search.ts)                         | 管理有状态搜索、请求工作并接收反馈。         | `searchContract`           |
+| 契约与字段定义                                                                             | 用途                                         | 导入的契约对象               |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------- | ---------------------------- |
+| [contract.application](../../../src/contracts/plugin-types/application.ts)                 | 管理优化目标、提交候选、获取和释放运行实例。 | `applicationContract`        |
+| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                             | 执行模型请求与工具调用。                     | `agentContract`              |
+| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                       | 根据目标和证据生成候选。                     | `proposerContract`           |
+| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)     | 生成并修复算子候选。                         | `operatorProposerContract`   |
+| [contract.summarizer-operator](../../../src/contracts/plugin-types/summarizer-operator.ts) | 汇总已完成的算子尝试并更新历史。             | `operatorSummarizerContract` |
+| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                   | 按任务列表评测候选。                         | `agentbenchContract`         |
+| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)           | 评测推理应用候选。                           | `inferencebenchContract`     |
+| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)             | 检查算子正确性、测量性能或收集性能分析数据。 | `operatorbenchContract`      |
+| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)       | 比较测量指标并选择候选。                     | `metricSelectorContract`     |
+| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts)   | 按给定标准比较候选内容并选择候选。           | `artifactSelectorContract`   |
+| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                           | 将证据和观察整理成可复用的经验。             | `memoryContract`             |
+| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                   | 根据执行证据提出插件修订。                   | `reflectionContract`         |
+| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)             | 按网格搜索顺序生成参数候选。                 | `gridProposerContract`       |
+| [contract.search](../../../src/contracts/plugin-types/search.ts)                           | 管理有状态搜索、请求工作并接收反馈。         | `searchContract`             |
 
 每个普通插件只实现一个公共契约。Application 等契约包含多种动作，由同一个 `execute` 按 `input.action` 区分。
 

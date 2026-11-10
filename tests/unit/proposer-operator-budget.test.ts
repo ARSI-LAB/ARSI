@@ -9,7 +9,7 @@ import { piDefinition } from '../../src/plugins/agent-pi/index.js';
 import { object } from '../../src/shared/json.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
-import { requestOperatorAgent } from '../../src/plugins/proposer-operator/service.js';
+import { requestOperatorAgent } from '../../src/plugins/shared/operator-attempt/agent.js';
 
 async function projectContext(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-operator-stage-'));

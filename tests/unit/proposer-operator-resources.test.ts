@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import {
   loadOperatorResources,
   readKnowledgeResources,
-} from '../../src/plugins/proposer-operator/service.js';
+} from '../../src/plugins/proposer-operator/resources.js';
 import { prepareKnowledgeFixture } from '../fixtures/operator-proposer/setup.js';
 
 async function fixture() {
@@ -60,7 +60,6 @@ test('configured operator prompts supply stage content and participate in resour
     'generate',
     'generate-metrics',
     'repair',
-    'summarize',
   ])
     await writeFile(join(promptsDirectory, `${stage}.md`), `Custom ${stage}\n`);
   const config = {

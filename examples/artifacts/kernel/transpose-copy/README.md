@@ -6,7 +6,7 @@ This example uses `policy.operator-search` to evaluate a sealed Triton-Ascend
 baseline, generate and repair candidates, select improvements, and independently
 reassess the selected source. Optional hardware diagnostics drive further search
 rounds. `application.kernel` owns source workspaces, `proposer.operator` proposes
-edits, and the Recipe binds `evaluator.operatorbench` for evaluation.
+edits, `summarizer.operator` records each completed attempt, and the Recipe binds `evaluator.operatorbench` for evaluation.
 For both `evaluate` and `profile`, this RSI plugin calls the Evaluator SDK with
 benchmark `kernel` and solver `kernel-replay`, then records the result as an RSI Measurement.
 
@@ -35,16 +35,14 @@ embedding Python path, model directory, identity file, external knowledge bundle
 and external retrieval script placeholders. Keep the hardware description in
 [hardware-context.md](./hardware-context.md) consistent with the selected device.
 
-The Policy package includes generic prompts for all six stages and supplies
-`promptsDirectory` through its default Proposer binding. This Recipe explicitly
-selects the local [prompts directory](./prompts) with
-`bindings.proposer.config.promptsDirectory: ./prompts` to use the six Triton-Ascend
-templates for this example. Relative paths resolve from the Recipe directory.
+The Policy supplies five generic proposer prompts through
+`bindings.proposer.config.promptsDirectory` and a separate summary prompt
+through `bindings.summarizer.config.promptFile`. The Recipe selects the local
+[prompts directory](./prompts) and its [summary prompt](./prompts/summarize.md).
+Relative paths resolve from the Recipe directory.
 
-A custom prompts directory must contain the complete set: `diagnose.md`,
-`diagnose-metrics.md`, `generate.md`, `generate-metrics.md`, `repair.md`, and
-`summarize.md`. Independent uses of `proposer.operator` must also configure a
-complete directory. Keep `prompts/` alongside the Recipe when copying or
+A custom proposer directory must contain `diagnose.md`, `diagnose-metrics.md`,
+`generate.md`, `generate-metrics.md`, and `repair.md`. Keep `prompts/` alongside the Recipe when copying or
 deploying this example. The installed RSI package supplies its own defaults and
 does not depend on the repository's `examples/` directory.
 

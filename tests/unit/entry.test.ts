@@ -34,6 +34,7 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
       'search.prompt-evolution',
       'selector.artifact',
       'selector.metric',
+      'summarizer.operator',
     ]);
     assert.deepEqual(catalog.policies.sort(), [
       'policy.gepa',

@@ -18,6 +18,7 @@ state:
   repairCount: 0
   currentCandidate: ${{ input.candidateRef }}
   currentMeasurement: null
+  attemptActions: []
   attemptCandidates: []
   attemptMeasurements: []
   feasible: false
@@ -49,6 +50,8 @@ require:
     contract: contract.agent
   proposer:
     contract: contract.proposer-operator
+  summarizer:
+    contract: contract.summarizer-operator
   evaluator:
     contract: contract.operatorbench
   selector:
@@ -59,6 +62,11 @@ defaults:
       plugin: proposer.operator
       config:
         promptsDirectory: ./prompts
+    summarizer:
+      plugin: summarizer.operator
+      config:
+        agentRef: agent
+        promptFile: ./prompts/summarize.md
 steps:
   - id: evaluate_baseline
     use: evaluator
@@ -112,6 +120,8 @@ steps:
       - id: retain_proposal
         state:
           analysisRef: ${{ steps.propose.output.analysisRef }}
+          attemptActions:
+            - ${{ steps.propose.output }}
           currentCandidate: ${{ steps.propose.output.candidateRef }}
           attemptCandidates:
             - ${{ steps.propose.output.candidateRef }}
@@ -173,6 +183,7 @@ steps:
                         type: invoke
                       - id: count_repair
                         state:
+                          attemptActions: ${{ append(state.attemptActions, steps.repair.output) }}
                           repairCount: ${{ state.repairCount + 1 }}
                         type: state
                       - id: handle_repair
@@ -231,9 +242,10 @@ steps:
                   'verification-failed', if(state.accepted, 'adopted', 'verified-no-gain')))) }}
               type: state
             - id: summarize
-              use: proposer
+              use: summarizer
               with:
                 action: summarize
+                actions: ${{ state.attemptActions }}
                 entryCandidateRef: ${{ input.candidateRef }}
                 analysisRef: ${{ state.analysisRef }}
                 historyRef: ${{ state.historyRef }}
@@ -353,6 +365,8 @@ steps:
             - id: retain_metric_proposal
               state:
                 analysisRef: ${{ steps.metrics_propose.output.analysisRef }}
+                attemptActions:
+                  - ${{ steps.metrics_propose.output }}
                 currentCandidate: ${{ steps.metrics_propose.output.candidateRef }}
                 attemptCandidates:
                   - ${{ steps.metrics_propose.output.candidateRef }}
@@ -406,6 +420,7 @@ steps:
                         type: invoke
                       - id: count_metrics_repair
                         state:
+                          attemptActions: ${{ append(state.attemptActions, steps.metrics_repair.output) }}
                           repairCount: ${{ state.repairCount + 1 }}
                         type: state
                       - id: handle_metrics_repair
@@ -505,15 +520,15 @@ steps:
                   'verification-failed', if(state.accepted, 'adopted', 'verified-no-gain')))) }}
               type: state
             - id: metrics_summarize
-              use: proposer
+              use: summarizer
               with:
                 action: summarize
+                actions: ${{ state.attemptActions }}
                 phase: metrics
                 parentCandidateRef: ${{ state.metricParent }}
                 incumbentMeasurementRef: ${{ state.metricIncumbent }}
                 analysisRef: ${{ state.analysisRef }}
                 historyRef: ${{ state.metricHistoryRef }}
-                staticHistoryRef: ${{ state.staticHistoryRef }}
                 round: ${{ state.roundCount }}
                 candidateRefs: ${{ state.attemptCandidates }}
                 measurementRefs: ${{ state.attemptMeasurements }}

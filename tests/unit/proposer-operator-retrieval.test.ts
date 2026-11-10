@@ -18,11 +18,9 @@ import {
   readEmbeddingIdentity,
   retrieveStaticKnowledge,
   retrieveMetricsKnowledge,
-} from '../../src/plugins/proposer-operator/service.js';
-import type {
-  EmbeddingConfig,
-  StaticIssue,
-} from '../../src/plugins/proposer-operator/schema.js';
+} from '../../src/plugins/proposer-operator/resources.js';
+import type { EmbeddingConfig } from '../../src/plugins/proposer-operator/schema.js';
+import type { StaticIssue } from '../../src/plugins/shared/operator-attempt/schema.js';
 
 import { prepareKnowledgeFixture } from '../fixtures/operator-proposer/setup.js';
 

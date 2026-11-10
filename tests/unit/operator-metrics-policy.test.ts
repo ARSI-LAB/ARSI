@@ -86,7 +86,7 @@ async function run(
         selectedValue: accepted ? candidate.value : incumbent.value,
       };
     }
-    if (input.action === 'summarize')
+    if (binding === 'summarizer')
       return {
         action: 'summarize',
         historyRef: `h${input.round ?? input.attempt}`,
@@ -230,6 +230,24 @@ test('configured metrics search completes eleven rounds and restores its recorde
 test('failed verification exhausts three repairs and proceeds to another round', async () => {
   const { output, calls } = await run({ values: [0, 10], maxRounds: 2 });
   assert.equal(calls.filter((c) => c.input.action === 'repair').length, 3);
+  const summaries = calls.filter((call) => call.binding === 'summarizer');
+  assert.deepEqual(
+    summaries.map(({ input }) =>
+      (input.actions as JsonObject[]).map(({ action, candidateRef }) => [
+        action,
+        candidateRef,
+      ]),
+    ),
+    [
+      [
+        ['propose', 'c1'],
+        ['repair', 'bad1'],
+        ['repair', 'bad2'],
+        ['repair', 'bad3'],
+      ],
+      [['propose', 'c2']],
+    ],
+  );
   assert.equal((output.metricsRounds as JsonValue[]).length, 2);
   assert.equal(
     object((output.metricsRounds as JsonObject[])[0]).outcome,

@@ -13,25 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-async function reader(path: string): Promise<{ text: string; sha256: string }> {
-  const module: unknown = await import(
-    new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
-      .href
-  );
-  assert.ok(module && typeof module === 'object');
-  const fn: unknown = Reflect.get(module, 'readHardwareContext');
-  assert.equal(typeof fn, 'function');
-  if (typeof fn !== 'function') throw new Error('Missing hardware reader');
-  const result: unknown = await fn(path);
-  assert.ok(result && typeof result === 'object');
-  const text: unknown = Reflect.get(result, 'text');
-  const sha256: unknown = Reflect.get(result, 'sha256');
-  assert.equal(typeof text, 'string');
-  assert.equal(typeof sha256, 'string');
-  if (typeof text !== 'string' || typeof sha256 !== 'string')
-    throw new Error('Invalid hardware result');
-  return { text, sha256 };
-}
+import { readHardwareContext as reader } from '../../src/plugins/proposer-operator/resources.js';
 
 test('hardware context preserves the complete user text and hashes its original bytes', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-hardware-context-'));

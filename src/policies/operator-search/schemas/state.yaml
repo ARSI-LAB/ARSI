@@ -37,6 +37,10 @@ properties:
       - string
       - 'null'
     minLength: 1
+  attemptActions:
+    type: array
+    items:
+      type: object
   attemptCandidates:
     type: array
     items:
@@ -130,6 +134,7 @@ required:
   - repairCount
   - currentCandidate
   - currentMeasurement
+  - attemptActions
   - attemptCandidates
   - attemptMeasurements
   - feasible

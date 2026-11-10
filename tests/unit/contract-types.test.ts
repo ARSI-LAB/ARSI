@@ -26,6 +26,8 @@ import type {
   OperatorAttemptOutcome,
   OperatorProposerInput,
   OperatorProposerOutput,
+  OperatorSummarizerInput,
+  OperatorSummarizerOutput,
   OperatorbenchInput,
   OperatorbenchOutput,
   EventPipeline,
@@ -49,6 +51,7 @@ import { metricSelectorDefinition } from '../../src/plugins/selector-metrics/ind
 import { gridProposerDefinition } from '../../src/plugins/proposer-grid/index.js';
 import { kernelApplicationDefinition } from '../../src/plugins/application-kernel/index.js';
 import { operatorbenchDefinition } from '../../src/plugins/evaluator-operatorbench/index.js';
+import { operatorSummarizerDefinition } from '../../src/plugins/summarizer-operator/index.js';
 import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
 
 type Equal<A, B> =
@@ -190,6 +193,7 @@ export type ConcreteConfigChecks = [
         | typeof kernelApplicationDefinition
         | typeof operatorbenchDefinition
         | typeof operatorProposerDefinition
+        | typeof operatorSummarizerDefinition
       >,
       false
     >
@@ -422,6 +426,7 @@ test('operator plugin definitions use their public contract objects', () => {
     [kernelApplicationDefinition, contracts.applicationContract],
     [operatorbenchDefinition, contracts.operatorbenchContract],
     [operatorProposerDefinition, contracts.operatorProposerContract],
+    [operatorSummarizerDefinition, contracts.operatorSummarizerContract],
   ] as const) {
     assert.equal(definition.contract, contract, definition.id);
   }
@@ -504,10 +509,21 @@ test('typed inputs and outputs satisfy public contract Schemas', () => {
       } satisfies OperatorProposerOutput,
     },
     {
-      contract: contracts.operatorProposerContract,
+      contract: contracts.operatorSummarizerContract,
       input: {
         action: 'summarize',
         phase: 'static',
+        actions: [
+          {
+            action: 'propose',
+            status: 'no-change',
+            candidateRef: 'c',
+            analysisRef: 'analysis',
+            diffRef: null,
+            rationale: 'No change',
+            reasonCode: 'no-supported-change',
+          },
+        ],
         entryCandidateRef: 'c',
         analysisRef: 'analysis',
         historyRef: null,
@@ -516,12 +532,12 @@ test('typed inputs and outputs satisfy public contract Schemas', () => {
         measurementRefs: [],
         decisionRef: null,
         outcome: 'no-change',
-      } satisfies OperatorProposerInput,
+      } satisfies OperatorSummarizerInput,
       output: {
         action: 'summarize',
         historyRef: 'history',
         summaryRef: 'summary',
-      } satisfies OperatorProposerOutput,
+      } satisfies OperatorSummarizerOutput,
     },
     {
       contract: contracts.operatorbenchContract,

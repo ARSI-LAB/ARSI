@@ -361,7 +361,7 @@ export function register(registry) {
        import {readFile} from 'node:fs/promises';
        const sdk = await import('ember-evaluator');
        for (const name of ['Evaluator','parseUserConfig','parseKernelTimingEvidence','auditKernelTimingSample']) assert.equal(typeof sdk[name], 'function');
-       const helper = await readFile(new URL('adapters/kernel/timing_evidence.py', import.meta.resolve('ember-evaluator')), 'utf8');
+       const helper = await readFile(new URL('plugins/benchmarks/operator/kernel/runtime/timing_evidence.py', import.meta.resolve('ember-evaluator')), 'utf8');
        assert.match(helper, /def collect_flow_timing/);`,
     ],
     {

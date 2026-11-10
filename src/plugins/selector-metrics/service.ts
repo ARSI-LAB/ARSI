@@ -127,6 +127,7 @@ async function metricChecks(
       max = constraint.max ?? null;
     checks.push({
       metric: constraint.metric,
+      prerequisite: constraint.prerequisite ?? false,
       statistic: constraint.statistic ?? null,
       definitionRef: values.definitionRef,
       min,
@@ -150,8 +151,13 @@ export const createMetricSelector: OperationDefinition<
     rawConfig,
     'metric selector config',
   );
-  const constraints = config.constraints;
-  for (const c of [...config.eligibility, ...constraints])
+  const prerequisites = config.constraints.filter(
+    (constraint) => constraint.prerequisite,
+  );
+  const ordinaryConstraints = config.constraints.filter(
+    (constraint) => !constraint.prerequisite,
+  );
+  for (const c of config.constraints)
     if (c.min !== undefined && c.max !== undefined && c.min > c.max)
       throw new Error(`Constraint ${c.metric} min exceeds max`);
   return {
@@ -180,8 +186,8 @@ export const createMetricSelector: OperationDefinition<
         throw new Error(
           'Measurement identity or experiment ownership mismatch',
         );
-      const hasEligibility = config.eligibility.length > 0;
-      if (hasEligibility) {
+      const hasPrerequisites = prerequisites.length > 0;
+      if (hasPrerequisites) {
         assertComparable(before, before, 'Incumbent measurements');
         if (
           before.finishedAt === null ||
@@ -189,7 +195,7 @@ export const createMetricSelector: OperationDefinition<
           after.status !== 'succeeded'
         )
           throw new Error(
-            'Eligibility requires completed, succeeded assessments',
+            'Metric prerequisites require completed, succeeded assessments',
           );
       } else {
         assertComparable(before, after, 'Measurements');
@@ -200,11 +206,11 @@ export const createMetricSelector: OperationDefinition<
         scope(services, after, itemId),
       ]);
       if (itemId !== undefined) {
-        if (hasEligibility) {
+        if (hasPrerequisites) {
           assertComparable(a, a, 'Incumbent measurement points');
           if (b.status !== 'succeeded')
             throw new Error(
-              'Eligibility requires a succeeded point assessment',
+              'Metric prerequisites require a succeeded point assessment',
             );
         } else {
           assertComparable(a, b, 'Measurement points');
@@ -214,28 +220,28 @@ export const createMetricSelector: OperationDefinition<
       }
       const metric = config.metric,
         statistic = config.statistic;
-      const eligibilityChecks = await metricChecks(
+      const prerequisiteChecks = await metricChecks(
         services,
         a,
         b,
-        config.eligibility,
+        prerequisites,
       );
       if (
-        eligibilityChecks.some(
+        prerequisiteChecks.some(
           (check) =>
             (check.min !== null && check.incumbentValue < check.min) ||
             (check.max !== null && check.incumbentValue > check.max),
         )
       )
-        throw new Error('Incumbent does not satisfy metric eligibility');
-      const eligible = eligibilityChecks.every((check) => check.passed);
+        throw new Error('Incumbent does not satisfy metric prerequisites');
+      const eligible = prerequisiteChecks.every((check) => check.passed);
       let objective: {
         before: number;
         after: number | null;
         definitionRef: string;
       };
       if (eligible) {
-        if (hasEligibility) {
+        if (hasPrerequisites) {
           assertComparable(before, after, 'Measurements');
           if (itemId !== undefined)
             assertComparable(a, b, 'Measurement points');
@@ -255,10 +261,11 @@ export const createMetricSelector: OperationDefinition<
         throw new Error(
           'Relative improvement requires a positive incumbent value',
         );
-      const checks = eligible
-        ? await metricChecks(services, a, b, constraints)
+      const ordinaryChecks = eligible
+        ? await metricChecks(services, a, b, ordinaryConstraints)
         : [];
-      const feasible = eligible && checks.every((check) => check.passed);
+      const feasible =
+        eligible && ordinaryChecks.every((check) => check.passed);
       const requiredImprovement =
         objective.before * config.minRelativeImprovement;
       // Compare the cutoff directly to avoid subtraction noise at equal thresholds.
@@ -269,7 +276,7 @@ export const createMetricSelector: OperationDefinition<
           : objective.after > objective.before + requiredImprovement);
       const accepted = feasible && improved;
       const reason = !eligible
-        ? 'Candidate does not satisfy metric eligibility'
+        ? 'Candidate does not satisfy metric prerequisites'
         : !feasible
           ? 'Candidate does not satisfy metric constraints'
           : accepted
@@ -292,8 +299,7 @@ export const createMetricSelector: OperationDefinition<
         definitionRef: objective.definitionRef,
         incumbentValue: objective.before,
         candidateValue: objective.after,
-        eligibility: eligibilityChecks,
-        constraints: checks,
+        constraints: [...prerequisiteChecks, ...ordinaryChecks],
         accepted,
         reason,
       };

@@ -83,8 +83,9 @@ bindings:
     config:
       metric: latencyMeanMs
       direction: minimize
-      eligibility:
+      constraints:
         - metric: candidateValid
+          prerequisite: true
           min: 1
       minRelativeImprovement: 0.02
 budget:

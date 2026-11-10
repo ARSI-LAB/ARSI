@@ -11,6 +11,7 @@ import {
 } from '../../../contracts/models/measurement.js';
 
 type ConstraintCheck = {
+  prerequisite: boolean;
   metric: string;
   statistic: string | null;
   definitionRef: string;
@@ -30,7 +31,6 @@ type MetricDecision = {
   definitionRef: string;
   incumbentValue: number;
   candidateValue: number | null;
-  eligibility: ConstraintCheck[];
   minRelativeImprovement: number;
   constraints: ConstraintCheck[];
   accepted: boolean;
@@ -43,6 +43,7 @@ const bound = { type: ['number', 'null'] };
 const checks = {
   type: 'array',
   items: recordSchema({
+    prerequisite: { type: 'boolean' },
     metric: ref,
     statistic,
     definitionRef: ref,
@@ -63,7 +64,6 @@ export const metricDecisionSchema: JsonSchema = recordSchema({
   definitionRef: ref,
   incumbentValue: { type: 'number' },
   candidateValue: bound,
-  eligibility: checks,
   minRelativeImprovement: { type: 'number', minimum: 0, exclusiveMaximum: 1 },
   constraints: checks,
   accepted: { type: 'boolean' },
@@ -151,8 +151,7 @@ export async function readDecisionFeedback(
   )
     throw new Error('Decision objective does not match measurement');
   const constraints: number[] = [];
-  const checks = [...decision.eligibility, ...decision.constraints];
-  for (const check of checks) {
+  for (const check of decision.constraints) {
     if (check.min === null && check.max === null)
       throw new Error('Decision constraint requires a bound');
     if (check.min !== null && check.max !== null && check.min > check.max)
@@ -185,7 +184,8 @@ export async function readDecisionFeedback(
       direction: decision.direction,
       itemId: decision.itemId,
       definitionRef: decision.definitionRef,
-      constraints: checks.map((c) => ({
+      constraints: decision.constraints.map((c) => ({
+        prerequisite: c.prerequisite,
         metric: c.metric,
         statistic: c.statistic,
         definitionRef: c.definitionRef,

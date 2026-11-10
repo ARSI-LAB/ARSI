@@ -5,6 +5,7 @@ import { operationSchema, refSchema } from '../shared/agent-editing/index.js';
 export type MetricStatistic = 'mean' | 'p50' | 'p95' | 'p99';
 export type MetricConstraint = {
   metric: string;
+  prerequisite?: boolean;
   statistic?: MetricStatistic;
 } & ({ min: number; max?: number } | { min?: number; max: number });
 export type MetricSelectorConfig = {
@@ -12,7 +13,6 @@ export type MetricSelectorConfig = {
   direction?: 'maximize' | 'minimize';
   itemId?: string;
   statistic?: MetricStatistic;
-  eligibility?: MetricConstraint[];
   constraints?: MetricConstraint[];
   minRelativeImprovement?: number;
   tieBreak?: 'retain-incumbent';
@@ -23,7 +23,6 @@ export type ResolvedMetricSelectorConfig = MetricSelectorConfig &
       MetricSelectorConfig,
       | 'metric'
       | 'direction'
-      | 'eligibility'
       | 'constraints'
       | 'minRelativeImprovement'
       | 'tieBreak'
@@ -36,6 +35,7 @@ const constraintSchema: JsonObject = {
     operationSchema(
       {
         metric: refSchema,
+        prerequisite: { type: 'boolean' },
         statistic: statisticSchema,
         min: { type: 'number' },
         max: { type: 'number' },
@@ -51,7 +51,6 @@ export const configSchema: JsonSchema = operationSchema(
     direction: { enum: ['maximize', 'minimize'], default: 'maximize' },
     itemId: refSchema,
     statistic: statisticSchema,
-    eligibility: { type: 'array', items: constraintSchema, default: [] },
     constraints: { type: 'array', items: constraintSchema, default: [] },
     minRelativeImprovement: {
       type: 'number',

@@ -176,7 +176,9 @@ export async function prepareOperatorFixture(): Promise<{
           config: {
             metric: 'latencyMeanMs',
             direction: 'minimize',
-            eligibility: [{ metric: 'candidateValid', min: 1 }],
+            constraints: [
+              { metric: 'candidateValid', min: 1, prerequisite: true },
+            ],
           },
         },
       },

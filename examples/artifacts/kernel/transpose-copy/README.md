@@ -183,6 +183,8 @@ Inspect `bestCandidateRef`, `bestMeasurementRef`, `finalMeasurementRef`,
 search decisions and their evidence. A completed experiment can retain the
 baseline when no candidate improves it.
 
+The selector checks constraints marked `prerequisite: true` first, regardless of their order in the Recipe. A measured `candidateValid: 0` skips the latency comparison and allows the Policy to attempt repair. A failed ordinary constraint retains the measured objective for feedback.
+
 `candidateValid` describes correctness, `latencyMeanMs` is candidate mean device
 latency, and `speedupVsReference` compares that candidate with the mathematical
 PyTorch reference. To claim optimization of the original kernel, compare the

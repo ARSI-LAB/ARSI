@@ -251,7 +251,6 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
     });
     const decisionRef = await artifacts.putJson({
       kind: 'metric-decision',
-      eligibility: [],
       minRelativeImprovement: 0,
       measurementRefs: ['m', 'm'],
       itemId: null,
@@ -270,6 +269,7 @@ test('Optuna persists feedback, retains pending proposals and reconstructs after
           max: 9,
           incumbentValue: 10,
           candidateValue: 10,
+          prerequisite: false,
           passed: false,
         },
       ],

@@ -323,7 +323,6 @@ async function fixture() {
     definitionRef: 'latency-definition',
     incumbentValue: 10,
     candidateValue: 12,
-    eligibility: [],
     constraints: [],
     accepted: false,
     reason: 'slower',

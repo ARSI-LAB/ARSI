@@ -158,6 +158,8 @@ Policy 的显式 `profile` 操作仍会启用采集，并强制关闭磁盘缓�
 `attempts`、`metricsRounds`、`diagnosticRefs` 及历史引用保留搜索决策与证据。
 没有候选优于基线时，已完成实验可以保留基线。
 
+Selector 优先检查标记为 `prerequisite: true` 的约束，与 Recipe 中的排列顺序无关。测得 `candidateValid: 0` 时跳过耗时比较，Policy 可进入修复流程。普通约束未通过时，决策仍保留实测目标值供后续反馈使用。
+
 `candidateValid` 表示正确性，`latencyMeanMs` 是候选的平均设备延迟，
 `speedupVsReference` 比较候选与数学 PyTorch 参考。
 要证明优化了原始 kernel，须在相同任务、协议和环境下比较原始与选中 kernel；

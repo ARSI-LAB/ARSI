@@ -17,6 +17,7 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
     assert.equal(response.statusCode, 200);
     const catalog = response.json();
     assert.deepEqual(catalog.plugins.sort(), [
+      'agent.claudecode',
       'agent.codex',
       'agent.pi',
       'application.agentbundle',

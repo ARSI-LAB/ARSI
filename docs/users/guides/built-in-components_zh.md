@@ -44,6 +44,7 @@
 | Selector    | `selector.artifact`                             | 让模型按评审标准比较匿名展示的报告等交付内容。                        | 按内容质量选择候选。                         |
 | Agent 后端  | [`agent.pi`](configuration_zh.md#pi-后端)       | 通过 Pi 执行提案生成、内容评审和经验总结等任务。                      | 使用自选模型服务驱动优化流程。               |
 | Agent 后端  | [`agent.codex`](configuration_zh.md#codex-后端) | 通过本机 Codex 执行提案生成、内容评审和经验总结等任务。               | 复用已有的 Codex 登录和配置。                |
+| Agent 后端  | [`agent.claudecode`](configuration_zh.md#claude-code-后端) | 通过本机 Claude Code CLI 执行 Agent 任务。                            | 原生 Skills、子 Agent、结构化输出与只读工具。 |
 
 ## Application
 

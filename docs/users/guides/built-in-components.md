@@ -44,6 +44,7 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 | Selector      | `selector.artifact`                             | Use a model to review anonymously presented reports or other deliverables against a rubric.                              | Select candidates by content quality.                                                   |
 | Agent backend | [`agent.pi`](configuration.md#pi-backend)       | Run proposal generation, content review, experience consolidation, and similar tasks through Pi.                         | Drive optimization with a model service of your choice.                                 |
 | Agent backend | [`agent.codex`](configuration.md#codex-backend) | Run proposal generation, content review, experience consolidation, and similar tasks through a local Codex installation. | Reuse an existing Codex login and configuration.                                        |
+| Agent backend | [`agent.claudecode`](configuration.md#claude-code-backend) | Run Agent tasks through the local Claude Code CLI.                                                                       | Native Skills, subagents, and structured output with read-only tools.                   |
 
 ## Application
 

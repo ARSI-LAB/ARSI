@@ -324,6 +324,8 @@ const result = await context.invokeAgent('agent', {
 });
 ```
 
+The managed snapshot includes `AGENTS.md` and `CLAUDE.md`, Skills under `.agents/skills/` and `.claude/skills/`, and native role definitions for Codex and Claude Code. These paths are reserved for generated project input; do not supply conflicting files.
+
 ### Calls and resource cleanup
 
 - Loading a Recipe only assembles definitions. Execution calls `create` to create instances and `execute` to perform business work. Runtime validates input/output and records calls.

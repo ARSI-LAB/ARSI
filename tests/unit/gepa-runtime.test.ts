@@ -136,6 +136,7 @@ test('a complete mutation round uses sampled evidence, admits strict improvement
     assert.deepEqual(Object.keys(request.projectFiles).sort(), [
       '.rsi-project',
       'AGENTS.md',
+      'CLAUDE.md',
       'candidate/a.md',
       'candidate/b.md',
       'context/input.json',

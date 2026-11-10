@@ -32,15 +32,16 @@ Recipe 包含以下顶层字段，完整 Recipe 示例见[快速入门](../getti
 
 ## Agent 与环境变量
 
-优化流程中的 Agent 负责生成提案、评审交付内容、整理经验等模型任务，内置后端为 Pi 和 Codex。Evaluator 的配置与优化 Agent 分开：AgentBench 配置被测 Agent（Solver）的模型服务，InferenceBench 配置推理服务基准，OperatorBench 配置算子评测环境。
+优化流程中的 Agent 负责生成提案、评审交付内容、整理经验等模型任务，内置后端为 Pi、Codex 和 Claude Code。Evaluator 的配置与优化 Agent 分开：AgentBench 配置被测 Agent（Solver）的模型服务，InferenceBench 配置推理服务基准，OperatorBench 配置算子评测环境。
 
-两个后端都在为 Agent 调用准备好的 workspace 中运行。`contract.agent` 接收 `cwd`、`goal` 和 `outputSchema`，Pi 通过 Runtime 委派时还会传入 `role`。Codex 使用原生工具委派。后端从 `AGENTS.md` 读取指令，并从工作目录读取任务材料。
+各后端都在为 Agent 调用准备好的 workspace 中运行。`contract.agent` 接收 `cwd`、`goal` 和 `outputSchema`，Pi 通过 Runtime 委派时还会传入 `role`。Codex 和 Claude Code 使用原生工具委派。后端从 `AGENTS.md` 或 `CLAUDE.md` 读取指令，并从工作目录读取任务材料。
 
 | 配置对象               | 用途                                                             |
 | ---------------------- | ---------------------------------------------------------------- |
 | Evaluator              | 配置所选基准的模型服务、任务或评测环境。                         |
 | Pi（`agent.pi`）       | 通过 Pi 调用指定的模型服务，执行优化流程中的 Agent 任务。        |
 | Codex（`agent.codex`） | 通过本机 Codex 执行优化流程中的 Agent 任务，沿用本地登录和配置。 |
+| Claude Code（`agent.claudecode`） | 使用 Claude Code 原生工具和结构化输出执行 Agent 任务。           |
 
 ### 环境变量
 
@@ -131,6 +132,40 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 - `timeoutMs` 限制完整调用，接受 1 到 2,147,483,647 的整数毫秒，实验取消和已配置的墙钟预算也会传递给进程。
 
 - 目前该后端无法执行实验的 `modelCalls` 预算。
+
+### Claude Code 后端
+
+`agent.claudecode` 通过本机 Claude Code CLI 执行任务，每次 Agent 调用创建独立且不持久化的会话。要求 macOS 或 Linux 上的 Claude Code 2.1.319 或更新版本；此适配器暂不支持 Windows 进程树清理。运行 RSI 前，先安装并登录 CLI，或通过其原生环境变量配置模型网关。
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.claudecode
+    config:
+      executable: claude
+      timeoutMs: 240000
+```
+
+[Claude Code Schema](../../../src/plugins/agent-claudecode/schema.ts) 仅接受 `executable`（默认 `claude`）、可选的 `model`、`effort`（`low`、`medium`、`high`、`xhigh`、`max`）和 `timeoutMs`（整次调用的超时，1–2,147,483,647 毫秒）。省略模型和思考强度时采用 CLI 的有效默认值；具体模型不一定支持所有强度。可执行文件也可以是向 CLI 环境注入网关凭据的本机启动器；不要将凭据写入 Recipe。RSI 不另行实现模型客户端。
+
+RSI 将受管理项目作为工作目录。`prepareAgentProject` 将指令投射到 `CLAUDE.md`、Skills 投射到 `.claude/skills/`、原生角色投射到 `.claude/agents/`，这些文件均包含在输入 artifact 中。使用原生 `Agent` 委派；直接传入契约中的可选 `role` 会被拒绝。所提供的角色可以读取文件、使用 Skills，但不能递归委派。
+
+适配器使用 restricted 非交互执行，仅开放 `Read`、`Glob`、`Grep`、`Skill` 和 `Agent`。直接编辑和命令工具被禁用；MCP 配置为空，忽略用户、项目和本地设置，并禁用普通 Hooks 及配置中的插件。需要执行 shell 或写入工具的 Skills 不属于此后端支持的只读工作流。RSI 按 `outputSchema` 校验最终 `structured_output`，由 Proposer 通过 Application 应用编辑。普通回复不能替代结构化结果。权限拒绝、结构化结果缺失或无效、原生执行错误都会导致调用失败，不另加 RSI 修复或重放循环。
+
+上述限制属于原生工具权限，不是操作系统文件隔离。Claude Code 仍可能写入自身运行状态。管理员管理的设置和 Hooks 可能具有更高优先级；如果也需约束它们，应使用外部隔离执行环境。适配器不暴露任意 CLI 参数或绕过权限的配置。
+
+每次调用拥有自己的进程组。取消、超时和实例销毁会终止 CLI 及其后代进程。诊断记录原生接口提供的 token 用量；中断调用的用量可能未知。原生估算费用不等于核实后的账单。此后端不能执行 RSI 的 `modelCalls` 预算，也不虚构调用次数。
+
+使用 `pnpm check` 运行确定性检查。独立集成入口会产生真实模型请求，需要配置好的 CLI，并显式指定拥有 `.rsi/` 数据目录的工作区：
+
+```sh
+RSI_CLAUDE_TEST_ROOT=/path/to/rsi-workspace \
+RSI_CLAUDE_EXECUTABLE=claude \
+pnpm test:integration:claudecode
+```
+
+该入口验证提案及 Application 提交、Skill 和原生子 Agent 的实际使用，以及直接写入尝试。它将带唯一名称的实验数据保留在指定工作区的 `.rsi/`，不会运行 Evaluator 或部署推理服务。默认单元测试不调用真实模型。
+
 
 ## Proposer 文件编辑
 

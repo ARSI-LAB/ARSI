@@ -38,7 +38,8 @@
     "check:package": "node scripts/check-package.mjs",
     "build:web": "vite build --config web/vite.config.ts",
     "dev:web": "vite --config web/vite.config.ts",
-    "prepare": "pnpm build"
+    "prepare": "pnpm build",
+    "test:integration:claudecode": "node --import tsx --test tests/integration/agent-claudecode.test.ts"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.2",

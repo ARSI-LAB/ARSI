@@ -32,15 +32,16 @@ The following table lists the top-level Recipe fields. For a complete Recipe exa
 
 ## Agent and environment variables
 
-Agents in the optimization flow generate proposals, review deliverables, consolidate experience, and perform other model tasks. The built-in backends are Pi and Codex. Evaluator settings are separate from the optimization Agent: AgentBench configures the evaluated Agent's (Solver's) model services, InferenceBench configures inference service benchmarks, and OperatorBench configures kernel evaluation environments.
+Agents in the optimization flow generate proposals, review deliverables, consolidate experience, and perform other model tasks. The built-in backends are Pi, Codex, and Claude Code. Evaluator settings are separate from the optimization Agent: AgentBench configures the evaluated Agent's (Solver's) model services, InferenceBench configures inference service benchmarks, and OperatorBench configures kernel evaluation environments.
 
-Both backends run in the workspace prepared for the Agent call. The `contract.agent` input supplies `cwd`, `goal`, and `outputSchema`, with `role` for Pi delegation through the Runtime. Codex delegates through its native tool. The backend reads instructions from `AGENTS.md` and uses the workspace files for task context.
+All backends run in the workspace prepared for the Agent call. The `contract.agent` input supplies `cwd`, `goal`, and `outputSchema`, with `role` for Pi delegation through the Runtime. Codex and Claude Code delegate through native tools. Backends read instructions from `AGENTS.md` or `CLAUDE.md` and use the workspace files for task context.
 
 | Configuration target  | Purpose                                                                                                             |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Evaluator             | Configure model services, tasks, or execution environments for the selected benchmark.                              |
 | Pi (`agent.pi`)       | Call a specified model service through Pi to execute Agent tasks in the optimization flow.                          |
 | Codex (`agent.codex`) | Execute Agent tasks in the optimization flow through a local Codex installation, using its login and configuration. |
+| Claude Code (`agent.claudecode`) | Execute Agent tasks using native Claude Code tools and structured output.                                           |
 
 ### Environment variables
 
@@ -131,6 +132,40 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 - `timeoutMs` limits the complete call and accepts integer milliseconds from 1 to 2,147,483,647. Experiment cancellation and configured wall budgets also propagate to the process.
 
 - This backend currently cannot enforce the experiment's `modelCalls` budget.
+
+### Claude Code backend
+
+`agent.claudecode` runs a locally installed Claude Code CLI in a fresh, non-persistent session for each Agent call. Use Claude Code 2.1.319 or newer on macOS or Linux; Windows process-tree cleanup is not supported by this adapter yet. Install and authenticate the CLI, or supply its native gateway environment variables, before running RSI.
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.claudecode
+    config:
+      executable: claude
+      timeoutMs: 240000
+```
+
+The [Claude Code Schema](../../../src/plugins/agent-claudecode/schema.ts) accepts only `executable` (default `claude`), optional `model`, `effort` (`low`, `medium`, `high`, `xhigh`, `max`), and `timeoutMs` (1–2,147,483,647 milliseconds for the whole call). Omitted model and effort use the CLI's effective defaults. A model may not support every effort level. The executable can also be a local launcher that injects gateway credentials into the CLI environment; keep credentials out of Recipes. RSI does not implement another provider client.
+
+RSI passes the managed project as the working directory. `prepareAgentProject` projects instructions to `CLAUDE.md`, Skills to `.claude/skills/`, and native role definitions to `.claude/agents/`, including these files in the input artifact. Use native `Agent` delegation; the optional contract-level `role` input is rejected. Supplied roles can read and use Skills but cannot delegate recursively.
+
+The adapter uses restricted, non-interactive execution with `Read`, `Glob`, `Grep`, `Skill`, and `Agent`. Direct editing and command tools are disabled; MCP configuration is empty, user/project/local settings are ignored, and ordinary Hooks and configured plugins are disabled. Skills requiring shell execution or write tools are outside this backend's supported read-only workflow. RSI validates the final `structured_output` against `outputSchema`; the Proposer applies the resulting edits through the Application. Ordinary assistant text is never treated as a substitute result. Permission denials, missing/invalid structured output and native errors fail the call without an RSI repair or replay loop.
+
+These are native tool restrictions, not an OS filesystem sandbox. Claude Code can still write its own runtime state. Administrator-managed settings and Hooks can take precedence; use an externally isolated execution environment if those must also be constrained. No arbitrary CLI options or permission-bypass configuration is exposed.
+
+Each call owns its process group. Cancellation, timeout and disposal terminate the CLI and descendants. Diagnostics record native token usage when supplied; interrupted calls may have unknown usage. Native estimated costs are not verified billing. The backend cannot enforce the RSI `modelCalls` budget and does not invent call counts.
+
+Run deterministic checks with `pnpm check`. The separate integration entrypoint makes real model requests and requires a configured CLI and an explicit workspace owning the `.rsi/` data directory:
+
+```sh
+RSI_CLAUDE_TEST_ROOT=/path/to/rsi-workspace \
+RSI_CLAUDE_EXECUTABLE=claude \
+pnpm test:integration:claudecode
+```
+
+It verifies proposal/application commits, Skill and native subagent use, and an attempted direct-write probe. It retains uniquely named experiment data under that workspace's `.rsi/`. It does not run an evaluator or deploy an inference service. The default unit suite never invokes a real model.
+
 
 ## Proposer file edits
 

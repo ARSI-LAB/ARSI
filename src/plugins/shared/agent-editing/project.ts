@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import type { JsonObject, RuntimeContext } from '../../../contracts/index.js';
 import { excludedArtifactEntries } from '../../../runtime/storage/index.js';
 import { object } from '../../../shared/json.js';
@@ -75,10 +75,12 @@ export async function prepareAgentProject(
       if (skillNames.has(name))
         throw new Error(`Duplicate skill name: ${name}`);
       skillNames.add(name);
-      await context.artifacts.materialize(
-        await context.artifacts.capture(directory),
-        join(staging, '.agents', 'skills', name),
-      );
+      const artifact = await context.artifacts.capture(directory);
+      for (const native of ['.agents', '.claude'])
+        await context.artifacts.materialize(
+          artifact,
+          join(staging, native, 'skills', name),
+        );
     }
     const roleNames = new Set<string>();
     for (const role of roles) {
@@ -92,12 +94,16 @@ export async function prepareAgentProject(
         );
       await write(`roles/${role.name}.md`, body);
       await write(
+        `.claude/agents/${role.name}.md`,
+        `---\n${stringify({ name: role.name, description: role.description, tools: ['Read', 'Glob', 'Grep', 'Skill'] })}---\n${body}\n`,
+      );
+      await write(
         `.codex/agents/${role.name}.toml`,
         `name = ${toml(role.name)}\ndescription = ${toml(role.description)}\ndeveloper_instructions = ${toml(body)}\n`,
       );
     }
     const catalog = roles.length
-      ? '\n\n## Delegation\n\nDelegate self-contained tasks with subagent in Pi or spawn_agent in Codex. Subagents share this project and return findings. Only the main agent proposes final edits.\n\n' +
+      ? '\n\n## Delegation\n\nDelegate self-contained tasks with subagent in Pi or spawn_agent in Codex, or Agent in Claude Code. Subagents share this project and return findings. Only the main agent proposes final edits.\n\n' +
         roles
           .map(({ name, description }) => `- ${name}: ${description}`)
           .join('\n')
@@ -112,6 +118,10 @@ export async function prepareAgentProject(
     } else {
       await write('AGENTS.md', instructions);
     }
+    await write(
+      'CLAUDE.md',
+      await readFile(join(staging, 'AGENTS.md'), 'utf8'),
+    );
     await write(projectMarker, '');
     for (const [path, content] of Object.entries(files)) {
       if (typeof content !== 'string')

@@ -63,9 +63,8 @@ ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
 ```
 
 - `validate` checks the Recipe, plugin configuration, contract compatibility, Policy compilation, and declared Reflection resources.
-- `doctor` performs the same loading checks and runs bundled checks for each effective binding, including Reflection. Use the same `--plugin-dir` options as `run`. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`. Statuses are `passed`, `failed` and `unchecked`; every unchecked check explains its scope or missing prerequisite. Missing resources identify their binding, field, reference and dependent unchecked check IDs in `checksNotRun`.
-- Doctor exits `1` when any check fails and `0` when no check fails, including reports with unchecked entries. Missing required local inputs fail; cold fetchable caches and custom plugins without bundled checks remain unchecked. Registration or loading errors produce JSON with `recipeId: null`. Interruption exits `130`.
-- Doctor uses temporary storage, bounded prerequisite probes and cached metadata. It does not start Agents, request model inference, download resources or create experiment/Measurement records. A passing report establishes only the stated prerequisites. `run` is independent and can be the first command in a workspace.
+- `doctor` performs the same loading checks and runs bundled checks for each effective binding, including Reflection. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`. Statuses are `passed`, `failed` and `unchecked`.
+  - Doctor exits `1` when any check fails and `0` when no check fails, including reports with unchecked entries.
 
 Inspect progress from another terminal in the same workspace:
 

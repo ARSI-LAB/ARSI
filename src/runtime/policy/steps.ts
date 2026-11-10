@@ -309,7 +309,11 @@ export class LoopStep implements Step {
       `${this.id}.maxIterations`,
     );
     if (!expressions(this.maxIterations).length)
-      boundedInteger(this.maxIterations, `${this.id}.maxIterations`, 100000);
+      boundedInteger(
+        this.maxIterations,
+        `${this.id}.maxIterations`,
+        Number.MAX_SAFE_INTEGER,
+      );
     this.condition = freezeSnapshot(
       structuredClone(value.while === undefined ? true : value.while),
     );
@@ -331,7 +335,7 @@ export class LoopStep implements Step {
     const maximum = boundedInteger(
       context.evaluate(this.maxIterations),
       `${context.stepPath}.maxIterations`,
-      100000,
+      Number.MAX_SAFE_INTEGER,
     );
     for (let index = 0; index < maximum; index++) {
       context.signal.throwIfAborted();

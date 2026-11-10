@@ -47,7 +47,22 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 
 ## Application
 
-An Application initializes candidate versions, validates and commits changes, and acquires and releases instances for evaluation. `application.agentbundle` manages Agent Bundles; `application.inference` manages inference service configurations and instances; `application.kernel` manages Triton-Ascend source code and evaluation workspaces. The kernel baseline's `input.py` must define `kernel_function`. See the [operator optimization example](../../../examples/artifacts/kernel/transpose-copy/README.md) for setup and configuration.
+An Application initializes candidate versions, validates and commits changes, and acquires and releases instances for evaluation. `application.agentbundle` manages Agent Bundles; `application.inference` manages inference service configurations and instances; `application.kernel` manages Triton-Ascend source code and evaluation workspaces. For kernel optimization, `baseline` contains the complete initial implementation, including its entry, local helpers and package initializers. Every file in each candidate snapshot is included in evaluation and profiling. `entryFile` selects the entry module relative to that snapshot; it exports a callable `kernel_function`. If omitted, the unique `kind: file` Target entry supplies the entry path. The Target selects which files may be modified, so the entry may be read-only. Source files cannot be added or removed during an experiment. See the [operator optimization example](../../../examples/artifacts/kernel/transpose-copy/README.md) for setup and configuration.
+
+For a package with a read-only entry, select its entry explicitly:
+
+```yaml
+application:
+  plugin: application.kernel
+  config:
+    baseline: { directory: ./baseline }
+    target: { schema: ./target.yaml }
+    entryFile: kernels/kernel.py
+```
+
+Place `kernels/kernel.py`, `kernels/__init__.py` and `kernels/tiling.py` under `baseline/`. Keep evaluation tasks in their configured task directory. The Target may authorize only `modify` on `kernels/tiling.py`. The Proposer reads all candidate files under `context/sources/` and returns one complete replacement per changed file using `editablePaths` from its stage input. Evaluation and profiling preserve the package tree and verify every candidate member. Entry provenance retains `sourceDigest`; `sourceBundleDigest` also covers helpers. Comparison conditions retain read-only file hashes and exclude editable source contents. Multi-file evaluation requires an Evaluator build supporting the kernel manifest's `candidateRoot` field.
+
+Target authorization also applies to a declared one-file inventory: a read-only entry contributes its bytes and declared path to comparison identity, while an editable entry may change content. Single-file SDK staging keeps the `input.py` compatibility alias and records its mapping to the declared entry; historical receipts retain their original comparison projection. Source inventories use deterministic path ordering for bundle hashes and evidence comparisons, including byte-distinct Unicode filenames.
 
 ### Change scope (Target)
 

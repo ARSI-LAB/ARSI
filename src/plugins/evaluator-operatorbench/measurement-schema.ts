@@ -15,6 +15,7 @@ export const sdkConditionsSchema = recordSchema({
 export const sdkProvenanceSchema = recordSchema({
   mode: { const: 'sdk' },
   sourceDigest: hashSchema,
+  sourceBundleDigest: hashSchema,
   artifactRef: text,
   runId: { type: ['string', 'null'] },
   attemptId: { type: ['string', 'null'] },
@@ -25,6 +26,7 @@ export const sdkDetailsSchema = recordSchema({
   mode: { const: 'sdk' },
   operation: { enum: ['evaluate', 'profile'] },
   sourceDigest: hashSchema,
+  sourceBundleDigest: hashSchema,
   caseId: text,
   assessment: { type: ['object', 'null'] },
   profile: { type: ['object', 'null'] },

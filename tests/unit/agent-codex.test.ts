@@ -135,6 +135,8 @@ async function fixture(
     rpcError?: boolean;
     turnFailure?: boolean;
     outputSchema?: JsonObject;
+    beforeRootEvents?: JsonObject[];
+    afterRootMessageEvents?: JsonObject[];
     nativeDelegate?: boolean;
   } = {},
 ) {
@@ -210,6 +212,8 @@ async function fixture(
     approvalRequired: options.approvalRequired ?? false,
     rpcError: options.rpcError ?? false,
     turnFailure: options.turnFailure ?? false,
+    beforeRootEvents: options.beforeRootEvents ?? [],
+    afterRootMessageEvents: options.afterRootMessageEvents ?? [],
     systemInstructions: 'PERSONAL_SYSTEM_MARKER',
     developerInstructions: 'PERSONAL_DEVELOPER_MARKER',
     model_providers: {
@@ -489,6 +493,153 @@ test('Codex validates the final JSON without a separate RSI correction loop', as
   try {
     await assert.rejects(f.run(), /agent output/);
     assert.equal(f.requests.length, 1);
+  } finally {
+    await f.close();
+  }
+});
+function agentMessage(
+  threadId: string,
+  turnId: string,
+  text: string,
+): JsonObject {
+  return {
+    method: 'item/completed',
+    params: {
+      threadId,
+      turnId,
+      item: { type: 'agentMessage', phase: 'final_answer', text },
+    },
+  };
+}
+
+for (const scenario of [
+  {
+    name: 'child completion',
+    threadId: 'child',
+    turnId: 'child-turn',
+    status: 'completed',
+  },
+  {
+    name: 'child failure',
+    threadId: 'child',
+    turnId: 'child-turn',
+    status: 'failed',
+  },
+  {
+    name: 'stale root turn',
+    threadId: 'thread',
+    turnId: 'previous-turn',
+    status: 'completed',
+  },
+])
+  test(`Codex ignores ${scenario.name} before the root JSON result`, async () => {
+    const f = await fixture(['{"answer":"ok"}'], {
+      beforeRootEvents: [
+        agentMessage(
+          scenario.threadId,
+          scenario.turnId,
+          'I couldn’t inspect the provided files.',
+        ),
+        {
+          method: 'turn/completed',
+          params: {
+            threadId: scenario.threadId,
+            turn: { id: scenario.turnId, status: scenario.status },
+          },
+        },
+      ],
+    });
+    try {
+      assert.deepEqual(await f.run(), { answer: 'ok' });
+      assert.equal(f.requests.length, 1);
+    } finally {
+      await f.close();
+    }
+  });
+
+test('Codex preserves root JSON when child or stale messages arrive before root completion', async () => {
+  const f = await fixture(['{"answer":"ok"}'], {
+    afterRootMessageEvents: [
+      agentMessage(
+        'child',
+        'child-turn',
+        'Child prose is not the requested output.',
+      ),
+      agentMessage('thread', 'previous-turn', '{"answer":"stale"}'),
+    ],
+  });
+  try {
+    assert.deepEqual(await f.run(), { answer: 'ok' });
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex records token usage only for the active root turn', async () => {
+  const usage = (
+    threadId: string,
+    turnId: string,
+    inputTokens: number,
+  ): JsonObject => ({
+    method: 'thread/tokenUsage/updated',
+    params: {
+      threadId,
+      turnId,
+      tokenUsage: {
+        total: { inputTokens },
+        last: { inputTokens },
+        modelContextWindow: 100000,
+      },
+    },
+  });
+  const f = await fixture(['{"answer":"ok"}'], {
+    afterRootMessageEvents: [
+      usage('child', 'child-turn', 999),
+      usage('thread', 'turn', 13),
+      usage('thread', 'previous-turn', 777),
+    ],
+  });
+  try {
+    assert.deepEqual(await f.run(), { answer: 'ok' });
+    const diagnostics = (
+      await readFile(join(f.directory, 'diagnostics.jsonl'), 'utf8')
+    )
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(
+      diagnostics
+        .filter((event) => event.type === 'token_usage')
+        .map((event) => event.data.total.inputTokens),
+      [10, 13],
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test('Codex denies foreign-turn snapshot reads without cancelling the root turn', async () => {
+  const f = await fixture(['{"answer":"ok"}'], {
+    beforeRootEvents: [
+      {
+        id: 'foreign-tool',
+        method: 'item/tool/call',
+        params: {
+          threadId: 'child',
+          turnId: 'child-turn',
+          tool: 'read_file',
+          arguments: { path: 'evidence.txt' },
+        },
+      },
+    ],
+  });
+  try {
+    assert.deepEqual(await f.run(), { answer: 'ok' });
+    const result = JSON.parse(
+      await readFile(join(f.directory, 'foreign-tool-result.json'), 'utf8'),
+    );
+    assert.equal(result.success, false);
+    assert.ok(!JSON.stringify(result).includes('SNAPSHOT_CONTENT'));
   } finally {
     await f.close();
   }

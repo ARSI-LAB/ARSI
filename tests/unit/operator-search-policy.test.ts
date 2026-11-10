@@ -27,6 +27,7 @@ async function setup(
   options: {
     markers?: string[];
     noIssues?: boolean;
+    maxAttempts?: number;
     repairLimit?: number;
     budget?: JsonObject;
     failSummary?: boolean;
@@ -40,7 +41,7 @@ async function setup(
     config: {
       goal: 'Test-only functional search',
       caseIds: ['fixed'],
-      maxAttempts: 3,
+      maxAttempts: options.maxAttempts ?? 3,
       repairLimit: options.repairLimit ?? 3,
     },
   };
@@ -87,7 +88,10 @@ async function setup(
           );
           requests.push({
             input,
-            source: await readFile(join(request.cwd, 'input.py'), 'utf8'),
+            source: await readFile(
+              join(request.cwd, 'context/sources', string(input.sourcePath)),
+              'utf8',
+            ),
           });
           await context.charge('modelCalls', 1);
           const stage = input.stage;
@@ -116,7 +120,12 @@ async function setup(
           const marker = options.markers?.[generated++];
           return {
             edits: marker
-              ? [{ path: 'input.py', content: operatorFixtureSource(marker) }]
+              ? [
+                  {
+                    path: string(input.sourcePath),
+                    content: operatorFixtureSource(marker),
+                  },
+                ]
               : [],
             reason: 'Fixture source change',
           };
@@ -278,6 +287,48 @@ test('three attempts with three repairs stay within fourteen SDK runs and restar
     output.bestCandidateRef,
     object(result.application).initialCandidateRef,
   );
+});
+
+test('configured static attempts and repairs exceed former ceilings and resume recorded histories', async (t) => {
+  const f = await setup(t, {
+    maxAttempts: 4,
+    repairLimit: 4,
+    markers: Array.from(
+      { length: 20 },
+      (_, i) => `fixture:incorrect # extended-${i}`,
+    ),
+    budget: { evaluationRuns: 22, modelCalls: 32 },
+  });
+  const result = await f.manager.run(f.recipePath, { id: 'extended-static' });
+  const output = object(result.output);
+  const attempts = output.attempts as JsonObject[];
+  assert.equal(output.stopReason, 'max-attempts');
+  assert.equal(attempts.length, 4);
+  assert.ok(attempts.every((attempt) => attempt.repairCount === 4));
+  assert.ok(
+    attempts.every(
+      (attempt) => (attempt.candidateRefs as string[]).length === 5,
+    ),
+  );
+  assert.equal(object(result.usage).evaluationRuns, 22);
+  const lastGeneration = f.requests
+    .filter((request) => object(request.input).stage === 'generate')
+    .at(-1)!;
+  assert.equal(
+    (object(lastGeneration.input).history as JsonObject[]).length,
+    3,
+  );
+  const finalHistory = object(
+    await f.manager.artifacts.readJson(string(output.historyRef)),
+  );
+  assert.equal((finalHistory.summaryRefs as string[]).length, 4);
+  const calls = await f.manager.facts.list('calls');
+  const resumed = await f.manager.run(f.recipePath, {
+    id: 'extended-static',
+    resume: true,
+  });
+  assert.deepEqual(resumed.output, result.output);
+  assert.deepEqual(await f.manager.facts.list('calls'), calls);
 });
 
 test('summary failure prevents adoption and resume cannot replay the unfinished action', async (t) => {

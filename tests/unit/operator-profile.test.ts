@@ -23,6 +23,7 @@ import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { operatorbenchContract } from '../../src/contracts/plugin-types/operatorbench.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { readProfileAssessment } from '../../src/plugins/evaluator-operatorbench/conditions.js';
+import { parseKernelExecution } from '../../src/plugins/application-kernel/schema.js';
 import { recordSdkMeasurement } from '../../src/plugins/evaluator-operatorbench/measurement.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
@@ -89,14 +90,15 @@ for (const sdkStatus of ['completed', 'cancelled', 'unknown'] as const)
       },
       'candidate',
       'fixed',
-      {
+      parseKernelExecution({
         kind: 'kernel-source',
         format: 'triton-ascend',
         entryPoint: 'kernel_function',
+        sourcePath: 'input.py',
         directory: dir,
         sourceDigest: 'a'.repeat(64),
         artifactRef: 'source',
-      },
+      }),
       {
         mode: 'sdk',
         taskDigest: 'b'.repeat(64),
@@ -295,6 +297,7 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
         kind: 'kernel-source',
         format: 'triton-ascend',
         entryPoint: 'kernel_function',
+        sourcePath: 'input.py',
         directory: sourceDirectory,
         sourceDigest: sha256(source),
         artifactRef: await artifacts.capture(sourceDirectory),

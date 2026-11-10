@@ -49,13 +49,9 @@ Return exactly these fields in one JSON object matching outputSchema:
 ```json
 {
   "explanation": "An evidence-grounded explanation of the observed outcome and remaining uncertainty",
-  "lessons": ["At most three concise lessons grounded in this attempt"],
-  "avoidPatterns": [
-    "At most three specific transformations to avoid repeating"
-  ],
-  "tryPatterns": [
-    "At most three concrete next transformations and their invariants"
-  ]
+  "lessons": ["Concise lessons grounded in this attempt"],
+  "avoidPatterns": ["Specific transformations to avoid repeating"],
+  "tryPatterns": ["Concrete next transformations and their invariants"]
 }
 ```
 

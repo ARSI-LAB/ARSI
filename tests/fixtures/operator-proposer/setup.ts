@@ -1,12 +1,15 @@
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { parseDocument } from 'yaml';
 import { prepareOperatorFixture } from '../operator-sdk/setup.js';
 
 export const operatorFixtureSource = (marker: string): string =>
   `# ${marker}\ndef kernel_function(x):\n    for i in range(2):\n        y = x + 1\n    return y\n`;
 
-export async function prepareOperatorProposerFixture(): Promise<
+export async function prepareOperatorProposerFixture(
+  sourcePath = 'input.py',
+): Promise<
   Awaited<ReturnType<typeof prepareOperatorFixture>> & {
     modelDirectory: string;
     identityFile: string;
@@ -18,7 +21,16 @@ export async function prepareOperatorProposerFixture(): Promise<
 > {
   const fixture = await prepareOperatorFixture();
   const entrySource = operatorFixtureSource('fixture:latency=10');
-  await writeFile(join(fixture.root, 'example/baseline/input.py'), entrySource);
+  const baseline = join(fixture.root, 'example/baseline');
+  if (sourcePath !== 'input.py') {
+    const targetPath = join(fixture.root, 'example/target.yaml');
+    const target = parseDocument(await readFile(targetPath, 'utf8'));
+    target.setIn(['entries', 0, 'path'], sourcePath);
+    await writeFile(targetPath, target.toString());
+    await rm(join(baseline, 'input.py'));
+    await mkdir(dirname(join(baseline, sourcePath)), { recursive: true });
+  }
+  await writeFile(join(baseline, sourcePath), entrySource);
   const modelDirectory = join(fixture.root, 'model');
   await mkdir(modelDirectory);
   const bytes = Buffer.from('{"fixture":true}\n');

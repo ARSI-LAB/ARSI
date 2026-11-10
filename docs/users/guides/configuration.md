@@ -50,6 +50,8 @@ RSI does not automatically load `.env` files. Export variables in the process th
 
 ### Evaluator
 
+Evaluator plugins use the installed Evaluator SDK's configuration types and parser. RSI binds the candidate, selected tasks, and per-call output directory, then writes the SDK-parsed configuration before charging the evaluation budget. Use environment references for credentials. The SDK applies defaults and validates benchmark-specific options when evaluation starts. An error at that stage consumes one `evaluationRuns` charge.
+
 `evaluator.agentbench` uses `services` to configure the model services used by the evaluated Agent in benchmark tasks, separately from the optimization flow's `agent` binding. This example uses TerminalBench 4.0:
 
 ```yaml
@@ -70,7 +72,13 @@ bindings:
 
 The `model`, `base_url`, and `api_key` fields in `services.default` specify the model name, service endpoint, and credential environment-variable reference.
 
+AgentBench binds the candidate Bundle to the `agentbundle` solver and replaces sampling, offset, and task-count limits with the Policy's explicit task IDs.
+
 When the optimizer needs the public task prompt, set `run.includeTaskAnswer: true` in the Evaluator configuration so the SDK records task data. RSI publishes the public prompt as `task-input` execution evidence for later plugins; reference answers remain in private native records.
+
+InferenceBench runs the SDK locally for AgentX and AISBench. The AISBench solver connects to the load generator over SSH. Omitting `services` binds the candidate to the default service. For a named route, declare the service selected by `benchmark.solver.service`. That entry accepts SDK options such as `retry` and `contextWindow`. Supplying `model`, `base_url`, or `api_key` in that entry is an error. Configure the credential reference on the Application with `credentials.apiKeyEnv`. Other service entries follow the SDK requirements.
+
+OperatorBench takes an SDK `kernel` benchmark and an RSI `task.directory`. After selecting the case, RSI builds and checks the final SDK configuration before acquiring the candidate. RSI supplies the service required for kernel replay. Omit `services` entirely, including empty maps. Put kernel options such as `repeat`, `python`, and `profiling` under `benchmark.config`. RSI builds the manifest from the candidate and reference, binds the selected case and seed, and stores the run index and output in the call directory. A `profile` action enables profiling and disables its cache. When migrating an existing Recipe, move kernel options from `protocol` and `sdk` to `benchmark.config`, remove `mode` and `protocol.timingScope`, and set `run.onError: abort` and `run.timeoutSeconds` to the former kernel timeout plus 30 seconds to preserve the previous run settings. See the [operator Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml).
 
 ### Pi backend
 
@@ -163,8 +171,8 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | Operator Proposer                                     | `modelRequestTimeoutMs`                           | Shared duration limit for a complete model stage in milliseconds, including tool continuations and delegated Agents.                                                  | 120000 ms (2 minutes).                                                                                            |
 | AgentBench Evaluator                                  | `services.<service>.maxTokens`                    | Per-turn output-token limit for the model service used by the evaluated Agent.                                                                                        | Determined by Solver or model-service defaults.                                                                   |
 | AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                              | Duration limit for one benchmark task attempt, in seconds.                                                                                                            | Use the SDK benchmark profile's value; fall back to 7200 seconds (2 hours) if the profile omits it.               |
-| OperatorBench Evaluator                               | `sdk.timeoutSeconds`                              | Duration limit for one kernel evaluation or profiling operation, in seconds.                                                                                          | Required; no default.                                                                                             |
-| OperatorBench Evaluator                               | `sdk.profiling.attemptTimeoutSeconds`             | Duration limit for an individual profiling attempt, in seconds.                                                                                                       | SDK default: 300 seconds (5 minutes).                                                                             |
+| OperatorBench Evaluator                               | `benchmark.config.timeoutSeconds`                 | Duration limit for one kernel evaluation or profiling operation, in seconds.                                                                                          | 300 seconds, or `maxAttempts × attemptTimeoutSeconds + 300` when profiling is enabled.                            |
+| OperatorBench Evaluator                               | `benchmark.config.profiling.attemptTimeoutSeconds` | Duration limit for an individual profiling attempt, in seconds.                                                                                                       | SDK default: 300 seconds (5 minutes).                                                                             |
 | Inference Application                                 | `remote.timeoutMs`                                | Duration limit for one remote-script invocation, in milliseconds.                                                                                                     | No separate duration limit for the remote call.                                                                   |
 | Inference Application                                 | `healthcheck.timeoutMs`                           | Duration limit for waiting for the inference service to become ready, in milliseconds.                                                                                | Remote mode inherits `remote.timeoutMs`; if that is also unset, or in local mode, no readiness-wait limit is set. |
 | Prompt-evolution search | `maxRounds` | Maximum logical attempts, including no-change and rejected attempts. | Required; no default. |

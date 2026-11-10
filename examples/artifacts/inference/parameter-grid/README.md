@@ -107,7 +107,7 @@ corner before the first measurement, then persists and reuses that choice for
 the experiment. Device, software and model identity must remain consistent.
 Changing the search space requires updating the calibration corner as well.
 
-`evaluator.inferencebench` calls the adjacent Evaluator SDK's `agentx` benchmark
+`evaluator.inferencebench` calls the installed ember-evaluator SDK's `agentx` benchmark
 with `agentx-replay`, using the remote endpoint supplied by the Application.
 The example replays eight traces from the 256K corpus with four concurrent session
 trees and a 7200-second replay bound. Input/output lengths, prefix reuse, turns,
@@ -139,9 +139,9 @@ or quality improvement is established by this example.
 
 ## Run
 
-The project uses the adjacent `ember-evaluator` through its existing local
-file dependency. Build that repository and refresh the frozen dependency install
-after changing its SDK, then build RSI. No dependency version change is needed.
+The project installs [ember-evaluator](https://github.com/evolving-foundry/ember-evaluator)
+from the Git revision recorded in `pnpm-lock.yaml`. From the repository root,
+run `pnpm install --frozen-lockfile` and `pnpm build` before the commands below.
 
 ```sh
 ember-rsi validate examples/artifacts/inference/parameter-grid/recipe.yaml

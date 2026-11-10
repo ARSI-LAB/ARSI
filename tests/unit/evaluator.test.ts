@@ -18,7 +18,8 @@ import { agentbenchDefinition } from '../../src/plugins/evaluator-agentbench/ind
 import { inferencebenchDefinition } from '../../src/plugins/evaluator-inferencebench/index.js';
 import { createAgentbench } from '../../src/plugins/evaluator-agentbench/service.js';
 import { createInferencebench } from '../../src/plugins/evaluator-inferencebench/service.js';
-import type { AgentbenchConfig as EvaluatorConfig } from '../../src/plugins/evaluator-agentbench/schema.js';
+import type { AgentbenchConfig } from '../../src/plugins/evaluator-agentbench/schema.js';
+import type { EvaluatorConfig } from '../../src/plugins/evaluator-inferencebench/schema.js';
 import type { EvaluatorRunner } from '../../src/plugins/shared/evaluator-adapter/sdk.js';
 import {
   RuntimeContext,
@@ -30,14 +31,17 @@ type EvaluatorKind = 'agentbench' | 'inferencebench';
 function evaluatorWithRunner(
   kind: EvaluatorKind,
   runner: EvaluatorRunner,
-): OperationDefinition<JsonValue, JsonValue, EvaluatorConfig> {
-  const definition =
-    kind === 'agentbench' ? agentbenchDefinition : inferencebenchDefinition;
-  const create =
-    kind === 'agentbench' ? createAgentbench : createInferencebench;
+): OperationDefinition {
+  if (kind === 'inferencebench')
+    return {
+      ...inferencebenchDefinition,
+      create: (config: EvaluatorConfig, services) =>
+        createInferencebench(config, services, runner),
+    };
   return {
-    ...definition,
-    create: (config, services) => create(config, services, runner),
+    ...agentbenchDefinition,
+    create: (config: AgentbenchConfig, services) =>
+      createAgentbench(config, services, runner),
   };
 }
 function context(directory: string): RuntimeContext {
@@ -769,6 +773,7 @@ test('agentbench injects native path/taskIds while preserving solver config, sto
             model: 'model',
             base_url: '${MODEL_ENDPOINT}',
             api_key: '${MODEL_API_KEY}',
+            contextWindow: 8192,
           },
         },
         benchmark: {
@@ -776,7 +781,8 @@ test('agentbench injects native path/taskIds while preserving solver config, sto
           scenario: 'office',
           solver: { name: 'agentbundle', config: { maxTokens: 123 } },
         },
-        run: { sampling: { count: 2 }, maxTasks: 2 },
+        hardware: 'gpu',
+        run: { sampling: { strategy: 'random', seed: 2 }, maxTasks: 2 },
       },
       services,
     );
@@ -790,15 +796,21 @@ test('agentbench injects native path/taskIds while preserving solver config, sto
     assert.deepEqual((native.run as JsonObject).taskIds, ['task/b', 'task/a']);
     assert.equal((native.run as JsonObject).maxTasks, null);
     assert.equal((native.run as JsonObject).sampling, undefined);
-    assert.deepEqual((native.run as JsonObject).preparation, {
-      mode: 'pipeline',
-      concurrency: 1,
-    });
+    assert.equal((native.run as JsonObject).preparation, undefined);
     const solver = (native.benchmark as JsonObject).solver as JsonObject;
     assert.equal((solver.config as JsonObject).maxTokens, 123);
     assert.equal((solver.config as JsonObject).path, join(directory, 'bundle'));
     assert.equal(measurements[0].status, 'succeeded');
     assert.equal(measurements[0].coverage, 'complete');
+    const provenance = object(
+      stored.get(object(measurements[0].provenance).artifactRef as string),
+    );
+    const savedConfig = object(provenance.configuration);
+    assert.equal(savedConfig.hardware, 'gpu');
+    assert.equal(
+      object(object(savedConfig.services).default).contextWindow,
+      8192,
+    );
     const metric = (measurements[0].metrics as JsonObject)
       .successRate as JsonObject;
     assert.deepEqual(metric.value, { kind: 'scalar', value: 0 });
@@ -1077,9 +1089,6 @@ test('AgentX preserves point distributions and official comparability, without a
     });
     const op = await def.create(
       {
-        services: {
-          default: { model: 'placeholder', base_url: '${MODEL_ENDPOINT}' },
-        },
         benchmark: {
           name: 'agentx',
           scenario: 'replay',
@@ -1236,12 +1245,14 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
           return partial;
         });
         const op = await def.create(
-          {
-            services: {
-              default: { model: 'fixture', base_url: 'http://model' },
-            },
-            benchmark: { name: kind === 'agentbench' ? 'workbuddy' : 'agentx' },
-          },
+          kind === 'agentbench'
+            ? {
+                benchmark: 'workbuddy',
+                services: {
+                  default: { model: 'fixture', base_url: 'http://model' },
+                },
+              }
+            : { benchmark: 'agentx' },
           services,
         );
         await assert.rejects(
@@ -1292,10 +1303,14 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
         runs++;
         return {};
       }).create(
-        {
-          services: { default: { model: 'fixture', base_url: 'http://model' } },
-          benchmark: { name: kind === 'agentbench' ? 'workbuddy' : 'agentx' },
-        },
+        kind === 'agentbench'
+          ? {
+              benchmark: 'workbuddy',
+              services: {
+                default: { model: 'fixture', base_url: 'http://model' },
+              },
+            }
+          : { benchmark: 'agentx' },
         services,
       );
       const call = context(directory).extend(services);

@@ -1,3 +1,4 @@
+import type { SdkEvaluatorConfig } from '../shared/evaluator-adapter/configuration.js';
 import type { JsonObject } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import {
@@ -5,9 +6,8 @@ import {
   nullableObject,
   plain,
 } from '../shared/evaluator-adapter/data.js';
-import { solverSelection } from '../shared/evaluator-adapter/configuration.js';
 export function conditions(
-  config: JsonObject,
+  config: SdkEvaluatorConfig,
   snapshot: JsonObject | null,
   _execution: JsonObject,
 ): JsonObject {
@@ -41,7 +41,7 @@ export function conditions(
   delete r.sampling;
   fixed.run = r;
   const b = object(fixed.benchmark);
-  const s = solverSelection(b.solver);
+  const s = plain(b.solver);
   const sc = plain(s.config);
   delete sc.path;
   delete sc.dshhome;

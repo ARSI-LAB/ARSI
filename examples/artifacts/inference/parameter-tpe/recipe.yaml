@@ -88,9 +88,6 @@ bindings:
   evaluator:
     plugin: evaluator.inferencebench
     config:
-      services:
-        # Filled from Application: remote API URL, served model and credential ref.
-        default: {}
       benchmark:
         name: agentx
         # Complete selected traces; input/output lengths and dependencies come from traces.

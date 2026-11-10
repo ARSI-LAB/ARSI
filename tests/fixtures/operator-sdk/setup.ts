@@ -153,21 +153,21 @@ export async function prepareOperatorFixture(): Promise<{
         evaluator: {
           plugin: 'evaluator.operatorbench',
           config: {
-            mode: 'sdk',
             task: { directory: './task' },
-            protocol: {
-              warmup: 5,
-              repeat: 20,
-              rtol: 0,
-              atol: 0,
-              timingScope: 'all-device-kernels',
+            benchmark: {
+              name: 'kernel',
+              config: {
+                warmup: 5,
+                repeat: 20,
+                rtol: 0,
+                atol: 0,
+                python: worker,
+                device: 0,
+                timeoutSeconds: 15,
+                profiling: { enabled: false, cacheEnabled: false },
+              },
             },
-            sdk: {
-              python: worker,
-              device: 0,
-              timeoutSeconds: 15,
-              profiling: { enabled: false, cacheEnabled: false },
-            },
+            run: { onError: 'abort', timeoutSeconds: 45 },
           },
         },
         selector: {

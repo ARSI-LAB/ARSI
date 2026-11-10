@@ -3,13 +3,13 @@ import type {
   InferencebenchOutput,
   OperationDefinition,
 } from '../../contracts/index.js';
-import { configSchema, type InferencebenchConfig } from './schema.js';
+import { configSchema, type EvaluatorConfig } from './schema.js';
 import { inferencebenchContract } from '../../contracts/plugin-types/index.js';
 import { createInferencebench } from './service.js';
 export const inferencebenchDefinition: OperationDefinition<
   InferencebenchInput,
   InferencebenchOutput,
-  InferencebenchConfig
+  EvaluatorConfig
 > = {
   id: 'evaluator.inferencebench',
   description:

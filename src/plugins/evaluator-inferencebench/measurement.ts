@@ -1,3 +1,4 @@
+import type { SdkEvaluatorConfig } from '../shared/evaluator-adapter/configuration.js';
 import type {
   RuntimeContext,
   JsonObject,
@@ -45,12 +46,10 @@ function adapterIdentity(): Promise<string> {
     './index',
     './service',
     './schema',
-    './configuration',
     './conditions',
     './measurement',
     './measurement-schema',
     './metrics',
-    '../shared/evaluator-adapter/configuration-schema',
     '../shared/evaluator-adapter/configuration',
     '../shared/evaluator-adapter/data',
     '../shared/evaluator-adapter/sdk',
@@ -61,7 +60,7 @@ function adapterIdentity(): Promise<string> {
   ]));
 }
 export async function normalizeEvaluation(
-  native: JsonObject,
+  native: SdkEvaluatorConfig,
   input: JsonObject,
   execution: JsonObject,
   resultValue: unknown,

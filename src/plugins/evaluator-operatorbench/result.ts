@@ -2,8 +2,8 @@ import { parseKernelAssessment, type KernelAssessment } from 'ember-evaluator';
 import type { JsonObject } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import { validateSnapshot } from '../shared/evaluator-adapter/measurement.js';
-import type { PreparedSdkRun } from './sdk.js';
-import type { SdkOperatorbenchConfig } from './schema.js';
+import { fixedConditions } from './conditions.js';
+import type { PreparedOperatorCase } from './kernel-input.js';
 
 export type SdkOperatorResult = {
   status: 'completed' | 'failed' | 'cancelled' | 'unknown';
@@ -29,9 +29,7 @@ export type SdkOperatorResult = {
 /** Consume the SDK verdict; kernel correctness, timing and capture audits belong to its Benchmark. */
 export function adaptSdkResult(
   value: unknown,
-  prepared: PreparedSdkRun,
-  _config: SdkOperatorbenchConfig,
-  seed: number,
+  prepared: PreparedOperatorCase,
 ): SdkOperatorResult {
   const native = object(value, 'SDK result');
   if (native.kind !== 'local')
@@ -117,22 +115,7 @@ export function adaptSdkResult(
     object(record.solve).finalText !== prepared.candidateSha256
   )
     throw new Error('SDK kernel source identity mismatch');
-  const files = object(run.source).files;
-  if (!Array.isArray(files)) throw new Error('Missing SDK source files');
-  const conditions = {
-    sdkIdentity: run.identity ?? null,
-    pluginVersions: run.pluginVersions ?? null,
-    fixedFiles: files
-      .map((value) => {
-        const file = object(value);
-        return { path: string(file.path), sha256: string(file.sha256) };
-      })
-      .filter(
-        (file) =>
-          !['manifest.json', 'data/input.py'].includes(String(file.path)),
-      )
-      .sort((a, b) => String(a.path).localeCompare(String(b.path))),
-  };
+  const conditions = fixedConditions(run);
   const profile =
     details.profiling === undefined ? null : object(details.profiling);
   if (profileOperation)
@@ -150,7 +133,7 @@ export function adaptSdkResult(
   const assessment = parseKernelAssessment(
     details.assessment,
     prepared.contract,
-    [seed],
+    [prepared.seed],
   );
   if (verdict.passed !== true && verdict.passed !== false)
     throw new Error('Missing SDK candidate verdict');

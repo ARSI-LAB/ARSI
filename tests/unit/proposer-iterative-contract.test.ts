@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  searchContract,
-  type SearchInput,
-  type SearchOutput,
-  type SearchWork,
-} from '../../src/contracts/plugin-types/search.js';
+  iterativeProposerContract,
+  type IterativeProposerInput,
+  type IterativeProposerOutput,
+  type IterativeProposerWork,
+} from '../../src/contracts/plugin-types/proposer-iterative.js';
 import { validate } from '../../src/shared/schema.js';
 
 const proposal = {
@@ -15,8 +15,8 @@ const proposal = {
   rationale: 'No change',
 };
 
-test('stateful search exchanges evaluation and proposal work through one lifecycle', () => {
-  const inputs: SearchInput[] = [
+test('iterative proposers exchange evaluation and proposal work through one lifecycle', () => {
+  const inputs: IterativeProposerInput[] = [
     { action: 'initialize', parent: 'parent' },
     {
       action: 'initialize',
@@ -53,8 +53,9 @@ test('stateful search exchanges evaluation and proposal work through one lifecyc
       },
     },
   ];
-  for (const input of inputs) validate(searchContract.input_schema, input);
-  const works: (SearchWork | null)[] = [
+  for (const input of inputs)
+    validate(iterativeProposerContract.input_schema, input);
+  const works: (IterativeProposerWork | null)[] = [
     null,
     { kind: 'evaluation', id: 'work', evaluations: [] },
     {
@@ -90,7 +91,7 @@ test('stateful search exchanges evaluation and proposal work through one lifecyc
       proposalResult: proposal,
     },
   ];
-  const output: SearchOutput = {
+  const output: IterativeProposerOutput = {
     stateRef: 'next-state',
     done: false,
     iterationLimit: null,
@@ -98,8 +99,8 @@ test('stateful search exchanges evaluation and proposal work through one lifecyc
     result: null,
   };
   for (const work of works)
-    validate(searchContract.output_schema, { ...output, work });
-  validate(searchContract.output_schema, {
+    validate(iterativeProposerContract.output_schema, { ...output, work });
+  validate(iterativeProposerContract.output_schema, {
     ...output,
     done: true,
     iterationLimit: 2,
@@ -107,11 +108,11 @@ test('stateful search exchanges evaluation and proposal work through one lifecyc
   });
 });
 
-test('search boundaries reject algorithm state, private stages and incomplete work', () => {
+test('iterative proposer boundaries reject algorithm state, private stages and incomplete work', () => {
   for (const extra of [{ settings: {} }, { state: {} }, { plan: {} }])
     assert.throws(
       () =>
-        validate(searchContract.input_schema, {
+        validate(iterativeProposerContract.input_schema, {
           action: 'suggest',
           stateRef: 'state',
           ...extra,
@@ -120,13 +121,19 @@ test('search boundaries reject algorithm state, private stages and incomplete wo
     );
   for (const action of ['prepare', 'compare', 'select', 'observe-initial'])
     assert.throws(() =>
-      validate(searchContract.input_schema, { action, stateRef: 'state' }),
+      validate(iterativeProposerContract.input_schema, {
+        action,
+        stateRef: 'state',
+      }),
     );
   assert.throws(() =>
-    validate(searchContract.input_schema, { action: 'suggest', stateRef: '' }),
+    validate(iterativeProposerContract.input_schema, {
+      action: 'suggest',
+      stateRef: '',
+    }),
   );
   assert.throws(() =>
-    validate(searchContract.input_schema, {
+    validate(iterativeProposerContract.input_schema, {
       action: 'observe',
       stateRef: 'state',
       workId: 'work',
@@ -134,7 +141,7 @@ test('search boundaries reject algorithm state, private stages and incomplete wo
     }),
   );
   assert.throws(() =>
-    validate(searchContract.output_schema, {
+    validate(iterativeProposerContract.output_schema, {
       stateRef: 'state',
       done: false,
       iterationLimit: 2,
@@ -151,7 +158,7 @@ test('search boundaries reject algorithm state, private stages and incomplete wo
   );
 });
 
-test('search validates optional paired task pools without a public dataset model', () => {
+test('iterative proposers validate optional paired task pools without a public dataset model', () => {
   for (const pools of [
     { feedbackTaskIds: [], selectionTaskIds: ['validation'] },
     {
@@ -167,7 +174,7 @@ test('search validates optional paired task pools without a public dataset model
     },
   ])
     assert.throws(() =>
-      validate(searchContract.input_schema, {
+      validate(iterativeProposerContract.input_schema, {
         action: 'initialize',
         parent: 'parent',
         ...pools,

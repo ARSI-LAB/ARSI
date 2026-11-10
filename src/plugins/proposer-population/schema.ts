@@ -1,13 +1,13 @@
 import type { JsonObject } from '../../contracts/index.js';
 
-export type GepaModule = {
+export type PromptModule = {
   /** Stable module identity used for rotation and merge bookkeeping. */
   id: string;
   /** Bundle-relative path edited by a mutation or merge. */
   path: string;
 };
 
-export type GepaSettings = {
+export type PopulationSettings = {
   feedbackTaskIds: string[];
   selectionTaskIds: string[];
   maxRounds: number;
@@ -17,13 +17,13 @@ export type GepaSettings = {
   paretoSize: number;
   seed: number;
   crossoverEvery: number;
-  modules: GepaModule[];
+  modules: PromptModule[];
   goal: string;
   editConstraints?: JsonObject;
 };
 
-export type GepaConfig = Omit<
-  GepaSettings,
+export type PopulationConfig = Omit<
+  PopulationSettings,
   'feedbackTaskIds' | 'selectionTaskIds'
 >;
 

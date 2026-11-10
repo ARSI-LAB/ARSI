@@ -2,13 +2,13 @@ import { readFile } from 'node:fs/promises';
 import type {
   JsonObject,
   Operation,
-  SearchInput,
-  SearchOutput,
+  IterativeProposerInput,
+  IterativeProposerOutput,
   RuntimeContext,
 } from '../../contracts/index.js';
 import { canonical, digest, object } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { searchContract } from '../../contracts/plugin-types/search.js';
+import { iterativeProposerContract } from '../../contracts/plugin-types/proposer-iterative.js';
 import { commitParameters } from '../shared/parameter-editing/index.js';
 import { readDecisionFeedback } from '../shared/metric-decision/index.js';
 import {
@@ -36,7 +36,10 @@ function cardinality(config: ResolvedOptunaConfig): number | null {
   }
   return count;
 }
-function pendingOutput(stateRef: string, history: SearchTrial[]): SearchOutput {
+function pendingOutput(
+  stateRef: string,
+  history: SearchTrial[],
+): IterativeProposerOutput {
   const trial = history[history.length - 1]!;
   if (!trial.candidateRef)
     throw new Error('Pending trial is missing candidate');
@@ -54,7 +57,7 @@ function pendingOutput(stateRef: string, history: SearchTrial[]): SearchOutput {
   };
 }
 
-function idleOutput(stateRef: string): SearchOutput {
+function idleOutput(stateRef: string): IterativeProposerOutput {
   return {
     stateRef,
     done: false,
@@ -68,7 +71,7 @@ export async function createOptunaProposer(
   raw: OptunaConfig,
   _services: RuntimeContext,
   worker: OptunaWorker = runOptunaWorker,
-): Promise<Operation<SearchInput, SearchOutput>> {
+): Promise<Operation<IterativeProposerInput, IterativeProposerOutput>> {
   const config = parseOptunaConfig(raw);
   const workerDigest = digest(await readFile(workerPath, 'utf8'));
   const settings = object(config);
@@ -127,8 +130,12 @@ export async function createOptunaProposer(
     return response;
   };
   return {
-    async execute(input, context): Promise<SearchOutput> {
-      validate(searchContract.input_schema, input, 'Parameter search input');
+    async execute(input, context): Promise<IterativeProposerOutput> {
+      validate(
+        iterativeProposerContract.input_schema,
+        input,
+        'Iterative parameter proposal input',
+      );
       context.signal.throwIfAborted();
       if (input.action === 'initialize') {
         await context.readCandidate(input.parent);
@@ -226,7 +233,7 @@ export async function createOptunaProposer(
       const seen = new Set(history.map((t) => canonical(t.parameters)));
       const stopped = async (
         reason: 'search-exhausted' | 'sampling-limit',
-      ): Promise<SearchOutput> => ({
+      ): Promise<IterativeProposerOutput> => ({
         stateRef: await context.artifacts.putJson(state),
         done: true,
         iterationLimit: null,

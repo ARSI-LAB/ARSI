@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RuntimeContext } from '../../src/contracts/index.js';
-import { searchContract } from '../../src/contracts/plugin-types/search.js';
+import { iterativeProposerContract } from '../../src/contracts/plugin-types/proposer-iterative.js';
 import { inferencebenchContract } from '../../src/contracts/plugin-types/inferencebench.js';
 import { metricSelectorContract } from '../../src/contracts/plugin-types/selector-metrics.js';
 import { Policy } from '../../src/runtime/policy/index.js';
@@ -12,7 +12,7 @@ import type { JsonObject, JsonValue } from '../../src/contracts/index.js';
 test('Optuna Policy feeds every measured result back before the next proposal and recovers checkpoints', async () => {
   const registry = new Registry();
   for (const contract of [
-    searchContract,
+    iterativeProposerContract,
     inferencebenchContract,
     metricSelectorContract,
   ])

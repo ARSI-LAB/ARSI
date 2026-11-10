@@ -20,7 +20,7 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `policy.harness2` ([paper](https://arxiv.org/abs/2610.14224))  | Try different Agent improvements and select results by final deliverable quality.                               | [README](../../../examples/harness/dsh-harness2/README.md)               |
 | `policy.wikiskill` ([paper](https://arxiv.org/abs/2608.27454)) | Improve Agent skills using experience from training tasks.                                                      | [README](../../../examples/harness/dsh-wikiskill/README.md)              |
-| `policy.gepa` | Optimize modular prompts through reflective proposals and population search. | [README](../../../examples/harness/dsh-gepa/README.md) |
+| `policy.gepa`                                                  | Optimize modular prompts through reflective proposals and population search.                                    | [README](../../../examples/harness/dsh-gepa/README.md)                   |
 | `policy.parameter-grid`                                        | Try predefined parameter combinations one by one to select a better inference service configuration.            | [README](../../../examples/artifacts/inference/parameter-grid/README.md) |
 | `policy.parameter-optuna`                                      | Use evaluation feedback to search parameters and improve inference service performance within a limited budget. | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)  |
 | `policy.operator-search`                                       | Optimize Triton-Ascend kernels using correctness checks and performance feedback.                               | [README](../../../examples/artifacts/kernel/transpose-copy/README.md)    |
@@ -36,7 +36,7 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 | Proposer      | `proposer.operator`                             | Generate, repair, and summarize kernel changes using source analysis, evaluation, or profiling results.                  | Improve kernel implementations iteratively.                                             |
 | Proposer      | `proposer.grid`                                 | Generate parameter combinations from predefined values.                                                                  | Search a small parameter space with a finite set of choices.                            |
 | Proposer      | `proposer.optuna`                               | Propose parameter combinations through Optuna and receive evaluation feedback.                                           | Tune parameters iteratively within a limited budget.                                    |
-| Search | `search.prompt-evolution` | Evolve prompt modules through reflective proposals, Pareto sampling, and ancestry-aware crossover. | Optimize prompts using feedback and selection tasks. |
+| Proposer      | `proposer.population`                           | Maintain a candidate population, select parents, and advance prompt-module mutation and ancestry-aware crossover.        | Optimize prompts using feedback and selection tasks.                                    |
 | Evaluator     | `evaluator.agentbench`                          | Run Agent benchmark tasks and save scores and execution evidence.                                                        | Assess changes to prompts, skills, or code.                                             |
 | Evaluator     | `evaluator.inferencebench`                      | Benchmark inference services and measure throughput, latency, and other metrics.                                         | Compare the performance of service configurations.                                      |
 | Evaluator     | `evaluator.operatorbench`                       | Use the Evaluator SDK to check correctness, measure latency, and optionally collect profiling data.                      | Check whether kernel changes are correct and faster.                                    |
@@ -44,6 +44,13 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 | Selector      | `selector.artifact`                             | Use a model to review anonymously presented reports or other deliverables against a rubric.                              | Select candidates by content quality.                                                   |
 | Agent backend | [`agent.pi`](configuration.md#pi-backend)       | Run proposal generation, content review, experience consolidation, and similar tasks through Pi.                         | Drive optimization with a model service of your choice.                                 |
 | Agent backend | [`agent.codex`](configuration.md#codex-backend) | Run proposal generation, content review, experience consolidation, and similar tasks through a local Codex installation. | Reuse an existing Codex login and configuration.                                        |
+
+The iterative proposal contract is now `contract.proposer-iterative`, and the
+population plugin is `proposer.population`; GEPA Recipes use the `population`
+binding. Older public names, the former GEPA binding, and old GEPA state schemas
+are not supported. Start GEPA runs with the updated Recipe; existing GEPA
+checkpoints cannot be resumed directly. Optuna adopts only the renamed contract;
+its stored parameter-search state format is unchanged.
 
 ## Application
 

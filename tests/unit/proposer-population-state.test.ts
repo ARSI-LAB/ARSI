@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext } from '../../src/contracts/index.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
-import { gepaPlanSchema } from '../../src/plugins/search-prompt-evolution/state.js';
-import { createPromptEvolutionSearch } from '../../src/plugins/search-prompt-evolution/service.js';
-import type { GepaConfig } from '../../src/plugins/search-prompt-evolution/schema.js';
+import { populationPlanSchema } from '../../src/plugins/proposer-population/state.js';
+import { createPopulationProposer } from '../../src/plugins/proposer-population/service.js';
+import type { PopulationConfig } from '../../src/plugins/proposer-population/schema.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
 
-const settings: GepaConfig = {
+const settings: PopulationConfig = {
   maxRounds: 2,
   maxRollouts: 0,
   minibatchSize: 1,
@@ -28,12 +28,12 @@ const taskPools = {
 };
 
 async function scope(t: TestContext): Promise<RuntimeContext> {
-  const directory = await mkdtemp(join(tmpdir(), 'gepa-search-state-'));
+  const directory = await mkdtemp(join(tmpdir(), 'proposer-population-state-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   return new RuntimeContext().extend({
     signal: new AbortController().signal,
     experimentId: 'experiment',
-    bindingId: 'search',
+    bindingId: 'population',
     artifacts: new FileArtifacts(directory),
     async readCandidate(ref: string) {
       return {
@@ -46,7 +46,7 @@ async function scope(t: TestContext): Promise<RuntimeContext> {
   });
 }
 
-test('GEPA round plans reject incomplete reports and candidate records', () => {
+test('Population proposer round plans reject incomplete reports and candidate records', () => {
   const plan = {
     report: {
       round: 0,
@@ -67,26 +67,34 @@ test('GEPA round plans reject incomplete reports and candidate records', () => {
     proposalResult: null,
     candidate: null,
   };
-  validate(gepaPlanSchema, plan);
+  validate(populationPlanSchema, plan);
   assert.throws(
-    () => validate(gepaPlanSchema, { ...plan, report: {} }),
+    () => validate(populationPlanSchema, { ...plan, report: {} }),
     /data\/report must have required property/,
   );
   assert.throws(
-    () => validate(gepaPlanSchema, { ...plan, candidate: {} }),
+    () => validate(populationPlanSchema, { ...plan, candidate: {} }),
     /data\/candidate must have required property/,
   );
 });
 
-test('GEPA state references restore into a fresh implementation and retain earlier snapshots', async (t) => {
+test('Population proposer state references restore into a fresh implementation and retain earlier snapshots', async (t) => {
   const context = await scope(t);
-  const search = await createPromptEvolutionSearch(settings, context);
-  const initial = await search.execute(
+  const proposer = await createPopulationProposer(settings, context);
+  const initial = await proposer.execute(
     { action: 'initialize', parent: 'baseline', ...taskPools },
     context,
   );
   const saved = await context.artifacts.readJson(initial.stateRef);
-  const restored = await createPromptEvolutionSearch(settings, context);
+  assert.equal(
+    object(saved).schemaVersion,
+    'rsi.proposer-population-snapshot/v1',
+  );
+  assert.equal(
+    object(object(saved).state).schemaVersion,
+    'rsi.proposer-population-state/v1',
+  );
+  const restored = await createPopulationProposer(settings, context);
   const input = {
     action: 'observe' as const,
     stateRef: initial.stateRef,
@@ -111,18 +119,18 @@ test('GEPA state references restore into a fresh implementation and retain earli
   assert.equal(observed.done, true);
   assert.notEqual(observed.stateRef, initial.stateRef);
   assert.deepEqual(await context.artifacts.readJson(initial.stateRef), saved);
-  assert.deepEqual(await search.execute(input, context), observed);
+  assert.deepEqual(await proposer.execute(input, context), observed);
 });
 
-test('GEPA rejects state references from another configuration or execution scope and malformed snapshots', async (t) => {
+test('Population proposer rejects state references from another configuration or execution scope and malformed snapshots', async (t) => {
   const context = await scope(t);
-  const search = await createPromptEvolutionSearch(settings, context);
-  const initial = await search.execute(
+  const proposer = await createPopulationProposer(settings, context);
+  const initial = await proposer.execute(
     { action: 'initialize', parent: 'baseline', ...taskPools },
     context,
   );
   const input = { action: 'suggest' as const, stateRef: initial.stateRef };
-  const changed = await createPromptEvolutionSearch(
+  const changed = await createPopulationProposer(
     { ...settings, seed: 12 },
     context,
   );
@@ -135,19 +143,19 @@ test('GEPA rejects state references from another configuration or execution scop
     context.extend({ bindingId: 'other' }),
   ])
     await assert.rejects(
-      search.execute(input, foreign),
+      proposer.execute(input, foreign),
       /configuration or execution scope mismatch/,
     );
   const malformed = object(await context.artifacts.readJson(initial.stateRef));
   delete object(malformed.state).rng;
   const stateRef = await context.artifacts.putJson(malformed);
   await assert.rejects(
-    search.execute({ ...input, stateRef }, context),
+    proposer.execute({ ...input, stateRef }, context),
     /required property 'rng'/,
   );
 });
 
-test('GEPA retries an unconfirmed snapshot write with the same immutable state identity', async (t) => {
+test('Population proposer retries an unconfirmed snapshot write with the same immutable state identity', async (t) => {
   const context = await scope(t);
   let failedRef = '';
   let fail = true;
@@ -167,17 +175,17 @@ test('GEPA retries an unconfirmed snapshot write with the same immutable state i
       materialize: context.artifacts.materialize.bind(context.artifacts),
     },
   });
-  const search = await createPromptEvolutionSearch(settings, interrupted);
+  const proposer = await createPopulationProposer(settings, interrupted);
   const input = {
     action: 'initialize' as const,
     parent: 'baseline',
     ...taskPools,
   };
   await assert.rejects(
-    search.execute(input, interrupted),
+    proposer.execute(input, interrupted),
     /snapshot write outcome was unconfirmed/,
   );
-  const retried = await search.execute(input, interrupted);
+  const retried = await proposer.execute(input, interrupted);
   assert.equal(retried.stateRef, failedRef);
   assert.equal(retried.result, null);
   const saved = object(await context.artifacts.readJson(retried.stateRef));

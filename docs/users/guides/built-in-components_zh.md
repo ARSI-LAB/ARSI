@@ -20,7 +20,7 @@
 | -------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
 | `policy.harness2`（[论文](https://arxiv.org/abs/2610.14224)）  | 尝试多种 Agent 改进方案，按最终交付质量选择结果。    | [README](../../../examples/harness/dsh-harness2/README.md)                  |
 | `policy.wikiskill`（[论文](https://arxiv.org/abs/2608.27454)） | 根据训练任务的经验持续改进 Agent 的 Skill。          | [README](../../../examples/harness/dsh-wikiskill/README.md)                 |
-| `policy.gepa` | 通过反馈驱动的变异和种群搜索优化模块化提示词。 | [README](../../../examples/harness/dsh-gepa/README.md) |
+| `policy.gepa`                                                  | 通过反馈驱动的变异和种群搜索优化模块化提示词。       | [README](../../../examples/harness/dsh-gepa/README.md)                      |
 | `policy.parameter-grid`                                        | 逐一尝试预设参数组合，选择更好的推理服务配置。       | [README](../../../examples/artifacts/inference/parameter-grid/README.md)    |
 | `policy.parameter-optuna`                                      | 利用评测反馈搜索参数，在有限预算内优化推理服务性能。 | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)     |
 | `policy.operator-search`                                       | 结合正确性检查与性能反馈，优化 Triton-Ascend 算子。  | [README](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md) |
@@ -36,7 +36,7 @@
 | Proposer    | `proposer.operator`                             | 根据源码分析、评测或性能分析结果生成、修复和总结算子修改。            | 迭代改进算子实现。                           |
 | Proposer    | `proposer.grid`                                 | 按预设取值逐一生成参数组合。                                          | 取值有限、组合较少的参数搜索。               |
 | Proposer    | `proposer.optuna`                               | 通过 Optuna 提出参数组合并接收评测反馈。                              | 在有限预算内逐步调优。                       |
-| Search | `search.prompt-evolution` | 通过反馈提案、Pareto 采样和基于血缘的交叉演化提示词模块。 | 根据训练与验证任务的反馈优化提示词。 |
+| Proposer    | `proposer.population`                           | 维护候选种群、选择父本，并推进提示词模块变异和基于血缘的交叉。        | 根据训练与验证任务的反馈优化提示词。         |
 | Evaluator   | `evaluator.agentbench`                          | 运行 Agent 基准任务并保存得分与执行证据。                             | 检验提示词、Skill 或代码修改的效果。         |
 | Evaluator   | `evaluator.inferencebench`                      | 对推理服务执行基准测试，测量吞吐量、延迟等指标。                      | 比较不同服务配置的性能。                     |
 | Evaluator   | `evaluator.operatorbench`                       | 通过 Evaluator SDK 检查算子正确性、测量耗时，并按需采集性能分析数据。 | 判断算子修改是否正确、是否更快。             |
@@ -44,6 +44,12 @@
 | Selector    | `selector.artifact`                             | 让模型按评审标准比较匿名展示的报告等交付内容。                        | 按内容质量选择候选。                         |
 | Agent 后端  | [`agent.pi`](configuration_zh.md#pi-后端)       | 通过 Pi 执行提案生成、内容评审和经验总结等任务。                      | 使用自选模型服务驱动优化流程。               |
 | Agent 后端  | [`agent.codex`](configuration_zh.md#codex-后端) | 通过本机 Codex 执行提案生成、内容评审和经验总结等任务。               | 复用已有的 Codex 登录和配置。                |
+
+多轮提案契约现统一为 `contract.proposer-iterative`，种群插件为
+`proposer.population`，GEPA Recipe 使用 `population` 绑定。不提供旧公共名称、
+原 GEPA 绑定及旧 GEPA 状态 Schema 的兼容支持。请使用更新后的 Recipe 开始
+GEPA 运行，已有 GEPA checkpoint 不能直接恢复。Optuna 仅采用重命名后的契约，
+其持久化参数搜索状态格式保持不变。
 
 ## Application
 

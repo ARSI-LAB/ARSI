@@ -11,7 +11,7 @@ import { readYaml } from '../../src/runtime/loaders/yaml.js';
 import { object } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 import {
-  searchContract,
+  iterativeProposerContract,
   type JsonSchema,
   type OperationDefinition,
 } from '../../src/contracts/index.js';
@@ -309,24 +309,24 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   const registry = new Registry();
   t.after(() => registry.dispose());
   await registerBuiltins(registry);
-  assert.ok(registry.catalog().plugins.includes('search.prompt-evolution'));
+  assert.ok(registry.catalog().plugins.includes('proposer.population'));
   assert.ok(registry.catalog().policies.includes('policy.gepa'));
   assert.deepEqual(
-    registry.get('search.prompt-evolution').contract,
-    searchContract,
+    registry.get('proposer.population').contract,
+    iterativeProposerContract,
   );
   const directory = resolve('examples/harness/dsh-gepa');
   const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
   assert.equal(recipe.policy.id, 'policy.gepa');
-  assert.equal(recipe.bindings.search!.pluginId, 'search.prompt-evolution');
+  assert.equal(recipe.bindings.population!.pluginId, 'proposer.population');
   const dataset = object(recipe.policyConfig.dataset);
-  const searchConfig = recipe.bindings.search!.config;
-  assert.equal(searchConfig.maxRounds, 15);
-  assert.equal(searchConfig.maxRollouts, 120);
-  assert.equal(searchConfig.minibatchSize, 1);
-  assert.equal(searchConfig.feedbackSampling, 'coverage-first');
-  assert.equal(searchConfig.paretoSize, 5);
-  assert.equal(searchConfig.crossoverEvery, 0);
+  const populationConfig = recipe.bindings.population!.config;
+  assert.equal(populationConfig.maxRounds, 15);
+  assert.equal(populationConfig.maxRollouts, 120);
+  assert.equal(populationConfig.minibatchSize, 1);
+  assert.equal(populationConfig.feedbackSampling, 'coverage-first');
+  assert.equal(populationConfig.paretoSize, 5);
+  assert.equal(populationConfig.crossoverEvery, 0);
   assert.equal((dataset.trainTaskIds as string[]).length, 10);
   assert.equal((dataset.validationTaskIds as string[]).length, 5);
   assert.equal(recipe.bindings.proposer!.pluginId, 'proposer.agent');
@@ -354,15 +354,15 @@ test('GEPA example loads through built-in registration with recipe-relative reso
     'feedbackTaskIds',
     'selectionTaskIds',
   ]) {
-    assert.equal(Object.hasOwn(searchConfig, field), false);
-    const settings = { ...searchConfig, [field]: 'duplicate-route' };
+    assert.equal(Object.hasOwn(populationConfig, field), false);
+    const settings = { ...populationConfig, [field]: 'duplicate-route' };
     await assert.rejects(
       Recipe.fromJSON(
         {
           ...raw,
           bindings: {
             ...object(raw.bindings),
-            search: { plugin: 'search.prompt-evolution', config: settings },
+            population: { plugin: 'proposer.population', config: settings },
           },
         },
         registry,
@@ -373,7 +373,7 @@ test('GEPA example loads through built-in registration with recipe-relative reso
     assert.throws(
       () =>
         validate(
-          searchContract.input_schema,
+          iterativeProposerContract.input_schema,
           {
             action: 'initialize',
             parent: 'initial-candidate',
@@ -381,7 +381,7 @@ test('GEPA example loads through built-in registration with recipe-relative reso
             selectionTaskIds: dataset.validationTaskIds,
             settings,
           },
-          'search input',
+          'iterative proposer input',
         ),
       /additional properties/,
     );
@@ -392,7 +392,7 @@ test('GEPA example loads through built-in registration with recipe-relative reso
         ...raw,
         policy: {
           ...object(raw.policy),
-          config: { ...recipe.policyConfig, ...searchConfig },
+          config: { ...recipe.policyConfig, ...populationConfig },
         },
       },
       registry,

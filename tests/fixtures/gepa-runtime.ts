@@ -27,7 +27,7 @@ import { object, string } from '../../src/shared/json.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { readPolicyDocument } from '../../src/runtime/compiler/document.js';
-import { promptEvolutionSearchDefinition } from '../../src/plugins/search-prompt-evolution/index.js';
+import { populationProposerDefinition } from '../../src/plugins/proposer-population/index.js';
 import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
 import {
   checkTarget,
@@ -621,7 +621,7 @@ export async function runGepa(options: {
         options.agentOutput,
       ),
     );
-  registry.registerOperation(promptEvolutionSearchDefinition);
+  registry.registerOperation(populationProposerDefinition);
   registry.registerOperation(proposerDefinition);
   const bindingNames = options.bindingNames ?? {
     evaluator: 'evaluator',
@@ -640,15 +640,15 @@ export async function runGepa(options: {
     policyId = 'policy.gepa-custom-routes';
     policy.id = policyId;
     policy.require = {
-      search: requirements.search!,
+      population: requirements.population!,
       [bindingNames.evaluator]: requirements.evaluator!,
       [bindingNames.proposer]: requirements.proposer!,
       [bindingNames.agent]: requirements.agent!,
     };
     policy.defaults = {
       bindings: {
-        search: {
-          plugin: promptEvolutionSearchDefinition.id,
+        population: {
+          plugin: populationProposerDefinition.id,
           config: {},
         },
         [bindingNames.proposer]: {
@@ -697,7 +697,7 @@ export async function runGepa(options: {
         },
       },
       bindings: {
-        search: {
+        population: {
           config: {
             maxRounds: options.maxRounds,
             maxRollouts: options.maxRollouts,

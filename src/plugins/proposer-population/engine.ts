@@ -1,10 +1,10 @@
 import type { JsonObject } from '../../contracts/index.js';
-import type { GepaModule, GepaSettings } from './schema.js';
+import type { PromptModule, PopulationSettings } from './schema.js';
 
 /**
- * GEPA's deterministic population bookkeeping. The Policy owns evaluation and
- * proposal calls; this module owns ancestry, Pareto selection, module merge
- * rules and the seeded stochastic sampler.
+ * Deterministic population bookkeeping. The Policy owns evaluation and proposal
+ * calls; this module owns ancestry, Pareto selection, module merge rules and the
+ * seeded stochastic sampler.
  */
 
 export interface CandidateRecord extends JsonObject {
@@ -27,8 +27,8 @@ export interface CandidateRecord extends JsonObject {
   moduleIds: string[];
 }
 
-export interface GepaState extends JsonObject {
-  schemaVersion: 'gepa.state/v1';
+export interface PopulationState extends JsonObject {
+  schemaVersion: 'rsi.proposer-population-state/v1';
   seed: number;
   rng: number;
   feedbackTaskIds: string[];
@@ -83,7 +83,7 @@ export interface EvaluationOutcome {
   rollouts: number;
 }
 
-function stateRng(state: GepaState): Rng {
+function stateRng(state: PopulationState): Rng {
   return new Rng(state.rng);
 }
 
@@ -92,7 +92,9 @@ export class Rng {
 
   constructor(seed: number) {
     if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff)
-      throw new Error('GEPA seed must be an unsigned 32-bit integer');
+      throw new Error(
+        'Population proposer seed must be an unsigned 32-bit integer',
+      );
     this.value = seed >>> 0;
   }
 
@@ -111,7 +113,9 @@ export class Rng {
 
   integer(maxExclusive: number): number {
     if (!Number.isSafeInteger(maxExclusive) || maxExclusive <= 0)
-      throw new Error('GEPA random range must be a positive integer');
+      throw new Error(
+        'Population proposer random range must be a positive integer',
+      );
     return Math.floor(this.next() * maxExclusive);
   }
 }
@@ -122,7 +126,9 @@ export function sampleWithoutReplacement<T>(
   count: number,
 ): T[] {
   if (count < 0 || count > values.length)
-    throw new Error('GEPA sample size is outside the population');
+    throw new Error(
+      'Population proposer sample size is outside the population',
+    );
   const pool = [...values];
   for (let index = 0; index < count; index++) {
     const pick = index + rng.integer(pool.length - index);
@@ -133,8 +139,8 @@ export function sampleWithoutReplacement<T>(
 
 export function sampleFeedbackTasks(
   rng: Rng,
-  state: Pick<GepaState, 'feedbackTaskIds' | 'rounds'>,
-  settings: Pick<GepaSettings, 'minibatchSize' | 'feedbackSampling'>,
+  state: Pick<PopulationState, 'feedbackTaskIds' | 'rounds'>,
+  settings: Pick<PopulationSettings, 'minibatchSize' | 'feedbackSampling'>,
 ): string[] {
   const count = Math.min(settings.minibatchSize, state.feedbackTaskIds.length);
   if (settings.feedbackSampling !== 'coverage-first')
@@ -268,7 +274,7 @@ export interface ParetoChoice {
   weights: Map<string, number>;
 }
 
-/** GEPA selection: prune redundant instance winners, then weight by wins. */
+/** Prune redundant instance winners, then weight the remaining candidates by wins. */
 export function paretoChoice(
   candidates: readonly CandidateRecord[],
   tasks: readonly string[],
@@ -304,8 +310,8 @@ export function paretoChoice(
     population.map((candidate) => [candidate.ref, candidate]),
   );
   const redundant = new Set<string>();
-  // Match the reference implementation's front-coverage pruning: remove the
-  // lowest aggregate first only while every instance it wins has another
+  // Preserve front coverage: remove the lowest aggregate first only while
+  // every instance it wins has another
   // surviving leader. A collection of specialists can cover a candidate even
   // when no individual candidate dominates its entire score vector. Equal
   // aggregates retain the order in which task fronts first encounter a leader.
@@ -373,7 +379,7 @@ export function desirable(
   ancestor: CandidateRecord,
   left: CandidateRecord,
   right: CandidateRecord,
-  modules: readonly GepaModule[],
+  modules: readonly PromptModule[],
   prompts: Readonly<Record<string, Record<string, string>>>,
 ): boolean {
   for (const module of modules) {
@@ -387,9 +393,9 @@ export function desirable(
   return false;
 }
 
-/** Algorithm 3 and 4 module combination. Prompts are looked up by module id. */
+/** Combine modules relative to a shared ancestor, favoring the higher-scoring parent on conflicts. */
 export function mergePrompts(
-  modules: readonly GepaModule[],
+  modules: readonly PromptModule[],
   ancestor: CandidateRecord,
   left: CandidateRecord,
   right: CandidateRecord,
@@ -427,7 +433,7 @@ export function mergeKey(
 export function findMerge(
   candidates: readonly CandidateRecord[],
   tasks: readonly string[],
-  modules: readonly GepaModule[],
+  modules: readonly PromptModule[],
   tried: readonly string[],
   prompts: Readonly<Record<string, Record<string, string>>>,
   rng: Rng,
@@ -474,12 +480,12 @@ function ancestorAggregate(
 }
 
 export function emptyState(
-  settings: GepaSettings,
+  settings: PopulationSettings,
   selectionTaskIds: string[],
   rng: Rng,
-): GepaState {
+): PopulationState {
   return {
-    schemaVersion: 'gepa.state/v1',
+    schemaVersion: 'rsi.proposer-population-state/v1',
     seed: settings.seed,
     rng: rng.state,
     feedbackTaskIds: [...settings.feedbackTaskIds],
@@ -505,6 +511,6 @@ export function emptyState(
   };
 }
 
-export function stateRngFrom(state: GepaState): Rng {
+export function stateRngFrom(state: PopulationState): Rng {
   return stateRng(state);
 }

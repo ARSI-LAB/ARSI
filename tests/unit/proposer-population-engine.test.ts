@@ -11,7 +11,7 @@ import {
   paretoChoice,
   selectCandidate,
   type CandidateRecord,
-} from '../../src/plugins/search-prompt-evolution/engine.js';
+} from '../../src/plugins/proposer-population/engine.js';
 
 function candidate(
   ref: string,
@@ -40,7 +40,7 @@ const modules = [
   { id: 'b', path: 'b.md' },
 ];
 
-test('GEPA keeps a measured zero distinct from unavailable scores', () => {
+test('Population proposer keeps a measured zero distinct from unavailable scores', () => {
   const zero = candidateAggregate({ scores: { first: 0, second: 0 } }, [
     'first',
     'second',

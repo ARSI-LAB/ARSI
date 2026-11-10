@@ -206,7 +206,7 @@ export async function doctorRecipe(
           const controller = new AbortController();
           const bounded = AbortSignal.any([signal, controller.signal]);
           const timeoutMs =
-            checkOptions?.timeoutMs ?? options.timeoutMs ?? 30000;
+            checkOptions?.timeoutMs ?? options.timeoutMs ?? 60000;
           const timer = setTimeout(
             () =>
               controller.abort(

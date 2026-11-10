@@ -116,7 +116,7 @@ export async function checkDockerDiskCapacity(
     observed = await probeDockerDisk(selectedCommand, executable, info, {
       image: options.gatewayImage,
       platform: native ?? platform,
-      signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(30000)]),
+      signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(60000)]),
     });
   } catch (error) {
     ctx.signal.throwIfAborted();
@@ -157,7 +157,7 @@ export async function checkDockerDiskCapacity(
   const inventoryUnknowns: string[] = [];
   const inventorySignal = AbortSignal.any([
     ctx.signal,
-    AbortSignal.timeout(30000),
+    AbortSignal.timeout(60000),
   ]);
   for (const image of plan.images) {
     try {

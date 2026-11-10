@@ -78,6 +78,7 @@ Experiment budgets and the Agent's own limits still apply, such as `agent.pi`'s 
 For view definitions and visibility, see [Evidence](../concepts/architecture.md#evidence).
 
 - Resource snapshots include the target bindings' configured Schema path resources, while modification authority applies only to names listed in `targets`.
+- Existing text resources retain their file permissions during content edits, including modes such as `0600`, `0640`, and `0664`. Permission changes and executable files are rejected; newly created text files may use non-executable permissions determined by the host's umask.
 
 - Reflection returns `skipped` without invoking the generator only when the window has no usable observations, including attributable late results.
 - See [evidence collection](../../../src/runtime/revisions/evidence.ts) and [execution](../../../src/runtime/revisions/index.ts).

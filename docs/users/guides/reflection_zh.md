@@ -78,6 +78,7 @@ budget:
 各视图的定义与可见范围见 [Evidence](../concepts/architecture_zh.md#evidence)。
 
 - 读取的资源快照包含目标绑定配置中 Schema 声明的路径资源，但修改权限仅限 `targets` 列出的名称。
+- 修改已有文本资源的内容时，必须保留原文件权限，包括 `0600`、`0640`、`0664` 等模式。Runtime 会拒绝权限变更和可执行文件；新建文本文件可以使用由宿主 umask 决定的非可执行权限。
 
 - 只有窗口内没有可用观察（包括可归因的迟到结果）时，Reflection 才返回 `skipped` 而不调用生成器；
 - 源码见 [证据收集](../../../src/runtime/revisions/evidence.ts) 和 [执行流程](../../../src/runtime/revisions/index.ts)。

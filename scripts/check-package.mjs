@@ -231,7 +231,7 @@ export function register(registry) {
     assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
   assert.ok(!catalog.plugins.includes('agent.scripted'));
   assert.ok(catalog.plugins.includes('agent.codex'));
-  assert.ok(catalog.plugins.includes('proposer.population'));
+  assert.ok(catalog.plugins.includes('proposer.pareto-evolution'));
   assert.deepEqual(
     [...catalog.policies].sort(),
     [
@@ -274,7 +274,7 @@ export function register(registry) {
     if (name === 'dsh-gepa') {
       assert.equal(validation.policyId, 'policy.gepa');
       assert.ok(
-        validation.plugins.includes('proposer.population'),
+        validation.plugins.includes('proposer.pareto-evolution'),
         'installed consumer assembles built-in GEPA without an extension directory',
       );
     }
@@ -473,8 +473,8 @@ try {
   assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
   if(id==='policy.gepa'){
    assert.deepEqual(policy.requirements.population,iterativeProposerContract,'installed GEPA Policy uses the shared iterative proposer contract');
-   assert.deepEqual(runtime.registry.get('proposer.population').contract,iterativeProposerContract,'installed population proposer uses the shared iterative proposer contract');
-   assert.deepEqual(runtime.registry.get('proposer.optuna').contract,iterativeProposerContract,'installed Optuna and Population share one iterative proposer contract');
+   assert.deepEqual(runtime.registry.get('proposer.pareto-evolution').contract,iterativeProposerContract,'installed Pareto evolution proposer uses the shared iterative proposer contract');
+   assert.deepEqual(runtime.registry.get('proposer.optuna').contract,iterativeProposerContract,'installed Optuna and Pareto evolution share one iterative proposer contract');
   }else{
    const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;
    assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?iterativeProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');

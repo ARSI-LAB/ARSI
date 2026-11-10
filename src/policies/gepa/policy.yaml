@@ -39,7 +39,7 @@ require:
 defaults:
   bindings:
     population:
-      plugin: proposer.population
+      plugin: proposer.pareto-evolution
     proposer:
       plugin: proposer.agent
       config:

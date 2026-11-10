@@ -15,12 +15,12 @@ import type {
 import {
   configSchema,
   type PromptModule,
-  type PopulationConfig,
+  type ParetoEvolutionConfig,
 } from './schema.js';
 import {
-  readPopulationState,
-  writePopulationState,
-  type PopulationStepResult,
+  readParetoEvolutionState,
+  writeParetoEvolutionState,
+  type ParetoEvolutionStepResult,
   type RoundPlan,
 } from './state.js';
 import { digest, object, string, strings } from '../../shared/json.js';
@@ -43,7 +43,7 @@ import {
   stateRngFrom,
   type CandidateRecord,
   type EvaluationOutcome,
-  type PopulationState,
+  type ParetoEvolutionState,
   type RoundReport,
 } from './engine.js';
 
@@ -57,7 +57,7 @@ function safePath(path: string): string {
     parts.some((part) => !part || part === '.' || part === '..')
   )
     throw new Error(
-      `Population proposer module path is not a safe bundle-relative path: ${path}`,
+      `Pareto evolution proposer module path is not a safe bundle-relative path: ${path}`,
     );
   return path;
 }
@@ -81,11 +81,11 @@ function validateModules(modules: readonly PromptModule[]): void {
   for (const module of modules) {
     if (ids.has(module.id))
       throw new Error(
-        `Population proposer module id is duplicated: ${module.id}`,
+        `Pareto evolution proposer module id is duplicated: ${module.id}`,
       );
     if (paths.has(module.path))
       throw new Error(
-        `Population proposer module path is duplicated: ${module.path}`,
+        `Pareto evolution proposer module path is duplicated: ${module.path}`,
       );
     paths.add(module.path);
     ids.add(module.id);
@@ -104,7 +104,7 @@ function scoresFromEvaluation(
 
 async function readEvaluation(
   ctx: RuntimeContext,
-  state: PopulationState,
+  state: ParetoEvolutionState,
   measurementRef: string,
   candidateRef: string,
   taskIds: string[],
@@ -113,7 +113,7 @@ async function readEvaluation(
   const measurement = await ctx.readMeasurement(measurementRef);
   if (measurement.candidateRef !== candidateRef)
     throw new Error(
-      'Population proposer measurement belongs to another candidate',
+      'Pareto evolution proposer measurement belongs to another candidate',
     );
   const reused = state.evaluationRefs.includes(measurementRef);
   const outcome: EvaluationOutcome = {
@@ -131,7 +131,7 @@ async function readEvaluation(
     typeof measurement.status === 'string' ? measurement.status : 'unknown';
   if (status === 'cancelled')
     throw Object.assign(
-      new Error('Population proposer evaluation was cancelled'),
+      new Error('Pareto evolution proposer evaluation was cancelled'),
       {
         status: 'cancelled',
         measurementRef,
@@ -189,7 +189,7 @@ async function readEvaluation(
         validate(
           metricDefinitionSchema,
           definition,
-          'Population proposer score definition',
+          'Pareto evolution proposer score definition',
         );
         const spec = object(definition);
         definitionValid = spec.id === 'score' && spec.valueKind === 'scalar';
@@ -264,7 +264,7 @@ function scoreConditions(
 }
 
 function selectionScores(
-  state: PopulationState,
+  state: ParetoEvolutionState,
   evaluation: EvaluationOutcome,
 ): Record<string, number | null> {
   return Object.fromEntries(
@@ -312,7 +312,7 @@ async function loadPopulationPrompts(
 
 async function commitPrompts(
   ctx: RuntimeContext,
-  settings: PopulationConfig,
+  settings: ParetoEvolutionConfig,
   base: CandidateRecord,
   modules: readonly PromptModule[],
   prompts: Readonly<Record<string, string>>,
@@ -336,11 +336,11 @@ async function commitPrompts(
     );
     if (output.action !== 'commit')
       throw new Error(
-        'Population proposer Application commit returned another action',
+        'Pareto evolution proposer Application commit returned another action',
       );
     if (output.status !== 'created' && output.status !== 'no-change')
       throw new Error(
-        'Population proposer Application commit status is invalid',
+        'Pareto evolution proposer Application commit status is invalid',
       );
     if (output.status === 'no-change')
       return {
@@ -417,7 +417,10 @@ async function recordCandidateMeta(
   return newCandidate(ref, record.artifactRef, meta);
 }
 
-function finishState(state: PopulationState, settings: PopulationConfig): void {
+function finishState(
+  state: ParetoEvolutionState,
+  settings: ParetoEvolutionConfig,
+): void {
   const best = bestCandidate(state.candidates, state.selectionTaskIds);
   state.bestCandidateRef = best.candidate?.ref ?? null;
   state.bestAggregateScore = best.score;
@@ -440,18 +443,18 @@ function finishState(state: PopulationState, settings: PopulationConfig): void {
 }
 
 function result(
-  state: PopulationState,
+  state: ParetoEvolutionState,
   plan: RoundPlan | null = null,
   selectionRequired = false,
-): PopulationStepResult {
+): ParetoEvolutionStepResult {
   return { state, plan, selectionRequired };
 }
 
 function finishRound(
-  state: PopulationState,
-  settings: PopulationConfig,
+  state: ParetoEvolutionState,
+  settings: ParetoEvolutionConfig,
   report: RoundReport,
-): PopulationStepResult {
+): ParetoEvolutionStepResult {
   if (report.status === 'admitted' || report.status === 'rejected')
     state.completedRounds += 1;
   state.rounds.push(report);
@@ -460,7 +463,7 @@ function finishRound(
 }
 
 function roundReport(
-  state: PopulationState,
+  state: ParetoEvolutionState,
   strategy: 'mutation' | 'crossover',
   parents: string[],
   modules: string[],
@@ -485,9 +488,9 @@ function roundReport(
 
 async function prepareRound(
   ctx: RuntimeContext,
-  state: PopulationState,
-  settings: PopulationConfig,
-): Promise<PopulationStepResult> {
+  state: ParetoEvolutionState,
+  settings: ParetoEvolutionConfig,
+): Promise<ParetoEvolutionStepResult> {
   finishState(state, settings);
   if (state.done) return result(state);
   const rng = stateRngFrom(state);
@@ -554,7 +557,9 @@ async function prepareRound(
   }
   const parent = selectCandidate(state.candidates, state.selectionTaskIds, rng);
   if (!parent)
-    throw new Error('Population proposer mutation has no eligible parent');
+    throw new Error(
+      'Pareto evolution proposer mutation has no eligible parent',
+    );
   const module =
     settings.modules[state.moduleCursor % settings.modules.length]!;
   state.moduleCursor += 1;
@@ -602,10 +607,10 @@ async function prepareRound(
 async function compareRound(
   input: Extract<IterativeProposerFeedback, { kind: 'proposal' }>,
   ctx: RuntimeContext,
-  state: PopulationState,
+  state: ParetoEvolutionState,
   plan: RoundPlan,
-  settings: PopulationConfig,
-): Promise<PopulationStepResult> {
+  settings: ParetoEvolutionConfig,
+): Promise<ParetoEvolutionStepResult> {
   const { report } = plan;
   const parentEvaluations: EvaluationOutcome[] = [];
   // A no-change deterministic merge has no source evaluations; a mutation
@@ -616,7 +621,7 @@ async function compareRound(
       : report.parentRefs.length;
   if (input.parentMeasurementRefs.length !== expectedParents)
     throw new Error(
-      'Population proposer comparison requires one measurement per genetic parent',
+      'Pareto evolution proposer comparison requires one measurement per genetic parent',
     );
   for (let index = 0; index < input.parentMeasurementRefs.length; index++) {
     const evaluation = await readEvaluation(
@@ -641,7 +646,7 @@ async function compareRound(
   }
   if (!input.proposalMeasurementRef)
     throw new Error(
-      'Population proposer comparison requires the proposed candidate measurement',
+      'Pareto evolution proposer comparison requires the proposed candidate measurement',
     );
   const candidate = await recordCandidateMeta(
     ctx,
@@ -718,18 +723,18 @@ async function compareRound(
   return result(state, plan, true);
 }
 
-async function advancePopulation(
+async function advanceParetoEvolution(
   input: IterativeProposerInput,
   context: RuntimeContext,
-  settings: PopulationConfig,
+  settings: ParetoEvolutionConfig,
   configuration: string,
-): Promise<PopulationStepResult> {
+): Promise<ParetoEvolutionStepResult> {
   context.signal.throwIfAborted();
   validateModules(settings.modules);
   if (input.action === 'initialize') {
     if (!input.feedbackTaskIds?.length || !input.selectionTaskIds?.length)
       throw new Error(
-        'Population proposer initialization requires feedbackTaskIds and selectionTaskIds',
+        'Pareto evolution proposer initialization requires feedbackTaskIds and selectionTaskIds',
       );
     const initialization = {
       ...settings,
@@ -765,7 +770,7 @@ async function advancePopulation(
     ];
     return result(state);
   }
-  const { state, plan } = await readPopulationState(
+  const { state, plan } = await readParetoEvolutionState(
     context,
     input.stateRef,
     configuration,
@@ -775,26 +780,26 @@ async function advancePopulation(
   if (feedback.kind === 'proposal') {
     if (!plan || input.workId !== `proposal:${plan.report.round}`)
       throw new Error(
-        'Population proposer feedback does not match the pending proposal work',
+        'Pareto evolution proposer feedback does not match the pending proposal work',
       );
     return compareRound(feedback, context, state, plan, settings);
   }
   const expectedWorkId = plan ? `selection:${plan.report.round}` : 'initial';
   if (input.workId !== expectedWorkId)
     throw new Error(
-      'Population proposer feedback does not match the pending evaluation work',
+      'Pareto evolution proposer feedback does not match the pending evaluation work',
     );
   const expectedMeasurements = state.selectionTaskIds.length ? 1 : 0;
   if (feedback.measurementRefs.length !== expectedMeasurements)
     throw new Error(
-      'Population proposer feedback requires one measurement per requested evaluation',
+      'Pareto evolution proposer feedback requires one measurement per requested evaluation',
     );
   const measurementRef = feedback.measurementRefs[0];
   if (!plan) {
     if (state.selectionTaskIds.length) {
       if (!measurementRef)
         throw new Error(
-          'Population proposer initial selection requires a measurement',
+          'Pareto evolution proposer initial selection requires a measurement',
         );
       const initial = state.candidates[0]!;
       const evaluation = await readEvaluation(
@@ -822,7 +827,7 @@ async function advancePopulation(
   const { candidate, report } = plan;
   if (!candidate)
     throw new Error(
-      'Population proposer selection requires a compared candidate',
+      'Pareto evolution proposer selection requires a compared candidate',
     );
   const selection = await readEvaluation(
     context,
@@ -850,9 +855,9 @@ async function advancePopulation(
   return finishRound(state, settings, report);
 }
 
-function populationResult(
-  state: PopulationState,
-  settings: PopulationConfig,
+function paretoEvolutionResult(
+  state: ParetoEvolutionState,
+  settings: ParetoEvolutionConfig,
 ): JsonObject {
   return {
     baselineCandidateRef: state.baselineCandidateRef,
@@ -873,7 +878,7 @@ function populationResult(
 
 function requestedWork(
   input: IterativeProposerInput,
-  step: PopulationStepResult,
+  step: ParetoEvolutionStepResult,
 ): IterativeProposerWork | null {
   const { state, plan } = step;
   if (input.action === 'initialize')
@@ -906,39 +911,43 @@ function requestedWork(
       proposalResult: null,
     };
   if (!plan.proposalResult)
-    throw new Error('Population proposer round plan has no proposal');
+    throw new Error('Pareto evolution proposer round plan has no proposal');
   return { ...work, proposalInput: null, proposalResult: plan.proposalResult };
 }
 
-export const createPopulationProposer: OperationDefinition<
+export const createParetoEvolutionProposer: OperationDefinition<
   IterativeProposerInput,
   IterativeProposerOutput,
-  PopulationConfig
+  ParetoEvolutionConfig
 >['create'] = async (
   raw,
 ): Promise<Operation<IterativeProposerInput, IterativeProposerOutput>> => {
-  const settings = parseConfig<PopulationConfig>(
+  const settings = parseConfig<ParetoEvolutionConfig>(
     configSchema,
     raw,
-    'Population proposer config',
+    'Pareto evolution proposer config',
   );
   const configuration = digest(settings);
   return {
     async execute(input, context): Promise<IterativeProposerOutput> {
-      const step = await advancePopulation(
+      const step = await advanceParetoEvolution(
         input,
         context,
         settings,
         configuration,
       );
       const { state } = step;
-      const stateRef = await writePopulationState(context, configuration, step);
+      const stateRef = await writeParetoEvolutionState(
+        context,
+        configuration,
+        step,
+      );
       return {
         stateRef,
         done: state.done,
         iterationLimit: settings.maxRounds,
         work: requestedWork(input, step),
-        result: state.done ? populationResult(state, settings) : null,
+        result: state.done ? paretoEvolutionResult(state, settings) : null,
       };
     },
     async dispose(): Promise<void> {},

@@ -309,16 +309,19 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   const registry = new Registry();
   t.after(() => registry.dispose());
   await registerBuiltins(registry);
-  assert.ok(registry.catalog().plugins.includes('proposer.population'));
+  assert.ok(registry.catalog().plugins.includes('proposer.pareto-evolution'));
   assert.ok(registry.catalog().policies.includes('policy.gepa'));
   assert.deepEqual(
-    registry.get('proposer.population').contract,
+    registry.get('proposer.pareto-evolution').contract,
     iterativeProposerContract,
   );
   const directory = resolve('examples/harness/dsh-gepa');
   const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
   assert.equal(recipe.policy.id, 'policy.gepa');
-  assert.equal(recipe.bindings.population!.pluginId, 'proposer.population');
+  assert.equal(
+    recipe.bindings.population!.pluginId,
+    'proposer.pareto-evolution',
+  );
   const dataset = object(recipe.policyConfig.dataset);
   const populationConfig = recipe.bindings.population!.config;
   assert.equal(populationConfig.maxRounds, 15);
@@ -362,7 +365,10 @@ test('GEPA example loads through built-in registration with recipe-relative reso
           ...raw,
           bindings: {
             ...object(raw.bindings),
-            population: { plugin: 'proposer.population', config: settings },
+            population: {
+              plugin: 'proposer.pareto-evolution',
+              config: settings,
+            },
           },
         },
         registry,

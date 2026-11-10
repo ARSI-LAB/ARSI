@@ -30,7 +30,7 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
       'proposer.grid',
       'proposer.operator',
       'proposer.optuna',
-      'proposer.population',
+      'proposer.pareto-evolution',
       'reflection.agent',
       'selector.artifact',
       'selector.metric',

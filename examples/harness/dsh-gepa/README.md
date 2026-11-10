@@ -3,7 +3,7 @@
 This example optimizes the Office discipline prompt with GEPA v2. The
 [Recipe](recipe.yaml) uses the [baseline Office Bundle](baseline/) and its narrow
 [Target](target.yaml). The population proposal implementation is
-[`src/plugins/proposer-population/`](../../../src/plugins/proposer-population/) and its orchestration Policy is
+[`src/plugins/proposer-pareto-evolution/`](../../../src/plugins/proposer-pareto-evolution/) and its orchestration Policy is
 [`src/policies/gepa/policy.yaml`](../../../src/policies/gepa/policy.yaml).
 
 ## Running
@@ -48,21 +48,22 @@ pnpm ember-rsi validate examples/harness/dsh-gepa/recipe.yaml
 pnpm ember-rsi run examples/harness/dsh-gepa/recipe.yaml --id gepa-office
 ```
 
-The built-in startup entrypoint provides `proposer.population` and `policy.gepa`.
+The built-in startup entrypoint provides `proposer.pareto-evolution` and `policy.gepa`.
 Run facts, candidates, measurements and receipts are stored in `.rsi/`.
 
-The population Proposer maintains a candidate population, selects parents, and
-advances prompt-module mutation and ancestry-aware crossover. This Policy uses
+The Pareto Evolution Proposer maintains a candidate population, selects parents
+through Pareto sampling, and advances prompt-module mutation and ancestry-aware
+crossover. This Policy uses
 that capability to orchestrate GEPA. The shared `contract.proposer-iterative`
 also supports the separate Optuna implementation.
 
-The Policy invokes `evaluator` and `proposer` explicitly. The population plugin
+The Policy invokes `evaluator` and `proposer` explicitly. The Pareto evolution plugin
 owns parent selection, comparison, and population bookkeeping; it does not route
 calls to those plugins. Mutation uses `proposer.agent`, which invokes `agent`,
 validates edits, and commits through the Application. The Recipe configures the
 Evaluator and Agent and keeps algorithm parameters in `bindings.population.config`.
 The task split and its Schema belong to the Policy, with the task IDs configured
-in `policy.config.dataset`. The population plugin owns its algorithm configuration
+in `policy.config.dataset`. The Pareto evolution plugin owns its algorithm configuration
 Schema. Its public
 `contract.proposer-iterative` interface is shared with Optuna. Its `initialize`, `suggest`,
 and `observe` lifecycle exchanges immutable state references, evaluation and
@@ -138,7 +139,7 @@ The Recipe uses ten training tasks and five disjoint validation tasks from the
 The ordered task lists live in `policy.config.dataset`: `trainTaskIds` is the
 training pool and `validationTaskIds` is the validation pool. The Policy maps
 these to the population initialization inputs `feedbackTaskIds` and
-`selectionTaskIds`. The population plugin returns the selected task IDs, and the
+`selectionTaskIds`. The Pareto evolution plugin returns the selected task IDs, and the
 Policy invokes the Evaluator with those IDs. `paretoSize: 5` keeps all five
 validation tasks for candidate selection. There is no independent test set or
 test evaluation stage; GEPA does not need an extra `testTaskIds` setting.
@@ -149,7 +150,7 @@ task environments in pipeline mode. A validation evaluation submits the same
 five task IDs in one Evaluator call; the one-task feedback minibatch uses one
 execution slot. GEPA rounds retain their existing Policy order.
 
-The population plugin allows up to `maxRounds: 15` logical optimization attempts, with
+The Pareto evolution plugin allows up to `maxRounds: 15` logical optimization attempts, with
 `maxRollouts: 120`, `minibatchSize: 1`, `feedbackSampling: coverage-first`, and
 `crossoverEvery: 0`. Crossover is disabled and is not recommended for this
 single-module Office configuration. Every attempt evaluates a training parent

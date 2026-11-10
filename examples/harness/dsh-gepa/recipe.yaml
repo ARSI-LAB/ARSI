@@ -35,7 +35,7 @@ policy:
         - workbuddy/channel-period-compare-L4-017
 bindings:
   population:
-    plugin: proposer.population
+    plugin: proposer.pareto-evolution
     config:
       maxRounds: 15
       maxRollouts: 120

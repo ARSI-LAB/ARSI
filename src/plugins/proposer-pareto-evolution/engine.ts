@@ -1,5 +1,5 @@
 import type { JsonObject } from '../../contracts/index.js';
-import type { PromptModule, PopulationSettings } from './schema.js';
+import type { PromptModule, ParetoEvolutionSettings } from './schema.js';
 
 /**
  * Deterministic population bookkeeping. The Policy owns evaluation and proposal
@@ -27,8 +27,8 @@ export interface CandidateRecord extends JsonObject {
   moduleIds: string[];
 }
 
-export interface PopulationState extends JsonObject {
-  schemaVersion: 'rsi.proposer-population-state/v1';
+export interface ParetoEvolutionState extends JsonObject {
+  schemaVersion: 'rsi.proposer-pareto-evolution-state/v1';
   seed: number;
   rng: number;
   feedbackTaskIds: string[];
@@ -83,7 +83,7 @@ export interface EvaluationOutcome {
   rollouts: number;
 }
 
-function stateRng(state: PopulationState): Rng {
+function stateRng(state: ParetoEvolutionState): Rng {
   return new Rng(state.rng);
 }
 
@@ -93,7 +93,7 @@ export class Rng {
   constructor(seed: number) {
     if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff)
       throw new Error(
-        'Population proposer seed must be an unsigned 32-bit integer',
+        'Pareto evolution proposer seed must be an unsigned 32-bit integer',
       );
     this.value = seed >>> 0;
   }
@@ -114,7 +114,7 @@ export class Rng {
   integer(maxExclusive: number): number {
     if (!Number.isSafeInteger(maxExclusive) || maxExclusive <= 0)
       throw new Error(
-        'Population proposer random range must be a positive integer',
+        'Pareto evolution proposer random range must be a positive integer',
       );
     return Math.floor(this.next() * maxExclusive);
   }
@@ -127,7 +127,7 @@ export function sampleWithoutReplacement<T>(
 ): T[] {
   if (count < 0 || count > values.length)
     throw new Error(
-      'Population proposer sample size is outside the population',
+      'Pareto evolution proposer sample size is outside the population',
     );
   const pool = [...values];
   for (let index = 0; index < count; index++) {
@@ -139,8 +139,8 @@ export function sampleWithoutReplacement<T>(
 
 export function sampleFeedbackTasks(
   rng: Rng,
-  state: Pick<PopulationState, 'feedbackTaskIds' | 'rounds'>,
-  settings: Pick<PopulationSettings, 'minibatchSize' | 'feedbackSampling'>,
+  state: Pick<ParetoEvolutionState, 'feedbackTaskIds' | 'rounds'>,
+  settings: Pick<ParetoEvolutionSettings, 'minibatchSize' | 'feedbackSampling'>,
 ): string[] {
   const count = Math.min(settings.minibatchSize, state.feedbackTaskIds.length);
   if (settings.feedbackSampling !== 'coverage-first')
@@ -480,12 +480,12 @@ function ancestorAggregate(
 }
 
 export function emptyState(
-  settings: PopulationSettings,
+  settings: ParetoEvolutionSettings,
   selectionTaskIds: string[],
   rng: Rng,
-): PopulationState {
+): ParetoEvolutionState {
   return {
-    schemaVersion: 'rsi.proposer-population-state/v1',
+    schemaVersion: 'rsi.proposer-pareto-evolution-state/v1',
     seed: settings.seed,
     rng: rng.state,
     feedbackTaskIds: [...settings.feedbackTaskIds],
@@ -511,6 +511,6 @@ export function emptyState(
   };
 }
 
-export function stateRngFrom(state: PopulationState): Rng {
+export function stateRngFrom(state: ParetoEvolutionState): Rng {
   return stateRng(state);
 }

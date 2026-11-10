@@ -4,18 +4,18 @@ import {
   type IterativeProposerOutput,
 } from '../../contracts/plugin-types/proposer-iterative.js';
 import type { OperationDefinition } from '../../contracts/index.js';
-import { configSchema, type PopulationConfig } from './schema.js';
-import { createPopulationProposer } from './service.js';
+import { configSchema, type ParetoEvolutionConfig } from './schema.js';
+import { createParetoEvolutionProposer } from './service.js';
 
-export const populationProposerDefinition: OperationDefinition<
+export const paretoEvolutionProposerDefinition: OperationDefinition<
   IterativeProposerInput,
   IterativeProposerOutput,
-  PopulationConfig
+  ParetoEvolutionConfig
 > = {
-  id: 'proposer.population',
+  id: 'proposer.pareto-evolution',
   description:
     'Maintain a prompt candidate population with Pareto parent sampling, mutation proposals and ancestry-aware crossover.',
   contract: iterativeProposerContract,
   configSchema,
-  create: createPopulationProposer,
+  create: createParetoEvolutionProposer,
 };

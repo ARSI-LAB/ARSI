@@ -27,7 +27,7 @@ import { object, string } from '../../src/shared/json.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { readPolicyDocument } from '../../src/runtime/compiler/document.js';
-import { populationProposerDefinition } from '../../src/plugins/proposer-population/index.js';
+import { paretoEvolutionProposerDefinition } from '../../src/plugins/proposer-pareto-evolution/index.js';
 import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
 import {
   checkTarget,
@@ -621,7 +621,7 @@ export async function runGepa(options: {
         options.agentOutput,
       ),
     );
-  registry.registerOperation(populationProposerDefinition);
+  registry.registerOperation(paretoEvolutionProposerDefinition);
   registry.registerOperation(proposerDefinition);
   const bindingNames = options.bindingNames ?? {
     evaluator: 'evaluator',
@@ -648,7 +648,7 @@ export async function runGepa(options: {
     policy.defaults = {
       bindings: {
         population: {
-          plugin: populationProposerDefinition.id,
+          plugin: paretoEvolutionProposerDefinition.id,
           config: {},
         },
         [bindingNames.proposer]: {

@@ -7,7 +7,7 @@ export type PromptModule = {
   path: string;
 };
 
-export type PopulationSettings = {
+export type ParetoEvolutionSettings = {
   feedbackTaskIds: string[];
   selectionTaskIds: string[];
   maxRounds: number;
@@ -22,8 +22,8 @@ export type PopulationSettings = {
   editConstraints?: JsonObject;
 };
 
-export type PopulationConfig = Omit<
-  PopulationSettings,
+export type ParetoEvolutionConfig = Omit<
+  ParetoEvolutionSettings,
   'feedbackTaskIds' | 'selectionTaskIds'
 >;
 

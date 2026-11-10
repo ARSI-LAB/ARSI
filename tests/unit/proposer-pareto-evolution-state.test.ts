@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext } from '../../src/contracts/index.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
-import { populationPlanSchema } from '../../src/plugins/proposer-population/state.js';
-import { createPopulationProposer } from '../../src/plugins/proposer-population/service.js';
-import type { PopulationConfig } from '../../src/plugins/proposer-population/schema.js';
+import { paretoEvolutionPlanSchema } from '../../src/plugins/proposer-pareto-evolution/state.js';
+import { createParetoEvolutionProposer } from '../../src/plugins/proposer-pareto-evolution/service.js';
+import type { ParetoEvolutionConfig } from '../../src/plugins/proposer-pareto-evolution/schema.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
 
-const settings: PopulationConfig = {
+const settings: ParetoEvolutionConfig = {
   maxRounds: 2,
   maxRollouts: 0,
   minibatchSize: 1,
@@ -28,7 +28,9 @@ const taskPools = {
 };
 
 async function scope(t: TestContext): Promise<RuntimeContext> {
-  const directory = await mkdtemp(join(tmpdir(), 'proposer-population-state-'));
+  const directory = await mkdtemp(
+    join(tmpdir(), 'proposer-pareto-evolution-state-'),
+  );
   t.after(() => rm(directory, { recursive: true, force: true }));
   return new RuntimeContext().extend({
     signal: new AbortController().signal,
@@ -46,7 +48,7 @@ async function scope(t: TestContext): Promise<RuntimeContext> {
   });
 }
 
-test('Population proposer round plans reject incomplete reports and candidate records', () => {
+test('Pareto evolution proposer round plans reject incomplete reports and candidate records', () => {
   const plan = {
     report: {
       round: 0,
@@ -67,20 +69,20 @@ test('Population proposer round plans reject incomplete reports and candidate re
     proposalResult: null,
     candidate: null,
   };
-  validate(populationPlanSchema, plan);
+  validate(paretoEvolutionPlanSchema, plan);
   assert.throws(
-    () => validate(populationPlanSchema, { ...plan, report: {} }),
+    () => validate(paretoEvolutionPlanSchema, { ...plan, report: {} }),
     /data\/report must have required property/,
   );
   assert.throws(
-    () => validate(populationPlanSchema, { ...plan, candidate: {} }),
+    () => validate(paretoEvolutionPlanSchema, { ...plan, candidate: {} }),
     /data\/candidate must have required property/,
   );
 });
 
-test('Population proposer state references restore into a fresh implementation and retain earlier snapshots', async (t) => {
+test('Pareto evolution proposer state references restore into a fresh implementation and retain earlier snapshots', async (t) => {
   const context = await scope(t);
-  const proposer = await createPopulationProposer(settings, context);
+  const proposer = await createParetoEvolutionProposer(settings, context);
   const initial = await proposer.execute(
     { action: 'initialize', parent: 'baseline', ...taskPools },
     context,
@@ -88,13 +90,13 @@ test('Population proposer state references restore into a fresh implementation a
   const saved = await context.artifacts.readJson(initial.stateRef);
   assert.equal(
     object(saved).schemaVersion,
-    'rsi.proposer-population-snapshot/v1',
+    'rsi.proposer-pareto-evolution-snapshot/v1',
   );
   assert.equal(
     object(object(saved).state).schemaVersion,
-    'rsi.proposer-population-state/v1',
+    'rsi.proposer-pareto-evolution-state/v1',
   );
-  const restored = await createPopulationProposer(settings, context);
+  const restored = await createParetoEvolutionProposer(settings, context);
   const input = {
     action: 'observe' as const,
     stateRef: initial.stateRef,
@@ -122,15 +124,15 @@ test('Population proposer state references restore into a fresh implementation a
   assert.deepEqual(await proposer.execute(input, context), observed);
 });
 
-test('Population proposer rejects state references from another configuration or execution scope and malformed snapshots', async (t) => {
+test('Pareto evolution proposer rejects state references from another configuration or execution scope and malformed snapshots', async (t) => {
   const context = await scope(t);
-  const proposer = await createPopulationProposer(settings, context);
+  const proposer = await createParetoEvolutionProposer(settings, context);
   const initial = await proposer.execute(
     { action: 'initialize', parent: 'baseline', ...taskPools },
     context,
   );
   const input = { action: 'suggest' as const, stateRef: initial.stateRef };
-  const changed = await createPopulationProposer(
+  const changed = await createParetoEvolutionProposer(
     { ...settings, seed: 12 },
     context,
   );
@@ -155,7 +157,7 @@ test('Population proposer rejects state references from another configuration or
   );
 });
 
-test('Population proposer retries an unconfirmed snapshot write with the same immutable state identity', async (t) => {
+test('Pareto evolution proposer retries an unconfirmed snapshot write with the same immutable state identity', async (t) => {
   const context = await scope(t);
   let failedRef = '';
   let fail = true;
@@ -175,7 +177,7 @@ test('Population proposer retries an unconfirmed snapshot write with the same im
       materialize: context.artifacts.materialize.bind(context.artifacts),
     },
   });
-  const proposer = await createPopulationProposer(settings, interrupted);
+  const proposer = await createParetoEvolutionProposer(settings, interrupted);
   const input = {
     action: 'initialize' as const,
     parent: 'baseline',

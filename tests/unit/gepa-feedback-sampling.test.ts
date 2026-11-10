@@ -6,8 +6,8 @@ import {
   sampleFeedbackTasks,
   sampleWithoutReplacement,
   type RoundReport,
-} from '../../src/plugins/proposer-population/engine.js';
-import { configSchema } from '../../src/plugins/proposer-population/schema.js';
+} from '../../src/plugins/proposer-pareto-evolution/engine.js';
+import { configSchema } from '../../src/plugins/proposer-pareto-evolution/schema.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
 import { runGepa } from '../fixtures/gepa-runtime.js';

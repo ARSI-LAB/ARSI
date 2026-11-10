@@ -9,7 +9,7 @@ import { parseConfig, validate } from '../../shared/schema.js';
 import { stringArray } from './schema.js';
 import type {
   CandidateRecord,
-  PopulationState,
+  ParetoEvolutionState,
   RoundReport,
 } from './engine.js';
 
@@ -22,18 +22,18 @@ export interface RoundPlan extends JsonObject {
   candidate: CandidateRecord | null;
 }
 
-export type PopulationStepResult = {
-  state: PopulationState;
+export type ParetoEvolutionStepResult = {
+  state: ParetoEvolutionState;
   plan: RoundPlan | null;
   selectionRequired: boolean;
 };
 
-interface PopulationSnapshot extends JsonObject {
-  schemaVersion: 'rsi.proposer-population-snapshot/v1';
+interface ParetoEvolutionSnapshot extends JsonObject {
+  schemaVersion: 'rsi.proposer-pareto-evolution-snapshot/v1';
   configuration: string;
   experimentId: string;
   bindingId: string;
-  state: PopulationState;
+  state: ParetoEvolutionState;
   plan: RoundPlan | null;
 }
 
@@ -121,7 +121,7 @@ const roundReportSchema: JsonObject = {
   },
 };
 
-export const populationStateSchema: JsonObject = {
+export const paretoEvolutionStateSchema: JsonObject = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -148,7 +148,7 @@ export const populationStateSchema: JsonObject = {
     'weightsChanged',
   ],
   properties: {
-    schemaVersion: { const: 'rsi.proposer-population-state/v1' },
+    schemaVersion: { const: 'rsi.proposer-pareto-evolution-state/v1' },
     seed: { type: 'integer', minimum: 0, maximum: 4294967295 },
     rng: { type: 'integer', minimum: 0, maximum: 4294967295 },
     feedbackTaskIds: stringArray(1),
@@ -177,7 +177,7 @@ export const populationStateSchema: JsonObject = {
     weightsChanged: { const: false },
   },
 };
-export const populationPlanSchema: JsonObject = {
+export const paretoEvolutionPlanSchema: JsonObject = {
   type: 'object',
   additionalProperties: false,
   required: ['report', 'proposalInput', 'proposalResult', 'candidate'],
@@ -205,24 +205,24 @@ const snapshotSchema: JsonObject = {
     'plan',
   ],
   properties: {
-    schemaVersion: { const: 'rsi.proposer-population-snapshot/v1' },
+    schemaVersion: { const: 'rsi.proposer-pareto-evolution-snapshot/v1' },
     configuration: { type: 'string', minLength: 1 },
     experimentId: { type: 'string', minLength: 1 },
     bindingId: { type: 'string', minLength: 1 },
-    state: populationStateSchema,
-    plan: { anyOf: [{ type: 'null' }, populationPlanSchema] },
+    state: paretoEvolutionStateSchema,
+    plan: { anyOf: [{ type: 'null' }, paretoEvolutionPlanSchema] },
   },
 };
 
-export async function readPopulationState(
+export async function readParetoEvolutionState(
   context: RuntimeContext,
   stateRef: string,
   configuration: string,
-): Promise<PopulationSnapshot> {
-  const snapshot = parseConfig<PopulationSnapshot>(
+): Promise<ParetoEvolutionSnapshot> {
+  const snapshot = parseConfig<ParetoEvolutionSnapshot>(
     snapshotSchema,
     await context.artifacts.readJson(stateRef),
-    'Population proposer state',
+    'Pareto evolution proposer state',
   );
   if (
     snapshot.configuration !== configuration ||
@@ -230,24 +230,24 @@ export async function readPopulationState(
     snapshot.bindingId !== context.bindingId
   )
     throw new Error(
-      'Population proposer state configuration or execution scope mismatch',
+      'Pareto evolution proposer state configuration or execution scope mismatch',
     );
   return snapshot;
 }
 
-export async function writePopulationState(
+export async function writeParetoEvolutionState(
   context: RuntimeContext,
   configuration: string,
-  result: PopulationStepResult,
+  result: ParetoEvolutionStepResult,
 ): Promise<string> {
-  const snapshot: PopulationSnapshot = {
-    schemaVersion: 'rsi.proposer-population-snapshot/v1',
+  const snapshot: ParetoEvolutionSnapshot = {
+    schemaVersion: 'rsi.proposer-pareto-evolution-snapshot/v1',
     configuration,
     experimentId: context.experimentId,
     bindingId: context.bindingId,
     state: result.state,
     plan: result.plan,
   };
-  validate(snapshotSchema, snapshot, 'Population proposer state');
+  validate(snapshotSchema, snapshot, 'Pareto evolution proposer state');
   return context.artifacts.putJson(snapshot);
 }

@@ -6,6 +6,7 @@ import type {
 import { configSchema, type AgentbenchConfig } from './schema.js';
 import { agentbenchContract } from '../../contracts/plugin-types/index.js';
 import { createAgentbench } from './service.js';
+import { evaluatorDoctor } from '../../runtime/doctor/evaluator-checks.js';
 export const agentbenchDefinition: OperationDefinition<
   AgentbenchInput,
   AgentbenchOutput,
@@ -16,4 +17,5 @@ export const agentbenchDefinition: OperationDefinition<
   contract: agentbenchContract,
   configSchema,
   create: createAgentbench,
+  doctor: evaluatorDoctor,
 };

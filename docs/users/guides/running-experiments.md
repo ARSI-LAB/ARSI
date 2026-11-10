@@ -60,7 +60,7 @@ ember-rsi doctor my-experiment/recipe.yaml
 ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
 ```
 
-- `doctor` checks the Recipe, plugin configuration, contract compatibility, Policy compilation and declared Reflection resources, then runs bundled prerequisite checks for each effective binding. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`. Statuses are `passed`, `failed` and `unchecked`.
+- `doctor` checks the Recipe, plugin configuration, contract compatibility, Policy compilation and declared Reflection resources, then calls the optional `doctor` capability on each effective component definition. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`. Statuses are `passed`, `failed` and `unchecked`.
   - Doctor exits `1` when any check fails and `0` when no check fails, including reports with unchecked entries.
 - RSI checks use isolated temporary storage. Evaluator checks delegate to the SDK's full doctor, which owns its download, image-acquisition and Docker build probes and their time limits. Doctor does not perform model inference or execute an optimization Policy. `run` remains independent and can start directly.
 

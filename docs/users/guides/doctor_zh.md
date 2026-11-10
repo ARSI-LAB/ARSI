@@ -47,7 +47,7 @@ flowchart TD
 1. **加载注册。** CLI 沿用正常 Runtime 注册流程，加载内置组件、`~/.ember-rsi/plugins/<name>/index.mjs` 中的用户扩展，以及 `--plugin-dir` 指定的扩展。
 2. **加载生效 Recipe。** `Recipe.load` 校验 Schema、绑定、契约兼容性、Policy 编译、预算和已声明的 Reflection 资源。探测使用合并 Policy 默认配置与 Recipe 覆盖后的配置。加载失败时输出失败诊断，不再执行组件探测。
 3. **检查已声明的本地路径。** 对 Application、每个生效绑定及已配置的 Reflection 实现，检查 Schema 中用 `x-rsi-path` 标记的本地文件或目录是否存在、类型是否正确、是否可读。
-4. **执行匹配的内置检查。** 按 `agent.pi` 这样的具体插件实现 ID 分发。每个绑定的各项检查分别记录为 `passed`、`failed` 或 `unchecked`。Evaluator 绑定通过正常 RSI adapter 准备配置，再调用已安装 SDK 的公开 `doctor` CLI；RSI 只映射返回的诊断，不再自行探测 Docker、磁盘或评测模型服务。前提不可用时，依赖它的检查记为 `unchecked`，独立检查仍可继续。没有对应内置检查时，该绑定的 `plugin` 检查记为 `unchecked`。
+4. **执行组件的 doctor 能力。** runner 调用已注册组件定义上的可选 `doctor` 函数。它随组件一起导出、打包和注册，不需要单独维护全局检查映射。每个绑定的各项检查分别记录为 `passed`、`failed` 或 `unchecked`。Evaluator 定义通过正常 RSI 配置 adapter 委托已安装 SDK 的公开 `doctor` CLI；RSI 只映射返回的诊断，不再自行探测 Docker、磁盘或评测模型服务。前提不可用时，依赖它的检查记为 `unchecked`，独立检查仍可继续。定义未声明 `doctor` 时，该绑定的 `plugin` 检查记为 `unchecked`。
 5. **清理并输出。** RSI 检查使用隔离临时存储，传递取消信号，释放自己创建的实例与进程，并删除临时文件。原有制品可作为输入读取，RSI 产生的捕获与写入留在临时 Runtime 内。下载与构建探针及其清理由 SDK 负责，镜像缓存可能改变。doctor 不创建优化实验，也不向原实验存储记录真实 Measurement。
 
 ### 时间限制、超时与取消
@@ -96,7 +96,7 @@ Evaluator 的取消信号转交给 SDK 调用，最多等待 60 秒让原生取�
 
 ## 3. doctor 针对内置组件都检查什么
 
-内置映射覆盖以下 17 个实现，只探测生效 Recipe 中实际存在的组件。表中各项也会接受前述注册、配置、契约和已声明路径的通用检查。下表检查 ID 省略绑定名前缀。
+以下 17 个内置实现都在自己的定义上声明 `doctor` 能力，只探测生效 Recipe 中实际存在的组件。表中各项也会接受前述注册、配置、契约和已声明路径的通用检查。下表检查 ID 省略绑定名前缀。
 
 ### Application 与 Agent
 
@@ -157,9 +157,9 @@ Codex 的原生健康、服务可达性与模型可用性分别报告。原生�
 
 ## 4. 自定义组件如何接入 doctor
 
-### 通过正常注册自动参与通用检查
+### 声明可选的 doctor 能力
 
-正常注册自定义组件，并在 Recipe 或 Policy 中选择它，就会自动参与注册、配置 Schema、绑定与契约、已声明本地路径的检查。完整插件与 Policy 示例见[编写插件](writing-plugins_zh.md)。
+在导出 `contract`、`configSchema`、`create` 的同一个组件定义上增加可选的 `doctor` 函数，仍然调用普通的 `registry.registerOperation(definition)`。检查函数随组件一起导出、打包和注册，不需要修改 RSI 源码、增加注册调用或维护全局映射。完整插件与 Policy 示例见[编写插件](writing-plugins_zh.md)。
 
 在组件的 `configSchema` 中声明本地输入：
 
@@ -175,7 +175,43 @@ export const configSchema = {
 };
 ```
 
-构建插件后，在扩展目录的 `index.mjs` 中注册其定义：
+在 `doctor.ts` 中实现组件的额外检查，再编译为 `doctor.js`。回调接收生效绑定配置和隔离的诊断上下文：
+
+```ts
+import { readFile } from 'node:fs/promises';
+import type { OperationDoctor } from 'ember-rsi/contracts';
+
+type CustomConfig = { inputFile: string; assets?: string };
+
+export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
+  await context.check('input-content', async (signal) => {
+    const text = await readFile(context.binding.config.inputFile, {
+      encoding: 'utf8',
+      signal,
+    });
+    if (!text.trim()) throw new Error('inputFile must contain text.');
+  });
+};
+```
+
+将它放到组件定义上：
+
+```js
+import { proposerContract } from 'ember-rsi/contracts';
+import { configSchema } from './schema.js';
+import { createCustom } from './service.js';
+import { checkCustom } from './doctor.js';
+
+export const customDefinition = {
+  id: 'proposer.custom',
+  contract: proposerContract,
+  configSchema,
+  create: createCustom,
+  doctor: checkCustom,
+};
+```
+
+随组件一起构建、部署这些文件，再在扩展目录的 `index.mjs` 中注册定义：
 
 ```js
 import { customDefinition } from './dist/index.js';
@@ -191,21 +227,24 @@ export function register(registry) {
 ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ```
 
-绑定名为 `custom` 时，上例产生 `custom.resource.inputFile`，提供 `assets` 时还会产生 `custom.resource.assets`。Schema 标记的相对路径按声明文件解析。未标记的字符串不会被推断为路径；URL 形式的值跳过检查，不会下载。通用路径检查不会展开 `${ENV}`，因此需要为这些检查提供具体路径。环境引用解析由组件自己的实现或检测脚本负责，JSON Schema 的字符串校验不会代办。
+绑定名为 `custom` 时，上例先产生自动的 `custom.resource.inputFile` 和可选的 `custom.resource.assets` 检查，再由组件的 doctor 产生 `custom.input-content`。Schema 标记的相对路径按声明文件解析。未标记的字符串不会被推断为路径；URL 形式的值跳过检查，不会下载。通用路径检查不会展开 `${ENV}`，因此需要为这些检查提供具体路径。环境引用解析由组件负责，JSON Schema 的字符串校验不会代办。
 
-### 当前边界：没有公开的自定义检测脚本接口
+### 回调约定与生命周期
 
-具体实现 ID 没有对应内置检测脚本时，该组件会得到 `custom.plugin: unchecked`。doctor 不调用它的 `create` 或 `execute`，因此写在 `create` 中的额外校验也不会执行。与内置组件实现同一个公共契约，不会继承该组件的检测脚本。
+TypeScript 作者可以从 `ember-rsi/contracts` 或根入口 `ember-rsi` 导入 `OperationDoctor<C>`、`DoctorContext<C>`。`C` 是组件配置类型，对应 `context.binding.config`。回调签名为 `async function checkCustom(context): Promise<void>`，通过提供的上下文记录结果，不自行返回整份报告。JavaScript 作者使用同样的函数，省略类型标注即可。
 
-当前插件定义不支持 `doctor` 或 `check` 字段，添加后会被 Registry 拒绝。没有公开的 `registerDoctor` API、doctor 专用的 CLI 检测脚本加载选项，也没有导出 `DoctorScript` / `DoctorContext` API。runner 的内部 `scripts` 选项只是测试替换入口，不是安装后扩展机制。因此，自定义组件可以接入前述自动检查，但目前不能通过普通扩展注册追加业务探测。
+| 上下文成员                        | 用途                                                                         |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| `binding.config`                  | 读取已通过 Schema 校验的生效配置，包含默认值、覆盖值和已解析的声明路径。     |
+| `check(id, action, options?)`     | 执行有时限的操作并记录成功或失败，向 action 提供取消信号，返回该项是否通过。 |
+| `unchecked(id, reason, details?)` | 记录不支持的工作，或因前提不可用而未执行的依赖检查。                         |
+| `missing(resource)`               | 记录缺失输入及因此保留未检查的依赖检查 ID。                                  |
+| `runtime`、`directory`、`signal`  | 使用隔离诊断服务与存储，并传递取消信号。                                     |
 
-### 在 RSI 源码中增加内置检测脚本
+注册和 `Recipe.load` 会保留该能力，但不执行它。CLI 只在 `doctor` 期间调用该函数，正常 `create`、`execute` 和实验运行不会自动调用它。doctor 不会为了发现额外检查而实例化未覆盖的自定义组件。定义省略 `doctor` 时，自动结构与路径检查仍会运行，`custom.plugin` 记为 `unchecked`。实现同一个公共契约不会继承另一实现的 doctor 函数。
 
-这需要修改框架源码并重新构建 CLI：
+runner 负责添加绑定名前缀、对已知凭据脱敏、汇总结果和清理临时 Runtime。检查 ID 保持为绑定内的局部名称，使用回调提供的上下文，不导入 Runtime 内部实现。
 
-1. 针对具体插件 ID 实现内部 [DoctorScript](../../../src/runtime/doctor/types.ts)，放入对应职责的[内置检查模块](../../../src/runtime/doctor/scripts.ts)。
-2. 用 `context.check` 记录有时限的操作，用 `context.unchecked` 表达不支持或前提不可用，用 `context.missing` 记录缺失输入与依赖检查。runner 负责添加绑定名前缀、脱敏和汇总。
-3. 临时写入放在 `context.directory` 或隔离 Runtime 中，传递本项检查的取消信号，在成功、失败和中断时清理资源。不执行 Agent、Policy 或真实评测；明确说明下载或构建副作用，Evaluator 诊断仍委托给 SDK。
-4. 增加行为、失败及相关取消与清理测试，将检测脚本按实现 ID 加入内置映射，再重新构建。同步更新本指南，说明真实覆盖范围和限制。
+临时写入放在 `context.directory` 或隔离 Runtime 中，将每项检查的信号传给外部请求或进程，在成功、失败和中断时通过 `finally` 清理自有资源。不执行 Agent、Policy 或真实评测；说明下载或构建副作用，SDK-backed Evaluator 的诊断继续委托 SDK。测试可用输入、具体的前提故障及相关取消与清理行为，再通过安装后的 CLI 加载打包扩展验证。
 
 现有 [doctor 测试](../../../tests/unit/doctor.test.ts)与 [Evaluator 测试](../../../tests/unit/doctor-evaluators.test.ts)展示了结果汇总、前提处理、取消与清理方式。

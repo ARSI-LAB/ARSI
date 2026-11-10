@@ -6,6 +6,7 @@ import type {
 import { configSchema, type AgentEditingConfig } from './schema.js';
 import { reflectionContract } from '../../contracts/plugin-types/index.js';
 import { createReflectionAgent } from './service.js';
+import { checkAgentEditor } from '../../runtime/doctor/business-checks.js';
 export const reflectionDefinition: OperationDefinition<
   ReflectionInput,
   ReflectionOutput,
@@ -16,4 +17,5 @@ export const reflectionDefinition: OperationDefinition<
   contract: reflectionContract,
   configSchema,
   create: createReflectionAgent,
+  doctor: checkAgentEditor,
 };

@@ -21,13 +21,12 @@ import {
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
-import { applicationChecks } from '../../src/runtime/doctor/application-checks.js';
 import { object } from '../../src/shared/json.js';
 import type {
   DoctorCheck,
   DoctorContext,
   MissingResource,
-} from '../../src/runtime/doctor/types.js';
+} from '../../src/contracts/index.js';
 
 const target = (path: string): JsonObject => ({
   schemaVersion: 'rsi.target/v1',
@@ -149,7 +148,7 @@ async function fixture(t: TestContext) {
         missingResources.push({ ...resource, binding: 'probe', pluginId });
       },
     };
-    await applicationChecks[pluginId](context);
+    await context.binding.definition.doctor!(context);
     return { checks, missingResources };
   };
   return { root, baseline, config, runtime, controller, run };

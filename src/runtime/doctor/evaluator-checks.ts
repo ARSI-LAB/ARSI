@@ -1,7 +1,12 @@
 import { lstat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { JsonObject, JsonValue } from '../../contracts/index.js';
+import type {
+  DoctorContext,
+  JsonObject,
+  JsonValue,
+  OperationDoctor,
+} from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import { plain } from '../../plugins/shared/evaluator-adapter/data.js';
 import { prepareEvaluationConfig as prepareAgentbench } from '../../plugins/evaluator-agentbench/service.js';
@@ -9,7 +14,6 @@ import { prepareEvaluationConfig as prepareInferencebench } from '../../plugins/
 import { prepareEvaluationConfig as prepareOperatorbench } from '../../plugins/evaluator-operatorbench/service.js';
 import { loadOperatorTask } from '../../plugins/shared/operator-task.js';
 import { sdkDoctor, type SdkDoctorRunner } from './evaluator-sdk.js';
-import type { DoctorContext, DoctorScript } from './types.js';
 
 function taskIds(value: JsonValue): string[] {
   if (Array.isArray(value)) return value.flatMap(taskIds);
@@ -269,14 +273,10 @@ async function evaluator(
 }
 
 /** Only configuration adaptation and SDK diagnostic mapping belong to RSI. */
-export function createEvaluatorChecks(
+export function createEvaluatorDoctor(
   run: SdkDoctorRunner = sdkDoctor,
-): Readonly<Record<string, DoctorScript>> {
-  return {
-    'evaluator.agentbench': (ctx) => evaluator(ctx, run),
-    'evaluator.inferencebench': (ctx) => evaluator(ctx, run),
-    'evaluator.operatorbench': (ctx) => evaluator(ctx, run),
-  };
+): OperationDoctor {
+  return (ctx) => evaluator(ctx, run);
 }
 
-export const evaluatorChecks = createEvaluatorChecks();
+export const evaluatorDoctor = createEvaluatorDoctor();

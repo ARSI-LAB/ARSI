@@ -36,14 +36,15 @@ The Policy's `require` specifies the contract, and the binding selects a plugin 
 
 `OperationDefinition<I, O, C>` describes a plugin definition. Its three type parameters are input, output, and configuration; see the [interface definition](../../../src/contracts/operation.ts).
 
-| Field                  | Meaning                                                             | How to fill it in                                                                                   |
-| ---------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `id`                   | Unique plugin implementation ID used by bindings.                   | Required, for example `proposer.keep-parent`; must not duplicate a registered plugin or Policy ID.  |
-| `description`          | Describe the plugin's purpose.                                      | Optional short description.                                                                         |
-| `contract`             | Declare the public contract the plugin follows.                     | Required imported contract object, such as `proposerContract`.                                      |
-| `configSchema`         | Validate this implementation's configuration.                       | Required JSON Schema; declare an object Schema even when there are no settings.                     |
-| `create`               | Create a plugin instance from configuration.                        | Required async function `create(config, context)` returning an object with `execute` and `dispose`. |
-| `implementationDigest` | Identify the implementation version so recovery can detect changes. | Optional digest covering the actual implementation code; update it when the code changes.           |
+| Field                  | Meaning                                                             | How to fill it in                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                   | Unique plugin implementation ID used by bindings.                   | Required, for example `proposer.keep-parent`; must not duplicate a registered plugin or Policy ID.                             |
+| `description`          | Describe the plugin's purpose.                                      | Optional short description.                                                                                                    |
+| `contract`             | Declare the public contract the plugin follows.                     | Required imported contract object, such as `proposerContract`.                                                                 |
+| `configSchema`         | Validate this implementation's configuration.                       | Required JSON Schema; declare an object Schema even when there are no settings.                                                |
+| `create`               | Create a plugin instance from configuration.                        | Required async function `create(config, context)` returning an object with `execute` and `dispose`.                            |
+| `doctor`               | Diagnose this component's prerequisites before an experiment.       | Optional `OperationDoctor<C>` function receiving `DoctorContext<C>`; records checks using the effective binding configuration. |
+| `implementationDigest` | Identify the implementation version so recovery can detect changes. | Optional digest covering the actual implementation code; update it when the code changes.                                      |
 
 - Without `implementationDigest`, Registry generates a digest from the `create` function text, contract, and configuration Schema.
 
@@ -282,7 +283,7 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`doctor` checks contracts, bindings and configuration, then runs the bundled prerequisite probes available for the selected implementations. A custom plugin without a bundled check is reported as `unchecked`. Doctor performs no model inference or optimization run; Evaluators delegate to the full SDK doctor, including its download and build probes. After running the experiment, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
+`doctor` checks contracts, bindings and configuration, then invokes each selected component definition's optional `doctor` function. Export and package that function with the component; normal `registerOperation(definition)` registration is sufficient. A definition without `doctor` receives `unchecked` for its plugin-specific coverage while automatic structural/path checks still run. Doctor performs no model inference or optimization run; Evaluators delegate to the full SDK doctor, including its download and build probes. After running the experiment, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
 
 ## Use RuntimeContext
 
@@ -373,4 +374,4 @@ Common `createRuntime` options are listed below; see the [Runtime entrypoint](..
 
 Registrations in a host only apply to that Runtime. A separately started CLI loads extensions from the default user-level directory, or from directories selected with `--plugin-dir`.
 
-`Recipe.load` assembles and structurally validates the definition without running prerequisite probes. Use `ember-rsi doctor` with the same extension registrations for CLI preflight. Custom plugins receive automatic structural/path checks but currently have no public custom-probe hook; see [Connecting custom components](doctor.md#4-connecting-custom-components).
+`Recipe.load` assembles and structurally validates the definition without running prerequisite probes. Use `ember-rsi doctor` with the same extension registrations for CLI preflight. Add optional `doctor` to the component definition for its own diagnostics; see [Connecting custom components](doctor.md#4-connecting-custom-components) for the public callback and a complete registration example.

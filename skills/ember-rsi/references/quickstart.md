@@ -20,7 +20,7 @@ node .rsi/skill-demo/run.mjs
 
 CLI stores facts under the shell's `.rsi/`; `run.mjs` deliberately stores its independent facts in the copied starter's `.rsi/`. Use a fresh ID for each new experiment.
 
-Doctor checks Recipe assembly and the bundled checks for its effective bindings. The starter's custom proposer and evaluator have no bundled doctor scripts, so their plugin-specific checks remain `unchecked`; registration and configuration are still checked. Review every failed or unchecked result before interpreting the report.
+Doctor checks Recipe assembly and calls each effective component definition's optional `doctor` capability. The starter's custom proposer and evaluator omit this capability, so their plugin-specific checks remain `unchecked`; registration and configuration are still checked. Review every failed or unchecked result before interpreting the report.
 
 ## Expected observations
 

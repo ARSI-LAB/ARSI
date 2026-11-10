@@ -12,17 +12,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { JsonObject } from '../../src/contracts/index.js';
 import { createRuntime } from '../../src/runtime/context.js';
+import type { Registry } from '../../src/runtime/registry/index.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { Policy } from '../../src/runtime/policy/index.js';
-import {
-  businessChecks,
-  checkOptunaDependencies,
-} from '../../src/runtime/doctor/business-checks.js';
+import { checkOptunaDependencies } from '../../src/runtime/doctor/business-checks.js';
 import type {
   DoctorCheck,
   DoctorContext,
   MissingResource,
-} from '../../src/runtime/doctor/types.js';
+} from '../../src/contracts/index.js';
 
 async function fixture(t: TestContext): Promise<{
   root: string;
@@ -30,7 +28,9 @@ async function fixture(t: TestContext): Promise<{
   probe(
     id: string,
     config: JsonObject,
-  ): DoctorContext & {
+  ): Omit<DoctorContext, 'recipe' | 'registry'> & {
+    recipe: Recipe;
+    registry: Registry;
     checks: DoctorCheck[];
     missingResources: MissingResource[];
   };
@@ -140,7 +140,7 @@ for (const id of [
   test(`${id} prepares an editing project without invoking an Agent and reports a missing prompt`, async (t) => {
     const f = await fixture(t);
     const working = f.probe(id, { agentRef: 'agent', prompt: f.prompt });
-    await businessChecks[id]!(working);
+    await working.binding.definition.doctor!(working);
     assert.deepEqual(
       working.checks.map((check) => check.status),
       ['passed', 'passed', 'passed'],
@@ -160,7 +160,7 @@ for (const id of [
       agentRef: 'agent',
       prompt: join(f.root, 'missing.md'),
     });
-    await businessChecks[id]!(broken);
+    await broken.binding.definition.doctor!(broken);
     assert.equal(
       broken.checks.find((check) => check.id === 'editing-inputs')?.status,
       'failed',
@@ -185,7 +185,7 @@ test('editor checks resolve the selected Agent and reject duplicate roles and sk
     agentRef: 'absent',
     prompt: f.prompt,
   });
-  await businessChecks['memory.agent']!(missingAgent);
+  await missingAgent.binding.definition.doctor!(missingAgent);
   assert.match(missingAgent.checks[0]!.reason!, /agentRef.*absent/);
   assert.equal(missingAgent.checks.at(-1)?.status, 'passed');
 
@@ -194,7 +194,7 @@ test('editor checks resolve the selected Agent and reject duplicate roles and sk
     prompt: f.prompt,
     guidance: join(f.root, 'missing-guidance'),
   });
-  await businessChecks['memory.agent']!(missingGuidance);
+  await missingGuidance.binding.definition.doctor!(missingGuidance);
   assert.equal(missingGuidance.missingResources[0]?.field, 'config.guidance');
   assert.equal(missingGuidance.missingResources[0]?.kind, 'directory');
 
@@ -204,7 +204,7 @@ test('editor checks resolve the selected Agent and reject duplicate roles and sk
     prompt: f.prompt,
     subagents: [role, role],
   });
-  await businessChecks['proposer.agent']!(duplicateRoles);
+  await duplicateRoles.binding.definition.doctor!(duplicateRoles);
   assert.match(duplicateRoles.checks.at(-1)!.reason!, /duplicate agent role/);
 
   const skill = join(f.root, 'skill');
@@ -218,7 +218,7 @@ test('editor checks resolve the selected Agent and reject duplicate roles and sk
     prompt: f.prompt,
     skills: [skill, skill],
   });
-  await businessChecks['selector.artifact']!(duplicateSkills);
+  await duplicateSkills.binding.definition.doctor!(duplicateSkills);
   assert.match(duplicateSkills.checks.at(-1)!.reason!, /Duplicate skill name/);
 });
 
@@ -229,13 +229,13 @@ test('proposer.grid constructs a valid grid and rejects repeated axes', async (t
     path: 'params.json',
     searchSpace: [axis],
   });
-  await businessChecks['proposer.grid']!(working);
+  await working.binding.definition.doctor!(working);
   assert.equal(working.checks[0]!.status, 'passed');
   const broken = f.probe('proposer.grid', {
     path: 'params.json',
     searchSpace: [axis, axis],
   });
-  await businessChecks['proposer.grid']!(broken);
+  await broken.binding.definition.doctor!(broken);
   assert.match(broken.checks[0]!.reason!, /duplicate/);
   assert.deepEqual(await broken.runtime.facts.list('candidates'), []);
 });
@@ -243,13 +243,13 @@ test('proposer.grid constructs a valid grid and rejects repeated axes', async (t
 test('selector.metric constructs a valid selector and checks both bound collections', async (t) => {
   const f = await fixture(t);
   const working = f.probe('selector.metric', { direction: 'minimize' });
-  await businessChecks['selector.metric']!(working);
+  await working.binding.definition.doctor!(working);
   assert.equal(working.checks[0]!.status, 'passed');
   for (const field of ['eligibility', 'constraints']) {
     const broken = f.probe('selector.metric', {
       [field]: [{ metric: 'latency', min: 2, max: 1 }],
     });
-    await businessChecks['selector.metric']!(broken);
+    await broken.binding.definition.doctor!(broken);
     assert.match(broken.checks[0]!.reason!, /min exceeds max/);
   }
 });
@@ -267,7 +267,7 @@ test('search.prompt-evolution checks module identities and the real baseline fil
     modules: [{ id: 'module', path: 'module.md' }],
   };
   const working = f.probe('search.prompt-evolution', config);
-  await businessChecks['search.prompt-evolution']!(working);
+  await working.binding.definition.doctor!(working);
   assert.deepEqual(
     working.checks.map((check) => check.status),
     ['passed', 'passed'],
@@ -277,7 +277,7 @@ test('search.prompt-evolution checks module identities and the real baseline fil
     [{ id: 'unsafe', path: '../module.md' }],
   ]) {
     const broken = f.probe('search.prompt-evolution', { ...config, modules });
-    await businessChecks['search.prompt-evolution']!(broken);
+    await broken.binding.definition.doctor!(broken);
     assert.equal(broken.checks[0]!.status, 'failed');
     assert.equal(broken.checks[1]!.status, 'unchecked');
   }
@@ -285,7 +285,7 @@ test('search.prompt-evolution checks module identities and the real baseline fil
     ...config,
     modules: [{ id: 'missing', path: 'missing.md' }],
   });
-  await businessChecks['search.prompt-evolution']!(missing);
+  await missing.binding.definition.doctor!(missing);
   assert.equal(missing.checks[1]!.status, 'failed');
   assert.equal(
     missing.missingResources[0]?.reference,
@@ -307,7 +307,7 @@ test('search.prompt-evolution checks module identities and the real baseline fil
     artifact.registry,
     { policy: artifact.recipe.policy },
   );
-  await businessChecks['search.prompt-evolution']!(artifact);
+  await artifact.binding.definition.doctor!(artifact);
   assert.deepEqual(
     artifact.checks.map((check) => check.status),
     ['passed', 'passed'],
@@ -341,7 +341,7 @@ test('proposer.optuna requests only the dependency check and rejects wrong depen
     ...config,
     python: { executable: join(f.root, 'missing-python') },
   });
-  await businessChecks['proposer.optuna']!(missing);
+  await missing.binding.definition.doctor!(missing);
   assert.equal(missing.checks[0]!.status, 'failed');
   assert.match(missing.checks[0]!.reason!, /ENOENT/);
 });
@@ -408,18 +408,18 @@ test('proposer.operator loads task, stage prompts and knowledge without retrieva
     },
   };
   const working = f.probe('proposer.operator', config);
-  await businessChecks['proposer.operator']!(working);
+  await working.binding.definition.doctor!(working);
   assert.deepEqual(
     working.checks.map((check) => check.status),
     ['passed', 'passed', 'passed'],
   );
   await rm(join(prompts, 'repair.md'));
   const missingPrompt = f.probe('proposer.operator', config);
-  await businessChecks['proposer.operator']!(missingPrompt);
+  await missingPrompt.binding.definition.doctor!(missingPrompt);
   assert.match(missingPrompt.checks.at(-1)!.reason!, /repair.md/);
   await writeFile(manifest, '{}');
   const invalidManifest = f.probe('proposer.operator', config);
-  await businessChecks['proposer.operator']!(invalidManifest);
+  await invalidManifest.binding.definition.doctor!(invalidManifest);
   assert.match(
     invalidManifest.checks.at(-1)!.reason!,
     /Invalid external operator knowledge manifest/,

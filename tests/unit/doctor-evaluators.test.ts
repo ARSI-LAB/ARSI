@@ -7,13 +7,10 @@ import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
-import { createEvaluatorChecks } from '../../src/runtime/doctor/evaluator-checks.js';
+import { createEvaluatorDoctor } from '../../src/runtime/doctor/evaluator-checks.js';
 import type { SdkDoctorRunner } from '../../src/runtime/doctor/evaluator-sdk.js';
 import { object } from '../../src/shared/json.js';
-import type {
-  DoctorCheck,
-  DoctorContext,
-} from '../../src/runtime/doctor/types.js';
+import type { DoctorCheck, DoctorContext } from '../../src/contracts/index.js';
 
 const nativeReport = () => ({
   checks: [
@@ -75,7 +72,11 @@ async function fixture(t: test.TestContext) {
   );
   const context = (config: JsonObject, pluginId = 'evaluator.agentbench') => {
     const checks: DoctorCheck[] = [];
-    const ctx: DoctorContext = {
+    const ctx: Omit<DoctorContext, 'recipe' | 'directory' | 'signal'> & {
+      recipe: Recipe;
+      directory: string;
+      signal: AbortSignal;
+    } = {
       binding: {
         name: 'evaluator',
         pluginId,
@@ -179,7 +180,7 @@ test('agentbench delegates effective task and service configuration to SDK docto
     );
     return nativeReport();
   };
-  await createEvaluatorChecks(runner)['evaluator.agentbench'](ctx);
+  await createEvaluatorDoctor(runner)(ctx);
   assert.equal(calls, 1);
   assert.equal(
     checks.find((check) => check.id === 'configuration')?.status,
@@ -216,7 +217,7 @@ test('agentbench delegates effective task and service configuration to SDK docto
 test('SDK diagnostics preserve failures, unsupported checks and incomplete network evidence', async (t) => {
   const f = await fixture(t);
   const { ctx, checks } = f.context(agentConfig());
-  await createEvaluatorChecks(async () => ({
+  await createEvaluatorDoctor(async () => ({
     checks: [
       {
         name: 'Model credentials',
@@ -240,7 +241,7 @@ test('SDK diagnostics preserve failures, unsupported checks and incomplete netwo
         },
       ],
     },
-  }))['evaluator.agentbench'](ctx);
+  }))(ctx);
   assert.equal(
     checks.find((check) => check.id === 'sdk.check-0')?.status,
     'failed',
@@ -269,7 +270,7 @@ test('relative SDK network configuration follows the launch directory rather tha
   try {
     process.chdir(f.directory);
     process.env.EVALUATOR_NETWORK_CONFIG = 'network.yaml';
-    await createEvaluatorChecks(async (options) => {
+    await createEvaluatorDoctor(async (options) => {
       calls++;
       assert.equal(
         options.networkConfigPath,
@@ -278,7 +279,7 @@ test('relative SDK network configuration follows the launch directory rather tha
       assert.equal(options.configPath, join(ctx.directory, 'evaluator.json'));
       assert.equal(await readFile(options.networkConfigPath, 'utf8'), '{}\n');
       return nativeReport();
-    })['evaluator.agentbench'](ctx);
+    })(ctx);
   } finally {
     process.chdir(originalDirectory);
     if (previousNetwork === undefined)
@@ -295,9 +296,9 @@ test('relative SDK network configuration follows the launch directory rather tha
 test('SDK transport errors fail delegation without inventing component readiness', async (t) => {
   const f = await fixture(t);
   const { ctx, checks } = f.context(agentConfig());
-  await createEvaluatorChecks(async () => {
+  await createEvaluatorDoctor(async () => {
     throw new Error('SDK subprocess could not complete');
-  })['evaluator.agentbench'](ctx);
+  })(ctx);
   assert.equal(
     checks.find((check) => check.id === 'sdk-doctor')?.status,
     'failed',
@@ -330,9 +331,7 @@ test('invalid SDK reports fail instead of producing successful readiness', async
     })),
   ]) {
     const { ctx, checks } = f.context(agentConfig());
-    await createEvaluatorChecks(async () => report)['evaluator.agentbench'](
-      ctx,
-    );
+    await createEvaluatorDoctor(async () => report)(ctx);
     assert.ok(
       checks.some((check) => check.status === 'failed'),
       JSON.stringify(checks),
@@ -352,7 +351,7 @@ test('cancelling evaluator doctor reaches the SDK boundary and propagates interr
   const controller = new AbortController();
   ctx.signal = controller.signal;
   let observed: AbortSignal | undefined;
-  const task = createEvaluatorChecks(async (options) => {
+  const task = createEvaluatorDoctor(async (options) => {
     observed = options.signal;
     return new Promise((_resolve, reject) => {
       options.signal.addEventListener(
@@ -362,7 +361,7 @@ test('cancelling evaluator doctor reaches the SDK boundary and propagates interr
       );
       controller.abort(new Error('Interrupted'));
     });
-  })['evaluator.agentbench'](ctx);
+  })(ctx);
   await assert.rejects(task, /Interrupted/);
   assert.equal(observed?.aborted, true);
 });
@@ -386,10 +385,10 @@ test('agentbench rejects Application-owned solver and output overrides before SD
   ];
   for (const config of invalidConfigs) {
     const { ctx, checks } = f.context(config);
-    await createEvaluatorChecks(async () => {
+    await createEvaluatorDoctor(async () => {
       calls++;
       return nativeReport();
-    })['evaluator.agentbench'](ctx);
+    })(ctx);
     assert.equal(
       checks.find((check) => check.id === 'configuration')?.status,
       'failed',
@@ -419,7 +418,7 @@ test('inferencebench delegates SDK configuration while the future Application en
   );
   ctx.recipe = recipe;
   let calls = 0;
-  await createEvaluatorChecks(async (options) => {
+  await createEvaluatorDoctor(async (options) => {
     calls++;
     const config = object(
       JSON.parse(await readFile(options.configPath, 'utf8')),
@@ -428,7 +427,7 @@ test('inferencebench delegates SDK configuration while the future Application en
     assert.equal(service.model, 'application-model');
     assert.equal(service.base_url, 'http://127.0.0.1:1');
     return nativeReport();
-  })['evaluator.inferencebench'](ctx);
+  })(ctx);
   assert.equal(calls, 1);
   assert.equal(
     checks.find((check) => check.id === 'inference-endpoint')?.status,
@@ -462,10 +461,10 @@ test('inferencebench rejects service fields owned by its Application before SDK 
       'evaluator.inferencebench',
     );
     ctx.recipe = recipe;
-    await createEvaluatorChecks(async () => {
+    await createEvaluatorDoctor(async () => {
       calls++;
       return nativeReport();
-    })['evaluator.inferencebench'](ctx);
+    })(ctx);
     assert.equal(
       checks.find((check) => check.id === 'configuration')?.status,
       'failed',
@@ -485,7 +484,7 @@ test('operatorbench delegates first-case SDK assessment configuration and reject
   const config = { task: { directory: f.directory }, benchmark: 'kernel' };
   const positive = f.context(config, 'evaluator.operatorbench');
   let calls = 0;
-  await createEvaluatorChecks(async (options) => {
+  await createEvaluatorDoctor(async (options) => {
     calls++;
     const prepared = object(
       JSON.parse(await readFile(options.configPath, 'utf8')),
@@ -504,7 +503,7 @@ test('operatorbench delegates first-case SDK assessment configuration and reject
       ),
     );
     return nativeReport();
-  })['evaluator.operatorbench'](positive.ctx);
+  })(positive.ctx);
   assert.equal(calls, 1);
   assert.equal(
     positive.checks.find((check) => check.id === 'sdk-doctor')?.status,
@@ -516,10 +515,10 @@ test('operatorbench delegates first-case SDK assessment configuration and reject
   definition.cases.push(definition.cases[0]);
   await writeFile(path, JSON.stringify(definition));
   const broken = f.context(config, 'evaluator.operatorbench');
-  await createEvaluatorChecks(async () => {
+  await createEvaluatorDoctor(async () => {
     calls++;
     return nativeReport();
-  })['evaluator.operatorbench'](broken.ctx);
+  })(broken.ctx);
   assert.equal(
     broken.checks.find((check) => check.id === 'configuration')?.status,
     'failed',

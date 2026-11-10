@@ -6,6 +6,7 @@ import type {
 import { searchContract } from '../../contracts/plugin-types/search.js';
 import { configSchema, type OptunaConfig } from './schema.js';
 import { createOptunaProposer } from './service.js';
+import { checkOptunaDependencies } from '../../runtime/doctor/business-checks.js';
 export const optunaProposerDefinition: OperationDefinition<
   SearchInput,
   SearchOutput,
@@ -16,4 +17,5 @@ export const optunaProposerDefinition: OperationDefinition<
   contract: searchContract,
   configSchema,
   create: createOptunaProposer,
+  doctor: checkOptunaDependencies,
 };

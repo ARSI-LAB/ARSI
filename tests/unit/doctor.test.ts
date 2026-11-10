@@ -17,11 +17,11 @@ import { createRuntime, type Runtime } from '../../src/runtime/context.js';
 import { applicationContract } from '../../src/contracts/plugin-types/application.js';
 import type { JsonObject } from '../../src/contracts/json.js';
 import { doctorRecipe } from '../../src/runtime/doctor/index.js';
-import { doctorScripts } from '../../src/runtime/doctor/scripts.js';
+import { Registry } from '../../src/runtime/registry/index.js';
 import type {
   DoctorReport,
-  DoctorScript,
-} from '../../src/runtime/doctor/types.js';
+  OperationDoctor,
+} from '../../src/contracts/index.js';
 import { runCommand } from '../../src/runtime/doctor/process.js';
 import { object } from '../../src/shared/json.js';
 
@@ -29,12 +29,22 @@ async function fixture(): Promise<{
   runtime: Runtime;
   root: string;
   path: string;
+  doctors(overrides: Record<string, OperationDoctor>): void;
   dispose(): Promise<void>;
 }> {
   const root = await mkdtemp(join(tmpdir(), 'doctor-test-'));
+  const registry = new Registry();
+  const registrations = new Map<string, () => void>();
+  const register = registry.registerOperation.bind(registry);
+  registry.registerOperation = (definition) => {
+    const dispose = register(definition);
+    registrations.set(definition.id, dispose);
+    return dispose;
+  };
   const runtime = await createRuntime({
     homeDirectory: false,
     rootDirectory: root,
+    registry,
   });
   runtime.registry.registerOperation({
     id: 'test.application',
@@ -91,6 +101,13 @@ async function fixture(): Promise<{
     runtime,
     root,
     path,
+    doctors(overrides) {
+      for (const [id, doctor] of Object.entries(overrides)) {
+        const definition = registry.get(id);
+        registrations.get(id)!();
+        registry.registerOperation({ ...definition, doctor });
+      }
+    },
     async dispose() {
       await runtime.dispose();
       await rm(root, { recursive: true, force: true });
@@ -116,14 +133,13 @@ function verifyReport(report: DoctorReport): void {
       );
 }
 
-test('bundled doctor covers exactly the 17 registered built-ins', async () => {
+test('all 17 built-ins register their own doctor capability', async () => {
   const runtime = await createRuntime({ homeDirectory: false });
   try {
-    assert.equal(Object.keys(doctorScripts).length, 17);
-    assert.deepEqual(
-      Object.keys(doctorScripts).sort(),
-      runtime.registry.catalog().plugins.sort(),
-    );
+    const plugins = runtime.registry.catalog().plugins;
+    assert.equal(plugins.length, 17);
+    for (const id of plugins)
+      assert.equal(typeof runtime.registry.get(id).doctor, 'function', id);
   } finally {
     await runtime.dispose();
   }
@@ -133,16 +149,16 @@ test('doctor checks effective per-binding overrides and reports uncovered implem
   const f = await fixture();
   try {
     const observed: string[] = [];
-    const script: DoctorScript = async (ctx) => {
+    const script: OperationDoctor = async (ctx) => {
       await ctx.check('effective', async () => {
+        assert.equal(ctx.binding.pluginId, 'selector.metric');
         observed.push(
           `${ctx.binding.name}:${ctx.binding.config.metric}:${ctx.binding.config.direction}`,
         );
       });
     };
-    const report = await doctorRecipe(f.runtime, f.path, {
-      scripts: { 'selector.metric': script },
-    });
+    f.doctors({ 'selector.metric': script });
+    const report = await doctorRecipe(f.runtime, f.path);
     assert.deepEqual(observed, ['left:score:maximize', 'right:cost:maximize']);
     assert.equal(report.summary.failed, 0);
     assert.match(
@@ -244,19 +260,18 @@ test('doctor retains Recipe schema, Policy, binding, budget and Reflection valid
       },
     ];
     let probes = 0;
-    const script: DoctorScript = async () => {
+    const script: OperationDoctor = async () => {
       probes++;
     };
     for (const scenario of invalid) {
       const data = structuredClone(original);
       scenario.change(data);
       await writeFile(f.path, JSON.stringify(data));
-      const report = await doctorRecipe(f.runtime, f.path, {
-        scripts: {
-          'test.application': script,
-          'selector.metric': script,
-        },
+      f.doctors({
+        'test.application': script,
+        'selector.metric': script,
       });
+      const report = await doctorRecipe(f.runtime, f.path);
       assert.equal(report.recipeId, null, scenario.name);
       assert.deepEqual(
         report.summary,
@@ -291,51 +306,49 @@ test('probe errors and deadlines preserve independent results, redact secrets an
     const declaration = object(JSON.parse(await readFile(f.path, 'utf8')));
     object(object(declaration.application).config).api_key = '${DOCTOR_VALUE}';
     await writeFile(f.path, JSON.stringify(declaration));
-    const report = await doctorRecipe(f.runtime, f.path, {
-      timeoutMs: 10,
-      scripts: {
-        'test.application': async (ctx) => {
-          probeDirectory = ctx.directory;
-          await writeFile(join(ctx.directory, 'owned'), 'temporary');
-          await ctx.check(
-            'throws',
-            async () => {
-              throw new Error(`${secret} ${process.env.DOCTOR_VALUE}`);
+    f.doctors({
+      'test.application': async (ctx) => {
+        probeDirectory = ctx.directory;
+        await writeFile(join(ctx.directory, 'owned'), 'temporary');
+        await ctx.check(
+          'throws',
+          async () => {
+            throw new Error(`${secret} ${process.env.DOCTOR_VALUE}`);
+          },
+          {
+            details: {
+              availableBytes: 4096,
+              requiredBytes: null,
+              nested: [{ credential: process.env.DOCTOR_VALUE ?? '' }],
             },
-            {
-              details: {
-                availableBytes: 4096,
-                requiredBytes: null,
-                nested: [{ credential: process.env.DOCTOR_VALUE ?? '' }],
-              },
-            },
-          );
-          ctx.unchecked('depends-on-throw', 'The prerequisite probe failed.', {
-            availableBytes: 4096,
-            unknown: null,
-            credential: secret,
-          });
-          await ctx.check('timeout', async (signal) => {
-            try {
-              await new Promise<void>((_done, reject) =>
-                signal.addEventListener('abort', () => reject(signal.reason), {
-                  once: true,
-                }),
-              );
-            } finally {
-              released++;
-            }
-          });
-          ctx.unchecked(
-            'depends-on-timeout',
-            'The prerequisite probe timed out.',
-          );
-        },
-        'selector.metric': async (ctx) => {
-          await ctx.check('independent', async () => {});
-        },
+          },
+        );
+        ctx.unchecked('depends-on-throw', 'The prerequisite probe failed.', {
+          availableBytes: 4096,
+          unknown: null,
+          credential: secret,
+        });
+        await ctx.check('timeout', async (signal) => {
+          try {
+            await new Promise<void>((_done, reject) =>
+              signal.addEventListener('abort', () => reject(signal.reason), {
+                once: true,
+              }),
+            );
+          } finally {
+            released++;
+          }
+        });
+        ctx.unchecked(
+          'depends-on-timeout',
+          'The prerequisite probe timed out.',
+        );
+      },
+      'selector.metric': async (ctx) => {
+        await ctx.check('independent', async () => {});
       },
     });
+    const report = await doctorRecipe(f.runtime, f.path, { timeoutMs: 10 });
     assert.equal(report.summary.failed, 2);
     assert.equal(released, 1);
     assert.equal(report.missingResources.length, 0);
@@ -384,25 +397,25 @@ test('interruption cancels an owned subprocess, cleans storage and stops dispatc
   });
   let independent = false;
   try {
+    f.doctors({
+      'test.application': async (ctx) => {
+        probeDirectory = ctx.directory;
+        await ctx.check('process', async (signal) => {
+          const pending = runCommand(
+            process.execPath,
+            ['-e', 'setInterval(()=>{},1000)'],
+            { signal },
+          );
+          entered();
+          await pending;
+        });
+      },
+      'selector.metric': async () => {
+        independent = true;
+      },
+    });
     const result = doctorRecipe(f.runtime, f.path, {
       signal: controller.signal,
-      scripts: {
-        'test.application': async (ctx) => {
-          probeDirectory = ctx.directory;
-          await ctx.check('process', async (signal) => {
-            const pending = runCommand(
-              process.execPath,
-              ['-e', 'setInterval(()=>{},1000)'],
-              { signal },
-            );
-            entered();
-            await pending;
-          });
-        },
-        'selector.metric': async () => {
-          independent = true;
-        },
-      },
     });
     await started;
     controller.abort(new Error('test interruption'));
@@ -454,27 +467,25 @@ test('an aborted process probe closes its descendant process', async () => {
 test('timeout diagnostics retain a probe cleanup failure and continue independent checks', async () => {
   const f = await fixture();
   try {
-    const report = await doctorRecipe(f.runtime, f.path, {
-      timeoutMs: 10,
-      scripts: {
-        'test.application': async (ctx) => {
-          await ctx.check('cleanup-error', async (signal) => {
-            try {
-              await new Promise<void>((_done, reject) =>
-                signal.addEventListener('abort', () => reject(signal.reason), {
-                  once: true,
-                }),
-              );
-            } finally {
-              throw new Error('cleanup-fixture-failed');
-            }
-          });
-        },
-        'selector.metric': async (ctx) => {
-          await ctx.check('independent', async () => {});
-        },
+    f.doctors({
+      'test.application': async (ctx) => {
+        await ctx.check('cleanup-error', async (signal) => {
+          try {
+            await new Promise<void>((_done, reject) =>
+              signal.addEventListener('abort', () => reject(signal.reason), {
+                once: true,
+              }),
+            );
+          } finally {
+            throw new Error('cleanup-fixture-failed');
+          }
+        });
+      },
+      'selector.metric': async (ctx) => {
+        await ctx.check('independent', async () => {});
       },
     });
+    const report = await doctorRecipe(f.runtime, f.path, { timeoutMs: 10 });
     assert.match(
       report.checks.find((check) => check.id === 'application.cleanup-error')
         ?.reason ?? '',

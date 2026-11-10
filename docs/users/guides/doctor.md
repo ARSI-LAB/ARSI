@@ -23,7 +23,7 @@ Doctor does not run the optimization Policy, ask a model to answer a question or
 1. **Load registrations.** The CLI uses normal Runtime registration: built-in components, user extensions in `~/.ember-rsi/plugins/<name>/index.mjs`, and explicit `--plugin-dir` directories. An extension must export `register(registry)`.
 2. **Load the effective Recipe.** `Recipe.load` validates Schemas, bindings, contract compatibility, Policy compilation, budgets and declared Reflection resources. Policy defaults and Recipe overrides are merged before probes run. A loading error produces a failed diagnostic and stops component probes.
 3. **Check declared local paths.** For the Application, each effective binding and the configured Reflection implementation, doctor checks local file/directory fields marked with `x-rsi-path` for existence, type and readability. Relative paths follow the file declaring each configuration value. URL-like resources are not fetched.
-4. **Run the matching bundled check.** Dispatch uses the concrete plugin implementation ID, such as `agent.pi`, rather than its public contract. Each binding receives its own results. Evaluator bindings prepare configuration through their normal RSI adapter, then invoke the installed SDK's public `doctor` CLI. RSI maps the returned diagnostics instead of probing Docker, disks or model services itself. Unavailable prerequisites leave dependent checks `unchecked`; independent checks can continue. An implementation without a bundled check receives an explicit `unchecked` entry.
+4. **Run the component's doctor capability.** The runner calls the optional `doctor` function on the registered component definition. It travels with the component through normal export, packaging and registration; no separate global check mapping is required. Each binding receives its own results. Evaluator definitions delegate through their normal RSI configuration adapter to the installed SDK's public `doctor` CLI. RSI maps the returned diagnostics instead of probing Docker, disks or model services itself. Unavailable prerequisites leave dependent checks `unchecked`; independent checks can continue. A definition without `doctor` receives an explicit `unchecked` entry.
 5. **Clean up and report.** RSI checks use isolated temporary storage, propagate cancellation, release owned instances/processes and remove temporary files. Original artifacts may be read as inputs; RSI captures and writes stay in the temporary Runtime. The SDK owns its download/build probes and their cleanup; image caches can change. Doctor does not create an optimization run or record real Measurements in the experiment store.
 
 Identified credentials and credential-bearing URLs are redacted from reported diagnostics.
@@ -69,7 +69,7 @@ Exit code `1` means at least one check failed; `0` means no check failed, **incl
 
 ## 3. Checks for built-in components
 
-The bundled map covers the following 17 implementations. Only components present in the effective Recipe are probed. Every row also receives the common registration, configuration, contract and declared-path checks described above. Check IDs in the tables omit the binding prefix.
+The following 17 built-in implementations declare their own `doctor` capability. Only components present in the effective Recipe are probed. Every row also receives the common registration, configuration, contract and declared-path checks described above. Check IDs in the tables omit the binding prefix.
 
 ### Applications and Agents
 
@@ -130,9 +130,9 @@ For Codex, native health and provider reachability are reported separately from 
 
 ## 4. Connecting custom components
 
-### Automatic checks through normal registration
+### Declare the optional doctor capability
 
-Register a custom component normally and select it in the Recipe or Policy. It automatically receives registration, configuration Schema, binding/contract and declared local-path checks. See [Write a plugin](writing-plugins.md) for complete plugin and Policy examples.
+Add an optional `doctor` function to the same definition that exports `contract`, `configSchema` and `create`. Keep the ordinary `registry.registerOperation(definition)` call. The function is exported, packaged and registered with the component; it needs no RSI source change, separate registration call or global mapping. See [Write a plugin](writing-plugins.md) for complete plugin and Policy examples.
 
 Mark local inputs in the component's `configSchema`:
 
@@ -148,7 +148,43 @@ export const configSchema = {
 };
 ```
 
-After building the plugin, register its definition in the extension directory's `index.mjs`:
+Implement the component's extra checks in `doctor.ts`, compiled to `doctor.js`. The callback receives the effective binding configuration and an isolated diagnostic context:
+
+```ts
+import { readFile } from 'node:fs/promises';
+import type { OperationDoctor } from 'ember-rsi/contracts';
+
+type CustomConfig = { inputFile: string; assets?: string };
+
+export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
+  await context.check('input-content', async (signal) => {
+    const text = await readFile(context.binding.config.inputFile, {
+      encoding: 'utf8',
+      signal,
+    });
+    if (!text.trim()) throw new Error('inputFile must contain text.');
+  });
+};
+```
+
+Attach it in the component definition:
+
+```js
+import { proposerContract } from 'ember-rsi/contracts';
+import { configSchema } from './schema.js';
+import { createCustom } from './service.js';
+import { checkCustom } from './doctor.js';
+
+export const customDefinition = {
+  id: 'proposer.custom',
+  contract: proposerContract,
+  configSchema,
+  create: createCustom,
+  doctor: checkCustom,
+};
+```
+
+Build and deploy these files with the rest of the component, then register its definition in the extension directory's `index.mjs`:
 
 ```js
 import { customDefinition } from './dist/index.js';
@@ -164,21 +200,24 @@ Run doctor with the same extension that `run` will load:
 ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ```
 
-For a binding named `custom`, the example produces `custom.resource.inputFile` and, when supplied, `custom.resource.assets`. Schema-marked relative paths follow their declaring file. Unmarked strings are not inferred to be paths; URL-like values are skipped rather than fetched. Generic path checks do not expand `${ENV}` references, so supply concrete paths for these checks. Environment-reference resolution belongs to the component's own implementation/probe, not to JSON Schema string validation.
+For a binding named `custom`, the example produces the automatic `custom.resource.inputFile` and optional `custom.resource.assets` checks, followed by `custom.input-content` from the component's doctor. Schema-marked relative paths follow their declaring file. Unmarked strings are not inferred to be paths; URL-like values are skipped rather than fetched. Generic path checks do not expand `${ENV}` references, so supply concrete paths for these checks. Environment-reference resolution belongs to the component, not to JSON Schema string validation.
 
-### Current limit: no public custom-probe hook
+### Callback contract and lifecycle
 
-When no bundled probe exists for its implementation ID, the component receives `custom.plugin: unchecked`. Its `create` and `execute` are not called by doctor, so additional validation inside `create` does not run. Sharing a public contract with a built-in implementation does not inherit that implementation's probe.
+TypeScript authors can import `OperationDoctor<C>` and `DoctorContext<C>` from `ember-rsi/contracts` or the root `ember-rsi` entrypoint. `C` is the component's configuration type, exposed as `context.binding.config`. The callback signature is `async function checkCustom(context): Promise<void>`; it records results through the supplied context rather than returning its own report. JavaScript authors use the same function without type annotations.
 
-The current plugin definition has no `doctor` or `check` field; adding one is rejected by Registry. There is no public `registerDoctor` API, doctor-specific CLI probe-loading option or exported `DoctorScript`/`DoctorContext` API. The runner's internal `scripts` option is a test seam, not an installed-extension mechanism. Custom components can therefore integrate with the automatic checks above, but cannot currently attach additional business probes through ordinary extension registration.
+| Context member                    | Use                                                                                                                                    |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `binding.config`                  | Read the effective, Schema-validated configuration, including defaults, overrides and resolved declared paths.                         |
+| `check(id, action, options?)`     | Run a bounded operation and record its success/failure; the action receives its cancellation signal. Returns whether the check passed. |
+| `unchecked(id, reason, details?)` | Record unsupported work or a dependent check whose prerequisites are unavailable.                                                      |
+| `missing(resource)`               | Record a missing input and the dependent check IDs that were left unchecked.                                                           |
+| `runtime`, `directory`, `signal`  | Use isolated diagnostic services/storage and propagate cancellation.                                                                   |
 
-### Adding a bundled probe in RSI source
+Registration and `Recipe.load` retain the capability without executing it. The CLI calls it only during `doctor`; normal `create`, `execute` and experiment runs do not call it automatically. Doctor does not instantiate an uncovered custom component to discover extra checks. When the definition omits `doctor`, its automatic structural/path checks still run and `custom.plugin` is `unchecked`. A shared public contract does not inherit another implementation's doctor function.
 
-This requires a framework source change and a rebuilt CLI:
+The runner adds binding prefixes, redacts known credentials, aggregates results and owns temporary Runtime cleanup. Keep check IDs local to the binding and use the callback's context rather than importing Runtime internals.
 
-1. Implement an internal [DoctorScript](../../../src/runtime/doctor/types.ts) for the concrete plugin ID, organized with the relevant [bundled checks](../../../src/runtime/doctor/scripts.ts).
-2. Record bounded operations through `context.check`; use `context.unchecked` for unsupported or unavailable prerequisites and `context.missing` for missing inputs and dependent checks. The runner adds the binding prefix, redacts results and aggregates counts.
-3. Keep temporary writes in `context.directory` or its isolated Runtime, propagate the check's cancellation signal and clean up on success, failure and interruption. Do not execute an Agent, Policy or real evaluation; describe any download/build side effects explicitly and keep evaluator diagnostics delegated to the SDK.
-4. Add behavior, failure and relevant cancellation/cleanup tests, register the probe in the bundled implementation-ID map, and rebuild. Update this coverage guide with the actual scope and limitations.
+Keep temporary writes in `context.directory` or its isolated Runtime, pass each check's signal to external requests/processes and clean owned resources in `finally` on success, failure and interruption. Do not execute an Agent, Policy or real evaluation; describe download/build side effects and keep SDK-backed evaluator diagnostics delegated to the SDK. Test a working input, a concrete broken prerequisite and relevant cancellation/cleanup behavior, then run the installed CLI with the packaged extension.
 
 The existing [doctor tests](../../../tests/unit/doctor.test.ts) and [evaluator tests](../../../tests/unit/doctor-evaluators.test.ts) demonstrate result aggregation, prerequisite handling, cancellation and cleanup.

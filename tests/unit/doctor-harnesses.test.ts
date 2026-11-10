@@ -14,16 +14,13 @@ import type { JsonObject, JsonValue } from '../../src/contracts/index.js';
 import { createRuntime, type Runtime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { doctorRecipe } from '../../src/runtime/doctor/index.js';
-import { doctorScripts } from '../../src/runtime/doctor/scripts.js';
-import { createEvaluatorChecks } from '../../src/runtime/doctor/evaluator-checks.js';
+import { Registry } from '../../src/runtime/registry/index.js';
+import { createEvaluatorDoctor } from '../../src/runtime/doctor/evaluator-checks.js';
 import type {
   SdkDoctorOptions,
   SdkDoctorRunner,
 } from '../../src/runtime/doctor/evaluator-sdk.js';
-import type {
-  DoctorReport,
-  DoctorScript,
-} from '../../src/runtime/doctor/types.js';
+import type { DoctorReport } from '../../src/contracts/index.js';
 import { object } from '../../src/shared/json.js';
 
 function selectedTasks(value: JsonValue): string[] {
@@ -48,7 +45,7 @@ async function fixture(
   data: JsonObject;
   calls: { config: JsonObject; options: SdkDoctorOptions }[];
   runner: SdkDoctorRunner;
-  scripts: Readonly<Record<string, DoctorScript>>;
+  setEvaluator(runner: SdkDoctorRunner): void;
 }> {
   const root = await mkdtemp(join(tmpdir(), `rsi-doctor-${name}-`));
   t.mock.method(
@@ -74,9 +71,22 @@ async function fixture(
     Object.keys(variables).map((key) => [key, process.env[key]]),
   );
   Object.assign(process.env, variables);
+  let selectedRunner: SdkDoctorRunner;
+  const registry = new Registry();
+  const register = registry.registerOperation.bind(registry);
+  registry.registerOperation = (definition) =>
+    register(
+      definition.id === 'evaluator.agentbench'
+        ? {
+            ...definition,
+            doctor: createEvaluatorDoctor((options) => selectedRunner(options)),
+          }
+        : definition,
+    );
   const runtime = await createRuntime({
     homeDirectory: false,
     rootDirectory: root,
+    registry,
   });
   t.after(async () => {
     await runtime.dispose();
@@ -154,6 +164,7 @@ async function fixture(
       },
     };
   };
+  selectedRunner = runner;
   return {
     root,
     path,
@@ -162,7 +173,9 @@ async function fixture(
     data,
     calls,
     runner,
-    scripts: { ...doctorScripts, ...createEvaluatorChecks(runner) },
+    setEvaluator(runner) {
+      selectedRunner = runner;
+    },
   };
 }
 
@@ -199,9 +212,7 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
     const originalTarget = object(f.recipe.application.config.target).schema;
     assert.equal(typeof originalTarget, 'string');
     const targetBefore = await readFile(String(originalTarget));
-    const report = await doctorRecipe(f.runtime, f.path, {
-      scripts: f.scripts,
-    });
+    const report = await doctorRecipe(f.runtime, f.path);
     assert.equal(report.recipeId, f.recipe.id);
     assert.equal(
       report.summary.failed,
@@ -281,9 +292,7 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
       if (missing === 'baseline') config.baseline = { directory: resource };
       else config.target = { schema: resource };
       await writeFile(f.path, JSON.stringify(data));
-      const report = await doctorRecipe(f.runtime, f.path, {
-        scripts: f.scripts,
-      });
+      const report = await doctorRecipe(f.runtime, f.path);
       assert.ok(report.summary.failed > 0);
       assert.equal(
         report.checks.find((check) => check.id === 'application.baseline')
@@ -406,9 +415,8 @@ test('proposal success does not hide an evaluation key failure for the same mode
     };
   };
   await writeFile(f.path, JSON.stringify(f.data));
-  const report = await doctorRecipe(f.runtime, f.path, {
-    scripts: { ...doctorScripts, ...createEvaluatorChecks(runner) },
-  });
+  f.setEvaluator(runner);
+  const report = await doctorRecipe(f.runtime, f.path);
   assert.equal(
     report.checks.find((check) => check.id === 'agent.model-access')?.status,
     'passed',
@@ -438,12 +446,8 @@ test('identical scripted Recipe checks stay deterministic across two conversatio
     direction: 'maximize',
   };
   await writeFile(f.path, JSON.stringify(f.data));
-  const reduceLatency = await doctorRecipe(f.runtime, f.path, {
-    scripts: f.scripts,
-  });
-  const increaseLatency = await doctorRecipe(f.runtime, f.path, {
-    scripts: f.scripts,
-  });
+  const reduceLatency = await doctorRecipe(f.runtime, f.path);
+  const increaseLatency = await doctorRecipe(f.runtime, f.path);
   assert.deepEqual(reduceLatency, increaseLatency);
   assert.equal(reduceLatency.summary.failed, 0);
   assert.equal(increaseLatency.summary.failed, 0);

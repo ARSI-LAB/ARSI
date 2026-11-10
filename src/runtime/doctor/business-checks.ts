@@ -1,6 +1,6 @@
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseFileTree } from '../../contracts/index.js';
+import { parseFileTree, type DoctorContext } from '../../contracts/index.js';
 import { agentContract } from '../../contracts/plugin-types/agent.js';
 import { object, string } from '../../shared/json.js';
 import { parseConfig } from '../../shared/schema.js';
@@ -28,7 +28,6 @@ import {
   type GepaConfig,
 } from '../../plugins/search-prompt-evolution/schema.js';
 import { validateModules } from '../../plugins/search-prompt-evolution/service.js';
-import type { DoctorContext } from './types.js';
 
 function resolveAgent(context: DoctorContext, reference: string): void {
   const binding = context.recipe.bindings[reference];
@@ -49,7 +48,7 @@ function missingPath(error: unknown): string | undefined {
   return missingPath(error.cause);
 }
 
-async function editorCheck(context: DoctorContext): Promise<void> {
+export async function checkAgentEditor(context: DoctorContext): Promise<void> {
   const config = parseConfig<ProposerConfig>(
     context.binding.definition.configSchema,
     context.binding.config,
@@ -118,7 +117,9 @@ async function editorCheck(context: DoctorContext): Promise<void> {
   });
 }
 
-async function construct(context: DoctorContext): Promise<void> {
+export async function checkOperationConfiguration(
+  context: DoctorContext,
+): Promise<void> {
   await context.check('configuration', async (signal) => {
     signal.throwIfAborted();
     const operation = await context.binding.definition.create(
@@ -133,7 +134,9 @@ async function construct(context: DoctorContext): Promise<void> {
   });
 }
 
-async function operatorCheck(context: DoctorContext): Promise<void> {
+export async function checkOperatorProposer(
+  context: DoctorContext,
+): Promise<void> {
   const config = parseConfig<OperatorProposerConfig>(
     context.binding.definition.configSchema,
     context.binding.config,
@@ -205,7 +208,9 @@ export async function checkOptunaDependencies(
   });
 }
 
-async function searchCheck(context: DoctorContext): Promise<void> {
+export async function checkPromptEvolutionSearch(
+  context: DoctorContext,
+): Promise<void> {
   const config = parseConfig<GepaConfig>(
     gepaSchema,
     context.binding.config,
@@ -286,17 +291,3 @@ async function searchCheck(context: DoctorContext): Promise<void> {
     }
   });
 }
-
-export const businessChecks: Readonly<
-  Record<string, (context: DoctorContext) => Promise<void>>
-> = {
-  'proposer.agent': editorCheck,
-  'proposer.operator': operatorCheck,
-  'proposer.grid': construct,
-  'proposer.optuna': checkOptunaDependencies,
-  'search.prompt-evolution': searchCheck,
-  'memory.agent': editorCheck,
-  'reflection.agent': editorCheck,
-  'selector.metric': construct,
-  'selector.artifact': editorCheck,
-};

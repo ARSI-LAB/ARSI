@@ -36,14 +36,15 @@ Policy 的 `require` 指定所需契约，绑定时需要选择满足该契约�
 
 `OperationDefinition<I, O, C>` 描述插件定义，三个类型参数分别是输入、输出和配置，详见[接口定义](../../../src/contracts/operation.ts)。
 
-| 字段                   | 含义                                           | 填写方式                                                                             |
-| ---------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `id`                   | 插件实现的唯一 ID，供绑定选择。                | 必填，如 `proposer.keep-parent`；不能与已注册的插件或 Policy 重名。                  |
-| `description`          | 说明插件的用途。                               | 可选，填写简短说明。                                                                 |
-| `contract`             | 声明插件遵循的公共契约。                       | 必填，填写导入的契约对象，如 `proposerContract`。                                    |
-| `configSchema`         | 校验该实现的配置。                             | 必填，填写 JSON Schema；没有配置时也声明对象 Schema。                                |
-| `create`               | 根据配置创建插件实例。                         | 必填，填写异步函数 `create(config, context)`，返回含 `execute` 和 `dispose` 的对象。 |
-| `implementationDigest` | 标识实现版本，恢复实验时用于检查实现是否变化。 | 可选，填写覆盖实际实现代码的摘要；代码变化时更新。                                   |
+| 字段                   | 含义                                           | 填写方式                                                                              |
+| ---------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `id`                   | 插件实现的唯一 ID，供绑定选择。                | 必填，如 `proposer.keep-parent`；不能与已注册的插件或 Policy 重名。                   |
+| `description`          | 说明插件的用途。                               | 可选，填写简短说明。                                                                  |
+| `contract`             | 声明插件遵循的公共契约。                       | 必填，填写导入的契约对象，如 `proposerContract`。                                     |
+| `configSchema`         | 校验该实现的配置。                             | 必填，填写 JSON Schema；没有配置时也声明对象 Schema。                                 |
+| `create`               | 根据配置创建插件实例。                         | 必填，填写异步函数 `create(config, context)`，返回含 `execute` 和 `dispose` 的对象。  |
+| `doctor`               | 在实验前诊断该组件的运行前提。                 | 可选的 `OperationDoctor<C>` 函数，接收 `DoctorContext<C>`，使用生效绑定配置记录检查。 |
+| `implementationDigest` | 标识实现版本，恢复实验时用于检查实现是否变化。 | 可选，填写覆盖实际实现代码的摘要；代码变化时更新。                                    |
 
 - 省略 `implementationDigest` 时，Registry 根据 `create` 函数文本、契约和配置 Schema 生成摘要。
 
@@ -282,7 +283,7 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`doctor` 检查契约、绑定和配置，再对已选择的实现运行可用的内置前提探测。没有随 RSI 打包检查脚本的自定义插件会标为 `unchecked`。Doctor 不执行模型推理或优化实验；Evaluator 委托完整 SDK doctor，包括其下载和构建探针。实验运行后检查 `propose` 的输出是否包含 `status: no-change` 和预期的 `rationale`；查看步骤结果的方法见[运行与检查实验](running-experiments_zh.md)。
+`doctor` 检查契约、绑定和配置，再调用每个所选组件定义上的可选 `doctor` 函数。将函数与组件一起导出、打包，按正常的 `registerOperation(definition)` 注册即可。定义省略 `doctor` 时，插件专用覆盖记为 `unchecked`，自动结构与路径检查仍会运行。Doctor 不执行模型推理或优化实验；Evaluator 委托完整 SDK doctor，包括其下载和构建探针。实验运行后检查 `propose` 的输出是否包含 `status: no-change` 和预期的 `rationale`；查看步骤结果的方法见[运行与检查实验](running-experiments_zh.md)。
 
 ## 使用 RuntimeContext
 
@@ -373,4 +374,4 @@ try {
 
 宿主中的注册只对该 Runtime 生效。另行启动 CLI 时，将扩展放入默认用户级目录自动加载，或使用 `--plugin-dir` 指定扩展目录。
 
-`Recipe.load` 装配并检查定义的结构，不执行前提探测。需要 CLI 预检时，使用相同的扩展注册运行 `ember-rsi doctor`。自定义插件自动参与结构和路径检查，目前没有公开的自定义探针接口，详见[自定义组件如何接入 doctor](doctor_zh.md#4-自定义组件如何接入-doctor)。
+`Recipe.load` 装配并检查定义的结构，不执行前提探测。需要 CLI 预检时，使用相同的扩展注册运行 `ember-rsi doctor`。在组件定义上增加可选 `doctor` 即可提供自己的诊断，公开回调和完整注册示例见[自定义组件如何接入 doctor](doctor_zh.md#4-自定义组件如何接入-doctor)。

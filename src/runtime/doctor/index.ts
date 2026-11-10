@@ -10,14 +10,12 @@ import type { Runtime } from '../context.js';
 import { Recipe } from '../loaders/recipe.js';
 import { Manager } from '../manager/index.js';
 import { ManagedEvents } from '../services/events.js';
-import { doctorScripts } from './scripts.js';
 import type {
   DoctorBinding,
   DoctorCheck,
   DoctorContext,
   DoctorReport,
-  DoctorScript,
-} from './types.js';
+} from '../../contracts/index.js';
 
 function redactor(value?: JsonValue): (message: string) => string {
   const secrets = new Set<string>();
@@ -68,8 +66,6 @@ export async function doctorRecipe(
   options: {
     signal?: AbortSignal;
     timeoutMs?: number;
-    /** Internal test seam; installed CLI always uses the bundled scripts. */
-    scripts?: Readonly<Record<string, DoctorScript>>;
   } = {},
 ): Promise<DoctorReport> {
   const signal = options.signal ?? new AbortController().signal;
@@ -356,15 +352,15 @@ export async function doctorRecipe(
           }
         });
       }
-      const script = (options.scripts ?? doctorScripts)[binding.pluginId];
-      if (!script)
+      const doctor = binding.definition.doctor;
+      if (!doctor)
         context.unchecked(
           'plugin',
-          `No bundled doctor script for binding ${binding.name}, implementation ${binding.pluginId}. Registration, contract, and configuration were validated.`,
+          `Binding ${binding.name}, implementation ${binding.pluginId}, has no doctor capability; registration, contract, and configuration were validated.`,
         );
       else {
         try {
-          await script(context);
+          await doctor(context);
         } catch (error) {
           signal.throwIfAborted();
           add({

@@ -6,6 +6,7 @@ import {
 import type { OperationDefinition } from '../../contracts/index.js';
 import { configSchema, type GepaConfig } from './schema.js';
 import { createPromptEvolutionSearch } from './service.js';
+import { checkPromptEvolutionSearch } from '../../runtime/doctor/business-checks.js';
 
 export const promptEvolutionSearchDefinition: OperationDefinition<
   SearchInput,
@@ -18,4 +19,5 @@ export const promptEvolutionSearchDefinition: OperationDefinition<
   contract: searchContract,
   configSchema,
   create: createPromptEvolutionSearch,
+  doctor: checkPromptEvolutionSearch,
 };

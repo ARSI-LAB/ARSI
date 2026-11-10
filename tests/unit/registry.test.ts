@@ -72,6 +72,35 @@ test('managed creation rejects unknown and unregistered plugins', async (t) => {
   );
 });
 
+test('doctor is an optional function capability and registration never invokes it', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  const invalid = definition('invalid');
+  Object.defineProperty(invalid, 'doctor', { value: true });
+  assert.throws(
+    () => registry.registerOperation(invalid),
+    /doctor must be a function/,
+  );
+  assert.deepEqual(registry.catalog().plugins, []);
+  let calls = 0;
+  const worker = definition('worker');
+  registry.registerOperation({
+    ...worker,
+    async doctor() {
+      calls++;
+    },
+  });
+  assert.equal(typeof registry.get(worker.id).doctor, 'function');
+  const context = new RuntimeContext();
+  const operation = await registry.get(worker.id).create({}, context);
+  try {
+    assert.equal(await operation.execute('input', context), 'worker:default');
+    assert.equal(calls, 0);
+  } finally {
+    await operation.dispose();
+  }
+});
+
 test('managed configuration is validated before factory effects', async (t) => {
   const registry = new Registry();
   t.after(() => registry.dispose());

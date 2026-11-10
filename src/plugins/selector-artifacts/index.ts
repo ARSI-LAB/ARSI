@@ -6,6 +6,7 @@ import type {
 import { configSchema, type AgentEditingConfig } from './schema.js';
 import { artifactSelectorContract } from '../../contracts/plugin-types/index.js';
 import { createArtifactSelector } from './service.js';
+import { checkAgentEditor } from '../../runtime/doctor/business-checks.js';
 export const artifactSelectorDefinition: OperationDefinition<
   ArtifactSelectorInput,
   ArtifactSelectorOutput,
@@ -16,4 +17,5 @@ export const artifactSelectorDefinition: OperationDefinition<
   contract: artifactSelectorContract,
   configSchema,
   create: createArtifactSelector,
+  doctor: checkAgentEditor,
 };

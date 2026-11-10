@@ -5,6 +5,7 @@ import type {
   Operation,
   OperationDefinition,
   RuntimeContext,
+  DoctorContext,
 } from '../../contracts/index.js';
 import {
   defineContract,
@@ -80,9 +81,15 @@ export class Registry {
           'configSchema',
           'implementationDigest',
           'create',
+          'doctor',
         ].includes(key),
     );
     if (unknown) throw new Error(`Plugin definition: unknown field ${unknown}`);
+    if (
+      definition.doctor !== undefined &&
+      typeof definition.doctor !== 'function'
+    )
+      throw new Error(`Plugin ${definition.id}: doctor must be a function`);
     if (
       this.registrations.has(definition.id) ||
       this.policyFiles.has(definition.id)
@@ -93,9 +100,30 @@ export class Registry {
       validate(definition.configSchema, config, 'plugin config');
       return definition.create(config as C, services);
     };
+    const { doctor, ...capabilities } = definition;
     const registered: OperationDefinition = {
-      ...definition,
+      ...capabilities,
       contract,
+      ...(doctor
+        ? {
+            async doctor(context: DoctorContext): Promise<void> {
+              validate(
+                definition.configSchema,
+                context.binding.config,
+                'plugin doctor config',
+              );
+              await doctor.call(definition, {
+                ...context,
+                binding: {
+                  name: context.binding.name,
+                  pluginId: context.binding.pluginId,
+                  definition: context.binding.definition,
+                  config: context.binding.config as C,
+                },
+              });
+            },
+          }
+        : {}),
       async create(config, services) {
         const operation = await create(config, services);
         return {

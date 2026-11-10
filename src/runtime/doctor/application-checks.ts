@@ -11,6 +11,7 @@ import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type {
   Candidate,
+  DoctorContext,
   JsonObject,
   Operation,
 } from '../../contracts/index.js';
@@ -24,7 +25,6 @@ import { safePath } from '../../plugins/shared/file-application/target.js';
 import { resolveModelConfig } from '../../plugins/agent-pi/service.js';
 import { codexCommand } from '../../plugins/agent-codex/executable.js';
 import { projectMarker } from '../../plugins/shared/agent-editing/project.js';
-import type { DoctorContext, DoctorScript } from './types.js';
 import { runCommand } from './process.js';
 import { probeModelAccess } from './model-access.js';
 
@@ -178,7 +178,9 @@ async function baselineInputs(
   return ready ? result : undefined;
 }
 
-async function fileApplication(context: DoctorContext): Promise<void> {
+export async function checkFileApplication(
+  context: DoctorContext,
+): Promise<void> {
   const verification =
     context.binding.pluginId === 'application.agentbundle'
       ? 'verify-bundle'
@@ -290,7 +292,9 @@ async function fileApplication(context: DoctorContext): Promise<void> {
   }
 }
 
-async function inference(context: DoctorContext): Promise<void> {
+export async function checkInferenceApplication(
+  context: DoctorContext,
+): Promise<void> {
   const inputs = await baselineInputs(context, ['launch-prerequisites']);
   if (!inputs) {
     context.unchecked(
@@ -392,7 +396,7 @@ async function inference(context: DoctorContext): Promise<void> {
   });
 }
 
-async function pi(context: DoctorContext): Promise<void> {
+export async function checkPiAgent(context: DoctorContext): Promise<void> {
   const configured = await context.check('model-config', async () => {
     const config = context.binding.config;
     const operation = await context.binding.definition.create(
@@ -450,7 +454,7 @@ async function pi(context: DoctorContext): Promise<void> {
   );
 }
 
-async function codex(context: DoctorContext): Promise<void> {
+export async function checkCodexAgent(context: DoctorContext): Promise<void> {
   let launch: { executable: string; args: string[] } | undefined;
   let supportsDoctor = false;
   let supportsNetworkOnly = false;
@@ -600,11 +604,3 @@ async function codex(context: DoctorContext): Promise<void> {
     'Codex doctor does not establish that a valid model list contains the configured model; proposal-side model availability remains unchecked.',
   );
 }
-
-export const applicationChecks: Readonly<Record<string, DoctorScript>> = {
-  'application.agentbundle': fileApplication,
-  'application.kernel': fileApplication,
-  'application.inference': inference,
-  'agent.pi': pi,
-  'agent.codex': codex,
-};

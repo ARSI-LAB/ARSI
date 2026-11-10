@@ -121,6 +121,11 @@ async function fixture() {
     adapterDigest: '2'.repeat(64),
     sdkBuildDigest: '3'.repeat(64),
     evaluation: {
+      candidateLayout: {
+        entryFile: sourcePath,
+        files: [sourcePath],
+        mutablePaths: [sourcePath],
+      },
       contract: { caseId: 'fixed' },
       environment: { device: 'TEST-FIXTURE' },
       protocol: { warmup: 5, repeat: 20 },
@@ -161,9 +166,19 @@ async function fixture() {
     parentRef: 'entry',
     artifactRef: candidateTree,
   });
+  const sourceIdentity = (content: string) => {
+    const sourceDigest = createHash('sha256').update(content).digest('hex');
+    return {
+      sourceDigest,
+      sourceBundleDigest: digest({
+        entryFile: sourcePath,
+        files: [{ path: sourcePath, sha256: sourceDigest }],
+      }),
+    };
+  };
   const provenance = await artifacts.putJson({
     mode: 'sdk',
-    sourceDigest: createHash('sha256').update(source).digest('hex'),
+    ...sourceIdentity(source),
     artifactRef: tree,
     runId: 'run',
     attemptId: 'attempt',
@@ -172,7 +187,7 @@ async function fixture() {
   });
   const candidateProvenance = await artifacts.putJson({
     mode: 'sdk',
-    sourceDigest: createHash('sha256').update(changedSource).digest('hex'),
+    ...sourceIdentity(changedSource),
     artifactRef: candidateTree,
     runId: 'candidate-run',
     attemptId: 'candidate-attempt',
@@ -275,7 +290,7 @@ async function fixture() {
   const identity = {
     entryCandidateRef: 'entry',
     baselineMeasurementRef: 'baseline',
-    sourceDigest: createHash('sha256').update(source).digest('hex'),
+    ...sourceIdentity(source),
     comparisonKey,
     taskDigest: conditions.taskDigest,
     contractDigest: digest(conditions.evaluation.contract),
@@ -287,6 +302,7 @@ async function fixture() {
   };
   const analysis = {
     schemaVersion: 'rsi.operator-analysis/v1',
+    diagnosisComplete: true,
     experimentId: 'experiment',
     identity,
     baselineMs: 10,
@@ -314,6 +330,7 @@ async function fixture() {
   });
   const summary = {
     schemaVersion: 'rsi.operator-summary/v1',
+    summaryStatus: 'available',
     experimentId: 'experiment',
     analysisRef,
     attempt: 1,
@@ -355,6 +372,7 @@ test('analysis binds the explicit baseline measurement to its owned entry and ef
   );
   for (const key of [
     'sourceDigest',
+    'sourceBundleDigest',
     'comparisonKey',
     'taskDigest',
     'contractDigest',
@@ -390,6 +408,41 @@ test('analysis binds the explicit baseline measurement to its owned entry and ef
     readAnalysis(f.analysisRef, f.identity, f.context),
     /experiment|ownership/i,
   );
+});
+
+test('single-file assessments require bundle provenance', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const measurement = await f.facts.read('measurements', 'baseline');
+  const provenance = object(measurement.provenance);
+  const stored = object(
+    await f.artifacts.readJson(string(provenance.artifactRef)),
+  );
+  delete stored.sourceBundleDigest;
+  provenance.artifactRef = await f.artifacts.putJson(stored);
+  await f.facts.write('measurements', 'baseline', measurement);
+  await assert.rejects(
+    readAnalysis(f.analysisRef, f.identity, f.context),
+    /source/i,
+  );
+});
+
+test('persisted analysis and summary require their recorded status', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const { diagnosisComplete, ...incomplete } = f.analysis;
+  await assert.rejects(
+    readAnalysis(await f.artifacts.putJson(incomplete), f.identity, f.context),
+    /diagnosisComplete/,
+  );
+  const { summaryStatus, ...summary } = f.summary;
+  const history = await f.artifacts.putJson({
+    schemaVersion: 'rsi.operator-history/v1',
+    experimentId: 'experiment',
+    analysisRef: f.analysisRef,
+    summaryRefs: [await f.artifacts.putJson(summary)],
+  });
+  await assert.rejects(readHistory(history, f.context), /summaryStatus/);
 });
 
 test('multi-file analysis rejects an assessment that certifies only unchanged entry bytes', async (t) => {
@@ -621,6 +674,7 @@ test('analysis checks actual conditions even if the caller repeats a forged stor
   t.after(() => rm(f.directory, { recursive: true, force: true }));
   for (const key of [
     'sourceDigest',
+    'sourceBundleDigest',
     'comparisonKey',
     'taskDigest',
     'contractDigest',
@@ -832,10 +886,18 @@ test('failed candidate history retains observable task and build identity checks
     analysisRef: f.analysisRef,
     summaryRefs: [await f.artifacts.putJson(failed)],
   });
+  object(m.conditions).artifactRef = await f.artifacts.putJson({
+    ...conditions,
+    evaluation: {},
+  });
+  await f.facts.write('measurements', 'candidate-measurement', m);
+  await assert.rejects(readHistory(historyRef, f.context), /candidateLayout/);
   for (const field of ['taskDigest', 'adapterDigest', 'sdkBuildDigest']) {
     object(m.conditions).artifactRef = await f.artifacts.putJson({
       ...conditions,
-      evaluation: null,
+      evaluation: {
+        candidateLayout: object(conditions.evaluation).candidateLayout,
+      },
       [field]: 'e'.repeat(64),
     });
     await f.facts.write('measurements', 'candidate-measurement', m);
@@ -846,7 +908,9 @@ test('failed candidate history retains observable task and build identity checks
   }
   object(m.conditions).artifactRef = await f.artifacts.putJson({
     ...conditions,
-    evaluation: null,
+    evaluation: {
+      candidateLayout: object(conditions.evaluation).candidateLayout,
+    },
   });
   await f.facts.write('measurements', 'candidate-measurement', m);
   assert.equal(

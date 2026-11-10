@@ -37,10 +37,7 @@ import {
   strings,
 } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
-import {
-  kernelSourcePath,
-  kernelBundleDigest,
-} from '../application-kernel/schema.js';
+import { kernelBundleDigest } from '../application-kernel/schema.js';
 import {
   literalPathPattern,
   canModifyTargetFile,
@@ -110,33 +107,21 @@ async function readOperatorCandidate(
 type OperatorSource = {
   sourcePath: string;
   source: string;
-  digest: string;
-  bundleDigest: string;
+  identity: Pick<
+    OperatorAnalysisIdentity,
+    'sourceDigest' | 'sourceBundleDigest'
+  >;
   files: Record<string, string>;
   editablePaths: string[];
 };
 
-function operatorSourceIdentity(source: OperatorSource): {
-  sourceDigest: string;
-  sourceBundleDigest?: string;
-} {
-  return {
-    sourceDigest: source.digest,
-    ...(Object.keys(source.files).length > 1
-      ? { sourceBundleDigest: source.bundleDigest }
-      : {}),
-  };
-}
-
 function matchesOperatorSource(
-  identity: { sourceDigest?: unknown; sourceBundleDigest?: unknown },
+  record: JsonObject,
   source: OperatorSource,
 ): boolean {
   return (
-    identity.sourceDigest === source.digest &&
-    (identity.sourceBundleDigest === source.bundleDigest ||
-      (identity.sourceBundleDigest === undefined &&
-        Object.keys(source.files).length === 1))
+    record.sourceDigest === source.identity.sourceDigest &&
+    record.sourceBundleDigest === source.identity.sourceBundleDigest
   );
 }
 
@@ -154,12 +139,13 @@ async function readOperatorSource(
     'conditions',
     context,
   );
-  const layout = object(conditions.evaluation ?? {}).candidateLayout;
-  const target = parseTarget(metadata.target);
-  const sourcePath = kernelSourcePath(
-    target,
-    layout === undefined ? undefined : string(object(layout).entryFile),
+  const evaluation = object(conditions.evaluation, 'Operator evaluation');
+  const layout = object(evaluation.candidateLayout, 'Operator candidateLayout');
+  const sourcePath = string(
+    layout.entryFile,
+    'Operator candidateLayout.entryFile',
   );
+  const target = parseTarget(metadata.target);
   const files: Record<string, string> = Object.create(null);
   const sourceFiles = tree.files.map((file) => {
     const path = file.path;
@@ -173,10 +159,13 @@ async function readOperatorSource(
   return {
     sourcePath,
     source: Object.values(files).join('\n'),
-    digest: string(
-      sourceFiles.find((file) => file.path === sourcePath)?.sha256,
-    ),
-    bundleDigest: kernelBundleDigest(sourcePath, sourceFiles),
+    identity: {
+      sourceDigest: string(
+        sourceFiles.find((file) => file.path === sourcePath)?.sha256,
+        'Operator entry digest',
+      ),
+      sourceBundleDigest: kernelBundleDigest(sourcePath, sourceFiles),
+    },
     files,
     editablePaths: sourceFiles
       .map((file) => file.path)
@@ -401,7 +390,7 @@ async function readAttemptFacts(
   if (after === null)
     throw new Error('Operator valid summary candidate latency unavailable');
   facts.accepted =
-    after < before - before * Number(decision.minRelativeImprovement ?? 0) &&
+    after < before - before * Number(decision.minRelativeImprovement) &&
     feedback.constraints.every((value) => value <= 0);
   if (
     facts.accepted !== decision.accepted ||
@@ -569,8 +558,8 @@ const sourceSnapshot = 'context/sources/';
 
 type OperatorStageInput = {
   sourcePath: string;
-  sourceFiles?: string[];
-  editablePaths?: string[];
+  sourceFiles: string[];
+  editablePaths: string[];
   goal: string;
   prompt: string;
   files: Record<string, string>;
@@ -619,8 +608,8 @@ export async function requestOperatorAgent(
         'context/input.json': JSON.stringify({
           ...request.input,
           sourcePath: request.sourcePath,
-          sourceFiles: request.sourceFiles ?? [request.sourcePath],
-          editablePaths: request.editablePaths ?? [request.sourcePath],
+          sourceFiles: request.sourceFiles,
+          editablePaths: request.editablePaths,
         }),
       },
       [],
@@ -1150,7 +1139,7 @@ export const createOperatorProposer: OperationDefinition<
       identity: {
         entryCandidateRef: entryRef,
         baselineMeasurementRef: baselineRef,
-        ...operatorSourceIdentity(source),
+        ...source.identity,
         comparisonKey: string(baseline.comparisonKey),
         taskDigest: task.taskDigest,
         contractDigest: digest(object(evaluation.contract)),
@@ -1310,7 +1299,7 @@ export const createOperatorProposer: OperationDefinition<
       input.attempt,
       context,
     );
-    if (input.action === 'propose' && analysis.diagnosisComplete === false)
+    if (input.action === 'propose' && !analysis.diagnosisComplete)
       throw new OperatorModelOutputError(
         'Static diagnosis did not produce a valid result; no empty-diagnosis claim is available',
       );
@@ -1384,9 +1373,7 @@ export const createOperatorProposer: OperationDefinition<
         parentCandidateRef: parent.ref,
         incumbentMeasurementRef: input.incumbentMeasurementRef,
         diagnosticMeasurementRef: input.diagnosticMeasurementRef,
-        ...operatorSourceIdentity(
-          await readOperatorSource(parent, baseline, context),
-        ),
+        ...(await readOperatorSource(parent, baseline, context)).identity,
         resourcesDigest: loaded.digest,
         embeddingDigest: sha(await readFile(config.embedding.identityFile)),
         hardwareDigest: hardware?.sha256 ?? null,
@@ -1754,7 +1741,7 @@ export const createOperatorProposer: OperationDefinition<
           prepared.baseline,
           context,
         );
-        const editablePaths = snapshot.editablePaths ?? [];
+        const editablePaths = snapshot.editablePaths;
         if (!editablePaths.length)
           throw new Error('Kernel Target permits no source modifications');
         const editConstraints = {

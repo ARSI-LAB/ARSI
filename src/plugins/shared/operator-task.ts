@@ -13,7 +13,7 @@ const shape = {
 };
 const dtype = { enum: ['float16', 'bfloat16', 'float32'] };
 const tensorSchema = recordSchema(
-  { shape, dtype, contiguous: { type: 'boolean' } },
+  { shape, dtype, contiguous: { type: 'boolean', default: true } },
   ['shape', 'dtype'],
 );
 const taskSchema = recordSchema({

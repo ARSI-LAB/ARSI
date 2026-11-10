@@ -23,7 +23,6 @@ import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { operatorbenchContract } from '../../src/contracts/plugin-types/operatorbench.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { readProfileAssessment } from '../../src/plugins/evaluator-operatorbench/conditions.js';
-import { parseKernelExecution } from '../../src/plugins/application-kernel/schema.js';
 import { recordSdkMeasurement } from '../../src/plugins/evaluator-operatorbench/measurement.js';
 import { validate } from '../../src/shared/schema.js';
 import { object } from '../../src/shared/json.js';
@@ -90,15 +89,11 @@ for (const sdkStatus of ['completed', 'cancelled', 'unknown'] as const)
       },
       'candidate',
       'fixed',
-      parseKernelExecution({
-        kind: 'kernel-source',
-        format: 'triton-ascend',
-        entryPoint: 'kernel_function',
-        sourcePath: 'input.py',
-        directory: dir,
-        sourceDigest: 'a'.repeat(64),
+      {
         artifactRef: 'source',
-      }),
+        sourceDigest: 'a'.repeat(64),
+        sourceBundleDigest: 'b'.repeat(64),
+      },
       {
         mode: 'sdk',
         taskDigest: 'b'.repeat(64),
@@ -161,7 +156,7 @@ test('a passing assessment cannot certify a different case or seed of the same t
   });
   const provenanceRef = await artifacts.putJson({
     cleanup: 'confirmed',
-    sourceDigest: 'source',
+    sourceBundleDigest: 'bundle',
   });
   const context = new RuntimeContext().extend({
     experimentId: 'exp',
@@ -292,6 +287,22 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
       measurements.set(ref, measurement);
       return ref;
     },
+    async applicationMetadata() {
+      return {
+        target: {
+          schemaVersion: 'rsi.target/v1',
+          id: 'kernel',
+          entries: [
+            {
+              path: 'input.py',
+              kind: 'file',
+              description: 'entry',
+              changes: ['modify'],
+            },
+          ],
+        },
+      };
+    },
     async withInstance(_ref, _capability, use) {
       return use({
         kind: 'kernel-source',
@@ -299,7 +310,7 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
         entryPoint: 'kernel_function',
         sourcePath: 'input.py',
         directory: sourceDirectory,
-        sourceDigest: sha256(source),
+        sourceFiles: [{ path: 'input.py', sha256: sha256(source) }],
         artifactRef: await artifacts.capture(sourceDirectory),
       });
     },

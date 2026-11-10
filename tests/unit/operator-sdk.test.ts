@@ -26,7 +26,6 @@ import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/s
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { object } from '../../src/shared/json.js';
-import { kernelBundleDigest } from '../../src/plugins/application-kernel/schema.js';
 
 useOperatorSdkTestEnvironment();
 
@@ -114,6 +113,22 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
       recorded.push(value);
       return `measurement:${recorded.length}`;
     },
+    async applicationMetadata() {
+      return {
+        target: {
+          schemaVersion: 'rsi.target/v1',
+          id: 'kernel',
+          entries: [
+            {
+              path: sourcePath,
+              kind: 'file',
+              description: 'entry',
+              changes: ['modify'],
+            },
+          ],
+        },
+      };
+    },
     withInstance: async (_ref, capability, use) => {
       assert.equal(capability, 'kernel-source');
       try {
@@ -123,7 +138,12 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
           directory: sourceDirectory,
           sourcePath,
           artifactRef: await artifacts.capture(sourceDirectory),
-          sourceDigest: createHash('sha256').update(source).digest('hex'),
+          sourceFiles: [
+            {
+              path: sourcePath,
+              sha256: createHash('sha256').update(source).digest('hex'),
+            },
+          ],
           entryPoint: 'kernel_function',
         });
       } finally {
@@ -169,12 +189,18 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   const manifest = JSON.parse(
     await readFile(saved.benchmark.config.manifest, 'utf8'),
   );
+  const candidateSha256 = createHash('sha256').update(source).digest('hex');
   const prepared = {
+    sourceInventory: {
+      entryFile: sourcePath,
+      files: [{ path: sourcePath, sha256: candidateSha256 }],
+      mutablePaths: [sourcePath],
+    },
     operation: input.action,
     taskId: 'fixed',
     seed: 42,
     contract: parseKernelContract(manifest.tasks[0].contract),
-    candidateSha256: createHash('sha256').update(source).digest('hex'),
+    candidateSha256,
     referenceSha256: createHash('sha256')
       .update('# fixture reference\n')
       .digest('hex'),
@@ -195,22 +221,12 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(adapted.candidateMs, 8);
   assert.equal(adapted.referenceMs, 16);
   assert.equal(adapted.profile, null);
-  const singleInventory = {
-    ...prepared,
-    sourceInventory: {
-      entryFile: sourcePath,
-      files: [{ path: sourcePath, sha256: prepared.candidateSha256 }],
-      mutablePaths: [],
-      sdkEntryPath: 'data/input.py' as const,
-    },
-  };
-  assert.equal(adaptSdkResult(result, singleInventory).status, 'completed');
   const changedSingle = JSON.parse(JSON.stringify(result));
   changedSingle.snapshot.run.source.files.find(
-    (file: { path: string }) => file.path === 'data/input.py',
+    (file: { path: string }) => file.path === `data/candidate/${sourcePath}`,
   ).sha256 = '0'.repeat(64);
   assert.throws(
-    () => adaptSdkResult(changedSingle, singleInventory),
+    () => adaptSdkResult(changedSingle, prepared),
     /inventory.*identity/i,
   );
   const unicodeFiles = [
@@ -221,7 +237,10 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   const unicodeNative = JSON.parse(JSON.stringify(result));
   unicodeNative.snapshot.run.source.files =
     unicodeNative.snapshot.run.source.files
-      .filter((file: { path: string }) => file.path !== 'data/input.py')
+      .filter(
+        (file: { path: string }) =>
+          file.path !== `data/candidate/${sourcePath}`,
+      )
       .concat(
         [...unicodeFiles]
           .reverse()
@@ -666,19 +685,6 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
               protected: [sourcePath],
             },
           };
-        },
-        async withInstance(ref, capability, use) {
-          return context.withInstance(ref, capability, async (raw) => {
-            const descriptor = object(raw);
-            const sourceFiles = [
-              { path: sourcePath, sha256: String(descriptor.sourceDigest) },
-            ];
-            return use({
-              ...descriptor,
-              sourceFiles,
-              sourceBundleDigest: kernelBundleDigest(sourcePath, sourceFiles),
-            });
-          });
         },
         async recordMeasurement(value) {
           readonlyMeasurements.push(value);

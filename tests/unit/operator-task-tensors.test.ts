@@ -45,7 +45,7 @@ test('operator task loader accepts mixed floating dtypes and scalar shapes', asy
   ];
   const scalar = { ...output, dtype: 'bfloat16', shape: [] };
   assert.deepEqual((await load(inputs, scalar)).definition.contract, {
-    inputs,
+    inputs: [{ ...inputs[0], contiguous: true }, inputs[1]],
     output: scalar,
     inputUnmodified: true,
   });
@@ -63,10 +63,13 @@ test('operator task loader accepts mixed floating dtypes and scalar shapes', asy
 
 test('operator task identity and SDK manifest honor omitted and explicit input layout', async (t) => {
   const { directory, load } = await taskFiles(t);
-  const legacy = await load([fp16]);
   assert.equal(
-    legacy.taskDigest,
-    '2db3f7277e16409cd921a94908322698e525f3a4d76476cdfc3f73b0260eeeeb',
+    (await load([fp16])).taskDigest,
+    (await load([{ ...fp16, contiguous: true }])).taskDigest,
+  );
+  assert.notEqual(
+    (await load([fp16])).taskDigest,
+    (await load([{ ...fp16, contiguous: false }])).taskDigest,
   );
   const task = await load([fp16, { ...fp16, contiguous: false }]);
   const sourcePath = 'kernels/source.py';
@@ -86,16 +89,22 @@ test('operator task identity and SDK manifest honor omitted and explicit input l
         artifactRef: 'source',
         directory,
         sourcePath,
-        sourceDigest: createHash('sha256').update(source).digest('hex'),
+        sourceFiles: [
+          {
+            path: sourcePath,
+            sha256: createHash('sha256').update(source).digest('hex'),
+          },
+        ],
       }),
       manifest: join(directory, 'sdk-input', 'manifest.json'),
       operation: 'evaluate',
+      editablePaths: [sourcePath],
     });
   await prepare();
   const manifest = JSON.parse(
     await readFile(join(directory, 'sdk-input', 'manifest.json'), 'utf8'),
   );
-  assert.equal(manifest.tasks[0].candidate, 'input.py');
+  assert.equal(manifest.tasks[0].candidate, `candidate/${sourcePath}`);
   assert.deepEqual(
     await readFile(join(directory, 'sdk-input', manifest.tasks[0].candidate)),
     source,

@@ -36,8 +36,6 @@ test('SDK staging retains the candidate tree and compares only read-only source 
     directory: join(root, 'source'),
     sourcePath,
     sourceFiles,
-    sourceDigest: sourceFiles[0]?.sha256,
-    sourceBundleDigest: kernelBundleDigest(sourcePath, sourceFiles),
     artifactRef: 'artifact',
     entryPoint: 'kernel_function',
   });
@@ -45,7 +43,7 @@ test('SDK staging retains the candidate tree and compares only read-only source 
   const task = {
     definition: {
       contract: {
-        inputs: [{ shape: [4], dtype: 'float16' }],
+        inputs: [{ shape: [4], dtype: 'float16', contiguous: true }],
         output: {
           shape: [4],
           dtype: 'float16',
@@ -125,18 +123,21 @@ test('bundle and fixed inventory ordering distinguish byte-distinct Unicode path
     kernelBundleDigest('\u00e9.py', files),
     kernelBundleDigest('\u00e9.py', [...files].reverse()),
   );
+  const prepared = {
+    sourceInventory: { entryFile: 'é.py', files, mutablePaths: [] },
+  };
   const run = (entries: typeof files) => ({ source: { files: entries } });
   assert.deepEqual(
-    fixedConditions(run(files)),
-    fixedConditions(run([...files].reverse())),
+    fixedConditions(run(files), prepared),
+    fixedConditions(run([...files].reverse()), prepared),
   );
   assert.deepEqual(
-    fixedConditions(run(files)).fixedFiles.map((file) => file.path),
+    fixedConditions(run(files), prepared).fixedFiles.map((file) => file.path),
     ['e\u0301.py', '\u00e9.py'],
   );
 });
 
-test('explicit single-file inventories retain readonly identity and layout while preserving legacy aliases', async (t) => {
+test('single-file candidates retain their path and read-only identity', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'operator-single-inventory-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, 'entry.py'), 'def kernel_function(x): return x\n');
@@ -150,16 +151,14 @@ test('explicit single-file inventories retain readonly identity and layout while
     directory: root,
     artifactRef: 'artifact',
     sourcePath: 'entry.py',
-    sourceDigest: sha256,
     sourceFiles,
-    sourceBundleDigest: kernelBundleDigest('entry.py', sourceFiles),
     entryPoint: 'kernel_function',
   });
   const options = {
     task: {
       definition: {
         contract: {
-          inputs: [{ shape: [1], dtype: 'float16' }],
+          inputs: [{ shape: [1], dtype: 'float16', contiguous: true }],
           output: {
             shape: [1],
             dtype: 'float16',
@@ -181,13 +180,12 @@ test('explicit single-file inventories retain readonly identity and layout while
     entryFile: 'entry.py',
     files: sourceFiles,
     mutablePaths: [],
-    sdkEntryPath: 'data/input.py',
   });
   const run = {
     source: {
       files: [
         { path: 'data/problem.py', sha256: readonly.referenceSha256 },
-        { path: 'data/input.py', sha256 },
+        { path: 'data/candidate/entry.py', sha256 },
       ],
     },
   };
@@ -215,14 +213,8 @@ test('explicit single-file inventories retain readonly identity and layout while
     fixedConditions(run, readonly),
     fixedConditions(run, otherLayout),
   );
-  const legacy = await prepareOperatorCase(options);
-  assert.equal(legacy.sourceInventory, undefined);
-  assert.deepEqual(
-    fixedConditions(run, legacy),
-    fixedConditions(changed, legacy),
-  );
   assert.equal(
     JSON.parse(await readFile(options.manifest, 'utf8')).tasks[0].candidate,
-    'input.py',
+    'candidate/entry.py',
   );
 });

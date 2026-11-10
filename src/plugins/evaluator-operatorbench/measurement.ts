@@ -3,7 +3,6 @@ import type {
   JsonValue,
   RuntimeContext,
 } from '../../contracts/index.js';
-import type { KernelExecution } from '../application-kernel/schema.js';
 import {
   evaluationFeedbackSchema,
   measurementEvidenceSchema,
@@ -25,7 +24,11 @@ export async function recordSdkMeasurement(
   result: SdkOperatorResult,
   candidateRef: string,
   caseId: string,
-  execution: KernelExecution,
+  source: {
+    artifactRef: string;
+    sourceDigest: string;
+    sourceBundleDigest: string;
+  },
   conditions: JsonObject,
   entries: JsonValue[],
   context: RuntimeContext,
@@ -156,8 +159,8 @@ export async function recordSdkMeasurement(
   const details = object({
     mode: 'sdk',
     operation: isProfile ? 'profile' : 'evaluate',
-    sourceDigest: execution.sourceDigest,
-    sourceBundleDigest: execution.sourceBundleDigest,
+    sourceDigest: source.sourceDigest,
+    sourceBundleDigest: source.sourceBundleDigest,
     caseId,
     assessment: result.assessment,
     profile: result.profile,
@@ -218,9 +221,9 @@ export async function recordSdkMeasurement(
       sdkProvenanceSchema,
       {
         mode: 'sdk',
-        sourceDigest: execution.sourceDigest,
-        sourceBundleDigest: execution.sourceBundleDigest,
-        artifactRef: execution.artifactRef,
+        sourceDigest: source.sourceDigest,
+        sourceBundleDigest: source.sourceBundleDigest,
+        artifactRef: source.artifactRef,
         runId: result.runId,
         attemptId: result.attemptId,
         realNpuRuns: null,

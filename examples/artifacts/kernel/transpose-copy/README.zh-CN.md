@@ -16,7 +16,7 @@ Recipe 将评测绑定到 RSI 插件 `evaluator.operatorbench`。该插件处理
 
 ## 配置与运行
 
-本例的 Target 通过唯一的文件条目选择 `input.py`。改名时，同时移动基线源码并更新 Target 路径，例如 `kernels/transpose.py`。Agent 从 `context/sources/<sourcePath>` 读取只读副本，返回的编辑路径必须在阶段输入的 `editablePaths` 中。
+本例通过 Recipe 的 `application.config.entryFile` 指定 `input.py`。改名时，移动基线文件，同步更新入口路径和对应的 Target 编辑规则。Agent 从 `context/sources/<sourcePath>` 读取只读副本，返回的编辑路径必须在阶段输入的 `editablePaths` 中。
 
 使用装有 CANN、torch、torch_npu、triton-ascend，以及锁定版本 Evaluator SDK
 所需 profiling 依赖的 Linux NPU 主机。在私有环境配置中设置 `MODEL_NAME`、
@@ -24,7 +24,7 @@ Recipe 将评测绑定到 RSI 插件 `evaluator.operatorbench`。该插件处理
 本地 Evaluator 以评测账户的文件和进程权限运行候选 Python。
 只在此模式下运行可信候选，并将其他凭据和私有文件放在评测账户的访问范围之外。
 
-Evaluator 配置中的 `mode: sdk` 和 `protocol.timingScope: all-device-kernels` 可省略。普通评测省略 `sdk.profiling` 时关闭自动诊断，Policy 的显式 profile 仍会采集新证据。kernel 入口由评测导入并验证，可通过函数定义或别名提供。
+设置 `benchmark.config.profiling.enabled` 可在普通评测时采集性能数据。Policy 的显式 profile 仍会采集新证据。kernel 入口由评测导入并验证，可通过函数定义或别名提供。
 
 运行 [Recipe](./recipe.search.yaml) 前，替换其中 SDK Python 路径、embedding Python
 路径、模型目录、身份文件、外部知识包和外部检索脚本的占位值。

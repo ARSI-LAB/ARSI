@@ -19,7 +19,7 @@ The fixed case uses seed 42 and zero numerical tolerance. The entry point is
 
 ## Configuration and execution
 
-The single file entry in this Target selects `input.py`. To rename it, move the baseline source and update the Target path, for example to `kernels/transpose.py`. The Agent reads a snapshot at `context/sources/<sourcePath>` and returns edits for paths in `editablePaths` in its stage input.
+The Recipe selects `input.py` with `application.config.entryFile`. To rename it, move the baseline file and update the entry path and its edit rule in the Target. The Agent reads a snapshot at `context/sources/<sourcePath>` and returns edits for paths in `editablePaths` in its stage input.
 
 Use a Linux NPU host with CANN, torch, torch_npu, triton-ascend, and the profiling
 dependencies required by the pinned Evaluator SDK. Set `MODEL_NAME`,
@@ -28,7 +28,7 @@ The local Evaluator runs candidate Python with the evaluation account's file and
 process permissions. Use this Recipe only for candidates trusted with that access.
 Keep unrelated credentials and private files outside the evaluation account.
 
-Evaluator configuration may omit `mode: sdk` and `protocol.timingScope: all-device-kernels`. Omitting `sdk.profiling` disables automatic diagnostics for ordinary evaluation. An explicit Policy profile action still collects fresh evidence. Evaluation imports the kernel entry and verifies it is callable, including aliases.
+Set `benchmark.config.profiling.enabled` to collect profiling during ordinary evaluation. An explicit Policy profile action still collects fresh evidence. Evaluation imports the kernel entry and verifies it is callable, including aliases.
 
 Before running [the Recipe](./recipe.search.yaml), replace its SDK Python path,
 embedding Python path, model directory, identity file, external knowledge bundle,

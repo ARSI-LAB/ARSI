@@ -66,7 +66,7 @@ export type OperatorAnalysisIdentity = {
   entryCandidateRef: string;
   baselineMeasurementRef: string;
   sourceDigest: string;
-  sourceBundleDigest?: string;
+  sourceBundleDigest: string;
   comparisonKey: string;
   taskDigest: string;
   contractDigest: string;
@@ -86,7 +86,7 @@ export type StaticKnowledgeMatch = {
 };
 export type OperatorAnalysis = {
   schemaVersion: 'rsi.operator-analysis/v1';
-  diagnosisComplete?: boolean;
+  diagnosisComplete: boolean;
   experimentId: string;
   identity: OperatorAnalysisIdentity;
   baselineMs: number;
@@ -115,7 +115,7 @@ type SummaryContent = {
 };
 export type OperatorSummary = SummaryContent & {
   schemaVersion: 'rsi.operator-summary/v1';
-  summaryStatus?: 'available' | 'unavailable';
+  summaryStatus: 'available' | 'unavailable';
   attempt: number;
   techniqueIds: StaticIssueType[];
   facts: AttemptFacts;
@@ -218,71 +218,45 @@ export const diagnosisResponseSchema = recordSchema({
   issues: staticDiagnosisSchema,
 });
 
-export const analysisIdentitySchema = recordSchema(
-  {
-    entryCandidateRef: ref,
-    baselineMeasurementRef: ref,
-    sourceDigest: hash,
-    sourceBundleDigest: hash,
-    comparisonKey: hash,
-    taskDigest: hash,
-    contractDigest: hash,
-    environmentDigest: hash,
-    protocolDigest: hash,
-    resourcesDigest: hash,
-    embeddingDigest: hash,
-    retrievalDigest: hash,
+export const analysisIdentitySchema = recordSchema({
+  entryCandidateRef: ref,
+  baselineMeasurementRef: ref,
+  sourceDigest: hash,
+  sourceBundleDigest: hash,
+  comparisonKey: hash,
+  taskDigest: hash,
+  contractDigest: hash,
+  environmentDigest: hash,
+  protocolDigest: hash,
+  resourcesDigest: hash,
+  embeddingDigest: hash,
+  retrievalDigest: hash,
+});
+export const analysisSchema = recordSchema({
+  schemaVersion: { const: 'rsi.operator-analysis/v1' },
+  diagnosisComplete: { type: 'boolean' },
+  experimentId: ref,
+  identity: analysisIdentitySchema,
+  baselineMs: positive,
+  issues: staticDiagnosisSchema,
+  matches: {
+    type: 'array',
+    items: recordSchema({
+      techniqueId: { enum: [...staticIssueTypes] },
+      score: { type: 'number', minimum: -1, maximum: 1 },
+      issueIndexes: {
+        type: 'array',
+        minItems: 1,
+        uniqueItems: true,
+        items: { type: 'integer', minimum: 0 },
+      },
+      sourceReference: text,
+      documentDigest: hash,
+      exampleDigest: hash,
+    }),
   },
-  [
-    'entryCandidateRef',
-    'baselineMeasurementRef',
-    'sourceDigest',
-    'comparisonKey',
-    'taskDigest',
-    'contractDigest',
-    'environmentDigest',
-    'protocolDigest',
-    'resourcesDigest',
-    'embeddingDigest',
-    'retrievalDigest',
-  ],
-);
-export const analysisSchema = recordSchema(
-  {
-    schemaVersion: { const: 'rsi.operator-analysis/v1' },
-    diagnosisComplete: { type: 'boolean' },
-    experimentId: ref,
-    identity: analysisIdentitySchema,
-    baselineMs: positive,
-    issues: staticDiagnosisSchema,
-    matches: {
-      type: 'array',
-      items: recordSchema({
-        techniqueId: { enum: [...staticIssueTypes] },
-        score: { type: 'number', minimum: -1, maximum: 1 },
-        issueIndexes: {
-          type: 'array',
-          minItems: 1,
-          uniqueItems: true,
-          items: { type: 'integer', minimum: 0 },
-        },
-        sourceReference: text,
-        documentDigest: hash,
-        exampleDigest: hash,
-      }),
-    },
-    knowledgeContext: { type: 'string' },
-  },
-  [
-    'schemaVersion',
-    'experimentId',
-    'identity',
-    'baselineMs',
-    'issues',
-    'matches',
-    'knowledgeContext',
-  ],
-);
+  knowledgeContext: { type: 'string' },
+});
 const assessmentFactProperties = {
   outcome: { enum: [...operatorAttemptOutcomes] },
   wasTransformCorrect: { type: ['boolean', 'null'] },
@@ -300,44 +274,26 @@ const summaryResponseProperties: JsonObject = {
   tryPatterns: strings(),
 };
 export const summaryResponseSchema = recordSchema(summaryResponseProperties);
-export const summarySchema = recordSchema(
-  {
-    schemaVersion: { const: 'rsi.operator-summary/v1' },
-    summaryStatus: { enum: ['available', 'unavailable'] },
-    experimentId: ref,
-    analysisRef: ref,
-    attempt: { type: 'integer', minimum: 1 },
-    candidateRefs: refs(1),
-    ...summaryReferenceProperties,
-    techniqueIds: {
-      type: 'array',
-      uniqueItems: true,
-      items: { enum: [...staticIssueTypes] },
-    },
-    actionSummary: { type: 'string' },
-    facts: recordSchema({
-      ...assessmentFactProperties,
-      accepted: { type: 'boolean' },
-    }),
-    ...summaryResponseProperties,
+export const summarySchema = recordSchema({
+  schemaVersion: { const: 'rsi.operator-summary/v1' },
+  summaryStatus: { enum: ['available', 'unavailable'] },
+  experimentId: ref,
+  analysisRef: ref,
+  attempt: { type: 'integer', minimum: 1 },
+  candidateRefs: refs(1),
+  ...summaryReferenceProperties,
+  techniqueIds: {
+    type: 'array',
+    uniqueItems: true,
+    items: { enum: [...staticIssueTypes] },
   },
-  [
-    'schemaVersion',
-    'experimentId',
-    'analysisRef',
-    'attempt',
-    'candidateRefs',
-    'measurementRefs',
-    'decisionRef',
-    'techniqueIds',
-    'actionSummary',
-    'facts',
-    'explanation',
-    'lessons',
-    'avoidPatterns',
-    'tryPatterns',
-  ],
-);
+  actionSummary: { type: 'string' },
+  facts: recordSchema({
+    ...assessmentFactProperties,
+    accepted: { type: 'boolean' },
+  }),
+  ...summaryResponseProperties,
+});
 export const historySchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-history/v1' },
   experimentId: ref,
@@ -361,7 +317,7 @@ export type MetricsAnalysis = {
   incumbentMeasurementRef: string;
   diagnosticMeasurementRef: string;
   sourceDigest: string;
-  sourceBundleDigest?: string;
+  sourceBundleDigest: string;
   resourcesDigest: string;
   embeddingDigest: string;
   hardwareDigest: string | null;
@@ -401,41 +357,23 @@ export const metricsBottleneckSchema = recordSchema({
     items: recordSchema({ path: ref, value: { type: 'number' } }),
   },
 });
-export const metricsAnalysisSchema = recordSchema(
-  {
-    schemaVersion: { const: 'rsi.operator-metrics-analysis/v1' },
-    experimentId: ref,
-    round: { type: 'integer', minimum: 1 },
-    parentCandidateRef: ref,
-    incumbentMeasurementRef: ref,
-    diagnosticMeasurementRef: ref,
-    sourceDigest: hash,
-    sourceBundleDigest: hash,
-    resourcesDigest: hash,
-    embeddingDigest: hash,
-    hardwareDigest: { anyOf: [hash, { type: 'null' }] },
-    bottleneck: { anyOf: [metricsBottleneckSchema, { type: 'null' }] },
-    knowledgeContext: { type: 'string' },
-    retrievalRef: { anyOf: [ref, { type: 'null' }] },
-    retrievalStatus: { enum: ['skipped', 'available', 'unavailable'] },
-  },
-  [
-    'schemaVersion',
-    'experimentId',
-    'round',
-    'parentCandidateRef',
-    'incumbentMeasurementRef',
-    'diagnosticMeasurementRef',
-    'sourceDigest',
-    'resourcesDigest',
-    'embeddingDigest',
-    'hardwareDigest',
-    'bottleneck',
-    'knowledgeContext',
-    'retrievalRef',
-    'retrievalStatus',
-  ],
-);
+export const metricsAnalysisSchema = recordSchema({
+  schemaVersion: { const: 'rsi.operator-metrics-analysis/v1' },
+  experimentId: ref,
+  round: { type: 'integer', minimum: 1 },
+  parentCandidateRef: ref,
+  incumbentMeasurementRef: ref,
+  diagnosticMeasurementRef: ref,
+  sourceDigest: hash,
+  sourceBundleDigest: hash,
+  resourcesDigest: hash,
+  embeddingDigest: hash,
+  hardwareDigest: { anyOf: [hash, { type: 'null' }] },
+  bottleneck: { anyOf: [metricsBottleneckSchema, { type: 'null' }] },
+  knowledgeContext: { type: 'string' },
+  retrievalRef: { anyOf: [ref, { type: 'null' }] },
+  retrievalStatus: { enum: ['skipped', 'available', 'unavailable'] },
+});
 export const metricsSummarySchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-metrics-summary/v1' },
   actionSummary: { type: 'string' },

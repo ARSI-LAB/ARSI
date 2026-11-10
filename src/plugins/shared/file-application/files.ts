@@ -93,15 +93,9 @@ async function readTarget(
 export async function createFileApplication(
   config: FileApplicationConfig,
   services: RuntimeContext,
-  backendForTarget:
-    | ApplicationBackend
-    | ((target: Target) => ApplicationBackend),
+  backend: ApplicationBackend,
 ): Promise<Operation<ApplicationInput, ApplicationOutput>> {
   const { raw, target } = await readTarget(config, services.rootDirectory);
-  const backend =
-    typeof backendForTarget === 'function'
-      ? backendForTarget(target)
-      : backendForTarget;
   const baseline = config.baseline;
   const active = new Map<string, RuntimeContext>();
   async function releaseInstance(

@@ -257,10 +257,6 @@ async function setup(
   );
   runtime.registry.registerPolicy('test.operator-driver', policyPath);
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
-  if (options.bundle)
-    Object.assign(object(object(recipe.application).config), {
-      entryFile: 'input.py',
-    });
   recipe.policy = { id: 'test.operator-driver' };
   const bindings = object(recipe.bindings);
   bindings.driver = { plugin: 'operator.driver', config: {} };
@@ -623,7 +619,7 @@ test('operator generation receives configured prompts and rejects analysis after
   assert.equal(result.status, 'succeeded');
 });
 
-test('operator Proposer performs independent diagnosis/generation, repairs failed source and delivers the measured summary to a fresh entry proposal', async (t) => {
+test('operator Proposer repairs a failed multi-file candidate and delivers the measured summary to a fresh entry proposal', async (t) => {
   const fixture = await setup(
     async (context, requests) => {
       const { entry, baselineRef } = await baseline(context);
@@ -723,14 +719,23 @@ test('operator Proposer performs independent diagnosis/generation, repairs faile
       );
       const child = await context.readCandidate(string(next.candidateRef));
       assert.equal(child.parentRef, entry);
-      for (const request of requests)
+      for (const request of requests) {
         assert.equal(request.input.sourcePath, 'kernels/transpose[0].py');
+        assert.deepEqual(request.input.sourceFiles, [
+          'kernels/constants.py',
+          'kernels/transpose[0].py',
+        ]);
+      }
       return { ...next, historyRef: summary.historyRef };
     },
     false,
     { sourcePath: 'kernels/transpose[0].py' },
   );
   t.after(() => fixture.dispose());
+  await writeFile(
+    join(fixture.root, 'example/baseline/kernels/constants.py'),
+    'BLOCK = 32\n',
+  );
   const result = await fixture.runtime.manager.run(fixture.recipePath, {
     id: 'operator-actions',
   });

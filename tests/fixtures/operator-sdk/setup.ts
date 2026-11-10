@@ -144,6 +144,7 @@ export async function prepareOperatorFixture(): Promise<{
       application: {
         plugin: 'application.kernel',
         config: {
+          entryFile: 'input.py',
           target: { schema: './target.yaml' },
           baseline: { directory: './baseline' },
         },

@@ -3,6 +3,7 @@ id: operator-transpose-copy-metrics-search
 application:
   plugin: application.kernel
   config:
+    entryFile: input.py
     target:
       schema: ./target.yaml
     baseline:

@@ -8,13 +8,17 @@ import type {
   Operation,
   RuntimeContext,
 } from '../../contracts/index.js';
-import { parseKernelExecution } from '../application-kernel/schema.js';
+import {
+  kernelBundleDigest,
+  parseKernelExecution,
+} from '../application-kernel/schema.js';
 import {
   operatorbenchContract,
   type OperatorbenchInput,
   type OperatorbenchOutput,
 } from '../../contracts/plugin-types/operatorbench.js';
 import { digest, object, string } from '../../shared/json.js';
+import { compareFilePaths } from '../../shared/compare-file-paths.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { archiveItemExecution } from '../shared/evaluator-adapter/measurement.js';
@@ -66,6 +70,7 @@ export async function createOperatorbench(
     '../shared/evaluator-adapter/configuration',
     '../shared/evaluator-adapter/data',
     '../application-kernel/schema',
+    '../../shared/compare-file-paths',
   ]);
   const sdkBuildDigest = await sdkBuildIdentity();
   return {
@@ -115,33 +120,29 @@ export async function createOperatorbench(
         async (raw) => {
           context.signal.throwIfAborted();
           const execution = parseKernelExecution(raw);
+          const sourceBundleDigest = kernelBundleDigest(
+            execution.sourcePath,
+            execution.sourceFiles,
+          );
           if (
             assessment &&
-            (assessment.sourceDigest !== execution.sourceDigest ||
-              (assessment.sourceBundleDigest !== execution.sourceBundleDigest &&
-                (execution.sourceFiles.length > 1 ||
-                  assessment.sourceBundleDigest !== undefined)))
+            assessment.sourceBundleDigest !== sourceBundleDigest
           )
             throw new Error(
               'Diagnostic source differs from its precision assessment',
             );
-          const target =
-            object(raw).sourceFiles !== undefined
-              ? parseTarget((await context.applicationMetadata()).target)
-              : null;
+          const target = parseTarget(
+            (await context.applicationMetadata()).target,
+          );
           const prepared = await prepareOperatorCase({
             task,
             selected,
             execution,
             manifest,
             operation: input.action,
-            ...(target
-              ? {
-                  editablePaths: execution.sourceFiles
-                    .filter((file) => canModifyTargetFile(target, file.path))
-                    .map((file) => file.path),
-                }
-              : {}),
+            editablePaths: execution.sourceFiles
+              .map((file) => file.path)
+              .filter((path) => canModifyTargetFile(target, path)),
           });
           const configPath = join(context.directory, 'sdk-config.json');
           await writeFile(configPath, JSON.stringify(evaluationConfig), {
@@ -232,7 +233,11 @@ export async function createOperatorbench(
             result,
             input.candidateRef,
             selected.id,
-            execution,
+            {
+              artifactRef: execution.artifactRef,
+              sourceDigest: prepared.candidateSha256,
+              sourceBundleDigest,
+            },
             conditions,
             entries,
             context,
@@ -356,7 +361,5 @@ async function sdkBuildIdentity(): Promise<string> {
     }
   };
   await walk('');
-  return digest(
-    files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
-  );
+  return digest(files.sort(compareFilePaths));
 }

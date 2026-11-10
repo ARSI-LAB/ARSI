@@ -1,4 +1,5 @@
 import type { JsonObject, RuntimeContext } from '../../contracts/index.js';
+import { compareFilePaths } from '../../shared/compare-file-paths.js';
 import { digest, object, string } from '../../shared/json.js';
 import type { SdkOperatorResult } from './result.js';
 import type { PreparedOperatorCase } from './kernel-input.js';
@@ -6,25 +7,20 @@ import type { PreparedOperatorCase } from './kernel-input.js';
 type ProfileAssessment = {
   ref: string;
   conditions: JsonObject;
-  sourceDigest: string;
-  sourceBundleDigest?: string;
+  sourceBundleDigest: string;
   comparisonKey: string;
 };
 
 export function fixedConditions(
   run: JsonObject,
-  prepared?: Pick<PreparedOperatorCase, 'sourceInventory'>,
+  prepared: Pick<PreparedOperatorCase, 'sourceInventory'>,
 ): JsonObject & { fixedFiles: { path: string; sha256: string }[] } {
   const files = object(run.source).files;
   if (!Array.isArray(files)) throw new Error('Missing SDK source files');
-  const inventory = prepared?.sourceInventory;
-  const mutable = inventory
-    ? inventory.mutablePaths.map((path) =>
-        path === inventory.entryFile && inventory.sdkEntryPath
-          ? inventory.sdkEntryPath
-          : `data/candidate/${path}`,
-      )
-    : ['data/input.py'];
+  const inventory = prepared.sourceInventory;
+  const mutable = inventory.mutablePaths.map(
+    (path) => `data/candidate/${path}`,
+  );
   return {
     sdkIdentity: run.identity ?? null,
     pluginVersions: run.pluginVersions ?? null,
@@ -36,19 +32,12 @@ export function fixedConditions(
       .filter(
         (file) => file.path !== 'manifest.json' && !mutable.includes(file.path),
       )
-      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
-    ...(inventory
-      ? {
-          candidateLayout: {
-            entryFile: inventory.entryFile,
-            files: inventory.files.map((file) => file.path).sort(),
-            mutablePaths: [...inventory.mutablePaths].sort(),
-            ...(inventory.sdkEntryPath
-              ? { sdkEntryPath: inventory.sdkEntryPath }
-              : {}),
-          },
-        }
-      : {}),
+      .sort(compareFilePaths),
+    candidateLayout: {
+      entryFile: inventory.entryFile,
+      files: inventory.files.map((file) => file.path).sort(),
+      mutablePaths: [...inventory.mutablePaths].sort(),
+    },
   };
 }
 
@@ -105,10 +94,7 @@ export async function readProfileAssessment(
   return {
     ref,
     conditions: evaluation,
-    sourceDigest: string(provenance.sourceDigest),
-    ...(provenance.sourceBundleDigest === undefined
-      ? {}
-      : { sourceBundleDigest: string(provenance.sourceBundleDigest) }),
+    sourceBundleDigest: string(provenance.sourceBundleDigest),
     comparisonKey: string(measurement.comparisonKey),
   };
 }

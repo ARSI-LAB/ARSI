@@ -21,7 +21,6 @@ import {
   kernelExecutionSchema,
   kernelSourcePath,
 } from '../../src/plugins/application-kernel/schema.js';
-import { parseTarget } from '../../src/plugins/shared/file-application/target.js';
 import {
   createApplicationKernel,
   kernelApplicationDefinition,
@@ -119,9 +118,7 @@ async function fixture(
   const config = {
     target: { schema: options.target ?? target },
     baseline: { directory: baseline },
-    ...(options.entryFile === undefined
-      ? {}
-      : { entryFile: options.entryFile }),
+    entryFile: options.entryFile ?? sourcePath,
   };
   const application = await createApplicationKernel(config, context);
   const initial = await application.execute({ action: 'initialize' }, context);
@@ -150,7 +147,7 @@ test('kernel source leases preserve artifact identity and raw UTF-8 bytes until 
   assert.equal(execution.format, 'triton-ascend');
   assert.equal(execution.kind, 'kernel-source');
   assert.equal(
-    execution.sourceDigest,
+    execution.sourceFiles.find((file) => file.path === sourcePath)?.sha256,
     createHash('sha256')
       .update(Buffer.from(baselineSource, 'utf8'))
       .digest('hex'),
@@ -230,8 +227,14 @@ test('kernel bundle supports a read-only entry and helper-only edits', async (t)
   assert.equal(result.action, 'commit');
   if (result.action !== 'commit') throw new Error('commit failed');
   const after = await acquire(result.candidateRef, 'after');
-  assert.equal(before.sourceDigest, after.sourceDigest);
-  assert.notEqual(before.sourceBundleDigest, after.sourceBundleDigest);
+  assert.deepEqual(
+    before.sourceFiles.find((f) => f.path === sourcePath),
+    after.sourceFiles.find((f) => f.path === sourcePath),
+  );
+  assert.notDeepEqual(
+    before.sourceFiles.find((f) => f.path === helper),
+    after.sourceFiles.find((f) => f.path === helper),
+  );
   await writeFile(join(edit.directory, sourcePath), '# unauthorized\n');
   await assert.rejects(
     application.execute(
@@ -328,7 +331,7 @@ test('kernel commits preserve defective source for feedback and reuse unchanged 
     defectiveSource,
   );
   assert.equal(
-    execution.sourceDigest,
+    execution.sourceFiles.find((file) => file.path === sourcePath)?.sha256,
     createHash('sha256').update(defectiveSource).digest('hex'),
   );
   await context.workspaces.release(edit.ref);
@@ -415,65 +418,58 @@ test('cancelled kernel acquisition removes its materialized workspace and suppor
   assert.deepEqual(await readdir(context.workspaces.directory), []);
 });
 
-test('kernel Application infers its entry only from a unique Target file', async () => {
-  const file = {
-    path: 'one.py',
-    kind: 'file',
-    description: 'source',
-    changes: ['modify'],
-  };
-  for (const entries of [
-    [{ ...file, kind: 'directory' }],
-    [file, { ...file, path: 'two.py' }],
-  ]) {
-    await assert.rejects(
-      createApplicationKernel(
-        {
-          target: { schema: { ...target, entries } },
-          baseline: { directory: '.' },
-        },
-        new RuntimeContext(),
-      ),
-      /exactly one file/,
-    );
-  }
-});
-
-test('kernel entry configuration accepts a safe explicit path or the unique Target file', () => {
-  const parsedTarget = parseTarget(target);
+test('kernel configuration requires an explicit safe entry path', () => {
+  assert.throws(
+    () =>
+      validate(kernelApplicationDefinition.configSchema, {
+        target: { schema: target },
+        baseline: { directory: '.' },
+      }),
+    /entryFile/,
+  );
   for (const entryFile of [
     '../helper.py',
     'C:/helper.py',
     'dir/',
     'dir//helper.py',
   ])
-    assert.throws(() => kernelSourcePath(parsedTarget, entryFile), /path/);
-  assert.equal(kernelSourcePath(parsedTarget), sourcePath);
-  assert.equal(kernelSourcePath(parsedTarget, 'readonly.py'), 'readonly.py');
+    assert.throws(() => kernelSourcePath(entryFile), /path/);
 });
-
-test('kernel execution parsing checks fixed format, digest, and helper-provided artifact identity', () => {
+test('kernel execution reads only the current source inventory and requires one safe entry', () => {
+  const entry = { path: sourcePath, sha256: 'a'.repeat(64) };
   const execution = {
     kind: 'kernel-source',
     format: 'triton-ascend',
     directory: '/leased/source',
     sourcePath,
+    sourceFiles: [entry],
     artifactRef: 'artifact',
-    sourceDigest: 'a'.repeat(64),
     entryPoint: 'kernel_function',
     workspaceRef: 'workspace',
     artifactDigest: 'artifact',
   };
-  const parsed = parseKernelExecution(execution);
-  assert.deepEqual(parsed.sourceFiles, [
-    { path: sourcePath, sha256: execution.sourceDigest },
-  ]);
-  assert.deepEqual(
-    { ...parsed, sourceFiles: undefined, sourceBundleDigest: undefined },
-    { ...execution, sourceFiles: undefined, sourceBundleDigest: undefined },
-  );
-  const { sourcePath: _path, ...legacy } = execution;
-  assert.equal(parseKernelExecution(legacy).sourcePath, 'input.py');
+  assert.deepEqual(parseKernelExecution(execution), execution);
+  const { sourcePath: _path, ...withoutEntry } = execution;
+  const { sourceFiles: _files, ...withoutInventory } = execution;
+  for (const invalid of [
+    withoutEntry,
+    withoutInventory,
+    { ...withoutInventory, sourceDigest: entry.sha256 },
+    { ...execution, sourceDigest: entry.sha256 },
+    { ...execution, sourceBundleDigest: entry.sha256 },
+    { ...execution, sourceFiles: [] },
+    {
+      ...execution,
+      sourceFiles: [entry, { ...entry, sha256: 'b'.repeat(64) }],
+    },
+    { ...execution, sourcePath: 'absent.py' },
+    { ...execution, sourceFiles: [{ ...entry, sha256: 'bad' }] },
+    { ...execution, format: 'python' },
+    { ...execution, entryPoint: 'wrong_entry' },
+    { ...execution, artifactDigest: 'different-artifact' },
+    { ...execution, unexpected: true },
+  ])
+    assert.throws(() => parseKernelExecution(invalid), /KernelExecution/);
   for (const path of [
     '../secret',
     '/tmp/file',
@@ -485,26 +481,12 @@ test('kernel execution parsing checks fixed format, digest, and helper-provided 
     'dir/',
   ]) {
     assert.throws(
-      () => parseKernelExecution({ ...execution, sourcePath: path }),
+      () =>
+        parseKernelExecution({
+          ...execution,
+          sourceFiles: [entry, { ...entry, path }],
+        }),
       /path|sourcePath/,
     );
   }
-  for (const invalid of [
-    Object.fromEntries(
-      Object.entries(legacy).filter(([key]) => key !== 'workspaceRef'),
-    ),
-    { ...execution, format: 'python' },
-    { ...execution, sourceDigest: 'bad-digest' },
-    { ...execution, entryPoint: 'wrong_entry' },
-    { ...execution, artifactDigest: 'different-artifact' },
-    { ...execution, unexpected: true },
-  ])
-    assert.throws(
-      () => parseKernelExecution(invalid),
-      /KernelExecution|artifact/,
-    );
-  assert.equal(
-    object(parseKernelExecution(execution)).sourceDigest,
-    execution.sourceDigest,
-  );
 });

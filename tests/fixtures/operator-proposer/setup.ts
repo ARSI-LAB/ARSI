@@ -23,6 +23,9 @@ export async function prepareOperatorProposerFixture(
   const entrySource = operatorFixtureSource('fixture:latency=10');
   const baseline = join(fixture.root, 'example/baseline');
   if (sourcePath !== 'input.py') {
+    const recipe = parseDocument(await readFile(fixture.recipePath, 'utf8'));
+    recipe.setIn(['application', 'config', 'entryFile'], sourcePath);
+    await writeFile(fixture.recipePath, recipe.toString());
     const targetPath = join(fixture.root, 'example/target.yaml');
     const target = parseDocument(await readFile(targetPath, 'utf8'));
     target.setIn(['entries', 0, 'path'], sourcePath);

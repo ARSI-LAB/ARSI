@@ -47,7 +47,7 @@
 
 ## Application
 
-Application 根据初始内容创建候选版本，检查并提交修改，并为评测准备和释放运行实例。`application.agentbundle` 管理 Agent Bundle，`application.inference` 管理推理服务配置与实例，`application.kernel` 管理 Triton-Ascend 算子源码与评测工作目录。算子优化中的 `baseline` 包含完整的初始实现，包括入口、本地 helper 和包初始化文件。每个候选快照中的全部文件都会交付给评测和 profiling。`entryFile` 指定相对于快照的入口模块，入口须提供可调用的 `kernel_function`。省略时，使用唯一的 `kind: file` Target 条目作为入口。Target 决定允许修改的文件，入口可以只读。实验中不能新增或删除源码成员。环境与配置见[算子优化示例](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md)。
+Application 根据初始内容创建候选版本，检查并提交修改，并为评测准备和释放运行实例。`application.agentbundle` 管理 Agent Bundle，`application.inference` 管理推理服务配置与实例，`application.kernel` 管理 Triton-Ascend 算子源码与评测工作目录。算子优化中的 `baseline` 包含完整的初始实现，包括入口、本地 helper 和包初始化文件。每个候选快照中的全部文件都会交付给评测和 profiling。`entryFile` 指定相对于快照的入口模块，入口须提供可调用的 `kernel_function`。单文件和多文件候选都须指定 `entryFile`。Target 决定允许修改的文件，入口可以只读。实验中不能新增或删除源码成员。环境与配置见[算子优化示例](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md)。
 
 入口只读的包可以显式指定入口：
 
@@ -60,9 +60,9 @@ application:
     entryFile: kernels/kernel.py
 ```
 
-在 `baseline/` 下放置 `kernels/kernel.py`、`kernels/__init__.py` 和 `kernels/tiling.py`。评测任务放在其配置的 task 目录中。Target 可以只授权修改 `kernels/tiling.py`。Proposer 从 `context/sources/` 读取所有候选文件，按阶段输入中的 `editablePaths` 返回修改，每个修改文件提供完整替换内容。评测和 profiling 保留包目录结构并验证所有成员。`sourceDigest` 继续表示入口字节摘要；`sourceBundleDigest` 同时覆盖 helper。比较条件保留只读文件摘要，排除可编辑源码的内容。多文件评测需要支持 kernel manifest `candidateRoot` 字段的 Evaluator 版本。
+在 `baseline/` 下放置 `kernels/kernel.py`、`kernels/__init__.py` 和 `kernels/tiling.py`。评测任务放在其配置的 task 目录中。Target 可以只授权修改 `kernels/tiling.py`。Proposer 从 `context/sources/` 读取所有候选文件，按阶段输入中的 `editablePaths` 返回修改，每个修改文件提供完整替换内容。评测和 profiling 保留包目录结构并验证所有成员。执行描述携带入口路径和每个文件的 SHA-256。评测端从清单得到入口摘要 `sourceDigest` 和整包摘要 `sourceBundleDigest`，并将两者写入测量记录。比较条件保留只读文件摘要，排除可编辑源码的内容。多文件评测需要支持 kernel manifest `candidateRoot` 字段的 Evaluator 版本。
 
-Target 授权也适用于只有一个文件的候选快照：只读入口的字节和声明路径进入比较身份，可编辑入口则可变更内容。SDK 单文件 staging 保留 `input.py` 兼容别名，并记录其与声明入口的映射；历史收据保留原有比较投影。源码清单以确定性的路径顺序计算 bundle 哈希并比较证据，包括字节不同的 Unicode 文件名。
+Target 授权也适用于只有一个文件的候选快照：只读入口的字节和声明路径进入比较身份，可编辑入口则可变更内容。SDK 在 `candidate/` 下保留每个候选的实际入口路径。源码清单以确定性的路径顺序计算 bundle 哈希并比较证据，包括字节不同的 Unicode 文件名。
 
 ### 修改范围（Target）
 

@@ -32,9 +32,9 @@ Recipe 包含以下顶层字段，完整 Recipe 示例见[快速入门](../getti
 
 ## Agent 与环境变量
 
-优化流程中的 Agent 负责生成提案、评审交付内容、整理经验等模型任务，内置后端为 Pi、Codex 和 Claude Code。Evaluator 的配置与优化 Agent 分开：AgentBench 配置被测 Agent（Solver）的模型服务，InferenceBench 配置推理服务基准，OperatorBench 配置算子评测环境。
+优化流程中的 Agent 负责生成提案、评审交付内容、整理经验等模型任务，内置后端为 Pi、Codex、Claude Code 和 DSH。Evaluator 的配置与优化 Agent 分开：AgentBench 配置被测 Agent（Solver）的模型服务，InferenceBench 配置推理服务基准，OperatorBench 配置算子评测环境。
 
-各后端都在为 Agent 调用准备好的 workspace 中运行。`contract.agent` 接收 `cwd`、`goal` 和 `outputSchema`，Pi 通过 Runtime 委派时还会传入 `role`。Codex 和 Claude Code 使用原生工具委派。后端从 `AGENTS.md` 或 `CLAUDE.md` 读取指令，并从工作目录读取任务材料。
+各后端都在为 Agent 调用准备好的 workspace 中运行。`contract.agent` 接收 `cwd`、`goal` 和 `outputSchema`，Pi 通过 Runtime 委派时还会传入 `role`。Codex、Claude Code 和 DSH 使用原生工具委派。后端从 `AGENTS.md` 或 `CLAUDE.md` 读取指令，并从工作目录读取任务材料。
 
 | 配置对象               | 用途                                                             |
 | ---------------------- | ---------------------------------------------------------------- |
@@ -46,7 +46,7 @@ Recipe 包含以下顶层字段，完整 Recipe 示例见[快速入门](../getti
 
 ### 环境变量
 
-RSI 不会自动加载 `.env` 文件，需要在启动 CLI 的进程中导出变量。
+RSI 不会自动加载 `.env` 文件，需要在启动 CLI 的进程中导出变量。原生 Agent CLI 仍可能按自身规则加载配置或环境文件。
 
 - **模型环境变量由具体组件及其配置决定，框架没有一组统一必填的模型环境变量。**
 
@@ -119,14 +119,11 @@ bindings:
     config: {}
 ```
 
-这个后端的准备和调用分工如下：
+使用启动 RSI 的同一系统用户安装并完成 Codex 认证。模型服务和凭据保留在原生 Codex 配置中。
 
-- **开发者负责准备环境**：安装或更新 Codex CLI，并在 Recipe 中选择 `agent.codex`。使用启动 RSI 的同一系统用户运行 `codex login` 完成登录，再用 `codex login status` 检查；模型服务和原生工具权限也在该用户的 Codex 配置中设置。
-- **RSI 自动完成调用**：RSI 框架会启动 `codex app-server`，为本次任务创建临时工作目录和会话，提供提示词与文件读取工具，校验返回结果，并在结束时清理进程和临时目录。
+RSI 在传入的 Agent 项目 `cwd` 中启动 `codex app-server`，创建临时会话，使用原生 Codex 工具及只读文件系统权限配置。最终 JSON 校验后关闭进程。Agent 项目文件保留给调用方插件使用；该后端不会另外创建或删除系统临时工作目录。
 
-Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置说明](https://learn.chatgpt.com/docs/config-file/config-basic)。RSI 默认在系统临时目录运行 Codex；实验专用指令应通过相应插件的 `prompt`、`guidance` 等资源传入。
-
-- 仓库里的 `AGENTS.md` 和 `.codex/config.toml` 不会自动成为本次调用的项目配置
+用户配置默认位于 `~/.codex/config.toml`。RSI 使用 `.rsi-project` 标记项目根目录，并注册准备好的 `.codex/agents` 角色。实验指令与 Skills 应通过调用方插件的资源传入，以便包含在 Agent 项目中。
 
 [Codex Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、可选的 `model`、`thinkingLevel` 和 `timeoutMs`。省略 `model`、`thinkingLevel` 时沿用本地默认值，显式填写则只覆盖本次调用的模型和推理强度，不改写本地配置。
 
@@ -136,7 +133,7 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 ### Claude Code 后端
 
-`agent.claudecode` 使用本机 Claude Code CLI（2.1.319 或更新版本，macOS/Linux）。运行 RSI 前先准备好登录或网关环境：
+`agent.claudecode` 使用本机 Claude Code CLI（macOS/Linux，已验证 2.1.319）。运行 RSI 前先准备好登录或网关环境：
 
 ```yaml
 bindings:
@@ -151,7 +148,13 @@ bindings:
 
 ### DSH 后端
 
-`agent.dsh` 通过官方安装的 DSH CLI headless 模式执行任务。需要支持 `--json`、stdin 任务输入、`--permission-mode` 和 `--approval-policy` 的版本（已验证 `0.2.2-rc.1`）。RSI 不会自动安装或升级 DSH。
+`agent.dsh` 通过官方安装的 DSH CLI headless 模式执行任务。需要支持 `--json`、stdin 任务输入、`--permission-mode` 和 `--approval-policy` 的版本（已验证 `0.2.2-rc.1`）。RSI 不会自动安装或升级 DSH。安装已验证版本并检查接口：
+
+```sh
+npm install -g @deepseek-ai/dsh@0.2.2-rc.1
+dsh --version
+dsh --profile headless --help
+```
 
 ```yaml
 bindings:
@@ -162,7 +165,7 @@ bindings:
       timeoutMs: 180000
 ```
 
-[DSH Schema](../../../src/plugins/agent-dsh/schema.ts) 接受 `executable`（默认 `dsh`）和可选的整体调用超时 `timeoutMs`。模型路由和推理设置继续由用户的 DSH headless profile 管理。RSI 继承启动环境和 `DSH_HOME`；仅本次调用使用的配置覆盖会恢复上游 headless 默认关闭的原生凭据存储、认证及账号插件，不修改用户配置。密钥保留在原生配置或环境变量引用中，不写入 Recipe 字段。
+[DSH Schema](../../../src/plugins/agent-dsh/schema.ts) 接受 `executable`（默认 `dsh`）和可选的整体调用超时 `timeoutMs`。模型路由和推理设置继续由用户的 DSH headless profile 管理（`$DSH_HOME/profiles/headless`，默认是 `~/.dsh/profiles/headless`）。仅配置在 Web profile 中的设置和插件不会自动继承。运行 RSI 前先配置 headless 模型路由；`agent.dsh` 不接受 `model`、`base_url` 或 `api_key` 字段。RSI 继承启动环境和 `DSH_HOME`；仅本次调用使用的配置覆盖会恢复上游 headless 默认关闭的原生凭据存储、认证及账号插件，不修改用户配置。密钥保留在原生配置或环境变量引用中，不写入 Recipe 字段。
 
 每次调用在传入的 Agent 项目中创建新的原生会话，DSH 保留原生会话日志。RSI 指定项目指令发现边界和 `.agents/skills` 路径；DSH 原生子 Agent 可读取生成的 `roles/<name>.md`。与 Codex 一样，不支持直接通过 `AgentInput.role` 委派。
 
@@ -171,7 +174,6 @@ CLI 固定使用 `workspace-write` 和 `approval-policy never`：整个任务工
 成功必须同时满足进程退出码为零、原生最终事件为 completed、结果通过 JSON Schema 校验。最终 JSON 无效时直接失败，不追加纠正轮次或自动重跑。RSI 记录会话 ID 和可获得的逐步原生 token 用量；缺失用量保持未知，无法执行内部 `modelCalls` 预算约束。原始模型/工具输出及 stderr 不会复制到 RSI 诊断日志；详细失败信息请查看 DSH 原生日志。
 
 macOS/Linux 上，超时、取消和销毁会终止进程组。不支持 Windows。此后端目前仅在 macOS 做过真实测试。
-
 
 ## Proposer 文件编辑
 
@@ -196,7 +198,7 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | Pi                                                    | `contextWindow`                                   | Pi 用于上下文管理的窗口大小，单位 Token，应与模型能力匹配。                                               | 262144 Token。                                                                    |
 | Pi                                                    | `timeoutMs`                                       | 单次模型请求的时长上限，单位毫秒。                                                                        | 底层 HTTP 客户端使用 600000 毫秒（10 分钟）。                                     |
 | Pi                                                    | `executionTimeoutMs`                              | 完整 Agent 调用的时长上限，单位毫秒，包含请求、工具、压缩、重试等待和子 Agent。                           | 无整次调用的独立时长上限。                                                        |
-| Codex                                                 | `timeoutMs`                                       | 完整 Agent 调用的时长上限，单位毫秒。                                                                     | RSI 不为该调用设置独立超时。                                                      |
+| Codex / Claude Code / DSH                             | `timeoutMs`                                       | 完整 Agent 调用的时长上限，单位毫秒。                                                                     | RSI 不为该调用设置独立超时。                                                      |
 | Operator Proposer                                     | `modelRequestTimeoutMs`                           | 一个完整模型阶段的共享时长上限，单位毫秒，包含工具续调与子 Agent。                                        | 120000 毫秒（2 分钟）。                                                           |
 | AgentBench Evaluator                                  | `services.<service>.maxTokens`                    | 被测 Agent 所用模型服务的每轮输出 Token 上限。                                                            | 由 Solver 或模型服务的默认设置决定。                                              |
 | AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                              | 单个基准任务一次执行的时长上限，单位秒。                                                                  | 使用 SDK 基准 profile 的值；profile 未指定时为 7200 秒（2 小时）。                |

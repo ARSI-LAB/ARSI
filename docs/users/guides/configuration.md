@@ -32,9 +32,9 @@ The following table lists the top-level Recipe fields. For a complete Recipe exa
 
 ## Agent and environment variables
 
-Agents in the optimization flow generate proposals, review deliverables, consolidate experience, and perform other model tasks. The built-in backends are Pi, Codex, and Claude Code. Evaluator settings are separate from the optimization Agent: AgentBench configures the evaluated Agent's (Solver's) model services, InferenceBench configures inference service benchmarks, and OperatorBench configures kernel evaluation environments.
+Agents in the optimization flow generate proposals, review deliverables, consolidate experience, and perform other model tasks. The built-in backends are Pi, Codex, Claude Code, and DSH. Evaluator settings are separate from the optimization Agent: AgentBench configures the evaluated Agent's (Solver's) model services, InferenceBench configures inference service benchmarks, and OperatorBench configures kernel evaluation environments.
 
-All backends run in the workspace prepared for the Agent call. The `contract.agent` input supplies `cwd`, `goal`, and `outputSchema`, with `role` for Pi delegation through the Runtime. Codex and Claude Code delegate through native tools. Backends read instructions from `AGENTS.md` or `CLAUDE.md` and use the workspace files for task context.
+All backends run in the workspace prepared for the Agent call. The `contract.agent` input supplies `cwd`, `goal`, and `outputSchema`, with `role` for Pi delegation through the Runtime. Codex, Claude Code, and DSH delegate through native tools. Backends read instructions from `AGENTS.md` or `CLAUDE.md` and use the workspace files for task context.
 
 | Configuration target  | Purpose                                                                                                             |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -46,7 +46,7 @@ All backends run in the workspace prepared for the Agent call. The `contract.age
 
 ### Environment variables
 
-RSI does not automatically load `.env` files. Export variables in the process that launches the CLI.
+RSI does not automatically load `.env` files. Export variables in the process that launches the CLI. Native Agent CLIs may additionally load their own configuration or environment files according to their own rules.
 
 - **Model environment variables depend on the selected components and their configuration; the framework has no single set of required model environment variables.**
 
@@ -119,14 +119,11 @@ bindings:
     config: {}
 ```
 
-Setup and invocation responsibilities are split as follows:
+Install and authenticate Codex as the same operating-system user that launches RSI. Keep model services and credentials in the native Codex configuration.
 
-- **The developer prepares the environment**: Install or update the Codex CLI and select `agent.codex` in the Recipe. Run `codex login` as the same operating-system user that launches RSI, then check with `codex login status`; configure model services and native tool permissions in that user's Codex configuration.
-- **RSI handles invocation automatically**: RSI starts `codex app-server`, creates a temporary working directory and session for the task, supplies the prompt and file-reading tool, validates the result, and cleans up the process and temporary directory when the call ends.
+RSI starts `codex app-server` in the supplied Agent project's `cwd`, creates an ephemeral session, and uses native Codex tools with a read-only filesystem permission profile. It validates the final JSON and closes the process when the call ends. The Agent project's files remain available to the calling plugin; the backend does not create or delete a separate system temporary workspace.
 
-The default Codex user configuration file is `~/.codex/config.toml`; see the [OpenAI Docs configuration guide](https://learn.chatgpt.com/docs/config-file/config-basic). RSI runs Codex in a system temporary directory by default; supply experiment-specific instructions through the relevant plugin's `prompt`, `guidance`, or other resources.
-
-- The checkout's `AGENTS.md` and `.codex/config.toml` do not automatically become project settings for that invocation.
+The default user configuration is `~/.codex/config.toml`. RSI supplies `.rsi-project` as the project-root marker and registers the prepared `.codex/agents` roles. Supply experiment instructions and Skills through the calling plugin's resources so they are included in the Agent project.
 
 The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executable` (default `codex`), optional `model`, optional `thinkingLevel`, and optional `timeoutMs`. Omitted `model` and `thinkingLevel` retain local defaults. Explicit values override the model and reasoning effort for the call without rewriting local configuration.
 
@@ -136,7 +133,7 @@ The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executab
 
 ### Claude Code backend
 
-`agent.claudecode` uses a locally installed Claude Code CLI (2.1.319 or newer, macOS/Linux). Prepare its login or gateway environment before running RSI:
+`agent.claudecode` uses a locally installed Claude Code CLI on macOS/Linux (verified with 2.1.319). Prepare its login or gateway environment before running RSI:
 
 ```yaml
 bindings:
@@ -151,7 +148,13 @@ Each call uses a fresh session, native Skills and subagents, and read-only tools
 
 ### DSH backend
 
-`agent.dsh` runs the installed official DSH CLI in headless mode. Install a release supporting `--json`, stdin tasks, `--permission-mode`, and `--approval-policy` (verified with `0.2.2-rc.1`). RSI does not install or upgrade DSH automatically.
+`agent.dsh` runs the installed official DSH CLI in headless mode. Install a release supporting `--json`, stdin tasks, `--permission-mode`, and `--approval-policy` (verified with `0.2.2-rc.1`). RSI does not install or upgrade DSH automatically. For the verified release:
+
+```sh
+npm install -g @deepseek-ai/dsh@0.2.2-rc.1
+dsh --version
+dsh --profile headless --help
+```
 
 ```yaml
 bindings:
@@ -162,7 +165,7 @@ bindings:
       timeoutMs: 180000
 ```
 
-The [DSH Schema](../../../src/plugins/agent-dsh/schema.ts) accepts `executable` (default `dsh`) and optional `timeoutMs` for the complete call. Model routes and reasoning settings remain in the user's DSH headless profile. RSI inherits the launch environment and `DSH_HOME`; an invocation-only overlay restores the native credential store, authorization, and account plugins that upstream headless disables by default. It does not rewrite user configuration. API keys remain in native configuration or environment references, never Recipe fields.
+The [DSH Schema](../../../src/plugins/agent-dsh/schema.ts) accepts `executable` (default `dsh`) and optional `timeoutMs` for the complete call. Model routes and reasoning settings remain in the user's DSH headless profile (`$DSH_HOME/profiles/headless`, or `~/.dsh/profiles/headless` by default). Web-only profile settings and plugins are not automatically inherited. Prepare the headless model route before running RSI; `agent.dsh` does not accept `model`, `base_url`, or `api_key` fields. RSI inherits the launch environment and `DSH_HOME`; an invocation-only overlay restores the native credential store, authorization, and account plugins that upstream headless disables by default. It does not rewrite user configuration. API keys remain in native configuration or environment references, never Recipe fields.
 
 Each invocation starts a fresh native session in the supplied Agent project. DSH retains native session logs. RSI supplies project instruction discovery and the `.agents/skills` path; native DSH subagents can read the generated `roles/<name>.md`. Direct `AgentInput.role` delegation is unsupported, as with Codex.
 
@@ -171,7 +174,6 @@ The CLI runs with `workspace-write` and `approval-policy never`: the whole task 
 Success requires both exit code zero and a completed native final event, followed by JSON Schema validation. Invalid final JSON fails without a correction turn or automatic rerun. RSI records session IDs and available per-step native token usage; missing usage stays unknown, and internal `modelCalls` budgets cannot be enforced. Raw model/tool output and stderr are not copied to RSI diagnostics; inspect native DSH logs for detailed failures.
 
 Timeout, cancellation, and disposal terminate the process group on macOS/Linux. Windows is unsupported. This backend has been live-tested on macOS only.
-
 
 ## Proposer file edits
 
@@ -196,7 +198,7 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | Pi                                                    | `contextWindow`                                   | Context-window size in tokens used by Pi for context management; match it to the model's capabilities.                                                                | 262144 tokens.                                                                                                    |
 | Pi                                                    | `timeoutMs`                                       | Duration limit per model request, in milliseconds.                                                                                                                    | The underlying HTTP client uses 600000 ms (10 minutes).                                                           |
 | Pi                                                    | `executionTimeoutMs`                              | Duration limit for a complete Agent call in milliseconds, including requests, tools, compaction, retry waits, and subagents.                                          | No separate duration limit for the complete call.                                                                 |
-| Codex                                                 | `timeoutMs`                                       | Duration limit for the complete Agent call, in milliseconds.                                                                                                          | RSI sets no separate timeout for the call.                                                                        |
+| Codex / Claude Code / DSH                             | `timeoutMs`                                       | Duration limit for the complete Agent call, in milliseconds.                                                                                                          | RSI sets no separate timeout for the call.                                                                        |
 | Operator Proposer                                     | `modelRequestTimeoutMs`                           | Shared duration limit for a complete model stage in milliseconds, including tool continuations and delegated Agents.                                                  | 120000 ms (2 minutes).                                                                                            |
 | AgentBench Evaluator                                  | `services.<service>.maxTokens`                    | Per-turn output-token limit for the model service used by the evaluated Agent.                                                                                        | Determined by Solver or model-service defaults.                                                                   |
 | AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                              | Duration limit for one benchmark task attempt, in seconds.                                                                                                            | Use the SDK benchmark profile's value; fall back to 7200 seconds (2 hours) if the profile omits it.               |

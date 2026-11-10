@@ -472,7 +472,7 @@ try {
   const path=await packageResource(runtime.registry.policy(id)),policy=await Policy.load(path,runtime.registry);
   assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
   if(id==='policy.gepa'){
-   assert.deepEqual(policy.requirements.population,iterativeProposerContract,'installed GEPA Policy uses the shared iterative proposer contract');
+   assert.deepEqual(policy.requirements.evolutionProposer,iterativeProposerContract,'installed GEPA Policy uses the shared iterative proposer contract');
    assert.deepEqual(runtime.registry.get('proposer.pareto-evolution').contract,iterativeProposerContract,'installed Pareto evolution proposer uses the shared iterative proposer contract');
    assert.deepEqual(runtime.registry.get('proposer.optuna').contract,iterativeProposerContract,'installed Optuna and Pareto evolution share one iterative proposer contract');
   }else{

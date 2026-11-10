@@ -640,14 +640,14 @@ export async function runGepa(options: {
     policyId = 'policy.gepa-custom-routes';
     policy.id = policyId;
     policy.require = {
-      population: requirements.population!,
+      evolutionProposer: requirements.evolutionProposer!,
       [bindingNames.evaluator]: requirements.evaluator!,
       [bindingNames.proposer]: requirements.proposer!,
       [bindingNames.agent]: requirements.agent!,
     };
     policy.defaults = {
       bindings: {
-        population: {
+        evolutionProposer: {
           plugin: paretoEvolutionProposerDefinition.id,
           config: {},
         },
@@ -697,7 +697,7 @@ export async function runGepa(options: {
         },
       },
       bindings: {
-        population: {
+        evolutionProposer: {
           config: {
             maxRounds: options.maxRounds,
             maxRollouts: options.maxRollouts,

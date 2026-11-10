@@ -34,7 +34,7 @@ policy:
         - workbuddy/xiaohongshu-psychology-note-pack
         - workbuddy/channel-period-compare-L4-017
 bindings:
-  population:
+  evolutionProposer:
     plugin: proposer.pareto-evolution
     config:
       maxRounds: 15

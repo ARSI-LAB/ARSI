@@ -59,7 +59,7 @@ The Policy invokes `evaluator` and `proposer` explicitly. The search plugin owns
 GEPA's selection, comparison, and population bookkeeping; it does not route
 calls to those plugins. Mutation uses `proposer.agent`, which invokes `agent`,
 validates edits, and commits through the Application. The Recipe configures the
-Evaluator and Agent and keeps algorithm parameters in `bindings.population.config`.
+Evaluator and Agent and keeps algorithm parameters in `bindings.evolutionProposer.config`.
 The task split and its Schema belong to the Policy, with the task IDs configured
 in `policy.config.dataset`. The search plugin owns its algorithm configuration
 Schema. Its public

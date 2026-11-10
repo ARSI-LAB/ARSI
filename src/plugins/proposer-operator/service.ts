@@ -38,7 +38,7 @@ import {
 } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import {
-  kernelLayoutFromMetadata,
+  kernelSourcePath,
   kernelBundleDigest,
 } from '../application-kernel/schema.js';
 import {
@@ -142,20 +142,27 @@ function matchesOperatorSource(
 
 async function readOperatorSource(
   candidate: Candidate,
+  assessment: JsonObject,
   context: RuntimeContext,
 ): Promise<OperatorSource> {
   const tree = parseFileTree(
     await context.artifacts.readJson(candidate.artifactRef),
   );
   const metadata = await context.applicationMetadata();
-  const layout = kernelLayoutFromMetadata(metadata);
+  const conditions = await readOperatorArtifact(
+    assessment,
+    'conditions',
+    context,
+  );
+  const layout = object(conditions.evaluation ?? {}).candidateLayout;
   const target = parseTarget(metadata.target);
-  const sourcePath = layout.entryFile;
-  const paths = [sourcePath, ...layout.additionalFiles].sort();
-  const files: Record<string, string> = {};
-  const sourceFiles = paths.map((path) => {
-    const file = tree.files.find((item) => item.path === path);
-    if (!file) throw new Error(`Operator candidate lacks ${path}`);
+  const sourcePath = kernelSourcePath(
+    target,
+    layout === undefined ? undefined : string(object(layout).entryFile),
+  );
+  const files: Record<string, string> = Object.create(null);
+  const sourceFiles = tree.files.map((file) => {
+    const path = file.path;
     const bytes = Buffer.from(file.base64, 'base64');
     files[path] = new TextDecoder('utf-8', {
       fatal: true,
@@ -171,7 +178,9 @@ async function readOperatorSource(
     ),
     bundleDigest: kernelBundleDigest(sourcePath, sourceFiles),
     files,
-    editablePaths: paths.filter((path) => canModifyTargetFile(target, path)),
+    editablePaths: sourceFiles
+      .map((file) => file.path)
+      .filter((path) => canModifyTargetFile(target, path)),
   };
 }
 
@@ -216,7 +225,7 @@ async function readAssessment(
     'provenance',
     context,
   );
-  const source = await readOperatorSource(candidate, context);
+  const source = await readOperatorSource(candidate, measurement, context);
   if (
     measurement.candidateRef !== candidateRef ||
     measurement.status !== 'succeeded' ||
@@ -466,7 +475,7 @@ export async function readAnalysis(
     operatorScalar(measurement, 'candidateValid') !== 1
   )
     throw new Error('Operator baseline must pass correctness');
-  const source = await readOperatorSource(candidate, context);
+  const source = await readOperatorSource(candidate, measurement, context);
   if (!matchesOperatorSource(identity, source))
     throw new Error('Operator analysis source identity mismatch');
   if (operatorScalar(measurement, 'latencyMeanMs') !== analysis.baselineMs)
@@ -722,6 +731,7 @@ async function readSummary(
 async function operatorSnapshot(
   parent: Candidate,
   config: OperatorProposerConfig,
+  assessment: JsonObject,
   context: RuntimeContext,
 ): Promise<
   Pick<
@@ -729,7 +739,7 @@ async function operatorSnapshot(
     'sourcePath' | 'sourceFiles' | 'editablePaths' | 'files'
   >
 > {
-  const source = await readOperatorSource(parent, context);
+  const source = await readOperatorSource(parent, assessment, context);
   const files: Record<string, string> = {};
   for (const [path, content] of Object.entries(source.files))
     files[sourceSnapshot + path] = content;
@@ -965,7 +975,7 @@ async function profile(
     artifact: provenance.artifactRef === parent.artifactRef,
     source: matchesOperatorSource(
       provenance,
-      await readOperatorSource(parent, context),
+      await readOperatorSource(parent, measurement, context),
     ),
     operation:
       details.operation === 'profile' && evaluation.operation === 'profile',
@@ -1061,7 +1071,7 @@ async function priorHistory(
     if (
       !matchesOperatorSource(
         analysis,
-        await readOperatorSource(parent, context),
+        await readOperatorSource(parent, measured, context),
       )
     )
       throw new Error('Metric history source mismatch');
@@ -1120,7 +1130,7 @@ export const createOperatorProposer: OperationDefinition<
   ): Promise<OperatorAnalysis> {
     const entry = await readOperatorCandidate(entryRef, context),
       baseline = await readAssessment(baselineRef, entryRef, context);
-    const source = await readOperatorSource(entry, context);
+    const source = await readOperatorSource(entry, baseline, context);
     const conditions = object(
       await context.artifacts.readJson(
         string(object(baseline.conditions).artifactRef),
@@ -1223,13 +1233,17 @@ export const createOperatorProposer: OperationDefinition<
         input.entryCandidateRef,
         context,
       );
+      const baseline = await readOperatorMeasurement(
+        input.baselineMeasurementRef,
+        context,
+      );
       const response = await requestOperatorAgent(
         'diagnose',
         config.agentRef,
         {
           goal: input.goal,
           prompt: loaded.prompts.diagnose,
-          ...(await operatorSnapshot(entry, config, context)),
+          ...(await operatorSnapshot(entry, config, baseline, context)),
           input: {
             stage: 'diagnose',
             baseline: base,
@@ -1244,7 +1258,7 @@ export const createOperatorProposer: OperationDefinition<
       try {
         issues = parseStaticDiagnosis(
           response.issues,
-          (await readOperatorSource(entry, context)).source,
+          (await readOperatorSource(entry, baseline, context)).source,
         );
       } catch (error) {
         throw new OperatorModelOutputError(
@@ -1370,7 +1384,9 @@ export const createOperatorProposer: OperationDefinition<
         parentCandidateRef: parent.ref,
         incumbentMeasurementRef: input.incumbentMeasurementRef,
         diagnosticMeasurementRef: input.diagnosticMeasurementRef,
-        ...operatorSourceIdentity(await readOperatorSource(parent, context)),
+        ...operatorSourceIdentity(
+          await readOperatorSource(parent, baseline, context),
+        ),
         resourcesDigest: loaded.digest,
         embeddingDigest: sha(await readFile(config.embedding.identityFile)),
         hardwareDigest: hardware?.sha256 ?? null,
@@ -1409,7 +1425,7 @@ export const createOperatorProposer: OperationDefinition<
       if (
         !matchesOperatorSource(
           analysis,
-          await readOperatorSource(parent, context),
+          await readOperatorSource(parent, baseline, context),
         )
       )
         throw new Error('Metric analysis parent source mismatch');
@@ -1446,7 +1462,7 @@ export const createOperatorProposer: OperationDefinition<
         {
           goal: input.goal,
           prompt: loaded.prompts['diagnose-metrics'],
-          ...(await operatorSnapshot(parent, config, context)),
+          ...(await operatorSnapshot(parent, config, baseline, context)),
           input: {
             stage: 'diagnose-metrics',
             profile: diagnostic,
@@ -1652,6 +1668,7 @@ export const createOperatorProposer: OperationDefinition<
               context,
             ),
             config,
+            prepared.baseline,
             context,
           )),
           input: summaryInput,
@@ -1731,7 +1748,12 @@ export const createOperatorProposer: OperationDefinition<
           );
         }
         const stage = input.action === 'propose' ? 'generate' : 'repair';
-        const snapshot = await operatorSnapshot(parent, config, context);
+        const snapshot = await operatorSnapshot(
+          parent,
+          config,
+          prepared.baseline,
+          context,
+        );
         const editablePaths = snapshot.editablePaths ?? [];
         if (!editablePaths.length)
           throw new Error('Kernel Target permits no source modifications');

@@ -19,7 +19,7 @@ import {
 import {
   parseKernelExecution,
   kernelExecutionSchema,
-  kernelSourceLayout,
+  kernelSourcePath,
 } from '../../src/plugins/application-kernel/schema.js';
 import { parseTarget } from '../../src/plugins/shared/file-application/target.js';
 import {
@@ -56,7 +56,6 @@ async function fixture(
   t: TestContext,
   options: {
     entryFile?: string;
-    additionalFiles?: string[];
     target?: JsonObject;
   } = {},
 ) {
@@ -123,9 +122,6 @@ async function fixture(
     ...(options.entryFile === undefined
       ? {}
       : { entryFile: options.entryFile }),
-    ...(options.additionalFiles === undefined
-      ? {}
-      : { additionalFiles: options.additionalFiles }),
   };
   const application = await createApplicationKernel(config, context);
   const initial = await application.execute({ action: 'initialize' }, context);
@@ -191,7 +187,6 @@ test('kernel bundle supports a read-only entry and helper-only edits', async (t)
   const helper = 'kernels/tiling.py';
   const { application, context, initial } = await fixture(t, {
     entryFile: sourcePath,
-    additionalFiles: ['kernels/__init__.py', helper],
     target: {
       ...target,
       entries: [
@@ -204,12 +199,7 @@ test('kernel bundle supports a read-only entry and helper-only edits', async (t)
       ],
     },
   });
-  assert.deepEqual(initial.capabilityMetadata, {
-    'kernel-source': {
-      entryFile: sourcePath,
-      additionalFiles: ['kernels/__init__.py', helper],
-    },
-  });
+  assert.equal(object(initial).capabilityMetadata, undefined);
   async function acquire(candidateRef: string, instanceId: string) {
     const result = await application.execute(
       {
@@ -227,7 +217,7 @@ test('kernel bundle supports a read-only entry and helper-only edits', async (t)
   const before = await acquire(initial.initialCandidateRef, 'before');
   assert.deepEqual(
     before.sourceFiles.map((file) => file.path),
-    ['kernels/__init__.py', helper, sourcePath].sort(),
+    ['kernels/__init__.py', helper, sourcePath, 'problem.py'].sort(),
   );
   const parent = await context.readCandidate(initial.initialCandidateRef);
   const edit = await context.workspaces.create(parent.artifactRef, parent.ref);
@@ -253,10 +243,9 @@ test('kernel bundle supports a read-only entry and helper-only edits', async (t)
   assert.equal((await context.facts.list('candidates')).length, 2);
 });
 
-test('kernel bundle rejects missing members and changes outside the fixed inventory', async (t) => {
+test('kernel bundle requires its entry and retains the baseline file set', async (t) => {
   const { application, baseline, context, initial } = await fixture(t, {
     entryFile: sourcePath,
-    additionalFiles: ['kernels/tiling.py'],
     target: {
       ...target,
       entries: [
@@ -269,10 +258,10 @@ test('kernel bundle rejects missing members and changes outside the fixed invent
       ],
     },
   });
-  await rm(join(baseline, 'kernels/tiling.py'));
+  await rm(join(baseline, sourcePath));
   await assert.rejects(
     application.execute({ action: 'initialize' }, context),
-    /tiling.py/,
+    /transpose_kernel.py/,
   );
   const parent = await context.readCandidate(initial.initialCandidateRef);
   const edit = await context.workspaces.create(parent.artifactRef, parent.ref);
@@ -426,7 +415,7 @@ test('cancelled kernel acquisition removes its materialized workspace and suppor
   assert.deepEqual(await readdir(context.workspaces.directory), []);
 });
 
-test('kernel Application requires exactly one explicit file entry in its Target', async () => {
+test('kernel Application infers its entry only from a unique Target file', async () => {
   const file = {
     path: 'one.py',
     kind: 'file',
@@ -450,32 +439,17 @@ test('kernel Application requires exactly one explicit file entry in its Target'
   }
 });
 
-test('kernel layout requires an explicit entry for additional files and safe unique paths', () => {
+test('kernel entry configuration accepts a safe explicit path or the unique Target file', () => {
   const parsedTarget = parseTarget(target);
-  assert.throws(
-    () => kernelSourceLayout({ additionalFiles: [] }, parsedTarget),
-    /requires entryFile/,
-  );
-  for (const additionalFiles of [
-    [sourcePath],
-    ['helper.py', 'helper.py'],
-    ['../helper.py'],
-    ['C:/helper.py'],
-    ['dir/'],
-    ['dir//helper.py'],
+  for (const entryFile of [
+    '../helper.py',
+    'C:/helper.py',
+    'dir/',
+    'dir//helper.py',
   ])
-    assert.throws(
-      () =>
-        kernelSourceLayout(
-          { entryFile: sourcePath, additionalFiles },
-          parsedTarget,
-        ),
-      /path|duplicate/,
-    );
-  assert.deepEqual(kernelSourceLayout({}, parsedTarget), {
-    entryFile: sourcePath,
-    additionalFiles: [],
-  });
+    assert.throws(() => kernelSourcePath(parsedTarget, entryFile), /path/);
+  assert.equal(kernelSourcePath(parsedTarget), sourcePath);
+  assert.equal(kernelSourcePath(parsedTarget, 'readonly.py'), 'readonly.py');
 });
 
 test('kernel execution parsing checks fixed format, digest, and helper-provided artifact identity', () => {

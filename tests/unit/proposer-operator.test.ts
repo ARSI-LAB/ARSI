@@ -86,6 +86,10 @@ async function setup(
       'BLOCK = 32\n',
     );
     await writeFile(
+      join(fixture.root, 'example/baseline/settings.json'),
+      '{}\n',
+    );
+    await writeFile(
       join(fixture.root, 'example/target.yaml'),
       stringify({
         schemaVersion: 'rsi.target/v1',
@@ -256,7 +260,6 @@ async function setup(
   if (options.bundle)
     Object.assign(object(object(recipe.application).config), {
       entryFile: 'input.py',
-      additionalFiles: ['tiling.py'],
     });
   recipe.policy = { id: 'test.operator-driver' };
   const bindings = object(recipe.bindings);
@@ -362,6 +365,7 @@ test('operator reads the declared bundle and edits a helper while the entry stay
       assert.deepEqual(requests.at(-1)?.input.editablePaths, ['tiling.py']);
       assert.deepEqual(requests.at(-1)?.input.sourceFiles, [
         'input.py',
+        'settings.json',
         'tiling.py',
       ]);
       const candidate = await context.readCandidate(
@@ -480,10 +484,10 @@ test('helper-only candidates retain comparison conditions and profile the matchi
       assert.ok(Array.isArray(members));
       assert.deepEqual(
         members.map((value) => object(value).path),
-        ['input.py', 'tiling.py'],
+        ['input.py', 'settings.json', 'tiling.py'],
       );
       assert.equal(
-        object(members[1]).sha256,
+        object(members[2]).sha256,
         createHash('sha256').update('BLOCK = 64\n').digest('hex'),
       );
       return proposal;

@@ -398,7 +398,6 @@ test('multi-file analysis rejects an assessment that certifies only unchanged en
   const candidate = await f.context.readCandidate('entry');
   const tree = object(await f.artifacts.readJson(candidate.artifactRef));
   assert.ok(Array.isArray(tree.files));
-  const sourcePath = string(object(tree.files[0]).path);
   const artifactRef = await f.artifacts.putJson({
     ...tree,
     files: [
@@ -428,22 +427,8 @@ test('multi-file analysis rejects an assessment that certifies only unchanged en
       artifactRef: provenanceRef,
     },
   });
-  const metadata = await f.context.applicationMetadata();
-  const context = f.context.extend({
-    async applicationMetadata() {
-      return {
-        ...metadata,
-        capabilityMetadata: {
-          'kernel-source': {
-            entryFile: sourcePath,
-            additionalFiles: ['helper.py'],
-          },
-        },
-      };
-    },
-  });
   await assert.rejects(
-    readAnalysis(f.analysisRef, f.identity, context),
+    readAnalysis(f.analysisRef, f.identity, f.context),
     /source or cleanup mismatch/,
   );
 });

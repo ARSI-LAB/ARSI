@@ -1,10 +1,6 @@
 import type { JsonObject, JsonSchema } from '../../contracts/index.js';
 import { digest, object } from '../../shared/json.js';
-import {
-  parseTarget,
-  safePath,
-  type Target,
-} from '../shared/file-application/target.js';
+import { safePath, type Target } from '../shared/file-application/target.js';
 import { validate } from '../../shared/schema.js';
 import {
   fileConfigProperties,
@@ -13,13 +9,8 @@ import {
 
 export type KernelApplicationConfig = FileApplicationConfig & {
   entryFile?: string;
-  additionalFiles?: string[];
 };
 
-export type KernelSourceLayout = JsonObject & {
-  entryFile: string;
-  additionalFiles: string[];
-};
 export type KernelSourceFile = { path: string; sha256: string };
 
 export const configSchema: JsonSchema = {
@@ -27,11 +18,6 @@ export const configSchema: JsonSchema = {
   properties: {
     ...fileConfigProperties,
     entryFile: { type: 'string', minLength: 1 },
-    additionalFiles: {
-      type: 'array',
-      uniqueItems: true,
-      items: { type: 'string', minLength: 1 },
-    },
   },
   required: ['target', 'baseline'],
   additionalProperties: false,
@@ -44,59 +30,13 @@ function checkedSourcePath(value: unknown): string {
   return path;
 }
 
-export function kernelSourcePath(target: Target): string {
+export function kernelSourcePath(target: Target, entryFile?: string): string {
+  if (entryFile !== undefined) return checkedSourcePath(entryFile);
   const files = target.entries.filter((entry) => entry.kind === 'file');
   const [file] = files;
   if (!file || files.length !== 1)
     throw new Error('Kernel Target must contain exactly one file entry');
   return checkedSourcePath(file.path);
-}
-
-export function kernelSourceLayout(
-  config: Pick<KernelApplicationConfig, 'entryFile' | 'additionalFiles'>,
-  target: Target,
-): KernelSourceLayout {
-  if (config.additionalFiles !== undefined && config.entryFile === undefined)
-    throw new Error('Kernel additionalFiles requires entryFile');
-  const entryFile = checkedSourcePath(
-    config.entryFile ?? kernelSourcePath(target),
-  );
-  const additionalFiles = (config.additionalFiles ?? [])
-    .map(checkedSourcePath)
-    .sort();
-  const paths = [entryFile, ...additionalFiles];
-  if (new Set(paths).size !== paths.length)
-    throw new Error('Kernel source inventory contains duplicate paths');
-  return { entryFile, additionalFiles };
-}
-
-export function kernelLayoutFromMetadata(
-  metadata: JsonObject,
-): KernelSourceLayout {
-  const layout = object(metadata.capabilityMetadata ?? {})['kernel-source'];
-  if (layout === undefined)
-    return kernelSourceLayout({}, parseTarget(metadata.target));
-  const config = object(layout, 'kernel-source metadata');
-  validate(
-    {
-      type: 'object',
-      additionalProperties: false,
-      required: ['entryFile', 'additionalFiles'],
-      properties: {
-        entryFile: { type: 'string', minLength: 1 },
-        additionalFiles: {
-          type: 'array',
-          items: { type: 'string', minLength: 1 },
-        },
-      },
-    },
-    config,
-    'kernel-source metadata',
-  );
-  return kernelSourceLayout(
-    config as KernelSourceLayout,
-    parseTarget(metadata.target),
-  );
 }
 
 export function kernelBundleDigest(

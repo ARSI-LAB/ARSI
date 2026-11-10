@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile, realpath } from 'node:fs/promises';
-import { join } from 'node:path';
 import type {
   ApplicationInput,
   ApplicationOutput,
@@ -13,8 +11,9 @@ import {
   readInstance,
 } from '../shared/file-application/files.js';
 import { string } from '../../shared/json.js';
+import { scanTree } from '../shared/file-application/target.js';
 import {
-  kernelSourceLayout,
+  kernelSourcePath,
   kernelBundleDigest,
   parseKernelExecution,
   type KernelApplicationConfig,
@@ -29,41 +28,35 @@ export const createApplicationKernel: OperationDefinition<
   services,
 ): Promise<Operation<ApplicationInput, ApplicationOutput>> => {
   return createFileApplication(config, services, (target) => {
-    const layout = kernelSourceLayout(config, target);
-    const sourcePath = layout.entryFile;
-    const paths = [sourcePath, ...layout.additionalFiles].sort();
+    const sourcePath = kernelSourcePath(target, config.entryFile);
     return {
       capability: 'kernel-source',
-      metadata: layout,
       validateChanges(changes): void {
         for (const change of changes)
-          if (change.change !== 'modify' || !paths.includes(change.path))
+          if (change.change !== 'modify')
             throw new Error(
               `Kernel source inventory is fixed: ${change.change} ${change.path}`,
             );
       },
       async verify(directory, context): Promise<JsonObject> {
         context.signal.throwIfAborted();
-        const root = await realpath(directory);
-        const sourceFiles = [];
-        for (const path of paths) {
-          const file = join(root, path);
-          if (!(await lstat(file)).isFile() || (await realpath(file)) !== file)
-            throw new Error(
-              `${path} must be a regular source file without symbolic links`,
-            );
-          const bytes = await readFile(file);
+        const tree = await scanTree(directory);
+        if (!tree[sourcePath])
+          throw new Error(`Kernel entry file is missing: ${sourcePath}`);
+        const sourceFiles = Object.entries(tree).map(([path, file]) => {
+          const bytes = Buffer.from(file.content, 'base64');
           new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-          sourceFiles.push({
+          return {
             path,
             sha256: createHash('sha256').update(bytes).digest('hex'),
-          });
-        }
+          };
+        });
         // Evaluation imports the module and checks the callable entry point.
         context.signal.throwIfAborted();
         return {
-          sourceDigest:
-            sourceFiles.find((file) => file.path === sourcePath)?.sha256 ?? '',
+          sourceDigest: string(
+            sourceFiles.find((file) => file.path === sourcePath)?.sha256,
+          ),
           sourceFiles,
           sourceBundleDigest: kernelBundleDigest(sourcePath, sourceFiles),
         };

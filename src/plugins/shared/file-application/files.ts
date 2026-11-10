@@ -46,7 +46,6 @@ export const fileConfigProperties: JsonObject = {
 };
 export interface ApplicationBackend {
   capability: string;
-  metadata?: JsonObject;
   validateChanges?(changes: ChangedFile[]): void;
   verify(directory: string, context: RuntimeContext): Promise<JsonObject>;
   acquire(
@@ -158,13 +157,6 @@ export async function createFileApplication(
               initialCandidateRef,
               target: raw,
               capabilities: [backend.capability],
-              ...(backend.metadata === undefined
-                ? {}
-                : {
-                    capabilityMetadata: {
-                      [backend.capability]: backend.metadata,
-                    },
-                  }),
             };
           } finally {
             await services.workspaces.release(workspace.ref);

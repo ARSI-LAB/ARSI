@@ -26,6 +26,7 @@ import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/s
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { object } from '../../src/shared/json.js';
+import { kernelBundleDigest } from '../../src/plugins/application-kernel/schema.js';
 
 useOperatorSdkTestEnvironment();
 
@@ -35,9 +36,10 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   const taskDirectory = join(directory, 'task');
   const sourceDirectory = join(directory, 'source');
   await mkdir(taskDirectory);
-  await mkdir(sourceDirectory);
+  const sourcePath = 'ops/candidate.py';
+  await mkdir(join(sourceDirectory, 'ops'), { recursive: true });
   let source = '# fixture:latency=8\ndef kernel_function(x): return x\n';
-  await writeFile(join(sourceDirectory, 'input.py'), source);
+  await writeFile(join(sourceDirectory, sourcePath), source);
   await writeFile(join(taskDirectory, 'problem.py'), '# fixture reference\n');
   const worker = join(directory, 'worker.mjs');
   await copyFile(
@@ -119,6 +121,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
           kind: 'kernel-source',
           format: 'triton-ascend',
           directory: sourceDirectory,
+          sourcePath,
           artifactRef: await artifacts.capture(sourceDirectory),
           sourceDigest: createHash('sha256').update(source).digest('hex'),
           entryPoint: 'kernel_function',
@@ -172,6 +175,9 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     seed: 42,
     contract: parseKernelContract(manifest.tasks[0].contract),
     candidateSha256: createHash('sha256').update(source).digest('hex'),
+    referenceSha256: createHash('sha256')
+      .update('# fixture reference\n')
+      .digest('hex'),
   };
   assert.equal(result.kind, 'local');
   if (result.kind !== 'local') throw new Error('Expected local SDK');
@@ -189,6 +195,49 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(adapted.candidateMs, 8);
   assert.equal(adapted.referenceMs, 16);
   assert.equal(adapted.profile, null);
+  const singleInventory = {
+    ...prepared,
+    sourceInventory: {
+      entryFile: sourcePath,
+      files: [{ path: sourcePath, sha256: prepared.candidateSha256 }],
+      mutablePaths: [],
+      sdkEntryPath: 'data/input.py' as const,
+    },
+  };
+  assert.equal(adaptSdkResult(result, singleInventory).status, 'completed');
+  const changedSingle = JSON.parse(JSON.stringify(result));
+  changedSingle.snapshot.run.source.files.find(
+    (file: { path: string }) => file.path === 'data/input.py',
+  ).sha256 = '0'.repeat(64);
+  assert.throws(
+    () => adaptSdkResult(changedSingle, singleInventory),
+    /inventory.*identity/i,
+  );
+  const unicodeFiles = [
+    { path: sourcePath, sha256: prepared.candidateSha256 },
+    { path: '\u00e9.py', sha256: 'a'.repeat(64) },
+    { path: 'e\u0301.py', sha256: 'b'.repeat(64) },
+  ];
+  const unicodeNative = JSON.parse(JSON.stringify(result));
+  unicodeNative.snapshot.run.source.files =
+    unicodeNative.snapshot.run.source.files
+      .filter((file: { path: string }) => file.path !== 'data/input.py')
+      .concat(
+        [...unicodeFiles]
+          .reverse()
+          .map((file) => ({ ...file, path: `data/candidate/${file.path}` })),
+      );
+  assert.equal(
+    adaptSdkResult(unicodeNative, {
+      ...prepared,
+      sourceInventory: {
+        entryFile: sourcePath,
+        files: unicodeFiles,
+        mutablePaths: [],
+      },
+    }).status,
+    'completed',
+  );
   const diagnostic = JSON.parse(JSON.stringify(result));
   diagnostic.snapshot.records[0].verdict = {
     passed: null,
@@ -245,6 +294,28 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(profileResult.valid, null);
   assert.equal(profileResult.candidateMs, null);
   assert.equal(profileResult.profile?.status, 'completed');
+  for (const [native, plan] of [
+    [result, prepared],
+    [diagnostic, profilePrepared],
+  ] as const) {
+    const changed = JSON.parse(JSON.stringify(native));
+    const files: { path: string; sha256: string }[] =
+      changed.snapshot.run.source.files;
+    const reference = files.find((file) => file.path === 'data/problem.py');
+    assert.ok(reference);
+    const rejectReference = () =>
+      assert.throws(
+        () => adaptSdkResult(changed, plan),
+        /reference.*identity/i,
+      );
+    files.push({ ...reference });
+    rejectReference();
+    files.pop();
+    reference.sha256 = '0'.repeat(64);
+    rejectReference();
+    files.splice(files.indexOf(reference), 1);
+    rejectReference();
+  }
   const unavailable = structuredClone(diagnostic);
   unavailable.snapshot.records[0].verdict.details.status = 'unavailable';
   unavailable.snapshot.records[0].verdict.details.profiling.status = 'failed';
@@ -295,7 +366,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   );
   assert.equal(object(provenance).realNpuRuns, null);
   source = source.replace('latency=8', 'latency=4');
-  await writeFile(join(sourceDirectory, 'input.py'), source);
+  await writeFile(join(sourceDirectory, sourcePath), source);
   await operation.execute(
     input,
     context.extend({
@@ -309,7 +380,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     'Candidate changes must preserve fixed comparison identity',
   );
   source += '# fixture:incorrect\n';
-  await writeFile(join(sourceDirectory, 'input.py'), source);
+  await writeFile(join(sourceDirectory, sourcePath), source);
   await operation.execute(
     input,
     context.extend({
@@ -326,7 +397,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     'unavailable',
   );
   source += '# fixture:infrastructure\n';
-  await writeFile(join(sourceDirectory, 'input.py'), source);
+  await writeFile(join(sourceDirectory, sourcePath), source);
   await assert.rejects(
     operation.execute(
       input,
@@ -345,7 +416,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(charges, 4);
   assert.equal(releases, 4);
   source = '# fixture:wait\ndef kernel_function(x): return x\n';
-  await writeFile(join(sourceDirectory, 'input.py'), source);
+  await writeFile(join(sourceDirectory, sourcePath), source);
   const controller = new AbortController();
   const cancelDirectory = join(directory, 'cancel-call');
   const pending = operation
@@ -392,7 +463,7 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(charges, 5);
   assert.equal(releases, 5);
   source = '# fixture:latency=8\ndef kernel_function(x): return x\n';
-  await writeFile(join(sourceDirectory, 'input.py'), source);
+  await writeFile(join(sourceDirectory, sourcePath), source);
   const msprof = join(directory, 'msprof');
   const pidFile = join(directory, 'profile-child.pid');
   await writeFile(
@@ -551,6 +622,78 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     /assessment unknown/,
   );
   assert.match(String(errors[0]), /profiling.collection/);
+  const frozenDirectory = join(directory, 'frozen-reference');
+  await operation.execute(
+    input,
+    context.extend({
+      directory: frozenDirectory,
+      withInstance: async (ref, capability, use) => {
+        await writeFile(
+          join(taskDirectory, 'problem.py'),
+          '# replaced reference\n',
+        );
+        return context.withInstance(ref, capability, use);
+      },
+    }),
+  );
+  assert.equal(
+    await readFile(join(frozenDirectory, 'sdk-input/problem.py'), 'utf8'),
+    '# fixture reference\n',
+  );
+  await writeFile(join(taskDirectory, 'problem.py'), '# fixture reference\n');
+  const readonlyMeasurements: JsonObject[] = [];
+  for (let version = 0; version < 2; version++) {
+    source = `# fixture:latency=8\n# fixed ${version}\ndef kernel_function(x): return x\n`;
+    await writeFile(join(sourceDirectory, sourcePath), source);
+    await operation.execute(
+      input,
+      context.extend({
+        directory: join(directory, `readonly-single-${version}`),
+        callId: `readonly-single-${version}`,
+        async applicationMetadata() {
+          return {
+            target: {
+              schemaVersion: 'rsi.target/v1',
+              id: 'readonly-entry',
+              entries: [
+                {
+                  path: sourcePath,
+                  kind: 'file',
+                  description: 'fixed entry',
+                  changes: ['modify'],
+                },
+              ],
+              protected: [sourcePath],
+            },
+          };
+        },
+        async withInstance(ref, capability, use) {
+          return context.withInstance(ref, capability, async (raw) => {
+            const descriptor = object(raw);
+            const sourceFiles = [
+              { path: sourcePath, sha256: String(descriptor.sourceDigest) },
+            ];
+            return use({
+              ...descriptor,
+              sourceFiles,
+              sourceBundleDigest: kernelBundleDigest(sourcePath, sourceFiles),
+            });
+          });
+        },
+        async recordMeasurement(value) {
+          readonlyMeasurements.push(value);
+          return `readonly:${version}`;
+        },
+      }),
+    );
+  }
+  const [firstReadonly, secondReadonly] = readonlyMeasurements;
+  assert.ok(firstReadonly && secondReadonly);
+  assert.notEqual(
+    firstReadonly.comparisonKey,
+    secondReadonly.comparisonKey,
+    'Explicit readonly single entries must contribute their locked bytes',
+  );
   await invalid.dispose();
   await profileOperation.dispose();
   await operation.dispose();

@@ -1,6 +1,6 @@
 import { parseKernelAssessment, type KernelAssessment } from 'ember-evaluator';
 import type { JsonObject } from '../../contracts/index.js';
-import { object, string } from '../../shared/json.js';
+import { digest, object, string } from '../../shared/json.js';
 import { validateSnapshot } from '../shared/evaluator-adapter/measurement.js';
 import { fixedConditions } from './conditions.js';
 import type { PreparedOperatorCase } from './kernel-input.js';
@@ -62,11 +62,12 @@ export function adaptSdkResult(
   const cancelled =
     record.executionStatus === 'cancelled' || run.status === 'cancelled';
   const diagnostics = Array.isArray(record.errors)
-    ? record.errors.map((value) => {
+    ? record.errors.map((value, index) => {
         const error = object(value);
         return {
           code: string(error.code),
-          message: string(error.message).slice(0, 4000),
+          message: string(error.message),
+          sourcePointer: `/snapshot/records/0/errors/${index}/message`,
         };
       })
     : [];
@@ -115,7 +116,45 @@ export function adaptSdkResult(
     object(record.solve).finalText !== prepared.candidateSha256
   )
     throw new Error('SDK kernel source identity mismatch');
-  const conditions = fixedConditions(run);
+  if (prepared.sourceInventory) {
+    const inventory = prepared.sourceInventory;
+    const files = object(run.source).files;
+    if (!Array.isArray(files)) throw new Error('Missing SDK source files');
+    const actual = files
+      .map((value) => object(value))
+      .filter(
+        (file) =>
+          typeof file.path === 'string' &&
+          (file.path.startsWith('data/candidate/') ||
+            file.path === inventory.sdkEntryPath),
+      )
+      .map((file) => ({
+        path:
+          file.path === inventory.sdkEntryPath
+            ? inventory.entryFile
+            : string(file.path).slice('data/candidate/'.length),
+        sha256: string(file.sha256),
+      }))
+      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    if (
+      digest(actual) !==
+      digest(
+        [...prepared.sourceInventory.files].sort((a, b) =>
+          a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+        ),
+      )
+    )
+      throw new Error('SDK kernel source inventory identity mismatch');
+  }
+  const conditions = fixedConditions(run, prepared);
+  const references = conditions.fixedFiles.filter(
+    (file) => file.path === 'data/problem.py',
+  );
+  if (
+    references.length !== 1 ||
+    references[0]?.sha256 !== prepared.referenceSha256
+  )
+    throw new Error('SDK kernel reference source identity mismatch');
   const profile =
     details.profiling === undefined ? null : object(details.profiling);
   if (profileOperation)

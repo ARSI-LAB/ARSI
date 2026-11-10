@@ -6,20 +6,29 @@ This example uses `policy.operator-search` to evaluate a sealed Triton-Ascend
 baseline, generate and repair candidates, select improvements, and independently
 reassess the selected source. Optional hardware diagnostics drive further search
 rounds. `application.kernel` owns source workspaces, `proposer.operator` proposes
-edits, and `evaluator.operatorbench` invokes the full Evaluator SDK.
+edits, and the Recipe binds `evaluator.operatorbench` for evaluation.
+For both `evaluate` and `profile`, this RSI plugin calls the Evaluator SDK with
+benchmark `kernel` and solver `kernel-replay`, then records the result as an RSI Measurement.
 
 The task takes an FP16 tensor of shape `[381, 51200]` and returns a contiguous,
 independently stored FP16 tensor of shape `[381, 80, 80, 8]`, preserving the input.
 It reshapes the input, swaps the two spatial axes, and materializes a contiguous
 copy of the transposed view.
 The fixed case uses seed 42 and zero numerical tolerance. The entry point is
-`kernel_function`. The frozen reference and contract are in [task](./task/task.json).
+`kernel_function`. The frozen reference and contract are in [task](./task/task.json). Task contracts support FP16, BF16, FP32 and scalar tensors. Inputs may declare `contiguous: false`; omission keeps the contiguous-input default.
 
 ## Configuration and execution
+
+The single file entry in this Target selects `input.py`. To rename it, move the baseline source and update the Target path, for example to `kernels/transpose.py`. The Agent reads a snapshot at `context/sources/<sourcePath>` and returns edits for paths in `editablePaths` in its stage input.
 
 Use a Linux NPU host with CANN, torch, torch_npu, triton-ascend, and the profiling
 dependencies required by the pinned Evaluator SDK. Set `MODEL_NAME`,
 `MODEL_ENDPOINT`, and `MODEL_API_KEY` in private environment configuration.
+The local Evaluator runs candidate Python with the evaluation account's file and
+process permissions. Use this Recipe only for candidates trusted with that access.
+Keep unrelated credentials and private files outside the evaluation account.
+
+Evaluator configuration may omit `mode: sdk` and `protocol.timingScope: all-device-kernels`. Omitting `sdk.profiling` disables automatic diagnostics for ordinary evaluation. An explicit Policy profile action still collects fresh evidence. Evaluation imports the kernel entry and verifies it is callable, including aliases.
 
 Before running [the Recipe](./recipe.search.yaml), replace its SDK Python path,
 embedding Python path, model directory, identity file, external knowledge bundle,
@@ -72,7 +81,7 @@ The plugin validates this boundary and records the worker's own digest.
 The embedding identity file uses `rsi.operator-embedding-identity/v1`, a `model`
 object with `id` and immutable `revision`, an `encoding` object with
 `queryPromptName: query`, `normalizeEmbeddings: true`, `device: cpu`, and
-`batchSize: 32`, and a `files` inventory of relative paths and SHA-256 digests.
+a positive `batchSize` (for example `32`), and a `files` inventory of relative paths and SHA-256 digests.
 
 ```bash
 pnpm install --frozen-lockfile
@@ -114,20 +123,20 @@ the unchanged incumbent's diagnostic evidence is reused. Unavailable profiling
 stops the metrics stage. Both modes independently reassess the selected source
 at the end.
 
-| Recipe setting                                                 | Example value | Meaning                                                                         |
-| -------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------- |
-| `policy.config.maxAttempts`                                    | `3`           | Positive static attempt limit.                                                  |
-| `policy.config.repairLimit`                                    | `3`           | Nonnegative repair limit per invalid candidate chain.                           |
-| `policy.config.maxRounds`                                      | `10`          | Positive metrics round limit.                                                   |
-| `policy.config.maxNoImprovement`                               | `5`           | Positive limit of valid candidates without promotion since the last promotion.  |
-| `bindings.proposer.config.historyWindow`                       | `5`           | Number of recent summaries delivered to generation; defaults to 5.              |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms; `0` disables this local deadline. |
-| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`      | Retrieval worker deadline, in ms; `0` disables it.                              |
-| `bindings.proposer.config.embedding.maxPayloadBytes`           | Omitted       | Optional byte limit for each external retrieval JSON payload.                   |
-| `bindings.proposer.config.embedding.maxLogBytes`               | Omitted       | Optional byte limit for each retrieval worker output stream.                    |
-| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`         | Minimum retrieval match score.                                                  |
-| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                        |
-| `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                 |
+| Recipe setting                                                 | Example value | Meaning                                                                                                                                      |
+| -------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `policy.config.maxAttempts`                                    | `3`           | Positive static attempt limit.                                                                                                               |
+| `policy.config.repairLimit`                                    | `3`           | Nonnegative repair limit per invalid candidate chain.                                                                                        |
+| `policy.config.maxRounds`                                      | `10`          | Positive metrics round limit.                                                                                                                |
+| `policy.config.maxNoImprovement`                               | `5`           | Positive limit of valid candidates without promotion since the last promotion.                                                               |
+| `bindings.proposer.config.historyWindow`                       | `5`           | Number of recent summaries delivered to generation; defaults to 5. Set `0` to omit recent summaries while retaining complete stored history. |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms; `0` disables this local deadline.                                                              |
+| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`      | Retrieval worker deadline, in ms; `0` disables it.                                                                                           |
+| `bindings.proposer.config.embedding.maxPayloadBytes`           | Omitted       | Optional byte limit for each external retrieval JSON payload.                                                                                |
+| `bindings.proposer.config.embedding.maxLogBytes`               | Omitted       | Optional byte limit for each retrieval worker output stream.                                                                                 |
+| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`         | Minimum retrieval match score.                                                                                                               |
+| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                                                                                     |
+| `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                                                                              |
 
 This example's Manager limits are 1,024 operations, 65 evaluation runs, 152 model
 calls, 7,200,000 ms elapsed time, and a 60,000 ms cleanup reserve. Evaluation runs

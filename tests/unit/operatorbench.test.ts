@@ -82,6 +82,17 @@ test('operatorbench rejects invalid bound configs before acquiring a candidate, 
   assert.deepEqual(await readdir(directory), []);
 });
 
+test('operatorbench accepts native SDK configuration without redundant mode and timing settings', () => {
+  validate(
+    configSchema,
+    {
+      task: { directory: '/fixture/task' },
+      benchmark: { name: 'kernel', config: { profiling: { roundNum: 0 } } },
+    },
+    'operatorbench config',
+  );
+});
+
 test('operatorbench accepts configured timing counts and SDK resource controls above former ceilings', () => {
   validate(
     configSchema,

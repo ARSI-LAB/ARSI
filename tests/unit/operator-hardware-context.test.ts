@@ -63,7 +63,14 @@ test('hardware context rejects missing, blank, unreadable and non-file inputs wi
   const unreadable = join(root, 'unreadable.md');
   await writeFile(unreadable, 'private hardware');
   await chmod(unreadable, 0o000);
-  await assert.rejects(reader(unreadable), /hardwareContextFile.*read/i);
+  // Containers with a DAC override can read this file despite its mode bits.
+  const accessible = await readFile(unreadable).then(
+    () => true,
+    () => false,
+  );
+  if (accessible)
+    assert.equal((await reader(unreadable)).text, 'private hardware');
+  else await assert.rejects(reader(unreadable), /hardwareContextFile.*read/i);
   const directory = join(root, 'directory');
   await mkdir(directory);
   await assert.rejects(

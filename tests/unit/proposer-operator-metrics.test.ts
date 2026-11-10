@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { operatorProposerContract } from '../../src/contracts/plugin-types/proposer-operator.js';
+import { operatorEditOutputSchema } from '../../src/plugins/proposer-operator/schema.js';
 import { validate } from '../../src/shared/schema.js';
 
 test('metrics proposal contract requires current evidence and a positive round', () => {
@@ -90,33 +91,20 @@ test('metric analysis requires measured numeric evidence and keeps model inferen
   );
 });
 
-test('operator edits preserve the authorized path without an implicit UTF-8 byte ceiling', async () => {
-  const loaded: unknown = await import(
-    new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
-      .href
-  );
-  assert.ok(loaded && typeof loaded === 'object');
-  const parse: unknown = Reflect.get(loaded, 'validateOperatorEdits');
-  if (typeof parse !== 'function')
-    throw new Error('Missing operator edit validation');
+test('operator edits accept complete source only at the literal Target path', () => {
+  const sourcePath = 'kernels/transpose[0].py';
+  const schema = operatorEditOutputSchema([sourcePath]);
   assert.doesNotThrow(() =>
-    parse({
-      edits: [{ path: 'input.py', content: 'valid code' }],
-      reason: 'One measured hypothesis',
-    }),
-  );
-  assert.throws(
-    () =>
-      parse({
-        edits: [{ path: 'context/task/test.py', content: 'weaken' }],
-        reason: 'Invalid change',
-      }),
-    /operator.*edit|path/i,
-  );
-  assert.doesNotThrow(() =>
-    parse({
-      edits: [{ path: 'input.py', content: '\u20ac'.repeat(12000) }],
+    validate(schema, {
+      edits: [{ path: sourcePath, content: '\u20ac'.repeat(12000) }],
       reason: 'Complete source subject to the Application Target',
     }),
   );
+  for (const path of ['input.py', 'kernels/transpose0.py', 'context/source.py'])
+    assert.throws(() =>
+      validate(schema, {
+        edits: [{ path, content: 'invalid replacement' }],
+        reason: 'Outside the Target',
+      }),
+    );
 });

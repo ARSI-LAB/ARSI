@@ -63,7 +63,7 @@ Return exactly the JSON edit object required by outputSchema:
 {
   "edits": [
     {
-      "path": "input.py",
+      "path": "<one exact path from editablePaths in context/input.json>",
       "content": "The complete valid Python source, JSON-escaped"
     }
   ],
@@ -71,7 +71,7 @@ Return exactly the JSON edit object required by outputSchema:
 }
 ```
 
-For a supported change, replace input.py completely with one edit. Keep the
+For a supported change, return one complete replacement per changed file from editablePaths. Keep the
 preserved kernel_function entry point. Do not edit task or comparison files, add
 tests or timing code, perform external writes, or emit placeholders. When no
 supported change remains, return an empty edits array and an explicit reason.

@@ -531,6 +531,9 @@ export class Manager {
           return {
             target: initial.target ?? null,
             capabilities: initial.capabilities ?? [],
+            ...(initial.capabilityMetadata === undefined
+              ? {}
+              : { capabilityMetadata: initial.capabilityMetadata }),
             initialCandidateRef: initial.initialCandidateRef ?? null,
           };
         },

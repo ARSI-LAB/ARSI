@@ -157,6 +157,7 @@ export async function recordSdkMeasurement(
     mode: 'sdk',
     operation: isProfile ? 'profile' : 'evaluate',
     sourceDigest: execution.sourceDigest,
+    sourceBundleDigest: execution.sourceBundleDigest,
     caseId,
     assessment: result.assessment,
     profile: result.profile,
@@ -218,6 +219,7 @@ export async function recordSdkMeasurement(
       {
         mode: 'sdk',
         sourceDigest: execution.sourceDigest,
+        sourceBundleDigest: execution.sourceBundleDigest,
         artifactRef: execution.artifactRef,
         runId: result.runId,
         attemptId: result.attemptId,

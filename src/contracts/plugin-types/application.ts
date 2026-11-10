@@ -23,6 +23,7 @@ export type ApplicationOutput =
       initialCandidateRef: string;
       target: JsonObject;
       capabilities: string[];
+      capabilityMetadata?: JsonObject;
     }
   | {
       action: 'commit';
@@ -88,6 +89,7 @@ export const applicationContract = defineContract({
             items: { minLength: 1, type: 'string' },
             type: 'array',
           },
+          capabilityMetadata: { type: 'object' },
           initialCandidateRef: { minLength: 1, type: 'string' },
           target: { type: 'object' },
         },

@@ -14,21 +14,19 @@ export type OperatorAgentStage =
 
 export const defaultModelRequestTimeoutMs = 120000;
 
-export const operatorEditConstraints = {
-  allowedPaths: ['input.py'],
-  maxChangedFiles: 1,
-};
-export const operatorEditOutputSchema = recordSchema({
-  edits: {
-    type: 'array',
-    maxItems: 1,
-    items: recordSchema({
-      path: { const: 'input.py' },
-      content: { type: 'string' },
-    }),
-  },
-  reason: { type: 'string' },
-});
+export function operatorEditOutputSchema(editablePaths: string[]): JsonObject {
+  return recordSchema({
+    edits: {
+      type: 'array',
+      maxItems: editablePaths.length,
+      items: recordSchema({
+        path: { enum: editablePaths },
+        content: { type: 'string' },
+      }),
+    },
+    reason: { type: 'string' },
+  });
+}
 
 export const staticIssueTypes = [
   'core_partition',
@@ -68,6 +66,7 @@ export type OperatorAnalysisIdentity = {
   entryCandidateRef: string;
   baselineMeasurementRef: string;
   sourceDigest: string;
+  sourceBundleDigest?: string;
   comparisonKey: string;
   taskDigest: string;
   contractDigest: string;
@@ -150,7 +149,7 @@ export const configSchema = recordSchema(
     agentRef: { ...ref, default: 'agent' },
     promptsDirectory: { ...ref, 'x-rsi-path': 'directory' },
     hardwareContextFile: { ...ref, 'x-rsi-path': 'file' },
-    historyWindow: { type: 'integer', minimum: 1, default: 5 },
+    historyWindow: { type: 'integer', minimum: 0, default: 5 },
     modelRequestTimeoutMs: {
       type: 'integer',
       minimum: 0,
@@ -219,19 +218,35 @@ export const diagnosisResponseSchema = recordSchema({
   issues: staticDiagnosisSchema,
 });
 
-export const analysisIdentitySchema = recordSchema({
-  entryCandidateRef: ref,
-  baselineMeasurementRef: ref,
-  sourceDigest: hash,
-  comparisonKey: hash,
-  taskDigest: hash,
-  contractDigest: hash,
-  environmentDigest: hash,
-  protocolDigest: hash,
-  resourcesDigest: hash,
-  embeddingDigest: hash,
-  retrievalDigest: hash,
-});
+export const analysisIdentitySchema = recordSchema(
+  {
+    entryCandidateRef: ref,
+    baselineMeasurementRef: ref,
+    sourceDigest: hash,
+    sourceBundleDigest: hash,
+    comparisonKey: hash,
+    taskDigest: hash,
+    contractDigest: hash,
+    environmentDigest: hash,
+    protocolDigest: hash,
+    resourcesDigest: hash,
+    embeddingDigest: hash,
+    retrievalDigest: hash,
+  },
+  [
+    'entryCandidateRef',
+    'baselineMeasurementRef',
+    'sourceDigest',
+    'comparisonKey',
+    'taskDigest',
+    'contractDigest',
+    'environmentDigest',
+    'protocolDigest',
+    'resourcesDigest',
+    'embeddingDigest',
+    'retrievalDigest',
+  ],
+);
 export const analysisSchema = recordSchema(
   {
     schemaVersion: { const: 'rsi.operator-analysis/v1' },
@@ -346,6 +361,7 @@ export type MetricsAnalysis = {
   incumbentMeasurementRef: string;
   diagnosticMeasurementRef: string;
   sourceDigest: string;
+  sourceBundleDigest?: string;
   resourcesDigest: string;
   embeddingDigest: string;
   hardwareDigest: string | null;
@@ -385,22 +401,41 @@ export const metricsBottleneckSchema = recordSchema({
     items: recordSchema({ path: ref, value: { type: 'number' } }),
   },
 });
-export const metricsAnalysisSchema = recordSchema({
-  schemaVersion: { const: 'rsi.operator-metrics-analysis/v1' },
-  experimentId: ref,
-  round: { type: 'integer', minimum: 1 },
-  parentCandidateRef: ref,
-  incumbentMeasurementRef: ref,
-  diagnosticMeasurementRef: ref,
-  sourceDigest: hash,
-  resourcesDigest: hash,
-  embeddingDigest: hash,
-  hardwareDigest: { anyOf: [hash, { type: 'null' }] },
-  bottleneck: { anyOf: [metricsBottleneckSchema, { type: 'null' }] },
-  knowledgeContext: { type: 'string' },
-  retrievalRef: { anyOf: [ref, { type: 'null' }] },
-  retrievalStatus: { enum: ['skipped', 'available', 'unavailable'] },
-});
+export const metricsAnalysisSchema = recordSchema(
+  {
+    schemaVersion: { const: 'rsi.operator-metrics-analysis/v1' },
+    experimentId: ref,
+    round: { type: 'integer', minimum: 1 },
+    parentCandidateRef: ref,
+    incumbentMeasurementRef: ref,
+    diagnosticMeasurementRef: ref,
+    sourceDigest: hash,
+    sourceBundleDigest: hash,
+    resourcesDigest: hash,
+    embeddingDigest: hash,
+    hardwareDigest: { anyOf: [hash, { type: 'null' }] },
+    bottleneck: { anyOf: [metricsBottleneckSchema, { type: 'null' }] },
+    knowledgeContext: { type: 'string' },
+    retrievalRef: { anyOf: [ref, { type: 'null' }] },
+    retrievalStatus: { enum: ['skipped', 'available', 'unavailable'] },
+  },
+  [
+    'schemaVersion',
+    'experimentId',
+    'round',
+    'parentCandidateRef',
+    'incumbentMeasurementRef',
+    'diagnosticMeasurementRef',
+    'sourceDigest',
+    'resourcesDigest',
+    'embeddingDigest',
+    'hardwareDigest',
+    'bottleneck',
+    'knowledgeContext',
+    'retrievalRef',
+    'retrievalStatus',
+  ],
+);
 export const metricsSummarySchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-metrics-summary/v1' },
   actionSummary: { type: 'string' },
@@ -443,7 +478,7 @@ export type EmbeddingIdentity = {
     queryPromptName: 'query';
     normalizeEmbeddings: true;
     device: 'cpu';
-    batchSize: 32;
+    batchSize: number;
   };
   files: { path: string; sha256: string }[];
 };
@@ -489,7 +524,11 @@ export const embeddingIdentitySchema = recordSchema({
     queryPromptName: { const: 'query' },
     normalizeEmbeddings: { const: true },
     device: { const: 'cpu' },
-    batchSize: { const: 32 },
+    batchSize: {
+      type: 'integer',
+      minimum: 1,
+      maximum: Number.MAX_SAFE_INTEGER,
+    },
   }),
   files: {
     type: 'array',

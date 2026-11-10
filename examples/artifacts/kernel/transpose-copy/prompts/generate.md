@@ -29,7 +29,7 @@ Preserve the current public kernel_function signature, output count, shapes,
 dtypes, device, layout/strides, aliasing and input-mutation contract. Preserve
 allocation ownership, required wrapper operations and runtime initialization.
 The current task contract and authorized Target take precedence over examples
-and generic programming references. Edit only input.py; all task files,
+and generic programming references. Use only exact paths from `editablePaths` in `context/input.json` for edits; all task files,
 comparison sources and prior summaries are read-only.
 
 Classify the operator before changing it: elementwise, reduction, transpose/copy,
@@ -132,7 +132,7 @@ Return exactly the JSON edit object required by outputSchema:
 {
   "edits": [
     {
-      "path": "input.py",
+      "path": "<one exact path from editablePaths in context/input.json>",
       "content": "The complete valid Python source, JSON-escaped"
     }
   ],
@@ -143,7 +143,7 @@ Return exactly the JSON edit object required by outputSchema:
 The edited file must be complete and define kernel_function with the preserved
 public signature. Include only imports, constants, helpers, kernels and wrapper
 code required for that implementation; no tests, timing code or external writes.
-Use one edit for input.py. Do not edit read-only comparison or task files.
+Return one complete replacement per changed file from `editablePaths`. Do not edit read-only comparison or task files.
 When no supported modification remains, return {"edits":[],"reason":"Explain why no supported change remains"}.
 
 Return JSON only, without a Markdown fence or prose. Do not return a Python code

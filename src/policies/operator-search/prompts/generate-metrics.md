@@ -1,6 +1,6 @@
 # Propose a metrics-guided operator optimization
 
-Modify the current best input.py around the single supplied bottleneck hypothesis.
+Modify the current best candidate source around the single supplied bottleneck hypothesis.
 Use measured profile evidence, retrieved references, previous attempt summaries,
 the task contract and the complete hardwareContext. Infer the implementation
 language, backend and supported mechanisms from this context. Match changes to
@@ -13,7 +13,7 @@ mutation rules and required runtime initialization. Preserve unrelated behavior;
 coordinate math, tiling or launch changes only when the hypothesis requires it.
 Check bounds, masks, full output coverage and fresh-call correctness.
 
-Edit only input.py. Do not weaken checks, change tolerances, fabricate measurements,
+Use only exact paths from `editablePaths` in `context/input.json` for edits. Do not weaken checks, change tolerances, fabricate measurements,
 reuse cached outputs or replace the operator with reference-library computation.
 Use compiler options and APIs supported by the supplied environment, without
 hardware constants or vendor-specific assumptions copied from unrelated examples.
@@ -27,7 +27,7 @@ separate until evaluation.
 ## Output
 
 Return only JSON with `edits` and `reason`, matching outputSchema. A supported
-change contains exactly one edit with path input.py and the complete replacement
-Python source as content. Do not split one file replacement into multiple edits.
+change contains one edit per changed file from `editablePaths`, with its complete replacement
+Python source as content.
 Return an empty edits array with an explicit reason when no supported change
 remains. Do not add business result fields, tests, timing code or external writes.

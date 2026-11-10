@@ -36,14 +36,22 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
         'outputSchema',
       ]);
       assert.equal(
-        await readFile(join(request.cwd, 'input.py'), 'utf8'),
+        await readFile(
+          join(request.cwd, 'context/sources/kernels/add.py'),
+          'utf8',
+        ),
         'authorized source',
       );
       assert.deepEqual(
         JSON.parse(
           await readFile(join(request.cwd, 'context/input.json'), 'utf8'),
         ),
-        { hardwareContext: 'authorized hardware context' },
+        {
+          hardwareContext: 'authorized hardware context',
+          sourcePath: 'kernels/add.py',
+          sourceFiles: ['kernels/add.py'],
+          editablePaths: ['kernels/add.py'],
+        },
       );
       assert.match(
         await readFile(join(request.cwd, 'AGENTS.md'), 'utf8'),
@@ -58,7 +66,8 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
   const request = {
     goal: 'Test',
     prompt: 'test',
-    files: { 'input.py': 'authorized source' },
+    sourcePath: 'kernels/add.py',
+    files: { 'context/sources/kernels/add.py': 'authorized source' },
     input: { hardwareContext: 'authorized hardware context' },
     outputSchema: { type: 'object' },
   };
@@ -90,7 +99,10 @@ test('operator stages forward authorized snapshots above 2 MiB without an implic
     signal: new AbortController().signal,
     async invokeAgent(this: RuntimeContext, _binding, request) {
       assert.equal(
-        await readFile(join(request.cwd, 'input.py'), 'utf8'),
+        await readFile(
+          join(request.cwd, 'context/sources/kernels/add.py'),
+          'utf8',
+        ),
         source,
       );
       assert.equal(this.scope?.limits.evidenceBytes, undefined);
@@ -104,7 +116,8 @@ test('operator stages forward authorized snapshots above 2 MiB without an implic
       {
         goal: 'Inspect the complete authorized source',
         prompt: 'Return JSON',
-        files: { 'input.py': source },
+        sourcePath: 'kernels/add.py',
+        files: { 'context/sources/kernels/add.py': source },
         input: {},
         outputSchema: { type: 'object' },
       },
@@ -141,6 +154,7 @@ test('operator stage timeout can be disabled while parent cancellation still pro
       goal: 'Test cancellation',
       prompt: 'Return JSON',
       input: {},
+      sourcePath: 'kernels/add.py',
       files: {},
       outputSchema: { type: 'object' },
     },
@@ -180,7 +194,9 @@ async function modelFixture(replies: Reply[], modelCalls = 64) {
                 'read' in reply
                   ? {
                       name: 'read',
-                      arguments: JSON.stringify({ path: 'input.py' }),
+                      arguments: JSON.stringify({
+                        path: 'context/sources/kernels/add.py',
+                      }),
                     }
                   : {
                       name: 'subagent',
@@ -223,7 +239,8 @@ async function modelFixture(replies: Reply[], modelCalls = 64) {
           {
             goal: 'Review and propose a valid edit',
             prompt: 'Return JSON after inspecting authorized evidence.',
-            files: { 'input.py': 'authorized source' },
+            sourcePath: 'kernels/add.py',
+            files: { 'context/sources/kernels/add.py': 'authorized source' },
             input: {},
             outputSchema: { type: 'object' },
           },
@@ -339,6 +356,7 @@ test('operator model stage bounds all calls with one propagated timeout without 
     {
       goal: 'Bounded request',
       prompt: 'Return JSON',
+      sourcePath: 'kernels/add.py',
       files: {},
       input: {},
       outputSchema: { type: 'object' },

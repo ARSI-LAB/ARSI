@@ -17,7 +17,7 @@ limitations under the License.
 
 # Repair the last failed operator candidate
 
-Use the latest failed input.py and its corresponding Evaluator feedback. The task,
+Use the latest failed candidate source and its corresponding Evaluator feedback. The task,
 analysis, comparison sources and previous summaries are read-only. Infer the
 implementation language, backend and API constraints from the supplied source
 and environment.
@@ -51,7 +51,7 @@ Return exactly one JSON object matching outputSchema:
 {
   "edits": [
     {
-      "path": "input.py",
+      "path": "<one exact path from editablePaths in context/input.json>",
       "content": "The complete repaired Python source, JSON-escaped"
     }
   ],
@@ -59,7 +59,7 @@ Return exactly one JSON object matching outputSchema:
 }
 ```
 
-A supported repair replaces input.py completely in one edit. Do not edit task or
+A supported repair supplies one complete replacement per changed file from editablePaths. Do not edit task or
 comparison files, introduce tests, timing code or external writes, or emit
 placeholders. When no supported repair exists, return an empty edits array and
 an explicit reason. Uncertainty is not a successful repair. Return JSON only,

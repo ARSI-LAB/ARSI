@@ -88,7 +88,10 @@ async function setup(
           );
           requests.push({
             input,
-            source: await readFile(join(request.cwd, 'input.py'), 'utf8'),
+            source: await readFile(
+              join(request.cwd, 'context/sources', string(input.sourcePath)),
+              'utf8',
+            ),
           });
           await context.charge('modelCalls', 1);
           const stage = input.stage;
@@ -117,7 +120,12 @@ async function setup(
           const marker = options.markers?.[generated++];
           return {
             edits: marker
-              ? [{ path: 'input.py', content: operatorFixtureSource(marker) }]
+              ? [
+                  {
+                    path: string(input.sourcePath),
+                    content: operatorFixtureSource(marker),
+                  },
+                ]
               : [],
             reason: 'Fixture source change',
           };

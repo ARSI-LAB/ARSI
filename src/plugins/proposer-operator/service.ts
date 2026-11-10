@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import {
@@ -38,17 +37,26 @@ import {
   strings,
 } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
+import {
+  kernelLayoutFromMetadata,
+  kernelBundleDigest,
+} from '../application-kernel/schema.js';
+import {
+  literalPathPattern,
+  canModifyTargetFile,
+  parseTarget,
+} from '../shared/file-application/target.js';
 import { applyEdits } from '../shared/agent-editing/index.js';
 import { prepareAgentProject } from '../shared/agent-editing/project.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { loadOperatorTask } from '../shared/operator-task.js';
+import { runRetrievalWorker } from './retrieval-worker.js';
 import { readDecisionFeedback } from '../shared/metric-decision/index.js';
 import {
   analysisSchema,
   configSchema,
   defaultModelRequestTimeoutMs,
   diagnosisResponseSchema,
-  operatorEditConstraints as editConstraints,
   embeddingIdentitySchema,
   historySchema,
   metricsAnalysisSchema,
@@ -99,19 +107,71 @@ async function readOperatorCandidate(
   return candidate;
 }
 
+type OperatorSource = {
+  sourcePath: string;
+  source: string;
+  digest: string;
+  bundleDigest: string;
+  files: Record<string, string>;
+  editablePaths: string[];
+};
+
+function operatorSourceIdentity(source: OperatorSource): {
+  sourceDigest: string;
+  sourceBundleDigest?: string;
+} {
+  return {
+    sourceDigest: source.digest,
+    ...(Object.keys(source.files).length > 1
+      ? { sourceBundleDigest: source.bundleDigest }
+      : {}),
+  };
+}
+
+function matchesOperatorSource(
+  identity: { sourceDigest?: unknown; sourceBundleDigest?: unknown },
+  source: OperatorSource,
+): boolean {
+  return (
+    identity.sourceDigest === source.digest &&
+    (identity.sourceBundleDigest === source.bundleDigest ||
+      (identity.sourceBundleDigest === undefined &&
+        Object.keys(source.files).length === 1))
+  );
+}
+
 async function readOperatorSource(
   candidate: Candidate,
   context: RuntimeContext,
-): Promise<{ source: string; digest: string }> {
+): Promise<OperatorSource> {
   const tree = parseFileTree(
     await context.artifacts.readJson(candidate.artifactRef),
   );
-  const file = tree.files.find((item) => item.path === 'input.py');
-  if (!file) throw new Error('Operator candidate lacks input.py');
-  const bytes = Buffer.from(file.base64, 'base64');
+  const metadata = await context.applicationMetadata();
+  const layout = kernelLayoutFromMetadata(metadata);
+  const target = parseTarget(metadata.target);
+  const sourcePath = layout.entryFile;
+  const paths = [sourcePath, ...layout.additionalFiles].sort();
+  const files: Record<string, string> = {};
+  const sourceFiles = paths.map((path) => {
+    const file = tree.files.find((item) => item.path === path);
+    if (!file) throw new Error(`Operator candidate lacks ${path}`);
+    const bytes = Buffer.from(file.base64, 'base64');
+    files[path] = new TextDecoder('utf-8', {
+      fatal: true,
+      ignoreBOM: true,
+    }).decode(bytes);
+    return { path, sha256: createHash('sha256').update(bytes).digest('hex') };
+  });
   return {
-    source: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
-    digest: createHash('sha256').update(bytes).digest('hex'),
+    sourcePath,
+    source: Object.values(files).join('\n'),
+    digest: string(
+      sourceFiles.find((file) => file.path === sourcePath)?.sha256,
+    ),
+    bundleDigest: kernelBundleDigest(sourcePath, sourceFiles),
+    files,
+    editablePaths: paths.filter((path) => canModifyTargetFile(target, path)),
   };
 }
 
@@ -164,7 +224,7 @@ async function readAssessment(
     provenance.mode !== 'sdk' ||
     provenance.cleanup !== 'confirmed' ||
     provenance.artifactRef !== candidate.artifactRef ||
-    provenance.sourceDigest !== source.digest
+    !matchesOperatorSource(provenance, source)
   )
     throw new Error(
       'Operator assessment candidate, source or cleanup mismatch',
@@ -407,7 +467,7 @@ export async function readAnalysis(
   )
     throw new Error('Operator baseline must pass correctness');
   const source = await readOperatorSource(candidate, context);
-  if (source.digest !== identity.sourceDigest)
+  if (!matchesOperatorSource(identity, source))
     throw new Error('Operator analysis source identity mismatch');
   if (operatorScalar(measurement, 'latencyMeanMs') !== analysis.baselineMs)
     throw new Error('Operator analysis baseline latency mismatch');
@@ -496,7 +556,12 @@ const operatorReviewer = {
   prompt: fileURLToPath(new URL('./operator-reviewer.md', import.meta.url)),
 };
 
+const sourceSnapshot = 'context/sources/';
+
 type OperatorStageInput = {
+  sourcePath: string;
+  sourceFiles?: string[];
+  editablePaths?: string[];
   goal: string;
   prompt: string;
   files: Record<string, string>;
@@ -539,8 +604,16 @@ export async function requestOperatorAgent(
     const cwd = await prepareAgentProject(
       context,
       request.prompt +
-        `\n\nRead context/input.json for the stage data. The authorized operator source is in input.py and the task snapshots are in context/task/. Treat all snapshots as read-only and return any proposed edits in the JSON response. Delegate when useful and return the complete JSON response.`,
-      { ...request.files, 'context/input.json': JSON.stringify(request.input) },
+        `\n\nRead context/input.json for the stage data. Read the operator source tree in ${sourceSnapshot} and the task snapshots in context/task/. Treat all snapshots as read-only. Return proposed edits in the JSON response using only exact candidate-relative paths from editablePaths in context/input.json. The entry is ${JSON.stringify(request.sourcePath)}. Delegate when useful and return the complete JSON response.`,
+      {
+        ...request.files,
+        'context/input.json': JSON.stringify({
+          ...request.input,
+          sourcePath: request.sourcePath,
+          sourceFiles: request.sourceFiles ?? [request.sourcePath],
+          editablePaths: request.editablePaths ?? [request.sourcePath],
+        }),
+      },
       [],
       [operatorReviewer],
     );
@@ -564,18 +637,6 @@ export async function requestOperatorAgent(
     );
   }
   return object(result);
-}
-
-/** Validate model data before allocating a mutable workspace; writes enforce these bounds again. */
-export function validateOperatorEdits(response: JsonObject): void {
-  try {
-    validate(operatorEditOutputSchema, response, 'Operator edits');
-  } catch (error) {
-    throw new OperatorModelOutputError(
-      error instanceof Error ? error.message : String(error),
-      { cause: error },
-    );
-  }
 }
 
 /** Bind every model evidence value to a measured kernel metric, excluding assumed hardware ratios. */
@@ -658,27 +719,31 @@ async function readSummary(
   return summary;
 }
 
-async function sourceText(
-  candidate: Candidate,
-  context: RuntimeContext,
-): Promise<string> {
-  return (await readOperatorSource(candidate, context)).source;
-}
-
-async function operatorFiles(
+async function operatorSnapshot(
   parent: Candidate,
   config: OperatorProposerConfig,
   context: RuntimeContext,
-): Promise<Record<string, string>> {
-  const files: Record<string, string> = {
-    'input.py': await sourceText(parent, context),
-  };
+): Promise<
+  Pick<
+    OperatorStageInput,
+    'sourcePath' | 'sourceFiles' | 'editablePaths' | 'files'
+  >
+> {
+  const source = await readOperatorSource(parent, context);
+  const files: Record<string, string> = {};
+  for (const [path, content] of Object.entries(source.files))
+    files[sourceSnapshot + path] = content;
   for (const name of ['problem.py', 'test.py', 'task.json'])
     files['context/task/' + name] = await readFile(
       join(config.task.directory, name),
       'utf8',
     );
-  return files;
+  return {
+    sourcePath: source.sourcePath,
+    sourceFiles: Object.keys(source.files),
+    editablePaths: source.editablePaths,
+    files,
+  };
 }
 
 async function commitOperatorEdits(
@@ -686,10 +751,10 @@ async function commitOperatorEdits(
   parent: Candidate,
   analysisRef: string,
   action: 'propose' | 'repair',
+  editConstraints: JsonObject,
   context: RuntimeContext,
   services: RuntimeContext,
 ): Promise<OperatorProposerOutput> {
-  validateOperatorEdits(response);
   const workspace = await services.workspaces.create(
     parent.artifactRef,
     parent.ref,
@@ -898,7 +963,10 @@ async function profile(
       object(measurement.evaluator).pluginId === 'evaluator.operatorbench',
     cleanup: provenance.cleanup === 'confirmed',
     artifact: provenance.artifactRef === parent.artifactRef,
-    source: provenance.sourceDigest === sha(await sourceText(parent, context)),
+    source: matchesOperatorSource(
+      provenance,
+      await readOperatorSource(parent, context),
+    ),
     operation:
       details.operation === 'profile' && evaluation.operation === 'profile',
     task: conditions.taskDigest === expected.taskDigest,
@@ -990,7 +1058,12 @@ async function priorHistory(
       measured,
       context,
     );
-    if (analysis.sourceDigest !== sha(await sourceText(parent, context)))
+    if (
+      !matchesOperatorSource(
+        analysis,
+        await readOperatorSource(parent, context),
+      )
+    )
       throw new Error('Metric history source mismatch');
     if (analysis.bottleneck !== null)
       parseMetricsBottleneck(analysis.bottleneck, diagnostic);
@@ -1047,8 +1120,7 @@ export const createOperatorProposer: OperationDefinition<
   ): Promise<OperatorAnalysis> {
     const entry = await readOperatorCandidate(entryRef, context),
       baseline = await readAssessment(baselineRef, entryRef, context);
-    const code = await sourceText(entry, context);
-    const sourceDigest = sha(Buffer.from(code));
+    const source = await readOperatorSource(entry, context);
     const conditions = object(
       await context.artifacts.readJson(
         string(object(baseline.conditions).artifactRef),
@@ -1068,7 +1140,7 @@ export const createOperatorProposer: OperationDefinition<
       identity: {
         entryCandidateRef: entryRef,
         baselineMeasurementRef: baselineRef,
-        sourceDigest,
+        ...operatorSourceIdentity(source),
         comparisonKey: string(baseline.comparisonKey),
         taskDigest: task.taskDigest,
         contractDigest: digest(object(evaluation.contract)),
@@ -1157,7 +1229,7 @@ export const createOperatorProposer: OperationDefinition<
         {
           goal: input.goal,
           prompt: loaded.prompts.diagnose,
-          files: await operatorFiles(entry, config, context),
+          ...(await operatorSnapshot(entry, config, context)),
           input: {
             stage: 'diagnose',
             baseline: base,
@@ -1172,7 +1244,7 @@ export const createOperatorProposer: OperationDefinition<
       try {
         issues = parseStaticDiagnosis(
           response.issues,
-          await sourceText(entry, context),
+          (await readOperatorSource(entry, context)).source,
         );
       } catch (error) {
         throw new OperatorModelOutputError(
@@ -1244,7 +1316,10 @@ export const createOperatorProposer: OperationDefinition<
       },
       generationContext: {
         analysis,
-        history: (prior?.summaries ?? []).slice(-(config.historyWindow ?? 5)),
+        history:
+          config.historyWindow === 0
+            ? []
+            : (prior?.summaries ?? []).slice(-(config.historyWindow ?? 5)),
         hardwareContext: hardware?.text ?? null,
       },
       summaryContext: { analysis, history: prior?.summaries ?? [] },
@@ -1295,7 +1370,7 @@ export const createOperatorProposer: OperationDefinition<
         parentCandidateRef: parent.ref,
         incumbentMeasurementRef: input.incumbentMeasurementRef,
         diagnosticMeasurementRef: input.diagnosticMeasurementRef,
-        sourceDigest: sha(await sourceText(parent, context)),
+        ...operatorSourceIdentity(await readOperatorSource(parent, context)),
         resourcesDigest: loaded.digest,
         embeddingDigest: sha(await readFile(config.embedding.identityFile)),
         hardwareDigest: hardware?.sha256 ?? null,
@@ -1331,7 +1406,12 @@ export const createOperatorProposer: OperationDefinition<
         parent.ref,
         context,
       );
-      if (analysis.sourceDigest !== sha(await sourceText(parent, context)))
+      if (
+        !matchesOperatorSource(
+          analysis,
+          await readOperatorSource(parent, context),
+        )
+      )
         throw new Error('Metric analysis parent source mismatch');
       diagnostic = await profile(
         analysis.diagnosticMeasurementRef,
@@ -1353,7 +1433,10 @@ export const createOperatorProposer: OperationDefinition<
     const metricContext = {
       phase: 'metrics',
       profile: diagnostic,
-      history: prior.summaries.slice(-(config.historyWindow ?? 5)),
+      history:
+        config.historyWindow === 0
+          ? []
+          : prior.summaries.slice(-(config.historyWindow ?? 5)),
       staticHistory: staticHistory?.summaries ?? [],
     };
     if (input.action === 'propose') {
@@ -1363,7 +1446,7 @@ export const createOperatorProposer: OperationDefinition<
         {
           goal: input.goal,
           prompt: loaded.prompts['diagnose-metrics'],
-          files: await operatorFiles(parent, config, context),
+          ...(await operatorSnapshot(parent, config, context)),
           input: {
             stage: 'diagnose-metrics',
             profile: diagnostic,
@@ -1563,14 +1646,14 @@ export const createOperatorProposer: OperationDefinition<
               ? 'Summarize this completed operator optimization attempt using the confirmed facts.'
               : 'Summarize the confirmed metric optimization attempt; causes remain hypotheses.',
           prompt: loaded.prompts.summarize,
-          files: await operatorFiles(
+          ...(await operatorSnapshot(
             await readOperatorCandidate(
               input.candidateRefs.at(-1) ?? prepared.parent.ref,
               context,
             ),
             config,
             context,
-          ),
+          )),
           input: summaryInput,
           outputSchema: summaryResponseSchema,
         },
@@ -1648,6 +1731,15 @@ export const createOperatorProposer: OperationDefinition<
           );
         }
         const stage = input.action === 'propose' ? 'generate' : 'repair';
+        const snapshot = await operatorSnapshot(parent, config, context);
+        const editablePaths = snapshot.editablePaths ?? [];
+        if (!editablePaths.length)
+          throw new Error('Kernel Target permits no source modifications');
+        const editConstraints = {
+          allowedPaths: editablePaths.map(literalPathPattern),
+          maxChangedFiles: editablePaths.length,
+        };
+        const outputSchema = operatorEditOutputSchema(editablePaths);
         const response = await requestOperatorAgent(
           stage,
           config.agentRef,
@@ -1659,7 +1751,7 @@ export const createOperatorProposer: OperationDefinition<
                 : loaded.prompts.repair) +
               '\n\n' +
               loaded.guidelines,
-            files: await operatorFiles(parent, config, context),
+            ...snapshot,
             input: {
               stage,
               ...prepared.generationContext,
@@ -1672,7 +1764,7 @@ export const createOperatorProposer: OperationDefinition<
               target: (await context.applicationMetadata()).target ?? null,
               editConstraints,
             },
-            outputSchema: operatorEditOutputSchema,
+            outputSchema,
           },
           context,
           config.modelRequestTimeoutMs,
@@ -1682,6 +1774,7 @@ export const createOperatorProposer: OperationDefinition<
           parent,
           prepared.analysisRef,
           input.action,
+          editConstraints,
           context,
           services,
         );
@@ -1724,7 +1817,7 @@ async function readRetrievalJson(
   maxPayloadBytes?: number,
 ): Promise<Buffer> {
   const stat = await lstat(path);
-  if (!stat.isFile() || stat.isSymbolicLink())
+  if (!stat.isFile())
     throw new Error('Retrieval JSON must be an ordinary file');
   if (maxPayloadBytes !== undefined && stat.size > maxPayloadBytes)
     throw new Error(
@@ -1791,7 +1884,7 @@ export async function readKnowledgeResources(
       'Knowledge guidelines must reference an inventoried resource',
     );
   const worker = await lstat(config.retrievalScript);
-  if (!worker.isFile() || worker.isSymbolicLink())
+  if (!worker.isFile())
     throw new Error('Retrieval script must be an ordinary file');
   return {
     manifest,
@@ -1854,161 +1947,6 @@ export async function readEmbeddingIdentity(
     throw new Error('Embedding model file identity mismatch');
   return { identity, digest: sha(bytes) };
 }
-async function groupHasLiveProcesses(pid: number): Promise<boolean> {
-  if (process.platform === 'linux') {
-    for (const id of await readdir('/proc')) {
-      if (!/^\d+$/.test(id)) continue;
-      try {
-        const raw = await readFile(`/proc/${id}/stat`, 'utf8');
-        const parts = raw.slice(raw.lastIndexOf(')') + 2).split(' ');
-        if (Number(parts[2]) === pid && !['Z', 'X'].includes(parts[0]!))
-          return true;
-      } catch (error) {
-        if (
-          !(
-            error instanceof Error &&
-            'code' in error &&
-            ['ENOENT', 'ESRCH', 'EACCES'].includes(String(error.code))
-          )
-        )
-          throw error;
-      }
-    }
-    return false;
-  }
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
-      return false;
-    throw error;
-  }
-}
-function killGroup(pid: number | undefined): void {
-  if (pid === undefined) return;
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch (error) {
-    if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH'))
-      throw error;
-  }
-}
-async function runWorker(
-  config: EmbeddingConfig,
-  args: string[],
-  cwd: string,
-  directory: string,
-  signal: AbortSignal,
-): Promise<void> {
-  signal.throwIfAborted();
-  if (process.platform === 'win32')
-    throw new Error('Operator retrieval requires POSIX process-group cleanup');
-  let stdout = Buffer.alloc(0),
-    stderr = Buffer.alloc(0),
-    failure: Error | undefined;
-  const child = spawn(config.python, args, {
-    cwd,
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      CUDA_VISIBLE_DEVICES: '',
-      ASCEND_RT_VISIBLE_DEVICES: '',
-      HIP_VISIBLE_DEVICES: '',
-      HF_HUB_OFFLINE: '1',
-      TRANSFORMERS_OFFLINE: '1',
-      HF_HOME: join(cwd, 'hf-cache'),
-      TOKENIZERS_PARALLELISM: 'false',
-    },
-  });
-  const stop = (error: Error): void => {
-    failure ??= error;
-    try {
-      killGroup(child.pid);
-    } catch (killError) {
-      failure = new Error('Retrieval worker cleanup failed', {
-        cause: killError,
-      });
-    }
-  };
-  const abort = (): void =>
-    stop(
-      signal.reason instanceof Error
-        ? signal.reason
-        : new Error('Retrieval worker cancelled'),
-    );
-  signal.addEventListener('abort', abort, { once: true });
-  if (signal.aborted) abort();
-  const timer =
-    config.timeoutMs > 0
-      ? setTimeout(
-          () => stop(new Error('Retrieval worker timeout')),
-          config.timeoutMs,
-        )
-      : undefined;
-  child.stdout.on('data', (chunk: Buffer) => {
-    if (
-      config.maxLogBytes !== undefined &&
-      stdout.length + chunk.length > config.maxLogBytes
-    )
-      stop(
-        new Error(
-          `Retrieval worker output log exceeds maxLogBytes (${config.maxLogBytes})`,
-        ),
-      );
-    else stdout = Buffer.concat([stdout, chunk]);
-  });
-  child.stderr.on('data', (chunk: Buffer) => {
-    if (
-      config.maxLogBytes !== undefined &&
-      stderr.length + chunk.length > config.maxLogBytes
-    )
-      stop(
-        new Error(
-          `Retrieval worker error log exceeds maxLogBytes (${config.maxLogBytes})`,
-        ),
-      );
-    else stderr = Buffer.concat([stderr, chunk]);
-  });
-  let code: number | null = null;
-  try {
-    code = await new Promise<number | null>((resolve) => {
-      child.once('error', (error) => {
-        failure ??= error;
-      });
-      child.once('close', resolve);
-    });
-    killGroup(child.pid);
-    let live =
-      child.pid !== undefined && (await groupHasLiveProcesses(child.pid));
-    for (let attempt = 0; live && attempt < 100; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      live = await groupHasLiveProcesses(child.pid!);
-    }
-    await writeFile(
-      join(directory, 'process.json'),
-      JSON.stringify({
-        pid: child.pid ?? null,
-        exitCode: code,
-        cleanup: live ? 'unknown' : 'confirmed',
-        error: failure?.message ?? null,
-      }) + '\n',
-    );
-    await writeFile(join(directory, 'stdout.log'), stdout);
-    await writeFile(join(directory, 'stderr.log'), stderr);
-    if (live) throw new Error('Retrieval worker cleanup unknown');
-    if (failure) throw failure;
-    if (code !== 0)
-      throw new Error(
-        `Retrieval worker exited ${code}: ${stderr.toString('utf8').trim()}`,
-      );
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-    signal.removeEventListener('abort', abort);
-  }
-}
-
 export class MetricsRetrievalUnavailable extends Error {}
 
 /** Static and measured bottleneck queries share one bounded retrieval protocol. */
@@ -2070,7 +2008,7 @@ async function retrieveKnowledge<Match extends MetricsKnowledgeMatch>(
       );
     await writeFile(requestPath, body, { flag: 'wx', mode: 0o600 });
     try {
-      await runWorker(
+      await runRetrievalWorker(
         config,
         [
           resolve(config.retrievalScript),
@@ -2187,7 +2125,6 @@ export async function readHardwareContext(
     const stat = await lstat(path);
     if (!stat.isFile())
       throw new Error('expected an ordinary file without symlinks');
-    if ((stat.mode & 0o444) === 0) throw new Error('file is not readable');
     bytes = await readFile(path);
   } catch (error) {
     throw new Error(

@@ -5,19 +5,26 @@
 本例使用 `policy.operator-search` 评测已封存的 Triton-Ascend 基线，生成并修复候选，
 选择改进结果，再独立复测选中的源码。可选的硬件诊断用于驱动后续搜索轮次。
 `application.kernel` 管理源码工作区，`proposer.operator` 提出修改，
-`evaluator.operatorbench` 调用完整 Evaluator SDK。
+Recipe 将评测绑定到 RSI 插件 `evaluator.operatorbench`。该插件处理 `evaluate` 和 `profile`
+时，都通过 Evaluator SDK 调用 `kernel` benchmark 和 `kernel-replay` solver，并将结果记录为 RSI Measurement。
 
 任务接收形状为 `[381, 51200]` 的 FP16 张量，返回形状为 `[381, 80, 80, 8]`、
 内存连续且独立存储的 FP16 张量，并保持输入不变。计算过程先调整形状，再交换两个
 空间轴，最后将转置视图复制为连续内存。
 固定用例使用种子 42，数值容差为零。入口为 `kernel_function`，
-冻结参考与契约见 [task](./task/task.json)。
+冻结参考与契约见 [task](./task/task.json)。任务契约支持 FP16、BF16、FP32 和标量，输入可显式声明 `contiguous: false`；省略时保持连续输入。
 
 ## 配置与运行
+
+本例的 Target 通过唯一的文件条目选择 `input.py`。改名时，同时移动基线源码并更新 Target 路径，例如 `kernels/transpose.py`。Agent 从 `context/sources/<sourcePath>` 读取只读副本，返回的编辑路径必须在阶段输入的 `editablePaths` 中。
 
 使用装有 CANN、torch、torch_npu、triton-ascend，以及锁定版本 Evaluator SDK
 所需 profiling 依赖的 Linux NPU 主机。在私有环境配置中设置 `MODEL_NAME`、
 `MODEL_ENDPOINT` 和 `MODEL_API_KEY`。
+本地 Evaluator 以评测账户的文件和进程权限运行候选 Python。
+只在此模式下运行可信候选，并将其他凭据和私有文件放在评测账户的访问范围之外。
+
+Evaluator 配置中的 `mode: sdk` 和 `protocol.timingScope: all-device-kernels` 可省略。普通评测省略 `sdk.profiling` 时关闭自动诊断，Policy 的显式 profile 仍会采集新证据。kernel 入口由评测导入并验证，可通过函数定义或别名提供。
 
 运行 [Recipe](./recipe.search.yaml) 前，替换其中 SDK Python 路径、embedding Python
 路径、模型目录、身份文件、外部知识包和外部检索脚本的占位值。
@@ -60,7 +67,7 @@ Worker 命令为 `<embedding.python> <embedding.retrievalScript> --request
 Embedding 身份文件使用 `rsi.operator-embedding-identity/v1`，包含带 `id`
 和不可变 `revision` 的 `model` 对象；`encoding` 对象包含
 `queryPromptName: query`、`normalizeEmbeddings: true`、`device: cpu` 和
-`batchSize: 32`；`files` 清单记录相对路径与 SHA-256 摘要。
+正整数 `batchSize`（例如 `32`）；`files` 清单记录相对路径与 SHA-256 摘要。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -97,20 +104,20 @@ Manager 执行 Recipe 的操作数、模型调用数、评测次数和时间预�
 没有接受改进时，复用未改变候选的诊断证据。
 Profiling 不可用时停止指标阶段。两种模式都在结束时独立复测选中的源码。
 
-| Recipe 设置                                                    | 示例值     | 含义                                                      |
-| -------------------------------------------------------------- | ---------- | --------------------------------------------------------- |
-| `policy.config.maxAttempts`                                    | `3`        | 静态尝试次数上限，取正整数。                              |
-| `policy.config.repairLimit`                                    | `3`        | 每条无效候选链的修复次数上限，取非负整数。                |
-| `policy.config.maxRounds`                                      | `10`       | 指标阶段轮数上限，取正整数。                              |
-| `policy.config.maxNoImprovement`                               | `5`        | 上次接受改进后，未被接受的有效候选数上限，取正整数。      |
-| `bindings.proposer.config.historyWindow`                       | `5`        | 提供给生成阶段的最近总结数量，默认 5。                    |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`   | 一个完整模型阶段的时间上限，单位 ms；`0` 关闭此本地期限。 |
-| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`   | 检索 worker 的时间上限，单位 ms；`0` 关闭此期限。         |
-| `bindings.proposer.config.embedding.maxPayloadBytes`           | 省略       | 可选的单份外部检索 JSON 数据字节上限。                    |
-| `bindings.proposer.config.embedding.maxLogBytes`               | 省略       | 可选的检索 worker 单个输出流的字节上限。                  |
-| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`      | 检索匹配分数下限。                                        |
-| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20` | 评测预热次数与计时重复次数。                              |
-| `bindings.selector.config.minRelativeImprovement`              | `0.02`     | 合格候选平均延迟所需的相对降低比例。                      |
+| Recipe 设置                                                    | 示例值     | 含义                                                                           |
+| -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------ |
+| `policy.config.maxAttempts`                                    | `3`        | 静态尝试次数上限，取正整数。                                                   |
+| `policy.config.repairLimit`                                    | `3`        | 每条无效候选链的修复次数上限，取非负整数。                                     |
+| `policy.config.maxRounds`                                      | `10`       | 指标阶段轮数上限，取正整数。                                                   |
+| `policy.config.maxNoImprovement`                               | `5`        | 上次接受改进后，未被接受的有效候选数上限，取正整数。                           |
+| `bindings.proposer.config.historyWindow`                       | `5`        | 提供给生成阶段的最近总结数量，默认 5；`0` 关闭近期历史注入，完整历史仍被保存。 |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`   | 一个完整模型阶段的时间上限，单位 ms；`0` 关闭此本地期限。                      |
+| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`   | 检索 worker 的时间上限，单位 ms；`0` 关闭此期限。                              |
+| `bindings.proposer.config.embedding.maxPayloadBytes`           | 省略       | 可选的单份外部检索 JSON 数据字节上限。                                         |
+| `bindings.proposer.config.embedding.maxLogBytes`               | 省略       | 可选的检索 worker 单个输出流的字节上限。                                       |
+| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`      | 检索匹配分数下限。                                                             |
+| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20` | 评测预热次数与计时重复次数。                                                   |
+| `bindings.selector.config.minRelativeImprovement`              | `0.02`     | 合格候选平均延迟所需的相对降低比例。                                           |
 
 本例 Manager 上限为 1,024 次操作、65 次评测、152 次模型调用、
 7,200,000 ms 总时长，以及 60,000 ms 清理预留时间。

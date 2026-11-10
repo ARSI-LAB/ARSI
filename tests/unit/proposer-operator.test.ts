@@ -1,6 +1,7 @@
 import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   readFile,
   writeFile,
@@ -27,6 +28,10 @@ import {
 } from '../../src/contracts/index.js';
 import { object, string } from '../../src/shared/json.js';
 import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
+import { parseKernelExecution } from '../../src/plugins/application-kernel/schema.js';
+import { loadOperatorTask } from '../../src/plugins/shared/operator-task.js';
+import { prepareOperatorCase } from '../../src/plugins/evaluator-operatorbench/kernel-input.js';
+import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';
 import {
   createOperatorProposer,
   readHistory,
@@ -60,18 +65,42 @@ async function setup(
     failSummary?: boolean;
     initialValid?: boolean;
     noChange?: boolean;
+    sourcePath?: string;
+    bundle?: boolean;
     outputSource?: string;
     outputReason?: string;
     metrics?: boolean;
     hardwareText?: string;
     invalidMetrics?: boolean;
+    historyWindow?: number;
     invalidSummary?: boolean;
     promptsDirectory?: string;
     editRejection?: { stage: 'generate' | 'repair'; error: Error };
     invalidEdits?: 'generate' | 'repair';
   } = {},
 ) {
-  const fixture = await prepareOperatorProposerFixture();
+  const fixture = await prepareOperatorProposerFixture(options.sourcePath);
+  if (options.bundle) {
+    await writeFile(
+      join(fixture.root, 'example/baseline/tiling.py'),
+      'BLOCK = 32\n',
+    );
+    await writeFile(
+      join(fixture.root, 'example/target.yaml'),
+      stringify({
+        schemaVersion: 'rsi.target/v1',
+        id: 'bundle',
+        entries: [
+          {
+            path: 'tiling.py',
+            kind: 'file',
+            description: 'tiling',
+            changes: ['modify'],
+          },
+        ],
+      }),
+    );
+  }
   const runtime = await createRuntime({ rootDirectory: fixture.root });
   if (!runtime.registry.catalog().plugins.includes('proposer.operator'))
     runtime.registry.registerOperation(operatorProposerDefinition);
@@ -91,7 +120,10 @@ async function setup(
           );
           requests.push({
             input,
-            source: await readFile(join(request.cwd, 'input.py'), 'utf8'),
+            source: await readFile(
+              join(request.cwd, 'context/sources', string(input.sourcePath)),
+              'utf8',
+            ),
             instructions: await readFile(
               join(request.cwd, 'AGENTS.md'),
               'utf8',
@@ -144,8 +176,7 @@ async function setup(
             await Promise.resolve();
             return {
               edits: [
-                { path: 'input.py', content: 'first' },
-                { path: 'other.py', content: 'second' },
+                { path: 'input.py', content: 'unauthorized replacement' },
               ],
               reason: 'Invalid response',
             };
@@ -163,9 +194,14 @@ async function setup(
               ? []
               : [
                   {
-                    path: 'input.py',
+                    path: options.bundle
+                      ? 'tiling.py'
+                      : string(input.sourcePath),
                     content:
-                      options.outputSource ?? operatorFixtureSource(marker),
+                      options.outputSource ??
+                      (options.bundle
+                        ? 'BLOCK = 64\n'
+                        : operatorFixtureSource(marker)),
                   },
                 ],
             reason: options.outputReason ?? `Changed ${marker}`,
@@ -217,6 +253,11 @@ async function setup(
   );
   runtime.registry.registerPolicy('test.operator-driver', policyPath);
   const recipe = object(parse(await readFile(fixture.recipePath, 'utf8')));
+  if (options.bundle)
+    Object.assign(object(object(recipe.application).config), {
+      entryFile: 'input.py',
+      additionalFiles: ['tiling.py'],
+    });
   recipe.policy = { id: 'test.operator-driver' };
   const bindings = object(recipe.bindings);
   bindings.driver = { plugin: 'operator.driver', config: {} };
@@ -243,6 +284,9 @@ async function setup(
       },
     },
   };
+  if (options.historyWindow !== undefined)
+    object(object(bindings.proposer).config).historyWindow =
+      options.historyWindow;
   if (options.metrics) {
     const msprof = join(fixture.root, 'msprof.mjs');
     await copyFile(
@@ -297,6 +341,162 @@ async function baseline(context: RuntimeContext) {
   );
   return { entry, baselineRef: string(evaluated.measurementRef) };
 }
+
+test('operator reads the declared bundle and edits a helper while the entry stays read-only', async (t) => {
+  const fixture = await setup(
+    async (context, requests) => {
+      const { entry, baselineRef } = await baseline(context);
+      const proposal = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 1,
+          goal: 'Optimize tiling',
+          analysisRef: null,
+          historyRef: null,
+        }),
+      );
+      assert.equal(proposal.status, 'created');
+      assert.deepEqual(requests.at(-1)?.input.editablePaths, ['tiling.py']);
+      assert.deepEqual(requests.at(-1)?.input.sourceFiles, [
+        'input.py',
+        'tiling.py',
+      ]);
+      const candidate = await context.readCandidate(
+        string(proposal.candidateRef),
+      );
+      const space = await context.workspaces.create(candidate.artifactRef);
+      try {
+        assert.equal(
+          await readFile(join(space.directory, 'input.py'), 'utf8'),
+          fixture.entrySource,
+        );
+        assert.equal(
+          await readFile(join(space.directory, 'tiling.py'), 'utf8'),
+          'BLOCK = 64\n',
+        );
+      } finally {
+        await context.workspaces.release(space.ref);
+      }
+      return proposal;
+    },
+    false,
+    { bundle: true, initialValid: true },
+  );
+  t.after(() => fixture.dispose());
+  const result = await fixture.runtime.manager.run(fixture.recipePath, {
+    id: 'operator-bundle',
+  });
+  assert.equal(result.status, 'succeeded', JSON.stringify(result));
+});
+
+test('helper-only candidates retain comparison conditions and profile the matching bundle', async (t) => {
+  const fixture = await setup(
+    async (context) => {
+      const { entry, baselineRef } = await baseline(context);
+      const proposal = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 1,
+          goal: 'Tune helper',
+          analysisRef: null,
+          historyRef: null,
+        }),
+      );
+      const candidateRef = string(proposal.candidateRef);
+      const evaluated = object(
+        await context.invoke('evaluator', {
+          action: 'evaluate',
+          candidateRef,
+          caseIds: ['fixed'],
+        }),
+      );
+      const before = await context.readMeasurement(baselineRef);
+      const after = await context.readMeasurement(
+        string(evaluated.measurementRef),
+      );
+      assert.equal(before.comparisonKey, after.comparisonKey);
+      const provenance = async (measurement: JsonObject) =>
+        object(
+          await context.artifacts.readJson(
+            string(object(measurement.provenance).artifactRef),
+          ),
+        );
+      const original = await provenance(before);
+      const changed = await provenance(after);
+      assert.equal(original.sourceDigest, changed.sourceDigest);
+      assert.notEqual(original.sourceBundleDigest, changed.sourceBundleDigest);
+      const native = object(
+        await context.artifacts.readJson(string(after.diagnosticsRef)),
+      );
+      await context.withInstance(candidateRef, 'kernel-source', async (raw) => {
+        const prepared = await prepareOperatorCase({
+          task: await loadOperatorTask(join(fixture.root, 'example/task')),
+          selected: { id: 'fixed', seed: 42 },
+          execution: parseKernelExecution(raw),
+          manifest: join(context.directory, 'lock-check/manifest.json'),
+          operation: 'evaluate',
+          editablePaths: ['tiling.py'],
+        });
+        const altered = structuredClone(native);
+        const files = object(object(object(altered.snapshot).run).source).files;
+        assert.ok(Array.isArray(files));
+        const helper = files
+          .map((value) => object(value))
+          .find((file) => file.path === 'data/candidate/tiling.py');
+        assert.ok(helper);
+        helper.sha256 = '0'.repeat(64);
+        assert.throws(
+          () => adaptSdkResult(altered, prepared),
+          /source inventory identity mismatch/,
+        );
+      });
+      const profiled = object(
+        await context.invoke('evaluator', {
+          action: 'profile',
+          candidateRef,
+          caseIds: ['fixed'],
+          assessmentMeasurementRef: after.ref,
+        }),
+      );
+      assert.equal(profiled.collectionStatus, 'completed');
+      const measurement = await context.readMeasurement(
+        string(profiled.measurementRef),
+      );
+      const details = object(
+        await context.artifacts.readJson(
+          string(object(measurement.profile).artifactRef),
+        ),
+      );
+      assert.equal(details.sourceBundleDigest, changed.sourceBundleDigest);
+      const members = object(
+        object(object(details.profile).metadata).sources,
+      ).candidateFiles;
+      assert.ok(Array.isArray(members));
+      assert.deepEqual(
+        members.map((value) => object(value).path),
+        ['input.py', 'tiling.py'],
+      );
+      assert.equal(
+        object(members[1]).sha256,
+        createHash('sha256').update('BLOCK = 64\n').digest('hex'),
+      );
+      return proposal;
+    },
+    false,
+    { bundle: true, initialValid: true, metrics: true },
+  );
+  t.after(() => fixture.dispose());
+  const result = await fixture.runtime.manager.run(fixture.recipePath, {
+    id: 'bundle-profile',
+  });
+  assert.equal(result.status, 'succeeded');
+});
 
 test('static summaries deliver and reread the complete action rationale beyond four thousand characters', async (t) => {
   const rationale =
@@ -420,106 +620,112 @@ test('operator generation receives configured prompts and rejects analysis after
 });
 
 test('operator Proposer performs independent diagnosis/generation, repairs failed source and delivers the measured summary to a fresh entry proposal', async (t) => {
-  const fixture = await setup(async (context, requests) => {
-    const { entry, baselineRef } = await baseline(context);
-    const first = object(
-      await context.invoke('proposer', {
-        action: 'propose',
-        phase: 'static',
-        entryCandidateRef: entry,
-        baselineMeasurementRef: baselineRef,
-        attempt: 1,
-        goal: 'Optimize',
-        analysisRef: null,
-        historyRef: null,
-      }),
-    );
-    assert.equal(first.status, 'created');
-    const failed = object(
-      await context.invoke('evaluator', {
-        action: 'evaluate',
-        candidateRef: first.candidateRef,
-        caseIds: ['fixed'],
-      }),
-    );
-    const repaired = object(
-      await context.invoke('proposer', {
-        action: 'repair',
-        phase: 'static',
-        failedCandidateRef: first.candidateRef,
-        measurementRef: failed.measurementRef,
-        analysisRef: first.analysisRef,
-        historyRef: null,
-        attempt: 1,
-        repairIndex: 1,
-        goal: 'Repair',
-      }),
-    );
-    const measured = object(
-      await context.invoke('evaluator', {
-        action: 'evaluate',
-        candidateRef: repaired.candidateRef,
-        caseIds: ['fixed'],
-      }),
-    );
-    const decision = object(
-      await context.invoke('selector', {
-        incumbentMeasurementRef: baselineRef,
-        candidateMeasurementRef: measured.measurementRef,
-      }),
-    );
-    const summary = object(
-      await context.invoke('proposer', {
-        action: 'summarize',
-        phase: 'static',
-        entryCandidateRef: entry,
-        analysisRef: first.analysisRef,
-        historyRef: null,
-        attempt: 1,
-        candidateRefs: [first.candidateRef, repaired.candidateRef],
-        measurementRefs: [failed.measurementRef, measured.measurementRef],
-        decisionRef: decision.decisionRef,
-        outcome: 'verified-no-gain',
-      }),
-    );
-    const history = await readHistory(string(summary.historyRef), context);
-    assert.equal(history.summaries[0]!.facts.candidateMs, 12);
-    const next = object(
-      await context.invoke('proposer', {
-        action: 'propose',
-        phase: 'static',
-        entryCandidateRef: entry,
-        baselineMeasurementRef: baselineRef,
-        attempt: 2,
-        goal: 'Optimize differently',
-        analysisRef: first.analysisRef,
-        historyRef: summary.historyRef,
-      }),
-    );
-    assert.equal(next.status, 'created');
-    assert.deepEqual(
-      requests.map((request) => object(request.input).stage),
-      ['diagnose', 'generate', 'repair', 'summarize', 'generate'],
-    );
-    const nextInput = object(requests[4]!.input);
-    assert.match(JSON.stringify(nextInput.history), /Use one hypothesis/);
-    assert.match(JSON.stringify(nextInput.history), /candidateMs.*12/);
-    assert.equal(
-      requests[4]!.source,
-      operatorFixtureSource('fixture:latency=10'),
-    );
-    assert.equal(
-      requests[2]!.source,
-      operatorFixtureSource('fixture:incorrect'),
-    );
-    assert.match(
-      JSON.stringify(object(requests[2]!.input).evidence),
-      /KERNEL_CONTRACT_FAILED/,
-    );
-    const child = await context.readCandidate(string(next.candidateRef));
-    assert.equal(child.parentRef, entry);
-    return { ...next, historyRef: summary.historyRef };
-  });
+  const fixture = await setup(
+    async (context, requests) => {
+      const { entry, baselineRef } = await baseline(context);
+      const first = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 1,
+          goal: 'Optimize',
+          analysisRef: null,
+          historyRef: null,
+        }),
+      );
+      assert.equal(first.status, 'created');
+      const failed = object(
+        await context.invoke('evaluator', {
+          action: 'evaluate',
+          candidateRef: first.candidateRef,
+          caseIds: ['fixed'],
+        }),
+      );
+      const repaired = object(
+        await context.invoke('proposer', {
+          action: 'repair',
+          phase: 'static',
+          failedCandidateRef: first.candidateRef,
+          measurementRef: failed.measurementRef,
+          analysisRef: first.analysisRef,
+          historyRef: null,
+          attempt: 1,
+          repairIndex: 1,
+          goal: 'Repair',
+        }),
+      );
+      const measured = object(
+        await context.invoke('evaluator', {
+          action: 'evaluate',
+          candidateRef: repaired.candidateRef,
+          caseIds: ['fixed'],
+        }),
+      );
+      const decision = object(
+        await context.invoke('selector', {
+          incumbentMeasurementRef: baselineRef,
+          candidateMeasurementRef: measured.measurementRef,
+        }),
+      );
+      const summary = object(
+        await context.invoke('proposer', {
+          action: 'summarize',
+          phase: 'static',
+          entryCandidateRef: entry,
+          analysisRef: first.analysisRef,
+          historyRef: null,
+          attempt: 1,
+          candidateRefs: [first.candidateRef, repaired.candidateRef],
+          measurementRefs: [failed.measurementRef, measured.measurementRef],
+          decisionRef: decision.decisionRef,
+          outcome: 'verified-no-gain',
+        }),
+      );
+      const history = await readHistory(string(summary.historyRef), context);
+      assert.equal(history.summaries[0]!.facts.candidateMs, 12);
+      const next = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 2,
+          goal: 'Optimize differently',
+          analysisRef: first.analysisRef,
+          historyRef: summary.historyRef,
+        }),
+      );
+      assert.equal(next.status, 'created');
+      assert.deepEqual(
+        requests.map((request) => object(request.input).stage),
+        ['diagnose', 'generate', 'repair', 'summarize', 'generate'],
+      );
+      const nextInput = object(requests[4]!.input);
+      assert.match(JSON.stringify(nextInput.history), /Use one hypothesis/);
+      assert.match(JSON.stringify(nextInput.history), /candidateMs.*12/);
+      assert.equal(
+        requests[4]!.source,
+        operatorFixtureSource('fixture:latency=10'),
+      );
+      assert.equal(
+        requests[2]!.source,
+        operatorFixtureSource('fixture:incorrect'),
+      );
+      assert.match(
+        JSON.stringify(object(requests[2]!.input).evidence),
+        /KERNEL_CONTRACT_FAILED/,
+      );
+      const child = await context.readCandidate(string(next.candidateRef));
+      assert.equal(child.parentRef, entry);
+      for (const request of requests)
+        assert.equal(request.input.sourcePath, 'kernels/transpose[0].py');
+      return { ...next, historyRef: summary.historyRef };
+    },
+    false,
+    { sourcePath: 'kernels/transpose[0].py' },
+  );
   t.after(() => fixture.dispose());
   const result = await fixture.runtime.manager.run(fixture.recipePath, {
     id: 'operator-actions',
@@ -933,12 +1139,16 @@ test('invalid metric analysis rereads fact history through twelve rounds beyond 
         ).length,
         12,
       );
+      for (const request of requests.filter(
+        (r) => object(r.input).stage === 'diagnose-metrics',
+      ))
+        assert.deepEqual(object(request.input).history, []);
       const history = object(await context.artifacts.readJson(historyRef!));
       assert.equal((history.summaryRefs as string[]).length, 12);
       return { historyRef };
     },
     false,
-    { metrics: true, invalidMetrics: true },
+    { metrics: true, invalidMetrics: true, historyWindow: 0 },
   );
   t.after(() => fixture.dispose());
   assert.equal(
@@ -1170,7 +1380,10 @@ test('asynchronous invalid generation retains error evidence and history for the
       assert.equal(error.stage, 'propose');
       assert.equal(error.phase, 'static');
       assert.equal(error.attempt, 1);
-      assert.match(string(error.message), /more than 1 items/);
+      assert.match(
+        string(error.message),
+        /edits\/0\/path must be equal to one of the allowed values/,
+      );
       const summary = object(
         await context.invoke('proposer', {
           action: 'summarize',
@@ -1216,7 +1429,7 @@ test('asynchronous invalid generation retains error evidence and history for the
       return next;
     },
     false,
-    { invalidEdits: 'generate' },
+    { invalidEdits: 'generate', sourcePath: 'kernels/transpose.py' },
   );
   t.after(() => fixture.dispose());
   assert.equal(
@@ -1293,7 +1506,7 @@ test('asynchronous invalid repair retains the failed source and repair error wit
       return summary;
     },
     false,
-    { invalidEdits: 'repair' },
+    { invalidEdits: 'repair', sourcePath: 'kernels/transpose.py' },
   );
   t.after(() => fixture.dispose());
   assert.equal(

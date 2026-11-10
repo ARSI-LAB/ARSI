@@ -111,6 +111,7 @@ test('operator config accepts disabled or extended deadlines and explicit retrie
 });
 
 async function fixture() {
+  const sourcePath = 'kernels/transpose[0].py';
   const directory = await mkdtemp(join(tmpdir(), 'operator-context-'));
   const artifacts = new FileArtifacts(join(directory, 'artifacts'));
   const facts = new FileFacts(join(directory, 'facts'));
@@ -131,7 +132,7 @@ async function fixture() {
     kind: 'file-tree',
     files: [
       {
-        path: 'input.py',
+        path: sourcePath,
         mode: 420,
         base64: Buffer.from(source).toString('base64'),
       },
@@ -148,7 +149,7 @@ async function fixture() {
     kind: 'file-tree',
     files: [
       {
-        path: 'input.py',
+        path: sourcePath,
         mode: 420,
         base64: Buffer.from(changedSource).toString('base64'),
       },
@@ -242,6 +243,22 @@ async function fixture() {
     signal: new AbortController().signal,
     artifacts,
     facts,
+    async applicationMetadata() {
+      return {
+        target: {
+          schemaVersion: 'rsi.target/v1',
+          id: 'test',
+          entries: [
+            {
+              path: sourcePath,
+              kind: 'file',
+              changes: ['modify'],
+              description: 'Kernel',
+            },
+          ],
+        },
+      };
+    },
     async readCandidate(ref: string) {
       const fact = await facts.read('candidates', ref);
       return {
@@ -372,6 +389,62 @@ test('analysis binds the explicit baseline measurement to its owned entry and ef
   await assert.rejects(
     readAnalysis(f.analysisRef, f.identity, f.context),
     /experiment|ownership/i,
+  );
+});
+
+test('multi-file analysis rejects an assessment that certifies only unchanged entry bytes', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const candidate = await f.context.readCandidate('entry');
+  const tree = object(await f.artifacts.readJson(candidate.artifactRef));
+  assert.ok(Array.isArray(tree.files));
+  const sourcePath = string(object(tree.files[0]).path);
+  const artifactRef = await f.artifacts.putJson({
+    ...tree,
+    files: [
+      ...tree.files,
+      {
+        path: 'helper.py',
+        mode: 420,
+        base64: Buffer.from('BLOCK = 64\n').toString('base64'),
+      },
+    ],
+  });
+  await f.facts.write('candidates', 'entry', { ...candidate, artifactRef });
+  const measurement = await f.facts.read('measurements', 'baseline');
+  const provenance = object(
+    await f.artifacts.readJson(
+      string(object(measurement.provenance).artifactRef),
+    ),
+  );
+  const provenanceRef = await f.artifacts.putJson({
+    ...provenance,
+    artifactRef,
+  });
+  await f.facts.write('measurements', 'baseline', {
+    ...measurement,
+    provenance: {
+      ...object(measurement.provenance),
+      artifactRef: provenanceRef,
+    },
+  });
+  const metadata = await f.context.applicationMetadata();
+  const context = f.context.extend({
+    async applicationMetadata() {
+      return {
+        ...metadata,
+        capabilityMetadata: {
+          'kernel-source': {
+            entryFile: sourcePath,
+            additionalFiles: ['helper.py'],
+          },
+        },
+      };
+    },
+  });
+  await assert.rejects(
+    readAnalysis(f.analysisRef, f.identity, context),
+    /source or cleanup mismatch/,
   );
 });
 

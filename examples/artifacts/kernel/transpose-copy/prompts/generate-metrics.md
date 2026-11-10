@@ -1,15 +1,15 @@
 # Generate a metrics-guided Triton-Ascend candidate
 
-Modify the current best input.py around the single supplied bottleneck hypothesis.
+Modify the current best candidate source around the single supplied bottleneck hypothesis.
 Use measured profile evidence, retrieved metric optimization references, previous
 attempt summaries, the task contract, and the complete hardwareContext text.
 Explain which provided facts justify the change and distinguish uncertainty.
 
 Return only JSON edits/reason matching outputSchema. For a supported change,
-edits must contain exactly one entry with path input.py and content containing
+edits must contain exactly one entry with the exact path given by `sourcePath` and content containing
 the complete replacement Python file. Do not split one file replacement into
 multiple edits. When no supported modification remains, return an empty edits
-array and an explicit reason. Edit only input.py. Preserve
+array and an explicit reason. Use only exact paths from `editablePaths` in `context/input.json` for edits. Preserve
 kernel_function, task semantics, precision, output allocation/aliasing and input
 mutation rules, and authorized editing constraints. Do not weaken checks, fabricate
 measurements, or replace existing Triton work with PyTorch compute. Preserve

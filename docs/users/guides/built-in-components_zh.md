@@ -47,7 +47,25 @@
 
 ## Application
 
-Application 根据初始内容创建候选版本，检查并提交修改，并为评测准备和释放运行实例。`application.agentbundle` 管理 Agent Bundle，`application.inference` 管理推理服务配置与实例，`application.kernel` 管理 Triton-Ascend 算子源码与评测工作目录。算子基线中的 `input.py` 需要定义 `kernel_function`，环境与配置见[算子优化示例](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md)。
+Application 根据初始内容创建候选版本，检查并提交修改，并为评测准备和释放运行实例。`application.agentbundle` 管理 Agent Bundle，`application.inference` 管理推理服务配置与实例，`application.kernel` 管理 Triton-Ascend 算子源码与评测工作目录。算子配置可用 `entryFile` 指定入口，用固定的 `additionalFiles` 列出本地 helper 和包初始化文件；路径均相对于基线目录。入口须提供可调用的 `kernel_function`。Target 独立决定允许修改的源码子集，入口可以只读。省略这两个字段时，沿用唯一的 `kind: file` Target 条目作为单文件入口。配置 `additionalFiles` 时必须显式提供 `entryFile`。实验中不能新增或删除源码成员。环境与配置见[算子优化示例](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md)。
+
+入口只读的包可以显式声明源码清单：
+
+```yaml
+application:
+  plugin: application.kernel
+  config:
+    baseline: { directory: ./baseline }
+    target: { schema: ./target.yaml }
+    entryFile: kernels/kernel.py
+    additionalFiles:
+      - kernels/__init__.py
+      - kernels/tiling.py
+```
+
+Target 可以只授权修改 `kernels/tiling.py`。Proposer 从 `context/sources/` 读取所有已声明文件，按阶段输入中的 `editablePaths` 返回修改，每个修改文件提供完整替换内容。评测和 profiling 保留包目录结构并验证所有成员。`sourceDigest` 继续表示入口字节摘要；`sourceBundleDigest` 同时覆盖 helper。比较条件保留只读文件摘要，排除可编辑源码的内容。多文件评测需要支持 kernel manifest `candidateRoot` 字段的 Evaluator 版本。
+
+Target 授权也适用于只有一个成员的已声明清单：只读入口的字节和声明路径进入比较身份，可编辑入口则可变更内容。SDK 单文件 staging 保留 `input.py` 兼容别名，并记录其与声明入口的映射；历史收据保留原有比较投影。源码清单以确定性的路径顺序计算 bundle 哈希并比较证据，包括字节不同的 Unicode 文件名。
 
 ### 修改范围（Target）
 

@@ -208,14 +208,14 @@ export MODEL_API_KEY="your-api-key"
 
 ```sh
 ember-rsi catalog # List registered IDs
-ember-rsi validate my-experiment/recipe.yaml # Check configuration, contracts, and bindings
+ember-rsi doctor my-experiment/recipe.yaml # Check configuration and runtime prerequisites
 ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01 # Run the experiment
 ember-rsi show terminal-skills-01 # Inspect the saved status and results
 ```
 
 - 用 `ember-rsi list` 查看已保存的实验。
 - 用 `ember-rsi cancel terminal-skills-01` 请求取消。
-- 用 `ember-rsi validate my-experiment/recipe.yaml` 检查 Schema、绑定、契约及已声明的 Reflection 资源。该命令不发起模型请求，也不准备基准环境。
+- 用 `ember-rsi doctor my-experiment/recipe.yaml` 检查 Schema、绑定、契约、已声明的 Reflection 资源、本地输入和运行前提。其有时限探测可检查已缓存任务元数据、容器和模型可用性，不执行模型推理、资源下载或优化实验。
 - 用 `ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01 --resume` 恢复中断的实验，沿用原 Recipe、工作目录和实验 ID。
 - 用 `ember-rsi dashboard --port <端口号>` 查看候选、测量和调用记录。从包含 `.rsi/` 的同一工作目录执行，并打开命令输出的地址。`Reflection & Memory` 页签还可检查经验与修订版本，并预览、应用 Reflection 修改；详见[工作台](guides/running-experiments_zh.md#工作台)。启动、恢复和取消仍通过 CLI 操作。
 

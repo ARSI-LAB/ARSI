@@ -1,10 +1,10 @@
 # Embed the Runtime
 
-The fully runnable [run.mjs](../assets/minimal/run.mjs) creates a host, loads extensions, validates a Recipe, awaits execution, checks facts and disposes in finally. Copy its entire directory as described in [quickstart](quickstart.md).
+The fully runnable [run.mjs](../assets/minimal/run.mjs) creates a host, loads extensions, assembles a Recipe, awaits execution, checks facts and disposes in finally. Copy its entire directory as described in [quickstart](quickstart.md). For experiment preflight, run `ember-rsi doctor <recipe.yaml>` in the intended environment with the same extension directories.
 
 ```js
 import { resolve } from 'node:path';
-import { createRuntime, validateRecipe } from 'ember-rsi';
+import { createRuntime, Recipe } from 'ember-rsi';
 const runtime = await createRuntime({
   rootDirectory: process.cwd(),
   directory: resolve('.rsi'),
@@ -12,7 +12,8 @@ const runtime = await createRuntime({
 });
 try {
   const path = resolve('.rsi/skill-demo/recipe.yaml');
-  await validateRecipe(runtime, path);
+  const recipe = await Recipe.load(path, runtime.registry);
+  console.log({ recipeId: recipe.id, policyId: recipe.policy.id });
   const result = await runtime.manager.run(path, { id: 'embedded-01' });
   console.log(result);
   console.log(await runtime.manager.get('embedded-01'));
@@ -33,7 +34,9 @@ Read the selected candidate fact by its returned candidateRef, retain its paired
 
 ## Validation and error boundaries
 
-`validateRecipe` checks Recipe/Policy configuration, registrations, contracts and resource declarations. It does **not** evaluate the final Policy input against `input_schema`; defaults may depend on the initialized Application. A Recipe with an invalid explicit `policy.input` can therefore pass validation and fail during `manager.run`.
+`Recipe.load(path, runtime.registry)` checks Recipe/Policy configuration, registrations, contracts and declared Reflection resources, returning the assembled definition without creating plugin instances. Doctor uses this same loading path and adds bundled prerequisite checks; use its CLI report for preflight findings.
+
+Neither Recipe loading nor doctor evaluates the final Policy input against `input_schema`; defaults may depend on the initialized Application. A Recipe with an invalid explicit `policy.input` can therefore load successfully and fail during `manager.run`. Doctor may also leave prerequisite checks `unchecked`, so zero failed checks does not guarantee execution success.
 
 `manager.run` rejects on execution failure or cancellation rather than returning a failed record normally. When the experiment record has been persisted, `manager.get(id)` exposes its failed/cancelled status afterward. Earlier setup errors may leave no record. Catch the run rejection, inspect a known record if available, and always await disposal. For a deliberate bad-input test:
 
@@ -44,4 +47,4 @@ await assert.rejects(
 );
 ```
 
-Import `assert` from `node:assert/strict`; prepare the bad-input fixture before executing the test. Match the expected failure boundary, not an assumption that every invalid input is rejected by `validateRecipe`.
+Import `assert` from `node:assert/strict`; prepare the bad-input fixture before executing the test. Match the expected failure boundary, not an assumption that every invalid input is rejected by `Recipe.load` or doctor.

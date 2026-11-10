@@ -164,7 +164,7 @@ Harness² 默认在 10 个任务上优化 AgentBundle 基线（最多 40 次评�
 
 ```sh
 # 校验实验配方，不启动实验。
-ember-rsi validate examples/harness/dsh-harness2/recipe.yaml
+ember-rsi doctor examples/harness/dsh-harness2/recipe.yaml
 
 # 以 my-harness2-task 为实验 ID 启动实验，会发起真实模型调用。
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task

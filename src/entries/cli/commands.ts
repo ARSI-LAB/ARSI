@@ -73,12 +73,6 @@ export function parseCommand(argv: string[]): ParsedCommand {
       capture('run', [file], cmd),
     );
   program
-    .command('validate <recipe.yaml>')
-    .description('Validate a recipe')
-    .action((file: string, _opts: unknown, cmd: Command) =>
-      capture('validate', [file], cmd),
-    );
-  program
     .command('doctor <recipe.yaml>')
     .description('Check experiment configuration and runtime prerequisites')
     .action((file: string, _opts: unknown, cmd: Command) =>

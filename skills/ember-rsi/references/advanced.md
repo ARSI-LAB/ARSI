@@ -18,7 +18,7 @@ Copy the base `assets/minimal/` as in quickstart, then copy the contents of `ass
 Provide `MODEL_NAME`, `MODEL_ENDPOINT` (the provider's compatible API base) and `MODEL_API_KEY` in the launching environment without printing credentials. With user authorization for real requests:
 
 ```sh
-ember-rsi validate .rsi/skill-demo/learning-recipe.yaml --plugin-dir .rsi/skill-demo/extension --plugin-dir .rsi/skill-demo/learning-extension
+ember-rsi doctor .rsi/skill-demo/learning-recipe.yaml --plugin-dir .rsi/skill-demo/extension --plugin-dir .rsi/skill-demo/learning-extension
 ember-rsi run .rsi/skill-demo/learning-recipe.yaml --plugin-dir .rsi/skill-demo/extension --plugin-dir .rsi/skill-demo/learning-extension --id learning-01
 ember-rsi show learning-01
 ```

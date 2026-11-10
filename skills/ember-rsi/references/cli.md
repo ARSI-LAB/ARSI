@@ -7,7 +7,6 @@ ember-rsi --help
 ember-rsi list plugins
 ember-rsi list policies
 ember-rsi catalog --plugin-dir .rsi/skill-demo/extension
-ember-rsi validate .rsi/skill-demo/recipe.yaml --plugin-dir .rsi/skill-demo/extension
 ember-rsi doctor .rsi/skill-demo/recipe.yaml --plugin-dir .rsi/skill-demo/extension
 ember-rsi run .rsi/skill-demo/recipe.yaml --id demo-01 --plugin-dir .rsi/skill-demo/extension
 ember-rsi show demo-01

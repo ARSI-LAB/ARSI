@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createRuntime, type Runtime } from '../../src/runtime/context.js';
 import { applicationContract } from '../../src/contracts/plugin-types/application.js';
+import type { JsonObject } from '../../src/contracts/json.js';
 import { doctorRecipe } from '../../src/runtime/doctor/index.js';
 import { doctorScripts } from '../../src/runtime/doctor/scripts.js';
 import type {
@@ -152,6 +153,126 @@ test('doctor checks effective per-binding overrides and reports uncovered implem
     assert.deepEqual(await f.runtime.manager.list(), []);
     assert.deepEqual(await readdir(f.root), ['policy.yaml', 'recipe.yaml']);
     verifyReport(report);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('doctor retains Recipe schema, Policy, binding, budget and Reflection validation before probes', async () => {
+  const f = await fixture();
+  try {
+    const original = object(JSON.parse(await readFile(f.path, 'utf8')));
+    const policyPath = join(f.root, 'policy.yaml');
+    const policy = object(JSON.parse(await readFile(policyPath, 'utf8')));
+    policy.config_schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: { limit: { type: 'integer', minimum: 1 } },
+    };
+    await writeFile(policyPath, JSON.stringify(policy));
+    const invalid: {
+      name: string;
+      change(recipe: JsonObject): void;
+      reason: RegExp;
+    }[] = [
+      {
+        name: 'Recipe schema',
+        change(recipe) {
+          delete recipe.id;
+        },
+        reason: /recipe/,
+      },
+      {
+        name: 'Policy registration',
+        change(recipe) {
+          object(recipe.policy).id = 'missing.policy';
+        },
+        reason: /missing.policy/,
+      },
+      {
+        name: 'Policy configuration',
+        change(recipe) {
+          object(recipe.policy).config = { limit: 0 };
+        },
+        reason: /recipe.policy.config/,
+      },
+      {
+        name: 'undeclared binding',
+        change(recipe) {
+          object(recipe.bindings).extra = {
+            plugin: 'selector.metric',
+            config: {},
+          };
+        },
+        reason: /Binding extra/,
+      },
+      {
+        name: 'binding contract',
+        change(recipe) {
+          object(object(recipe.bindings).right).plugin = 'agent.pi';
+        },
+        reason: /Binding right/,
+      },
+      {
+        name: 'binding configuration',
+        change(recipe) {
+          object(object(object(recipe.bindings).right).config).direction =
+            'sideways';
+        },
+        reason: /Binding right/,
+      },
+      {
+        name: 'Application contract',
+        change(recipe) {
+          object(recipe.application).plugin = 'selector.metric';
+        },
+        reason: /Binding application/,
+      },
+      {
+        name: 'budget',
+        change(recipe) {
+          recipe.budget = { operations: -1 };
+        },
+        reason: /budget.*operations/,
+      },
+      {
+        name: 'Reflection authorization',
+        change(recipe) {
+          recipe.reflection = { configFile: 'missing.yaml' };
+        },
+        reason: /recipe.reflection/,
+      },
+    ];
+    let probes = 0;
+    const script: DoctorScript = async () => {
+      probes++;
+    };
+    for (const scenario of invalid) {
+      const data = structuredClone(original);
+      scenario.change(data);
+      await writeFile(f.path, JSON.stringify(data));
+      const report = await doctorRecipe(f.runtime, f.path, {
+        scripts: {
+          'test.application': script,
+          'selector.metric': script,
+        },
+      });
+      assert.equal(report.recipeId, null, scenario.name);
+      assert.deepEqual(
+        report.summary,
+        { passed: 0, failed: 1, unchecked: 0 },
+        scenario.name,
+      );
+      assert.equal(report.checks[0].id, 'recipe.validate', scenario.name);
+      assert.match(
+        report.checks[0].reason ?? '',
+        scenario.reason,
+        scenario.name,
+      );
+      verifyReport(report);
+    }
+    assert.equal(probes, 0);
+    assert.deepEqual(await f.runtime.manager.list(), []);
   } finally {
     await f.dispose();
   }
@@ -396,6 +517,14 @@ test('CLI emits one JSON diagnostic for registration/loading errors and reports 
     const usage = await run(['doctor']);
     assert.equal(usage.code, 2);
     assert.equal(usage.stdout, '');
+    const removed = await run(['validate', f.path]);
+    assert.equal(removed.code, 2);
+    assert.equal(removed.stdout, '');
+    assert.match(removed.stderr, /unknown command 'validate'/);
+    const help = await run(['--help']);
+    assert.equal(help.code, 0);
+    assert.match(help.stdout, /doctor/);
+    assert.doesNotMatch(help.stdout, /\bvalidate\b/);
     const doctorHome = join(f.root, 'doctor-home');
     const fresh = await run(['doctor', join(f.root, 'absent.yaml')], {
       ...process.env,

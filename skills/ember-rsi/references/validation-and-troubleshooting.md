@@ -9,10 +9,10 @@ For a new installation, use [quickstart](quickstart.md) in an isolated workspace
 | Definition rejected                               | `contract` is an imported contract object; Policy require uses the contract ID string                                     |
 | Target fields missing                             | Start from bundled target.yaml; id, entries, kind, description and changes are required                                   |
 | bundle.yaml invalid                               | Copy the entire baseline including nonempty plugins, entry, lockfile and plugin metadata                                  |
-| Invalid Policy input passed validate              | Final input_schema validation occurs during Manager.run; assert its rejection, then inspect a persisted record if present |
+| Invalid Policy input passed doctor                | Final input_schema validation occurs during Manager.run; assert its rejection, then inspect a persisted record if present |
 | Materialize rejects destination                   | Use a new or empty real directory, not an existing populated output or symlink                                            |
 | Binding agent.default/agent undeclared            | Declare the binding in the owning Policy require even when an editor invokes it indirectly                                |
-| validate passes, run fails                        | Validation is not Application initialization or provider readiness                                                        |
+| doctor has no failures, run fails                 | Inspect unchecked entries and each probe's scope; prerequisite checks do not establish actual experiment success          |
 | recordCandidate rejects input                     | Call scoped context method with `(artifactRef, parentRef)`, not an object; use Application commit for proposals           |
 | editRef rejected                                  | Pass workspace.ref from a workspace created with the correct parent candidate                                             |
 | Measurement rejected                              | Use complete typed records, valid referenced artifacts and current experiment/call ownership                              |

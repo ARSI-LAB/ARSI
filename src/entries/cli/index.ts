@@ -30,9 +30,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         'Dashboard requires a .rsi directory in the current working directory. Run it from your experiment workspace.',
       );
     }
-    const { createRuntime, validateRecipe } = await import(
-      '../../runtime/context.js'
-    );
+    const { createRuntime } = await import('../../runtime/context.js');
     if (command === 'doctor') {
       const { doctorRecipe, doctorFailure } = await import(
         '../../runtime/doctor/index.js'
@@ -81,9 +79,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
         break;
       }
-      case 'validate':
-        result = await validateRecipe(runtime, args[0]);
-        break;
       case 'list': {
         if (!args.length) result = await runtime.manager.list();
         else {

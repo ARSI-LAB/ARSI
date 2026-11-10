@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { stringify } from 'yaml';
 import { Registry } from '../../src/runtime/registry/index.js';
-import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
+import { createRuntime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { proposerContract } from '../../src/contracts/plugin-types/index.js';
 import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
@@ -90,7 +90,7 @@ test('wrong public types fail validation and actual startup before calls while a
     const path = join(root, 'recipe.yaml');
     await writeFile(path, stringify(recipe));
     await assert.rejects(
-      validateRecipe(runtime, path),
+      Recipe.load(path, runtime.registry),
       /invariantProposer.*contract|contract.*invariantProposer/i,
     );
     await assert.rejects(
@@ -111,7 +111,11 @@ test('wrong public types fail validation and actual startup before calls while a
       },
     };
     await writeFile(path, stringify(recipe));
-    assert.equal((await validateRecipe(runtime, path)).valid, true);
+    assert.equal(
+      (await Recipe.load(path, runtime.registry)).bindings.invariantProposer
+        ?.pluginId,
+      'proposer.alternative',
+    );
   } finally {
     await runtime.dispose();
     await rm(root, { recursive: true, force: true });

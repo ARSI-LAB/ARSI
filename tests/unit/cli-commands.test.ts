@@ -29,6 +29,7 @@ test('CLI provides command-specific and nested help', () => {
     [],
     ['-h'],
     ['run', '-h'],
+    ['doctor', '--help'],
     ['reflection', '-h'],
     ['reflection', 'apply', '-h'],
     ['run', '--help'],
@@ -55,6 +56,7 @@ test('CLI rejects invalid input before runtime initialization', () => {
     ['--plugin-dir'],
     ['serve'],
     ['unknown'],
+    ['validate', 'r.yaml'],
   ]) {
     assert.throws(() => parseCommand(args));
   }
@@ -62,7 +64,7 @@ test('CLI rejects invalid input before runtime initialization', () => {
 
 test('CLI maps existing commands and defaults to execution inputs', () => {
   for (const args of [
-    ['validate', 'r.yaml'],
+    ['doctor', 'r.yaml'],
     ['show', 'exp'],
     ['cancel', 'exp'],
     ['list'],

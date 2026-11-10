@@ -144,7 +144,7 @@ from the Git revision recorded in `pnpm-lock.yaml`. From the repository root,
 run `pnpm install --frozen-lockfile` and `pnpm build` before the commands below.
 
 ```sh
-ember-rsi validate examples/artifacts/inference/parameter-grid/recipe.yaml
+ember-rsi doctor examples/artifacts/inference/parameter-grid/recipe.yaml
 ember-rsi run examples/artifacts/inference/parameter-grid/recipe.yaml --id parameter-grid-first
 ember-rsi show parameter-grid-first
 ```

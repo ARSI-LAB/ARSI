@@ -98,6 +98,21 @@ try {
     'installed executable works outside its source checkout',
   );
   assert.match(help, /reflection/);
+  assert.match(help, /^\s+doctor <recipe\.yaml>/m);
+  assert.doesNotMatch(help, /^\s+validate(?:\s|$)/m);
+  assert.throws(
+    () =>
+      execFileSync(process.execPath, [command, 'validate', 'recipe.yaml'], {
+        env: consumerEnv,
+        cwd: outside,
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: 30000,
+      }),
+    (error) =>
+      error.status === 2 && /unknown command 'validate'/.test(error.stderr),
+    'installed CLI rejects the removed validate command',
+  );
   for (const args of [
     ['run', '--help'],
     ['run', '-h'],
@@ -249,35 +264,6 @@ export function register(registry) {
     await cp(join(root, 'examples/harness', name), example, {
       recursive: true,
     });
-    const validation = JSON.parse(
-      execFileSync(
-        process.execPath,
-        [command, 'validate', join(example, 'recipe.yaml')],
-        {
-          env: consumerEnv,
-          cwd: outside,
-          encoding: 'utf8',
-          timeout: 30000,
-        },
-      ),
-    );
-    assert.equal(
-      validation.valid,
-      true,
-      'installed package resolves example bindings and policy schemas',
-    );
-    if (name === 'dsh-harness2')
-      assert.ok(
-        validation.plugins.includes('reflection.agent'),
-        'installed consumer assembles Reflection with its packaged default prompt',
-      );
-    if (name === 'dsh-gepa') {
-      assert.equal(validation.policyId, 'policy.gepa');
-      assert.ok(
-        validation.plugins.includes('search.prompt-evolution'),
-        'installed consumer assembles built-in GEPA without an extension directory',
-      );
-    }
   }
   checkSdkConsumer(
     join(consumer, 'node_modules/ember-rsi'),
@@ -289,20 +275,6 @@ export function register(registry) {
       join(root, 'examples/artifacts/inference', name),
       join(outside, name),
       { recursive: true },
-    );
-  }
-  for (const name of ['parameter-grid', 'parameter-tpe']) {
-    const inferenceValidation = JSON.parse(
-      execFileSync(
-        process.execPath,
-        [command, 'validate', join(outside, name, 'recipe.yaml')],
-        { env: consumerEnv, cwd: outside, encoding: 'utf8', timeout: 30000 },
-      ),
-    );
-    assert.equal(
-      inferenceValidation.valid,
-      true,
-      `installed package validates ${name} without source paths`,
     );
   }
   const packagedWorker = join(
@@ -389,10 +361,12 @@ import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,searchContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
+import * as publicApi from 'ember-rsi';
+import {createRuntime,Recipe,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,searchContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
 import {RuntimeContext as ContractContext,searchContract as ContractsSearchContract} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
 assert.equal(searchContract,ContractsSearchContract);
+assert.equal(Object.hasOwn(publicApi,'validateRecipe'),false);
 const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
 async function packageResource(path){
  const location=relative(packageDirectory,await realpath(path));
@@ -427,6 +401,15 @@ assert.equal(runtime.context.traceId,'consumer');
 const standalonePolicy=new Policy({schemaVersion:'rsi.policy/v1',id:'consumer.policy',input_schema:{type:'object'},output_schema:{type:'object'},steps:[],output:{value:7}});
 assert.deepEqual(await standalonePolicy.execute({application:{},context:context.extend({signal:new AbortController().signal}),invoke:async()=>{throw new Error('Unexpected plugin call');},checkpoint:async()=>{}}),{value:7},'installed Policy supports direct construction and execution');
 try {
+ for(const name of ['dsh-harness2','dsh-wikiskill','dsh-gepa','parameter-grid','parameter-tpe']){
+  const recipe=await Recipe.load(resolve(${JSON.stringify(outside)},name,'recipe.yaml'),runtime.registry);
+  assert.equal(recipe.schemaVersion,'rsi.recipe/v1','installed package resolves example bindings and Policy schemas');
+  if(name==='dsh-harness2')assert.equal(recipe.reflection.implementation.ref,'reflection.agent','installed consumer assembles Reflection with its packaged default prompt');
+  if(name==='dsh-gepa'){
+   assert.equal(recipe.policy.id,'policy.gepa');
+   assert.equal(recipe.bindings.search.pluginId,'search.prompt-evolution','installed consumer assembles built-in GEPA without an extension directory');
+  }
+ }
  const installed=new URL('./node_modules/ember-rsi/dist/src/',import.meta.url);
  const {validate}=await import(new URL('shared/schema.js',installed));
  assert.equal(operatorProposerContract.id,'contract.proposer-operator');

@@ -11,7 +11,7 @@ This is the complete credential-free workflow. For model editing, Memory or Refl
 From the workspace root, with an installed binary:
 
 ```sh
-ember-rsi validate .rsi/skill-demo/recipe.yaml --plugin-dir .rsi/skill-demo/extension
+ember-rsi doctor .rsi/skill-demo/recipe.yaml --plugin-dir .rsi/skill-demo/extension
 ember-rsi run .rsi/skill-demo/recipe.yaml --plugin-dir .rsi/skill-demo/extension --id skill-demo-01
 ember-rsi show skill-demo-01
 ember-rsi list
@@ -19,6 +19,8 @@ node .rsi/skill-demo/run.mjs
 ```
 
 CLI stores facts under the shell's `.rsi/`; `run.mjs` deliberately stores its independent facts in the copied starter's `.rsi/`. Use a fresh ID for each new experiment.
+
+Doctor checks Recipe assembly and the bundled checks for its effective bindings. The starter's custom proposer and evaluator have no bundled doctor scripts, so their plugin-specific checks remain `unchecked`; registration and configuration are still checked. Review every failed or unchecked result before interpreting the report.
 
 ## Expected observations
 

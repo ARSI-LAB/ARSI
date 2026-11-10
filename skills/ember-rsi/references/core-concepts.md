@@ -13,7 +13,7 @@ A Candidate identifies immutable content (`artifactRef`) and parent lineage. An 
 
 Memory is a business operation whose returned `memoryRef` must be passed into subsequent calls. Reflection proposes resource revisions; Runtime controls structural acceptance and activation. Neither implies quality gain without comparable evaluation.
 
-The current flow is: author files → load/register extensions → validate Recipe → await `manager.run` or poll an accepted HTTP job → inspect result, facts and cleanup → dispose the owning host. There are no saved-Recipe CRUD, preview tokens, pause/continue or `runs.start` APIs.
+The current embedding flow is: author files → load/register extensions → assemble with `Recipe.load` → await `manager.run` or poll an accepted HTTP job → inspect result, facts and cleanup → dispose the owning host. Use `ember-rsi doctor` in the intended execution environment for prerequisite checks. There are no saved-Recipe CRUD, preview tokens, pause/continue or `runs.start` APIs.
 
 Default data lives under `.rsi/facts/` and `.rsi/artifacts/`, with workspaces/checkpoints and plugin-owned state under the same root. New experiments lock their Recipe/Policy definitions and resources; recovery uses those locked definitions and confirmed activations. Existing checkpoints from the earlier DSL cannot resume under the new format. An embedding host can choose a separate `directory`; CLI uses cwd/.rsi.
 

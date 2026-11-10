@@ -271,18 +271,18 @@ bindings:
 扩展已放在 `~/.ember-rsi/plugins/my-extension/` 时，在包含 `my-experiment/` 的工作目录直接使用已安装的 CLI：
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml
+ember-rsi doctor my-experiment/recipe.yaml
 ember-rsi run my-experiment/recipe.yaml --id custom-run
 ```
 
 如果扩展保存在工作目录下的 `my-extension/` 等其他位置，校验、运行和恢复时都传入同一扩展目录：
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
+ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`validate` 检查契约、绑定和配置，不执行插件业务。运行后检查 `propose` 的输出是否包含 `status: no-change` 和预期的 `rationale`；查看步骤结果的方法见[运行与检查实验](running-experiments_zh.md)。
+`doctor` 检查契约、绑定和配置，再对已选择的实现运行可用的内置前提探测。没有随 RSI 打包检查脚本的自定义插件会标为 `unchecked`。Doctor 不执行模型推理、资源下载或优化实验。实验运行后检查 `propose` 的输出是否包含 `status: no-change` 和预期的 `rationale`；查看步骤结果的方法见[运行与检查实验](running-experiments_zh.md)。
 
 ## 使用 RuntimeContext
 
@@ -336,7 +336,7 @@ const result = await context.invokeAgent('agent', {
 
 ```ts
 import { resolve } from 'node:path';
-import { createRuntime, validateRecipe } from 'ember-rsi';
+import { createRuntime, Recipe } from 'ember-rsi';
 import { keepParentDefinition } from './my-extension/dist/proposer-keep-parent/index.js';
 
 // 创建 Runtime，关闭用户级扩展加载，直接注册所需定义。
@@ -351,10 +351,10 @@ try {
     resolve('./my-extension/policy.yaml'),
   );
 
-  // 使用同一个 Runtime 校验并运行完整的 Recipe。
+  // Assemble the Recipe with structural validation, then run it with the same Runtime.
   const recipePath = resolve('./my-experiment/recipe.yaml');
-  const check = await validateRecipe(runtime, recipePath);
-  console.log(check);
+  const recipe = await Recipe.load(recipePath, runtime.registry);
+  console.log(recipe.id);
   const result = await runtime.manager.run(recipePath, { id: 'custom-run' });
   console.log(result.status, result.output);
 } finally {
@@ -372,3 +372,5 @@ try {
 | `pluginDirectories` | 额外加载的扩展目录数组，路径相对于当前进程目录。 | 不加载额外目录。         |
 
 宿主中的注册只对该 Runtime 生效。另行启动 CLI 时，将扩展放入默认用户级目录自动加载，或使用 `--plugin-dir` 指定扩展目录。
+
+`Recipe.load` 装配并检查定义的结构，不执行前提探测。需要完整 CLI 预检时，使用相同的扩展注册运行 `ember-rsi doctor`。

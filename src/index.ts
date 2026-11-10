@@ -1,6 +1,5 @@
 export {
   createRuntime,
-  validateRecipe,
   type Runtime,
   type RuntimeOptions,
 } from './runtime/context.js';

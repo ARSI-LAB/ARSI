@@ -184,14 +184,14 @@ The example Policy's `input` already defaults to the Application's initial candi
 With the extension in `~/.ember-rsi/plugins/my-extension/`, use the installed CLI directly from the working directory containing `my-experiment/`:
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml
+ember-rsi doctor my-experiment/recipe.yaml
 ember-rsi run my-experiment/recipe.yaml --id baseline-01
 ```
 
 If the extension is elsewhere, such as `my-extension/` under the working directory, pass the same extension directory when validating, running, and resuming:
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
+ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id baseline-01 --plugin-dir ./my-extension
 ```
 

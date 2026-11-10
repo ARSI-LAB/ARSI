@@ -111,22 +111,32 @@ async function fixture(t: test.TestContext): Promise<{
         directory,
         runtime: new RuntimeContext(),
         signal: new AbortController().signal,
-        async check(id, action) {
+        async check(id, action, options) {
           try {
             await action(ctx.signal);
-            checks.push({ id, status: 'passed' });
+            checks.push({
+              id,
+              status: 'passed',
+              ...(options?.details ? { details: options.details } : {}),
+            });
             return true;
           } catch (error) {
             checks.push({
               id,
               status: 'failed',
               reason: error instanceof Error ? error.message : String(error),
+              ...(options?.details ? { details: options.details } : {}),
             });
             return false;
           }
         },
-        unchecked(id, reason) {
-          checks.push({ id, status: 'unchecked', reason });
+        unchecked(id, reason, details) {
+          checks.push({
+            id,
+            status: 'unchecked',
+            reason,
+            ...(details ? { details } : {}),
+          });
         },
         missing(resource) {
           missing.push(resource);
@@ -186,7 +196,13 @@ test('agentbench checks cached task metadata and gateway without downloads or in
     return {
       stdout:
         args[0] === 'info'
-          ? JSON.stringify({ MemTotal: 1024 ** 3, NCPU: 2 })
+          ? JSON.stringify({
+              MemTotal: 1024 ** 3,
+              NCPU: 2,
+              OSType: 'linux',
+              Architecture: 'x86_64',
+              Driver: 'overlay2',
+            })
           : '',
       stderr: '',
     };
@@ -246,7 +262,13 @@ test('relative SDK source origins are not mistaken for caller-directory resource
   const command: typeof runCommand = async (_command, args) => ({
     stdout:
       args[0] === 'info'
-        ? JSON.stringify({ MemTotal: 1024 ** 3, NCPU: 2 })
+        ? JSON.stringify({
+            MemTotal: 1024 ** 3,
+            NCPU: 2,
+            OSType: 'linux',
+            Architecture: 'x86_64',
+            Driver: 'overlay2',
+          })
         : '',
     stderr: '',
   });
@@ -280,7 +302,13 @@ test('cached metadata retains the SDK source host-platform requirement', async (
   const command: typeof runCommand = async (_command, args) => ({
     stdout:
       args[0] === 'info'
-        ? JSON.stringify({ MemTotal: 1024 ** 3, NCPU: 2 })
+        ? JSON.stringify({
+            MemTotal: 1024 ** 3,
+            NCPU: 2,
+            OSType: 'linux',
+            Architecture: 'x86_64',
+            Driver: 'overlay2',
+          })
         : '',
     stderr: '',
   });
@@ -304,7 +332,13 @@ test('cold SDK gateway cache leaves dependent checks unchecked and never launche
     return {
       stdout:
         args[0] === 'info'
-          ? JSON.stringify({ MemTotal: 1024 ** 3, NCPU: 2 })
+          ? JSON.stringify({
+              MemTotal: 1024 ** 3,
+              NCPU: 2,
+              OSType: 'linux',
+              Architecture: 'x86_64',
+              Driver: 'overlay2',
+            })
           : '',
       stderr: '',
     };
@@ -346,7 +380,13 @@ test('missing local dataset fails while independent Docker checks still execute'
   const command: typeof runCommand = async (_command, args) => ({
     stdout:
       args[0] === 'info'
-        ? JSON.stringify({ MemTotal: 1024 ** 3, NCPU: 2 })
+        ? JSON.stringify({
+            MemTotal: 1024 ** 3,
+            NCPU: 2,
+            OSType: 'linux',
+            Architecture: 'x86_64',
+            Driver: 'overlay2',
+          })
         : '',
     stderr: '',
   });
@@ -400,7 +440,13 @@ test('gateway failure releases its owned container and does not report a missing
     return {
       stdout:
         args[0] === 'info'
-          ? JSON.stringify({ MemTotal: 1024 ** 3, NCPU: 2 })
+          ? JSON.stringify({
+              MemTotal: 1024 ** 3,
+              NCPU: 2,
+              OSType: 'linux',
+              Architecture: 'x86_64',
+              Driver: 'overlay2',
+            })
           : '',
       stderr: '',
     };
@@ -443,7 +489,13 @@ test('gateway cancellation releases its container using a live cleanup signal', 
     return {
       stdout:
         args[0] === 'info'
-          ? JSON.stringify({ MemTotal: 1024 ** 3, NCPU: 2 })
+          ? JSON.stringify({
+              MemTotal: 1024 ** 3,
+              NCPU: 2,
+              OSType: 'linux',
+              Architecture: 'x86_64',
+              Driver: 'overlay2',
+            })
           : '',
       stderr: '',
     };

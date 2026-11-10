@@ -64,6 +64,14 @@ ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
   - 任一检查失败时 doctor 返回 `1`，无失败时返回 `0`，即使包含未检查项。
 - 检查使用隔离的临时存储，以及针对已缓存元数据、容器和模型可用性的有时限探测。Doctor 不执行模型推理、不下载资源，也不执行优化 Policy。`run` 保持独立，可以直接启动实验。
 
+### Docker 磁盘预检
+
+当 `evaluator.agentbench` 使用 SDK 的本地 Docker 执行路径时，`evaluator.docker-disk-space` 观察所选 Docker daemon 的存储，`evaluator.docker-disk-capacity` 判断已知需求。已缓存的辅助镜像在 daemon 节点读取文件系统可用空间，覆盖 Docker Desktop 虚拟机或远程 Docker 主机；当前终端所在磁盘不能代替该测量。无法确认的镜像存储位置会明确保留为未知。尤其是 [containerd 存储可能与 DockerRootDir 分离](https://docs.docker.com/engine/storage/containerd/#disk-space-usage)。[`docker system df`](https://docs.docker.com/reference/cli/docker/system/df/) 提供已用量和可回收量，而非文件系统可用字节。其他 Evaluator 和远程 SDK deployment 不在此探测范围内。
+
+每项磁盘结果可以通过 `details` 保留已测可用量、按平台区分的已缓存镜像与层信息、分别核算的拉取、解包、构建和运行空间需求，以及未知原因。无法确定的数量保留为 `null`。原始镜像已缓存，并不代表 SDK 派生镜像构建无需额外空间。任务的 `resources.storage` 是声明的规划需求，不是已强制执行的配额或实测用量。其中最大的生效环境请求构成已知下界；准备、阶段和任务并发可能需要更多空间。
+
+已知需求已经超过可用空间时，容量结论为 `failed`，并报告可用字节、已知需求和缺口。尚未证明空间不足，而解包或构建大小、运行增长量或存储位置未知时，结论保留为 `unchecked`，同时保留已获得的观测值。磁盘辅助探针不拉取或构建镜像，也不使用网络。
+
 在同一工作区的另一终端中查看进度：
 
 ```sh

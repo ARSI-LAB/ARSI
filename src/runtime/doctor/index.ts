@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import type { JsonValue } from '../../contracts/index.js';
 import { configPathFields, isResourceUrl } from '../../shared/config-paths.js';
 import { errorText } from '../../shared/errors.js';
+import { object } from '../../shared/json.js';
 import type { Runtime } from '../context.js';
 import { Recipe } from '../loaders/recipe.js';
 import { Manager } from '../manager/index.js';
@@ -172,7 +173,19 @@ export async function doctorRecipe(
     report.checks.push({
       ...check,
       ...(check.reason ? { reason: redact(check.reason) } : {}),
+      ...(check.details
+        ? { details: object(redactValues(check.details)) }
+        : {}),
     });
+  };
+  const redactValues = (value: JsonValue): JsonValue => {
+    if (typeof value === 'string') return redact(value);
+    if (Array.isArray(value)) return value.map(redactValues);
+    if (value !== null && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value).map(([key, child]) => [key, redactValues(child)]),
+      );
+    return value;
   };
   try {
     for (const [index, binding] of bindings.entries()) {
@@ -214,7 +227,14 @@ export async function doctorRecipe(
                 else bounded.addEventListener('abort', abort, { once: true });
               }),
             ]);
-            add({ id: scoped(id), ...identity, status: 'passed' });
+            add({
+              id: scoped(id),
+              ...identity,
+              status: 'passed',
+              ...(checkOptions?.details
+                ? { details: checkOptions.details }
+                : {}),
+            });
             return true;
           } catch (error) {
             let completionError: unknown;
@@ -249,6 +269,9 @@ export async function doctorRecipe(
               ...identity,
               status: 'failed',
               reason: `${errorText(error)}${completionError === undefined ? '' : ` Probe completion/cleanup: ${errorText(completionError)}`} Plugin availability is unknown unless established by another check.`,
+              ...(checkOptions?.details
+                ? { details: checkOptions.details }
+                : {}),
             });
             return false;
           } finally {
@@ -256,8 +279,14 @@ export async function doctorRecipe(
             if (abort) bounded.removeEventListener('abort', abort);
           }
         },
-        unchecked(id, reason) {
-          add({ id: scoped(id), ...identity, status: 'unchecked', reason });
+        unchecked(id, reason, details) {
+          add({
+            id: scoped(id),
+            ...identity,
+            status: 'unchecked',
+            reason,
+            ...(details ? { details } : {}),
+          });
         },
         missing(resource) {
           const field =

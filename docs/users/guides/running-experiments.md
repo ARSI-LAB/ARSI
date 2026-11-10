@@ -64,6 +64,14 @@ ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
   - Doctor exits `1` when any check fails and `0` when no check fails, including reports with unchecked entries.
 - Checks use isolated temporary storage and bounded probes of cached metadata, containers and model availability. Doctor does not perform model inference, download resources or execute an optimization Policy. `run` remains independent and can start directly.
 
+### Docker disk preflight
+
+For `evaluator.agentbench` using the SDK's local Docker execution path, `evaluator.docker-disk-space` observes storage on the selected Docker daemon and `evaluator.docker-disk-capacity` evaluates the known demand. A cached helper reads filesystem availability on the daemon node, including a Docker Desktop VM or remote Docker host; the terminal's disk is not a substitute. An image-store location that cannot be established remains an explicit unknown. In particular, [containerd storage can be separate from DockerRootDir](https://docs.docker.com/engine/storage/containerd/#disk-space-usage). [`docker system df`](https://docs.docker.com/reference/cli/docker/system/df/) reports usage and reclaimable data, not available filesystem bytes. Other evaluators and remote SDK deployments are outside this probe's scope.
+
+Each disk result can include `details` with measured availability, platform-specific cached image/layer observations, separate pull, unpack, build and runtime demand, and reasons for unknown values. Unknown quantities remain `null`. Cached raw images do not establish that SDK-derived image builds need no additional space. Task `resources.storage` supplies a declared planning requirement, not an enforced quota or measured usage. Its largest effective environment request is a known lower bound; preparation, phase and task concurrency can require more space.
+
+When the known requirement already exceeds available space, capacity is `failed` and reports the available bytes, known demand and deficit. If no insufficiency is proven, unknown unpack/build sizes, runtime growth or storage locations keep the conclusion `unchecked`, preserving observations that were obtained. The disk helper does not pull or build images or use the network.
+
 Inspect progress from another terminal in the same workspace:
 
 ```sh

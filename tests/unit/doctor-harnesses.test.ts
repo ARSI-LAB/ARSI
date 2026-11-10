@@ -120,7 +120,13 @@ async function fixture(
     return {
       stdout:
         args[0] === 'info'
-          ? JSON.stringify({ MemTotal: 8 * 1024 ** 3, NCPU: 8 })
+          ? JSON.stringify({
+              MemTotal: 8 * 1024 ** 3,
+              NCPU: 8,
+              OSType: 'linux',
+              Architecture: 'x86_64',
+              Driver: 'overlay2',
+            })
           : '',
       stderr: '',
     };

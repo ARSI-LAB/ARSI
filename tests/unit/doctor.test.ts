@@ -297,10 +297,24 @@ test('probe errors and deadlines preserve independent results, redact secrets an
         'test.application': async (ctx) => {
           probeDirectory = ctx.directory;
           await writeFile(join(ctx.directory, 'owned'), 'temporary');
-          await ctx.check('throws', async () => {
-            throw new Error(`${secret} ${process.env.DOCTOR_VALUE}`);
+          await ctx.check(
+            'throws',
+            async () => {
+              throw new Error(`${secret} ${process.env.DOCTOR_VALUE}`);
+            },
+            {
+              details: {
+                availableBytes: 4096,
+                requiredBytes: null,
+                nested: [{ credential: process.env.DOCTOR_VALUE ?? '' }],
+              },
+            },
+          );
+          ctx.unchecked('depends-on-throw', 'The prerequisite probe failed.', {
+            availableBytes: 4096,
+            unknown: null,
+            credential: secret,
           });
-          ctx.unchecked('depends-on-throw', 'The prerequisite probe failed.');
           await ctx.check('timeout', async (signal) => {
             try {
               await new Promise<void>((_done, reject) =>
@@ -338,6 +352,16 @@ test('probe errors and deadlines preserve independent results, redact secrets an
     );
     assert.ok(!JSON.stringify(report).includes(secret));
     assert.ok(!JSON.stringify(report).includes(process.env.DOCTOR_VALUE));
+    assert.equal(
+      report.checks.find((check) => check.id === 'application.throws')?.details
+        ?.availableBytes,
+      4096,
+    );
+    assert.equal(
+      report.checks.find((check) => check.id === 'application.depends-on-throw')
+        ?.details?.unknown,
+      null,
+    );
     await assert.rejects(access(probeDirectory));
     assert.deepEqual(await f.runtime.manager.list(), []);
     verifyReport(report);

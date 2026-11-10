@@ -14,7 +14,7 @@ import {
   type LoadedConfig,
   type PreparedTask,
 } from 'ember-evaluator';
-import type { JsonValue } from '../../contracts/index.js';
+import type { JsonObject, JsonValue } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import { plain } from '../../plugins/shared/evaluator-adapter/data.js';
 import { prepareEvaluationConfig as prepareAgentbench } from '../../plugins/evaluator-agentbench/service.js';
@@ -23,6 +23,8 @@ import { prepareEvaluationConfig as prepareOperatorbench } from '../../plugins/e
 import { loadOperatorTask } from '../../plugins/shared/operator-task.js';
 import { runCommand } from './process.js';
 import type { DoctorContext, DoctorScript } from './types.js';
+import { checkDockerDiskCapacity } from './docker-disk.js';
+import { dockerLayersAreLocal } from './docker-disk-probe.js';
 
 type Command = typeof runCommand;
 
@@ -196,6 +198,14 @@ async function checkDocker(
       'workspace-cache-mounts',
       'A local Docker mount probe does not apply to the selected execution environment.',
     );
+    ctx.unchecked(
+      'docker-disk-space',
+      'Disk availability on the selected execution node is not probed by the local Docker checks.',
+    );
+    ctx.unchecked(
+      'docker-disk-capacity',
+      'Disk demand and availability for the selected execution node could not be compared.',
+    );
     return;
   }
   const executable =
@@ -204,6 +214,7 @@ async function checkDocker(
       : 'docker';
   let memory = 0;
   let cpus = 0;
+  let dockerInfo: JsonObject = {};
   const ready = await ctx.check('docker', async (signal) => {
     const result = await command(
       executable,
@@ -211,6 +222,7 @@ async function checkDocker(
       { signal },
     );
     const info = object(JSON.parse(result.stdout));
+    dockerInfo = info;
     memory = Number(info.MemTotal);
     cpus = Number(info.NCPU);
     if (!(memory > 0 && cpus > 0))
@@ -219,6 +231,8 @@ async function checkDocker(
   if (!ready) {
     for (const id of [
       'docker-capacity',
+      'docker-disk-space',
+      'docker-disk-capacity',
       'task-images',
       'gateway-image-cache',
       'workspace-cache-mounts',
@@ -281,6 +295,12 @@ async function checkDocker(
     typeof environment?.config.nodeImage === 'string'
       ? environment.config.nodeImage
       : PINNED_NODE_IMAGE;
+  await checkDockerDiskCapacity(ctx, command, executable, dockerInfo, {
+    tasks: metadata.tasks,
+    metadataComplete: metadata.tasks.length > 0,
+    config: object(environment?.config ?? {}),
+    gatewayImage,
+  });
   const gateway = await imageCached(
     ctx,
     command,
@@ -297,6 +317,17 @@ async function checkDocker(
     ctx.unchecked(
       'gateway-model-access',
       'The SDK gateway image is unavailable.',
+    );
+    return;
+  }
+  if (!dockerLayersAreLocal(dockerInfo)) {
+    ctx.unchecked(
+      'workspace-cache-mounts',
+      'The daemon snapshotter does not establish that cached layer content is local; no container helper was started.',
+    );
+    ctx.unchecked(
+      'gateway-model-access',
+      'The daemon snapshotter does not establish that cached layer content is local; no container helper was started.',
     );
     return;
   }

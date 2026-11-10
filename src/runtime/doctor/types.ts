@@ -12,6 +12,8 @@ export interface DoctorCheck {
   pluginId?: string;
   status: 'passed' | 'failed' | 'unchecked';
   reason?: string;
+  /** Observed quantities and explicit unknowns; values are not execution guarantees. */
+  details?: JsonObject;
 }
 
 export interface MissingResource {
@@ -49,9 +51,9 @@ export interface DoctorContext {
   check(
     id: string,
     action: (signal: AbortSignal) => Promise<void>,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; details?: JsonObject },
   ): Promise<boolean>;
-  unchecked(id: string, reason: string): void;
+  unchecked(id: string, reason: string, details?: JsonObject): void;
   missing(resource: Omit<MissingResource, 'binding' | 'pluginId'>): void;
 }
 

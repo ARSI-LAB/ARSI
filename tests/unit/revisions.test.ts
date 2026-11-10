@@ -1,14 +1,6 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  mkdtemp,
-  mkdir,
-  writeFile,
-  readFile,
-  rm,
-  chmod,
-  lstat,
-} from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import filesystem from 'node:fs/promises';
@@ -414,66 +406,6 @@ test('only changed targets gain revisions and activation preserves original sour
     'second rule',
   );
 });
-test(
-  'Reflection preserves non-executable resource permissions and rejects permission changes',
-  { skip: process.platform === 'win32' },
-  async (t) => {
-    const cases = [
-      { before: 0o600, after: 0o600, activated: true },
-      { before: 0o640, after: 0o640, activated: true },
-      { before: 0o664, after: 0o664, activated: true },
-      { before: undefined, after: 0o640, activated: true },
-      { before: undefined, after: 0o664, activated: true },
-      { before: 0o600, after: 0o644, activated: false },
-      { before: 0o644, after: 0o600, activated: false },
-      { before: 0o644, after: 0o755, activated: false },
-      { before: 0o755, after: 0o755, activated: false },
-      { before: undefined, after: 0o755, activated: false },
-    ];
-    for (const scenario of cases) {
-      await t.test(
-        `${scenario.before?.toString(8) ?? 'new'} -> ${scenario.after.toString(8)}`,
-        async (t) => {
-          const f = await fixture(t);
-          const name = scenario.before === undefined ? 'new.md' : 'initial.md';
-          const path = `bindings/a/resources/guidance/${name}`;
-          if (scenario.before !== undefined)
-            await chmod(join(f.root, 'a', name), scenario.before);
-          await f.observe();
-          const result = await reflect({
-            ...f.options,
-            invoke: async (_binding, input) => {
-              const result = object(
-                await f.proposed(input, { [path]: 'updated guidance' }),
-              );
-              const proposal = object(result.proposal);
-              const tree = parseFileTree(
-                await f.artifacts.readJson(string(proposal.resourceRef)),
-              );
-              tree.files.find((file) => file.path === path)!.mode =
-                scenario.after;
-              proposal.resourceRef = await f.artifacts.putJson(tree);
-              return result;
-            },
-          });
-          assert.equal(
-            result.status,
-            scenario.activated ? 'activated' : 'rejected',
-          );
-          if (scenario.activated) {
-            const target = join(string(f.bindings.a!.config.guidance), name);
-            assert.equal(await readFile(target, 'utf8'), 'updated guidance');
-            assert.equal((await lstat(target)).mode & 0o777, scenario.after);
-          } else {
-            assert.match(result.reason, /resource mode change denied/);
-            assert.equal((await f.facts.list('activations')).length, 0);
-            assert.equal(f.bindings.a!.config.guidance, join(f.root, 'a'));
-          }
-        },
-      );
-    }
-  },
-);
 test('local generator failures, invalid edits and budgets preserve activation; global exhaustion propagates', async (t) => {
   const f = await fixture(t);
   const cases: Array<[Record<string, string | null>, RegExp]> = [

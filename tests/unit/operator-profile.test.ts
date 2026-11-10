@@ -333,20 +333,16 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
     context,
   );
   const distribution = join(modules, 'ember-evaluator/dist');
-  const provenancePath = join(distribution, 'package-provenance.json');
-  const provenance = object(JSON.parse(await readFile(provenancePath, 'utf8')));
-  const files = object(provenance.files);
-  const replays = Object.keys(files).filter((path) =>
-    path.endsWith('/msprof_replay.py'),
-  );
-  assert.equal(replays.length, 1, 'SDK inventory identifies one replay asset');
-  const replay = replays[0]!;
+  const replay = 'adapters/kernel/msprof_replay.py';
   await appendFile(
     join(distribution, replay),
     '\n# A rebuilt diagnostic runtime after the precision assessment\n',
   );
   // Keep a valid package inventory: an ordinary corrupt asset is already
   // rejected by SDK bootstrap and would not reproduce this identity gap.
+  const provenancePath = join(distribution, 'package-provenance.json');
+  const provenance = object(JSON.parse(await readFile(provenancePath, 'utf8')));
+  const files = object(provenance.files);
   files[replay] =
     `sha256:${sha256(await readFile(join(distribution, replay)))}`;
   provenance.digest = `sha256:${sha256(

@@ -15,15 +15,7 @@ export type OperatorbenchOutput =
       measurementRef: string;
       collectionStatus: 'completed' | 'unavailable';
     };
-const properties = {
-  candidateRef: { type: 'string', minLength: 1 },
-  caseIds: {
-    type: 'array',
-    minItems: 1,
-    uniqueItems: true,
-    items: { type: 'string', minLength: 1 },
-  },
-};
+
 export const operatorbenchContract = defineContract({
   id: 'contract.operatorbench',
   input_schema: {
@@ -31,7 +23,13 @@ export const operatorbenchContract = defineContract({
       type: 'object',
       additionalProperties: false,
       properties: {
-        ...properties,
+        candidateRef: { type: 'string', minLength: 1 },
+        caseIds: {
+          type: 'array',
+          minItems: 1,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1 },
+        },
         action: { const: action },
         ...(action === 'profile'
           ? { assessmentMeasurementRef: { type: 'string', minLength: 1 } }

@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkOperatorConsumer } from './check-operator-consumer.mjs';
 import { checkSdkConsumer } from './check-sdk-consumer.mjs';
+import { checkDoctorConsumer } from './check-doctor-consumer.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const temporary = await realpath(await mkdtemp(join(tmpdir(), 'rsi-package-')));
 const networkConfigPath = join(temporary, 'network.yaml');
@@ -279,6 +280,7 @@ export function register(registry) {
       );
     }
   }
+  await checkDoctorConsumer(command, outside, consumerEnv);
   checkSdkConsumer(
     join(consumer, 'node_modules/ember-rsi'),
     join(outside, 'dsh-harness2/baseline'),

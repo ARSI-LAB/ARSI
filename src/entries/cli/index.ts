@@ -12,8 +12,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   process.once('SIGINT', abort);
   process.once('SIGTERM', abort);
   try {
-    await mkdir(join(homedir(), '.ember-rsi', 'plugins'), { recursive: true });
     const parsed = parseCommand(argv);
+    if (parsed.command !== 'doctor')
+      await mkdir(join(homedir(), '.ember-rsi', 'plugins'), {
+        recursive: true,
+      });
     if (parsed.command === 'help') {
       process.stdout.write(parsed.help ?? '');
       return 0;
@@ -30,6 +33,43 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const { createRuntime, validateRecipe } = await import(
       '../../runtime/context.js'
     );
+    if (command === 'doctor') {
+      const { doctorRecipe, doctorFailure } = await import(
+        '../../runtime/doctor/index.js'
+      );
+      let report;
+      try {
+        runtime = await createRuntime({ pluginDirectories });
+      } catch (error) {
+        controller.signal.throwIfAborted();
+        report = doctorFailure('runtime.registration', error);
+      }
+      if (runtime) {
+        try {
+          report = await doctorRecipe(runtime, args[0], {
+            signal: controller.signal,
+          });
+        } catch (error) {
+          controller.signal.throwIfAborted();
+          report = doctorFailure('doctor.runtime', error);
+        }
+        try {
+          await runtime.dispose();
+        } catch (error) {
+          controller.signal.throwIfAborted();
+          const cleanup = doctorFailure('runtime.cleanup', error);
+          if (!report) report = cleanup;
+          else {
+            report.checks.push(...cleanup.checks);
+            report.summary.failed++;
+          }
+        }
+        runtime = undefined;
+      }
+      if (!report) throw new Error('Doctor did not produce a report');
+      process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+      return report.summary.failed > 0 ? 1 : 0;
+    }
     runtime = await createRuntime({ pluginDirectories });
     let result: unknown;
     switch (command) {

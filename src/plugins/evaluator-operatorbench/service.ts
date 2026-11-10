@@ -243,8 +243,8 @@ export async function createOperatorbench(
   };
 }
 
-function prepareEvaluationConfig(
-  { task: _task, ...config }: OperatorbenchConfig,
+export function prepareEvaluationConfig(
+  rawConfig: unknown,
   {
     selected,
     operation,
@@ -257,6 +257,7 @@ function prepareEvaluationConfig(
     manifest: string;
   },
 ): SdkEvaluatorConfig {
+  const { task: _task, ...config } = object(rawConfig, 'operatorbench config');
   if (Object.hasOwn(config, 'services'))
     throw new Error('services is owned by RSI for kernel replay');
   const benchmark =

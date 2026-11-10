@@ -71,7 +71,7 @@ function literalModulePattern(path: string): string {
   );
 }
 
-function validateModules(modules: readonly GepaModule[]): void {
+export function validateModules(modules: readonly GepaModule[]): void {
   const ids = new Set<string>();
   const paths = new Set<string>();
   for (const module of modules) {

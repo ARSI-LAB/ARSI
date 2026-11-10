@@ -22,7 +22,12 @@ import {
   type SearchState,
   type SearchTrial,
 } from './state.js';
-import { runOptunaWorker, workerPath, type OptunaWorker } from './worker.js';
+import {
+  runOptunaWorker,
+  validateOptunaWorkerResponse,
+  workerPath,
+  type OptunaWorker,
+} from './worker.js';
 
 function cardinality(config: ResolvedOptunaConfig): number | null {
   let count = 1;
@@ -100,29 +105,7 @@ export async function createOptunaProposer(
       },
       context.signal,
     );
-    validate(
-      {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          environment: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              python: { type: 'string' },
-              optuna: { const: '4.5.0' },
-              numpy: { const: '2.2.6' },
-            },
-            required: ['python', 'optuna', 'numpy'],
-          },
-          parameters: { type: 'object' },
-        },
-        required:
-          action === 'check' ? ['environment'] : ['environment', 'parameters'],
-      },
-      response,
-      'Optuna worker response',
-    );
+    validateOptunaWorkerResponse(response, action);
     context.signal.throwIfAborted();
     return response;
   };

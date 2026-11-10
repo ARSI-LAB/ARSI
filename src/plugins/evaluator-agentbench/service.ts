@@ -198,8 +198,8 @@ export async function createAgentbench(
   };
 }
 
-function prepareEvaluationConfig(
-  config: AgentbenchConfig,
+export function prepareEvaluationConfig(
+  rawConfig: unknown,
   {
     taskIds,
     execution,
@@ -210,6 +210,7 @@ function prepareEvaluationConfig(
     directory: string;
   },
 ): SdkEvaluatorConfig {
+  const config = object(rawConfig, 'evaluator config');
   const prepared = object(structuredClone(config));
   const benchmark: JsonObject =
     typeof prepared.benchmark === 'string'

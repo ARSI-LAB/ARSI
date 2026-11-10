@@ -16,6 +16,7 @@ Use `ember-rsi --help` to list commands and `ember-rsi <command> --help` for a c
 | `ember-rsi list plugins`                    | Inspect plugin descriptions, contracts, Schemas, and compatible Policy bindings.                                                          |
 | `ember-rsi list policies`                   | Inspect Policy descriptions, Schemas, requirements, and compatible plugins.                                                               |
 | `ember-rsi validate <recipe.yaml>`          | Validate configuration and wiring without running the experiment.                                                                         |
+| `ember-rsi doctor <recipe.yaml>`            | Check effective configuration, local resources and runtime prerequisites without running the experiment.                                  |
 | `ember-rsi run <recipe.yaml>`               | Start or resume an experiment and persist its records.                                                                                    |
 | `ember-rsi list`                            | List saved experiments.                                                                                                                   |
 | `ember-rsi show <experiment-id>`            | Print saved experiment status, output, and error information.                                                                             |
@@ -57,10 +58,14 @@ For example, validate and start an experiment with:
 
 ```sh
 ember-rsi validate my-experiment/recipe.yaml
+ember-rsi doctor my-experiment/recipe.yaml
 ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
 ```
 
 - `validate` checks the Recipe, plugin configuration, contract compatibility, Policy compilation, and declared Reflection resources.
+- `doctor` performs the same loading checks and runs bundled checks for each effective binding, including Reflection. Use the same `--plugin-dir` options as `run`. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`. Statuses are `passed`, `failed` and `unchecked`; every unchecked check explains its scope or missing prerequisite. Missing resources identify their binding, field, reference and dependent unchecked check IDs in `checksNotRun`.
+- Doctor exits `1` when any check fails and `0` when no check fails, including reports with unchecked entries. Missing required local inputs fail; cold fetchable caches and custom plugins without bundled checks remain unchecked. Registration or loading errors produce JSON with `recipeId: null`. Interruption exits `130`.
+- Doctor uses temporary storage, bounded prerequisite probes and cached metadata. It does not start Agents, request model inference, download resources or create experiment/Measurement records. A passing report establishes only the stated prerequisites. `run` is independent and can be the first command in a workspace.
 
 Inspect progress from another terminal in the same workspace:
 

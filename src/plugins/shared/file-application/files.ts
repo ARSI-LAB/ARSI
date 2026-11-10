@@ -67,7 +67,7 @@ export async function readInstance(
     throw error;
   }
 }
-async function readTarget(
+export async function readTarget(
   config: FileApplicationConfig,
   root: string,
 ): Promise<{ raw: JsonObject; target: Target }> {

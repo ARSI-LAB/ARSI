@@ -36,11 +36,11 @@ export const configSchema: JsonSchema = {
       enum: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
       default: 'low',
     },
-    retries: { type: 'integer', minimum: 0, default: 0 },
+    retries: { type: 'integer', minimum: 0, maximum: 10, default: 0 },
     retryBaseDelayMs: {
       type: 'integer',
       minimum: 0,
-      maximum: 2147483647,
+      maximum: 300000,
       default: 1000,
     },
     timeoutMs: {

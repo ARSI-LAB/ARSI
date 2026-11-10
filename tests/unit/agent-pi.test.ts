@@ -391,9 +391,10 @@ test('Pi rejects invalid settings at creation before resolving credentials or in
       { contextWindow: 0 },
       { contextWindow: 8192, maxTokens: 32768 },
       { retries: -1 },
+      { retries: 11 },
       { maxTokens: 262145 },
       { retryBaseDelayMs: -1 },
-      { retryBaseDelayMs: 2147483648 },
+      { retryBaseDelayMs: 300001 },
     ];
     for (const invalid of invalidConfigs) {
       await assert.rejects(
@@ -406,15 +407,6 @@ test('Pi rejects invalid settings at creation before resolving credentials or in
   } finally {
     await f.close();
   }
-});
-
-test('Pi accepts configured retry counts and delays above former fixed ceilings without model execution', async () => {
-  const context = new RuntimeContext();
-  const operation = await createAgentPi(
-    { retries: 11, retryBaseDelayMs: 300001 },
-    context,
-  );
-  await operation.dispose();
 });
 
 test('Pi retries transient failures once per charged attempt', async () => {

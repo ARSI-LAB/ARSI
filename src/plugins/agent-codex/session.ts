@@ -33,7 +33,6 @@ export async function runSession(options: {
 }): Promise<JsonObject> {
   const { request, signal, record } = options;
   let threadId = '';
-  let turnId = '';
   let response = '';
   let result: JsonObject | undefined;
   const permissions = `rsi-agent-${randomUUID()}`;
@@ -125,29 +124,10 @@ export async function runSession(options: {
             cwd: options.directory,
           },
         });
-      } else if (message.method === undefined && message.id === 3) {
-        turnId = string(object(object(message.result).turn).id);
-      } else if (message.method === 'item/tool/call') {
-        const params = object(message.params);
-        if (params.threadId !== threadId || params.turnId !== turnId) {
-          send({
-            id: message.id,
-            result: {
-              success: false,
-              contentItems: [
-                {
-                  type: 'inputText',
-                  text: 'This tool request is outside the active root turn.',
-                },
-              ],
-            },
-          });
-          return;
-        }
-        throw new Error('Codex requested an unsupported dynamic tool');
       } else if (message.method === 'item/completed') {
         const params = object(message.params);
-        if (params.threadId !== threadId || params.turnId !== turnId) return;
+        if (typeof params.threadId === 'string' && params.threadId !== threadId)
+          return;
         const item = object(params.item);
         if (item.type === 'agentMessage' && item.phase !== 'commentary') {
           if (typeof item.text !== 'string')
@@ -157,7 +137,8 @@ export async function runSession(options: {
         if (item.type === 'contextCompaction') record('context_compaction', {});
       } else if (message.method === 'thread/tokenUsage/updated') {
         const params = object(message.params);
-        if (params.threadId !== threadId || params.turnId !== turnId) return;
+        if (typeof params.threadId === 'string' && params.threadId !== threadId)
+          return;
         const usage = object(params.tokenUsage);
         const counts = (value: unknown): JsonObject => {
           const raw = object(value);
@@ -183,8 +164,9 @@ export async function runSession(options: {
         });
       } else if (message.method === 'turn/completed') {
         const params = object(message.params);
+        if (typeof params.threadId === 'string' && params.threadId !== threadId)
+          return;
         const turn = object(params.turn);
-        if (params.threadId !== threadId || turn.id !== turnId) return;
         if (turn.status !== 'completed')
           throw new Error(
             `Codex turn ${string(turn.status)}${nativeError(turn.error)}`,

@@ -14,9 +14,7 @@ const generate = async () => {
     send({
       method: 'turn/completed',
       params: {
-        threadId: 'thread',
         turn: {
-          id: 'turn',
           status: 'failed',
           error: { message: 'Authentication expired' },
         },
@@ -57,10 +55,7 @@ const generate = async () => {
     await response.body.cancel();
   }
   if (!response.ok) {
-    send({
-      method: 'turn/completed',
-      params: { threadId: 'thread', turn: { id: 'turn', status: 'failed' } },
-    });
+    send({ method: 'turn/completed', params: { turn: { status: 'failed' } } });
     return;
   }
   const events = (await response.text())
@@ -69,19 +64,14 @@ const generate = async () => {
     .map((x) => JSON.parse(x.slice(6)));
   const completed = events.find((x) => x.type === 'response.completed');
   if (!completed) {
-    send({
-      method: 'turn/completed',
-      params: { threadId: 'thread', turn: { id: 'turn', status: 'failed' } },
-    });
+    send({ method: 'turn/completed', params: { turn: { status: 'failed' } } });
     return;
   }
   const item = completed.response.output[0];
-  for (const event of config.beforeRootEvents ?? []) send(event);
   send({
     method: 'thread/tokenUsage/updated',
     params: {
       threadId: 'thread',
-      turnId: 'turn',
       tokenUsage: {
         total: {
           inputTokens: completed.response.usage.input_tokens,
@@ -99,8 +89,6 @@ const generate = async () => {
   send({
     method: 'item/completed',
     params: {
-      threadId: 'thread',
-      turnId: 'turn',
       item: {
         type: 'agentMessage',
         text: item.content[0].text,
@@ -108,10 +96,9 @@ const generate = async () => {
       },
     },
   });
-  for (const event of config.afterRootMessageEvents ?? []) send(event);
   send({
     method: 'turn/completed',
-    params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+    params: { turn: { status: 'completed' } },
   });
 };
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
@@ -153,16 +140,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         }),
       );
       history.push(...request.params.input);
-      send({
-        id: request.id,
-        result: { turn: { id: 'turn', status: 'inProgress' } },
-      });
+      send({ id: request.id, result: {} });
       await generate();
-    } else if (request.id === 'foreign-tool') {
-      fs.writeFileSync(
-        path.join(config.auditDirectory, 'foreign-tool-result.json'),
-        JSON.stringify(request.result),
-      );
     }
   })().catch(() => process.exit(1));
 });

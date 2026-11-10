@@ -19,6 +19,7 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
     assert.deepEqual(catalog.plugins.sort(), [
       'agent.claudecode',
       'agent.codex',
+      'agent.dsh',
       'agent.pi',
       'application.agentbundle',
       'application.inference',

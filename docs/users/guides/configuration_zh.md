@@ -42,6 +42,7 @@ Recipe 包含以下顶层字段，完整 Recipe 示例见[快速入门](../getti
 | Pi（`agent.pi`）       | 通过 Pi 调用指定的模型服务，执行优化流程中的 Agent 任务。        |
 | Codex（`agent.codex`） | 通过本机 Codex 执行优化流程中的 Agent 任务，沿用本地登录和配置。 |
 | Claude Code（`agent.claudecode`） | 使用 Claude Code 原生工具和结构化输出执行 Agent 任务。           |
+| DSH（`agent.dsh`） | 通过官方 DSH headless CLI 和原生配置执行 Agent 任务。 |
 
 ### 环境变量
 
@@ -147,6 +148,30 @@ bindings:
 [Claude Code Schema](../../../src/plugins/agent-claudecode/schema.ts) 接受 `executable`（默认 `claude`）、可选的 `model`、`effort` 和整次调用的 `timeoutMs`。与 Codex 的 `thinkingLevel` 不同，此后端使用 `effort` 配置思考强度。认证和模型连接仍由原生客户端环境配置。
 
 每次调用使用独立会话、原生 Skills 和子 Agent，以及只读工具；RSI 负责应用结构化编辑提案。用户/项目设置、普通 Hooks 和 MCP 被禁用。这些工具限制不是 OS 沙箱，也不覆盖管理员管理的 Hooks。此后端无法执行 `modelCalls` 预算。
+
+### DSH 后端
+
+`agent.dsh` 通过官方安装的 DSH CLI headless 模式执行任务。需要支持 `--json`、stdin 任务输入、`--permission-mode` 和 `--approval-policy` 的版本（已验证 `0.2.2-rc.1`）。RSI 不会自动安装或升级 DSH。
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.dsh
+    config:
+      executable: dsh
+      timeoutMs: 180000
+```
+
+[DSH Schema](../../../src/plugins/agent-dsh/schema.ts) 接受 `executable`（默认 `dsh`）和可选的整体调用超时 `timeoutMs`。模型路由和推理设置继续由用户的 DSH headless profile 管理。RSI 继承启动环境和 `DSH_HOME`；仅本次调用使用的配置覆盖会恢复上游 headless 默认关闭的原生凭据存储、认证及账号插件，不修改用户配置。密钥保留在原生配置或环境变量引用中，不写入 Recipe 字段。
+
+每次调用在传入的 Agent 项目中创建新的原生会话，DSH 保留原生会话日志。RSI 指定项目指令发现边界和 `.agents/skills` 路径；DSH 原生子 Agent 可读取生成的 `roles/<name>.md`。与 Codex 一样，不支持直接通过 `AgentInput.role` 委派。
+
+CLI 固定使用 `workspace-write` 和 `approval-policy never`：整个任务工作目录可写，**不限定为 `candidate/` 和 `scratch/`**。DSH 原生策略也可能允许平台临时目录。需要人工批准的请求会被拒绝。用户安装的插件仍遵循各自的行为；本适配器不提供额外的操作系统沙箱。候选提交仍经过 RSI Application 校验。
+
+成功必须同时满足进程退出码为零、原生最终事件为 completed、结果通过 JSON Schema 校验。最终 JSON 无效时直接失败，不追加纠正轮次或自动重跑。RSI 记录会话 ID 和可获得的逐步原生 token 用量；缺失用量保持未知，无法执行内部 `modelCalls` 预算约束。原始模型/工具输出及 stderr 不会复制到 RSI 诊断日志；详细失败信息请查看 DSH 原生日志。
+
+macOS/Linux 上，超时、取消和销毁会终止进程组。不支持 Windows。此后端目前仅在 macOS 做过真实测试。
+
 
 ## Proposer 文件编辑
 

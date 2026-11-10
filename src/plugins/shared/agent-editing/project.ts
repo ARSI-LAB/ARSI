@@ -103,7 +103,7 @@ export async function prepareAgentProject(
       );
     }
     const catalog = roles.length
-      ? '\n\n## Delegation\n\nDelegate self-contained tasks with subagent in Pi or spawn_agent in Codex, or Agent in Claude Code. Subagents share this project and return findings. Only the main agent proposes final edits.\n\n' +
+      ? '\n\n## Delegation\n\nDelegate self-contained tasks with subagent in Pi, spawn_agent in Codex, Agent in Claude Code, or native DSH subagents reading roles/<name>.md. Subagents share this project and return findings. Only the main agent proposes final edits.\n\n' +
         roles
           .map(({ name, description }) => `- ${name}: ${description}`)
           .join('\n')

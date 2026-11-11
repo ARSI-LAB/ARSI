@@ -126,7 +126,7 @@ The default Codex user configuration file is `~/.codex/config.toml`; see the [Op
 
 - The checkout's `AGENTS.md` and `.codex/config.toml` do not automatically become project settings for that invocation.
 
-The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executable` (default `codex`), optional `model`, optional `thinkingLevel`, optional `timeoutMs`, and optional `webSearch` (`disabled`, `cached`, or `live`). Omitted `model` and `thinkingLevel` retain local defaults. Explicit values override the model and reasoning effort for the call without rewriting local configuration.
+The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executable` (default `codex`), optional `model`, optional `thinkingLevel`, and optional `timeoutMs`. Omitted `model` and `thinkingLevel` retain local defaults. Explicit values override the model and reasoning effort for the call without rewriting local configuration.
 
 - `timeoutMs` limits the complete call and accepts integer milliseconds from 1 to 2,147,483,647. Experiment cancellation and configured wall budgets also propagate to the process.
 
@@ -188,4 +188,4 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | Policy call step                                      | `steps[].with.editConstraints.maxChangedBytes`    | When supported by the contract, limit the total changed-file content size for this edit, in bytes.                                                                    | No additional per-edit byte limit; existing constraints such as the Target still apply.                           |
 | Policy call step                                      | `steps[].with.editConstraints.maxChangedSubtrees` | Maximum number of Target entries whose file or directory scopes a candidate edit may change.                                                                          | No limit on the number of Target entries affected by this edit.                                                   |
 
-Codex calls with native expert roles retain their parent rollout so full-context delegation can fork it. Calls without roles remain ephemeral. `webSearch` overrides the native search setting only for this call.
+Codex calls with native expert roles retain their parent rollout so full-context delegation can fork it. Calls without roles remain ephemeral. Search behavior follows the native Codex configuration.

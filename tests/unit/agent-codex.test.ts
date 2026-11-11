@@ -129,7 +129,6 @@ async function fixture(
   options: {
     model?: string;
     thinkingLevel?: string;
-    webSearch?: 'disabled' | 'cached' | 'live';
     timeoutMs?: number;
     retries?: number;
     approvalRequired?: boolean;
@@ -258,9 +257,6 @@ async function fixture(
   const operation = await createAgentCodex(
     {
       executable: process.env.RSI_TEST_CODEX_EXECUTABLE ?? executable,
-      ...(options.webSearch === undefined
-        ? {}
-        : { webSearch: options.webSearch }),
       ...(options.model === undefined ? {} : { model: options.model }),
       ...(options.thinkingLevel === undefined
         ? {}
@@ -576,8 +572,8 @@ test('existing Policy accepts the native Codex binding', async () => {
   }
 });
 
-test('Codex forwards explicit web search and keeps calls without roles ephemeral', async () => {
-  const f = await fixture(['{"answer":"ok"}'], { webSearch: 'live' });
+test('Codex keeps calls without roles ephemeral and inherits native search settings', async () => {
+  const f = await fixture(['{"answer":"ok"}']);
   try {
     await f.run();
     if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
@@ -586,7 +582,11 @@ test('Codex forwards explicit web search and keeps calls without roles ephemeral
       );
       assert.equal(object(audit.thread).ephemeral, true);
       assert.ok(
-        Array.isArray(audit.args) && audit.args.includes('web_search="live"'),
+        Array.isArray(audit.args) &&
+          !audit.args.some(
+            (arg: unknown) =>
+              typeof arg === 'string' && arg.startsWith('web_search='),
+          ),
       );
     }
   } finally {

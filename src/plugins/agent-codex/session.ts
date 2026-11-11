@@ -27,7 +27,6 @@ export async function runSession(options: {
   directory: string;
   model?: string;
   reasoningEffort?: string;
-  webSearch?: 'disabled' | 'cached' | 'live';
   request: AgentInput;
   signal: AbortSignal;
   record: (type: string, data: unknown) => void;
@@ -47,8 +46,6 @@ export async function runSession(options: {
     `default_permissions=${JSON.stringify(permissions)}`,
     `permissions.${permissions}.filesystem={":root"="deny",":minimal"="read",":workspace_roots"="read"${process.platform === 'darwin' ? ',"/System/Library/OpenSSL"="read"' : ''}}`,
   ];
-  if (options.webSearch !== undefined)
-    launchConfig.push(`web_search=${JSON.stringify(options.webSearch)}`);
   const agentsDir = join(options.directory, '.codex', 'agents');
   const roles = await readdir(agentsDir, { withFileTypes: true }).catch(
     (error: unknown) => {

@@ -188,4 +188,4 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedBytes`    | 契约支持时，限制这次编辑的变更文件内容总大小，单位字节。                                                  | 不增加这次编辑的字节数上限；Target 等已有约束仍生效。                             |
 | Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedSubtrees` | 候选编辑最多涉及多少个 Target 条目对应的文件或目录范围。                                                  | 不限制这次编辑涉及的 Target 条目数量。                                            |
 
-Codex 可用 `webSearch: disabled | cached | live` 为本次调用配置原生搜索。含专家角色的调用保留父 rollout，供完整上下文的原生委派使用；无角色调用仍使用临时线程。已确认且清理完成的起服失败可被拒绝后继续；SDK 评测失败、取消或清理不明会停止实验。
+搜索行为沿用 Codex 原生配置。含专家角色的调用保留父 rollout，供完整上下文的原生委派使用；无角色调用仍使用临时线程。已确认且清理完成的起服失败可被拒绝后继续；SDK 评测失败、取消或清理不明会停止实验。

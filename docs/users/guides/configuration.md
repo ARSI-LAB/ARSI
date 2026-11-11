@@ -169,7 +169,7 @@ The [DSH Schema](../../../src/plugins/agent-dsh/schema.ts) accepts `executable` 
 
 Each invocation starts a fresh native session in the supplied Agent project. DSH retains native session logs. RSI supplies project instruction discovery and the `.agents/skills` path; native DSH subagents can read the generated `roles/<name>.md`. Direct `AgentInput.role` delegation is unsupported, as with Codex.
 
-The CLI runs with `workspace-write` and `approval-policy never`: the whole task workspace is writable, **not only `candidate/` and `scratch/`**. Native DSH may also permit platform temporary directories. Requests requiring human approval are rejected. User-installed plugins retain their own behavior; this adapter does not provide an additional OS sandbox. Candidate submission still passes through RSI's Application validation.
+The CLI runs with `read-only` and `approval-policy never`: native file tools cannot modify the task workspace, and requests requiring human approval are rejected. For editing tasks, DSH returns structured edit proposals that RSI validates and applies, as with Codex and Claude Code. User-installed plugins retain their own behavior; this adapter does not provide an additional OS sandbox. Candidate submission still passes through RSI's Application validation.
 
 Success requires both exit code zero and a completed native final event, followed by JSON Schema validation. Invalid final JSON fails without a correction turn or automatic rerun. RSI records session IDs and available per-step native token usage; missing usage stays unknown, and internal `modelCalls` budgets cannot be enforced. Raw model/tool output and stderr are not copied to RSI diagnostics; inspect native DSH logs for detailed failures.
 

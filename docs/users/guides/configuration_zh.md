@@ -169,7 +169,7 @@ bindings:
 
 每次调用在传入的 Agent 项目中创建新的原生会话，DSH 保留原生会话日志。RSI 指定项目指令发现边界和 `.agents/skills` 路径；DSH 原生子 Agent 可读取生成的 `roles/<name>.md`。与 Codex 一样，不支持直接通过 `AgentInput.role` 委派。
 
-CLI 固定使用 `workspace-write` 和 `approval-policy never`：整个任务工作目录可写，**不限定为 `candidate/` 和 `scratch/`**。DSH 原生策略也可能允许平台临时目录。需要人工批准的请求会被拒绝。用户安装的插件仍遵循各自的行为；本适配器不提供额外的操作系统沙箱。候选提交仍经过 RSI Application 校验。
+CLI 固定使用 `read-only` 和 `approval-policy never`：原生文件工具不能修改任务工作区，需要人工批准的请求会被拒绝。编辑任务中，DSH 与 Codex、Claude Code 一样返回结构化修改提案，由 RSI 校验并应用。用户安装的插件仍遵循各自的行为；本适配器不提供额外的操作系统沙箱。候选提交仍经过 RSI Application 校验。
 
 成功必须同时满足进程退出码为零、原生最终事件为 completed、结果通过 JSON Schema 校验。最终 JSON 无效时直接失败，不追加纠正轮次或自动重跑。RSI 记录会话 ID 和可获得的逐步原生 token 用量；缺失用量保持未知，无法执行内部 `modelCalls` 预算约束。原始模型/工具输出及 stderr 不会复制到 RSI 诊断日志；详细失败信息请查看 DSH 原生日志。
 

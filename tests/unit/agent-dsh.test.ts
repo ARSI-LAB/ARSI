@@ -48,7 +48,7 @@ async function fixture(timeoutMs?: number) {
   };
 }
 
-test('DSH validates native completion and JSON, cleans overlays, and starts fresh on repetition', async () => {
+test('DSH runs read-only without approvals, validates JSON, cleans overlays, and starts fresh', async () => {
   const f = await fixture();
   try {
     assert.deepEqual(await f.run('success'), { ok: true });

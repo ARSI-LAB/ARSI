@@ -95,7 +95,7 @@ export const createAgentDsh: OperationDefinition<
             JSON.stringify({
               goal: request.goal,
               instruction:
-                'Read AGENTS.md and follow the project instructions. Use native subagents for delegation, reading roles/<name>.md when a role is listed. Return only the JSON object matching outputSchema in your final answer.',
+                'Read AGENTS.md and follow the project instructions. Use native subagents for delegation, reading roles/<name>.md when a role is listed. The project is read-only; return proposed edits in the requested JSON rather than modifying files. Return only the JSON object matching outputSchema in your final answer.',
               outputSchema: request.outputSchema,
             }) +
               '\n\nAfter completing the task, your final response MUST be only the JSON object matching outputSchema above. Do not summarize your work in prose or Markdown. A prose response is a failed task.',

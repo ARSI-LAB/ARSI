@@ -31,7 +31,7 @@ export async function runDshProcess(
         patch,
         '--json',
         '--permission-mode',
-        'workspace-write',
+        'read-only',
         '--approval-policy',
         'never',
         '-',

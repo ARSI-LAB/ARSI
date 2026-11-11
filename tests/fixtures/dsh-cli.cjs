@@ -6,7 +6,8 @@ const patch = JSON.parse(
 );
 if (
   !args.includes('--json') ||
-  !args.includes('never') ||
+  args[args.indexOf('--approval-policy') + 1] !== 'never' ||
+  args[args.indexOf('--permission-mode') + 1] !== 'read-only' ||
   !patch.some((row) => row.id === 'agent-instructions')
 )
   process.exit(2);

@@ -1,0 +1,100 @@
+schemaVersion: rsi.policy/v1
+id: parameter.agent
+description: Establish a measurable inference baseline and tune engine parameters with Agent proposals.
+# policy schema
+input_schema:
+  $ref: ../../../contracts/policies/candidate-input.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+output_schema:
+  $ref: ./schemas/result.yaml
+config_schema:
+  $ref: ./schemas/config.yaml
+
+# setup
+state_schema:
+  $ref: ./setup.yaml#/state_schema
+state:
+  $ref: ./setup.yaml#/state
+require:
+  $ref: ./setup.yaml#/require
+defaults:
+  $ref: ./setup.yaml#/defaults
+
+# policy steps
+steps:
+  - id: baseline
+    type: invoke
+    use: evaluator
+    with:
+      candidateRef: ${{ input.candidateRef }}
+  - id: baseline_feasibility
+    type: invoke
+    use: selector
+    with:
+      incumbentMeasurementRef: ${{ steps.baseline.output.measurementRef }}
+      candidateMeasurementRef: ${{ steps.baseline.output.measurementRef }}
+  - id: start_search
+    type: state
+    state:
+      incumbent: ${{ input.candidateRef }}
+      incumbentMeasurement: ${{ steps.baseline.output.measurementRef }}
+      incumbentFeasible: ${{ steps.baseline_feasibility.output.candidateFeasible }}
+      sources:
+        - candidateRef: ${{ input.candidateRef }}
+  - id: search
+    type: loop
+    maxIterations: ${{ config.maxTrials }}
+    while: ${{ state.stopReason != 'no-change' && length(state.trials) < config.maxTrials }}
+    steps:
+      - id: propose
+        type: invoke
+        use: proposer
+        with:
+          parent: ${{ state.incumbent }}
+          goal: Propose ranked inference parameter candidates that could improve serving performance within the benchmark constraints.
+          maxCandidates: >-
+            ${{ if(config.candidatesPerRound < config.maxTrials - length(state.trials),
+            config.candidatesPerRound, config.maxTrials - length(state.trials)) }}
+          evidenceRefs: ${{ compact(concat(append(range(0, 0), steps.baseline.output.measurementRef), pluck(state.trials, 'measurementRef'))) }}
+          sources: ${{ state.sources }}
+          observations:
+            baselineCandidateRef: ${{ input.candidateRef }}
+            baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
+            incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
+            trials: ${{ state.trials }}
+          editConstraints:
+            allowedPaths: ['${{ config.parameterFile }}']
+            maxChangedFiles: 1
+      - id: candidates
+        type: if
+        if: ${{ steps.propose.output.status == 'no-change' }}
+        then:
+          steps:
+            - id: no_change
+              type: state
+              state: { stopReason: no-change }
+          output: []
+        else:
+          steps: []
+          output: >-
+            ${{ if(steps.propose.output.status == 'batch',
+            pluck(steps.propose.output.candidates, 'candidateRef'),
+            append(range(0, 0), steps.propose.output.candidateRef)) }}
+      - id: evaluate_batch
+        type: loop
+        maxIterations: ${{ length(steps.candidates.output) }}
+        while: ${{ length(state.trials) < config.maxTrials }}
+        steps:
+          $ref: ./trial-steps.yaml#/evaluate
+
+# output
+output:
+  status: ${{ if(state.incumbentFeasible, 'selected', 'no-feasible-configuration') }}
+  stopReason: ${{ state.stopReason }}
+  baselineCandidateRef: ${{ input.candidateRef }}
+  baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
+  candidateRef: ${{ state.incumbent }}
+  measurementRef: ${{ state.incumbentMeasurement }}
+  candidateFeasible: ${{ state.incumbentFeasible }}
+  trials: ${{ state.trials }}

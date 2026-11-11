@@ -1,19 +1,19 @@
 import type {
   OperationDefinition,
-  SearchInput,
-  SearchOutput,
+  IterativeProposerInput,
+  IterativeProposerOutput,
 } from '../../contracts/index.js';
-import { searchContract } from '../../contracts/plugin-types/search.js';
+import { iterativeProposerContract } from '../../contracts/plugin-types/proposer-iterative.js';
 import { configSchema, type OptunaConfig } from './schema.js';
 import { createOptunaProposer } from './service.js';
 export const optunaProposerDefinition: OperationDefinition<
-  SearchInput,
-  SearchOutput,
+  IterativeProposerInput,
+  IterativeProposerOutput,
   OptunaConfig
 > = {
   id: 'proposer.optuna',
   description: 'Propose parameter candidates using Optuna optimization.',
-  contract: searchContract,
+  contract: iterativeProposerContract,
   configSchema,
   create: createOptunaProposer,
 };

@@ -30,13 +30,15 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
       'proposer.grid',
       'proposer.operator',
       'proposer.optuna',
+      'proposer.pareto-evolution',
       'reflection.agent',
-      'search.prompt-evolution',
       'selector.artifact',
+      'selector.inference',
       'selector.metric',
       'summarizer.operator',
     ]);
     assert.deepEqual(catalog.policies.sort(), [
+      'parameter.agent',
       'policy.gepa',
       'policy.harness2',
       'policy.operator-search',

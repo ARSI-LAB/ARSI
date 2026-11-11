@@ -5,6 +5,18 @@ import type {
 } from '../../contracts/index.js';
 import { object } from '../../shared/json.js';
 
+export class ExperimentBudgetExceeded extends Error {
+  override readonly name = 'ExperimentBudgetExceeded';
+
+  constructor(readonly metric: string) {
+    super(
+      metric === 'elapsedWallMs'
+        ? 'Experiment wall-time budget exceeded'
+        : `Budget exceeded: ${metric}`,
+    );
+  }
+}
+
 interface BudgetSnapshot {
   usage: Record<string, number>;
   scopes: Record<string, Record<string, number>>;
@@ -55,8 +67,7 @@ export class BudgetLedger {
       const next = (this.snapshot.usage[metric] ?? 0) + amount;
       const limit = this.limits[metric];
       if (limit !== undefined && next > limit) {
-        const error = new Error(`Budget exceeded: ${metric}`);
-        error.name = 'ExperimentBudgetExceeded';
+        const error = new ExperimentBudgetExceeded(metric);
         this.fail(error);
         throw error;
       }

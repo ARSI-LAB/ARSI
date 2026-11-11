@@ -43,6 +43,8 @@ Policy 使用 `rsi.policy/v1`，与 `rsi.recipe/v1` 的 Recipe 配合使用。�
 | `control`    | 退出循环、跳过当前轮或终止流程。       | `control` 填 `break`、`continue` 或 `fail`；使用 `fail` 时还需填写 `reason`。                                                                                    |
 | `reflection` | 使用内置的 Reflection 自进化能力       | 步骤填 `type: reflection`，并在 `defaults.reflection` 中声明模块；必须串行执行，配置方式见 [Reflection 指南](reflection_zh.md)。                                 |
 
+Runtime 会在整个流程中执行 [Recipe 预算](configuration_zh.md#限制与预算)。
+
 ### 用表达式读取数据
 
 字段名按相应 Schema 填写，步骤 ID 按 Policy 中的声明填写。取值示例：

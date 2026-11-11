@@ -220,22 +220,24 @@ export function register(registry) {
   );
   assert.equal(
     catalog.plugins.length,
-    18,
-    'all eighteen plugin definitions ship in the archive',
+    19,
+    'all built-in plugin definitions ship in the archive',
   );
   for (const id of [
     'application.kernel',
     'evaluator.operatorbench',
+    'selector.inference',
     'proposer.operator',
     'summarizer.operator',
   ])
     assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
   assert.ok(!catalog.plugins.includes('agent.scripted'));
   assert.ok(catalog.plugins.includes('agent.codex'));
-  assert.ok(catalog.plugins.includes('search.prompt-evolution'));
+  assert.ok(catalog.plugins.includes('proposer.pareto-evolution'));
   assert.deepEqual(
     [...catalog.policies].sort(),
     [
+      'parameter.agent',
       'policy.gepa',
       'policy.harness2',
       'policy.operator-search',
@@ -275,7 +277,7 @@ export function register(registry) {
     if (name === 'dsh-gepa') {
       assert.equal(validation.policyId, 'policy.gepa');
       assert.ok(
-        validation.plugins.includes('search.prompt-evolution'),
+        validation.plugins.includes('proposer.pareto-evolution'),
         'installed consumer assembles built-in GEPA without an extension directory',
       );
     }
@@ -285,14 +287,19 @@ export function register(registry) {
     join(outside, 'dsh-harness2/baseline'),
     true,
   );
-  for (const name of ['shared', 'parameter-grid', 'parameter-tpe']) {
+  for (const name of [
+    'shared',
+    'parameter-grid',
+    'parameter-tpe',
+    'parameter-agent',
+  ]) {
     await cp(
       join(root, 'examples/artifacts/inference', name),
       join(outside, name),
       { recursive: true },
     );
   }
-  for (const name of ['parameter-grid', 'parameter-tpe']) {
+  for (const name of ['parameter-grid', 'parameter-tpe', 'parameter-agent']) {
     const inferenceValidation = JSON.parse(
       execFileSync(
         process.execPath,
@@ -305,6 +312,13 @@ export function register(registry) {
       true,
       `installed package validates ${name} without source paths`,
     );
+    if (name === 'parameter-agent') {
+      assert.equal(inferenceValidation.policyId, 'parameter.agent');
+      assert.ok(inferenceValidation.plugins.includes('selector.inference'));
+      assert.ok(
+        inferenceValidation.plugins.includes('evaluator.inferencebench'),
+      );
+    }
   }
   const packagedWorker = join(
     consumer,
@@ -390,10 +404,10 @@ import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,operatorSummarizerContract,gridProposerContract,searchContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
-import {RuntimeContext as ContractContext,searchContract as ContractsSearchContract} from 'ember-rsi/contracts';
+import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,operatorSummarizerContract,gridProposerContract,iterativeProposerContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
+import {RuntimeContext as ContractContext,iterativeProposerContract as ContractsIterativeProposerContract} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
-assert.equal(searchContract,ContractsSearchContract);
+assert.equal(iterativeProposerContract,ContractsIterativeProposerContract);
 const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
 async function packageResource(path){
  const location=relative(packageDirectory,await realpath(path));
@@ -476,12 +490,12 @@ try {
   const path=await packageResource(runtime.registry.policy(id)),policy=await Policy.load(path,runtime.registry);
   assert.equal(policy.toJSON().schemaVersion,'rsi.policy/v1');
   if(id==='policy.gepa'){
-   assert.deepEqual(policy.requirements.search,searchContract,'installed GEPA Policy uses the shared stateful search contract');
-   assert.deepEqual(runtime.registry.get('search.prompt-evolution').contract,searchContract,'installed GEPA implementation uses the shared stateful search contract');
-   assert.deepEqual(runtime.registry.get('proposer.optuna').contract,searchContract,'installed Optuna and GEPA share one search contract');
+   assert.deepEqual(policy.requirements.evolutionProposer,iterativeProposerContract,'installed GEPA Policy uses the shared iterative proposer contract');
+   assert.deepEqual(runtime.registry.get('proposer.pareto-evolution').contract,iterativeProposerContract,'installed Pareto evolution proposer uses the shared iterative proposer contract');
+   assert.deepEqual(runtime.registry.get('proposer.optuna').contract,iterativeProposerContract,'installed Optuna and Pareto evolution share one iterative proposer contract');
   }else{
    const requirement=policy.requirements.invariantProposer??policy.requirements.proposer;
-   assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?searchContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
+   assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?iterativeProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
   }
   assert.deepEqual(runtime.registry.get('proposer.agent').contract,proposerContract);
   const reflection=policy.defaults.reflection;
@@ -636,8 +650,8 @@ new Registry().registerOperation(definition);
     join(consumer, 'contracts-consumer.ts'),
     `
 import { RuntimeContext, type OperationDefinition } from 'ember-rsi/contracts';
-import type { SearchInput, SearchOutput } from 'ember-rsi';
-import type { SearchInput as ContractSearchInput, SearchOutput as ContractSearchOutput } from 'ember-rsi/contracts';
+import type { IterativeProposerInput, IterativeProposerOutput } from 'ember-rsi';
+import type { IterativeProposerInput as ContractIterativeProposerInput, IterativeProposerOutput as ContractIterativeProposerOutput } from 'ember-rsi/contracts';
 declare module 'ember-rsi/contracts' {
  interface RuntimeContext { contractsOnlyTrace?: string; }
 }
@@ -645,11 +659,11 @@ const context=new RuntimeContext().extend({contractsOnlyTrace:'consumer'});
 const signal:AbortSignal=context.signal;
 const result:Promise<import('ember-rsi/contracts').JsonValue>=context.invoke('worker',{});
 void signal;void result;
-export function checkSearchInput(candidateRef:string,feedbackTaskIds:string[],selectionTaskIds:string[]):SearchInput {
- const input:ContractSearchInput={action:'initialize',parent:candidateRef,feedbackTaskIds,selectionTaskIds};
+export function checkIterativeProposerInput(candidateRef:string,feedbackTaskIds:string[],selectionTaskIds:string[]):IterativeProposerInput {
+ const input:ContractIterativeProposerInput={action:'initialize',parent:candidateRef,feedbackTaskIds,selectionTaskIds};
  return input;
 }
-export function checkSearchOutput(output:SearchOutput):ContractSearchOutput {
+export function checkIterativeProposerOutput(output:IterativeProposerOutput):ContractIterativeProposerOutput {
  return output;
 }
 export function checkOperation(definition:OperationDefinition):void {

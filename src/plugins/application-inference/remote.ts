@@ -13,6 +13,7 @@ import type { RuntimeContext, JsonObject } from '../../contracts/index.js';
 import type { ApplicationBackend } from '../shared/file-application/files.js';
 import { safePath } from '../shared/file-application/target.js';
 import { digest, object, string } from '../../shared/json.js';
+import { InferenceStartupError } from '../../shared/errors.js';
 
 const namespace = 'application-inference-remote';
 interface RemoteBackend extends ApplicationBackend {
@@ -165,6 +166,14 @@ function assertIdentity(response: JsonObject, request: JsonObject): void {
   )
     throw new Error('Remote parameter identity mismatch');
 }
+function checkStartupRejection(response: JsonObject): void {
+  if (response.status !== 'startup-failed') return;
+  const reason =
+    typeof response.reason === 'string' && response.reason.trim()
+      ? `: ${response.reason}`
+      : '';
+  throw new InferenceStartupError(`Remote inference startup failed${reason}`);
+}
 function verifiedResources(response: JsonObject): JsonObject {
   const resources = object(response.resources, 'remote resources');
   if (
@@ -224,6 +233,8 @@ export async function createRemoteBackend(
   const active = new Set<string>();
   const calibration =
     remote.calibration === undefined ? null : object(remote.calibration);
+  const discoverParameters = remote.discoverParameters === true;
+  const tuneMemory = discoverParameters && !calibration;
   let calibrationSweep: { start: number; step: number; steps: number } | null =
     null;
   if (calibration) {
@@ -276,7 +287,11 @@ export async function createRemoteBackend(
     while (true) {
       signal.throwIfAborted();
       const status = await invoke({ ...request, action: 'status' }, signal);
-      if (status.status === 'capacity-rejected') return status;
+      if (
+        status.status === 'capacity-rejected' ||
+        status.status === 'startup-failed'
+      )
+        return status;
       if (status.status !== 'starting' && status.status !== 'ready')
         throw new Error(
           `Remote service did not become ready: ${String(status.status)}`,
@@ -379,25 +394,58 @@ export async function createRemoteBackend(
           `Engine parameter ${key} must be a lowercase argument name`,
         );
       if (
+        (key === 'gpu_memory_utilization' && !tuneMemory) ||
+        (key === 'enable_prefix_caching' && !discoverParameters) ||
         [
-          'gpu_memory_utilization',
           'host',
           'port',
           'tensor_parallel_size',
           'max_model_len',
           'served_model_name',
           'dtype',
-          'enable_prefix_caching',
         ].includes(key)
       )
         throw new Error(
           `Engine parameter ${key} is owned by deployment or calibration`,
         );
     }
+    if (parameters.gpu_memory_utilization !== undefined)
+      ratio(parameters.gpu_memory_utilization, 'gpu_memory_utilization');
     return { parameters, parametersDigest: digest(parameters) };
   };
+  const comparableResources = (
+    resources: JsonObject,
+    utilization: number,
+  ): JsonObject => ({
+    ...resources,
+    ...(tuneMemory ? {} : { gpuMemoryUtilization: utilization }),
+  });
   return {
     capability: 'inference-endpoint',
+    ...(discoverParameters && {
+      async describeTarget(context: RuntimeContext): Promise<JsonObject> {
+        const signal =
+          timeout === undefined
+            ? context.signal
+            : AbortSignal.any([context.signal, AbortSignal.timeout(timeout)]);
+        const response = await command(
+          executable,
+          script,
+          { action: 'describe-parameters' },
+          signal,
+        );
+        const parameterCatalog = object(
+          response.parameters,
+          'installed engine parameters',
+        );
+        if (!tuneMemory) delete parameterCatalog.gpu_memory_utilization;
+        if (!Object.keys(parameterCatalog).length)
+          throw new Error(
+            'The inference launcher did not discover any tunable parameters',
+          );
+        return { parameterCatalog };
+      },
+    }),
     verify,
     release,
     async validateInstance(instance, context): Promise<void> {
@@ -410,10 +458,10 @@ export async function createRemoteBackend(
       if (ready.status !== 'ready')
         throw new Error('Remote instance is no longer ready');
       const expected = object(object(instance.execution).resources);
-      const actual = {
-        ...verifiedResources(ready),
-        gpuMemoryUtilization: request.memoryUtilization,
-      };
+      const actual = comparableResources(
+        verifiedResources(ready),
+        ratio(request.memoryUtilization, 'saved memoryUtilization'),
+      );
       if (digest(expected) !== digest(actual))
         throw new Error(
           'Remote device/model/software identity changed before reuse',
@@ -427,10 +475,10 @@ export async function createRemoteBackend(
       context,
     ): Promise<JsonObject> {
       const parameters = object(identity.parameters);
-      let utilization =
-        remote.memoryUtilization === undefined
-          ? 0.9
-          : ratio(remote.memoryUtilization, 'remote.memoryUtilization');
+      let utilization = ratio(
+        parameters.gpu_memory_utilization ?? remote.memoryUtilization ?? 0.9,
+        'memoryUtilization',
+      );
       let request: JsonObject = {
         instanceId,
         experimentId: context.experimentId,
@@ -494,7 +542,11 @@ export async function createRemoteBackend(
             { ...request, action: 'start' },
             context.signal,
           );
-          if (started.status === 'capacity-rejected') return started;
+          if (
+            started.status === 'capacity-rejected' ||
+            started.status === 'startup-failed'
+          )
+            return started;
           if (!['ready', 'starting'].includes(String(started.status)))
             throw new Error(`Remote start failed: ${String(started.status)}`);
         } else if (!['ready', 'starting'].includes(String(previous.status)))
@@ -527,6 +579,7 @@ export async function createRemoteBackend(
           };
           await persist();
           const result = await start();
+          checkStartupRejection(result);
           await stopRemote(request, AbortSignal.timeout(cleanupTimeout));
           if (result.status === 'ready') {
             selected = {
@@ -537,7 +590,9 @@ export async function createRemoteBackend(
           }
         }
         if (!selected)
-          throw new Error('No memory utilization passed remote calibration');
+          throw new InferenceStartupError(
+            'No memory utilization passed remote calibration',
+          );
         await services.facts.write(namespace, calibrationKey, selected);
       }
       const calibrated = calibration
@@ -557,8 +612,11 @@ export async function createRemoteBackend(
       };
       await persist();
       const ready = await start();
+      checkStartupRejection(ready);
       if (ready.status !== 'ready')
-        throw new Error('Remote candidate exceeded calibrated memory capacity');
+        throw new InferenceStartupError(
+          'Remote candidate exceeded calibrated memory capacity',
+        );
       const resources = verifiedResources(ready);
       if (calibrated && digest(resources) !== digest(calibrated.resources))
         throw new Error(
@@ -574,7 +632,8 @@ export async function createRemoteBackend(
         instanceId,
         baseUrl: origin + basePath,
         model: string(endpoint.model),
-        resources: { ...resources, gpuMemoryUtilization: utilization },
+        resources: comparableResources(resources, utilization),
+        ...(tuneMemory ? { gpuMemoryUtilization: utilization } : {}),
         parametersDigest: identity.parametersDigest,
         credentialRef: object(config.credentials ?? {}).apiKeyEnv ?? null,
       };

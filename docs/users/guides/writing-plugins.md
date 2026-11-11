@@ -25,7 +25,7 @@ Choose a contract based on the work your plugin will do. The contract defines th
 | [contract.memory](../../../src/contracts/plugin-types/memory.ts)                           | Consolidate evidence and observations into reusable experience.                              | `memoryContract`             |
 | [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                   | Propose plugin revisions based on execution evidence.                                        | `reflectionContract`         |
 | [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)             | Generate parameter candidates in grid-search order.                                          | `gridProposerContract`       |
-| [contract.search](../../../src/contracts/plugin-types/search.ts)                           | Manage stateful search, request work, and receive feedback.                                  | `searchContract`             |
+| [contract.proposer-iterative](../../../src/contracts/plugin-types/proposer-iterative.ts)   | Manage stateful search, request work, and receive feedback.                                  | `iterativeProposerContract`  |
 
 Each regular plugin implements one public contract. Contracts such as Application include multiple actions, handled by the same `execute` according to `input.action`.
 

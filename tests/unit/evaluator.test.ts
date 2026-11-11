@@ -885,6 +885,127 @@ test('partial SDK error is archived and thrown, never returned as a successful m
     await rm(directory, { recursive: true, force: true });
   }
 });
+test('AISBench uses the final complete workload point for throughput and latency selection', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'rsi-aisbench-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const { services, stored, measurements } = harness(directory);
+  const originalHost = process.env.RSI_FIXTURE_AISBENCH_HOST;
+  process.env.RSI_FIXTURE_AISBENCH_HOST = 'loadgen-a';
+  t.after(() => {
+    if (originalHost === undefined)
+      delete process.env.RSI_FIXTURE_AISBENCH_HOST;
+    else process.env.RSI_FIXTURE_AISBENCH_HOST = originalHost;
+  });
+  const execution = {
+    kind: 'inference-endpoint',
+    baseUrl: 'http://ascend.example:8000/v1',
+    model: 'ascend-model',
+    resources: { verified: true, modelIdentity: 'fixture' },
+  };
+  const native = {
+    services: {
+      default: { model: execution.model, base_url: execution.baseUrl },
+    },
+    benchmark: {
+      name: 'aisbench',
+      solver: {
+        name: 'aisbench-ssh',
+        config: { remote: { ssh: { host: '${RSI_FIXTURE_AISBENCH_HOST}' } } },
+      },
+    },
+  };
+  const workload = {
+    inputLength: 2048,
+    outputLength: 512,
+    dataCount: 160,
+    concurrency: 16,
+    requestRate: 0,
+    testType: 'stream',
+    prefixCache: {
+      enabled: false,
+      prefixCount: 1,
+      prefixRatio: 0,
+      warmup: false,
+      dp: 1,
+      seed: 42,
+    },
+  };
+  const bundleDigest = 'a'.repeat(64);
+  const aisbenchVersion = '1.0.0';
+  const { fingerprintConfig } = await import('ember-evaluator');
+  const taskId = `aisbench-${fingerprintConfig(workload).slice(-16)}`;
+  const snap = snapshot('performance');
+  Object.assign(object(snap.run), {
+    taskIds: [taskId],
+    source: {
+      source: 'github:rayn-zzz/aisbench_auto_tools_prefix',
+      revision: 'rev',
+      files: [],
+      metadata: { bundleDigest },
+    },
+    solverProvenance: { bundleDigest, aisbenchVersion },
+  });
+  assert.ok(Array.isArray(snap.records));
+  const record = object(snap.records[0]);
+  object(record.key).taskId = taskId;
+  delete record.status;
+  Object.assign(record, {
+    evaluationKind: 'performance',
+    executionStatus: 'completed',
+    verdict: { passed: null },
+    collection: { trajectory: 'not-produced', artifacts: 'complete' },
+  });
+  object(record.solve).observations = {
+    schemaVersion: 1,
+    kind: 'aisbench',
+    workload,
+    bundleDigest,
+    aisbenchVersion,
+    rows: [
+      { total_req: '80', qps: '1', 'TTFT P90': '5', 'TPOT SLO_P90': '4' },
+      { total_req: '160', qps: '3.4', 'TTFT P90': '8.1', 'TPOT SLO_P90': '' },
+    ],
+  };
+  const run = (callId: string) =>
+    normalizeInferencebench(
+      native,
+      { candidateRef: 'candidate:a' },
+      execution,
+      { kind: 'local', exitCode: 0, snapshot: snap },
+      context(directory).extend(services).extend({ callId }),
+    );
+  await run('complete');
+  const measured = measurements[0]!;
+  const metrics = object(measured.metrics);
+  assert.equal(measured.coverage, 'complete');
+  assert.equal(typeof measured.comparisonKey, 'string');
+  assert.deepEqual(object(metrics.requestThroughput).value, {
+    kind: 'scalar',
+    value: 3.4,
+  });
+  assert.deepEqual(object(metrics.ttftP90).value, {
+    kind: 'scalar',
+    value: 8.1,
+  });
+  assert.equal(object(metrics.tpotP90).status, 'unavailable');
+  assert.equal(object(measured.profile).schemaId, 'measurement.aisbench/v1');
+  const items = object(stored.get(String(measured.itemsRef))).items;
+  assert.ok(Array.isArray(items));
+  assert.deepEqual(object(items[0]).metrics, measured.metrics);
+  assert.equal(object(items[0]).status, 'succeeded');
+
+  process.env.RSI_FIXTURE_AISBENCH_HOST = 'loadgen-b';
+  await run('different-load-generator');
+  assert.notEqual(measurements[1]!.comparisonKey, measured.comparisonKey);
+
+  object(record.collection).artifacts = 'partial';
+  await run('partial');
+  const partial = measurements[2]!;
+  assert.equal(partial.coverage, 'partial');
+  assert.equal(partial.comparisonKey, null);
+  assert.deepEqual(partial.metrics, {});
+});
+
 test('AgentX preserves point distributions and official comparability, without an invented run average', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-agentx-'));
   try {
@@ -1068,7 +1189,7 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
       const directory = await mkdtemp(join(tmpdir(), 'rsi-eval-boundary-'));
       try {
         const { services, measurements, stored } = harness(directory);
-        const controller = new AbortController();
+        let controller = new AbortController();
         const call = context(directory).extend(services);
         call.signal = controller.signal;
         const charges: [string, number][] = [];

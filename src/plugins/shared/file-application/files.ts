@@ -16,6 +16,7 @@ import {
   type ChangedFile,
   type Target,
 } from './target.js';
+import { errorText, InferenceStartupError } from '../../../shared/errors.js';
 
 const ref = { type: 'string', minLength: 1 };
 export type FileApplicationConfig = {
@@ -47,6 +48,7 @@ export const fileConfigProperties: JsonObject = {
 export interface ApplicationBackend {
   capability: string;
   validateChanges?(changes: ChangedFile[]): void;
+  describeTarget?(context: RuntimeContext): Promise<JsonObject>;
   verify(directory: string, context: RuntimeContext): Promise<JsonObject>;
   acquire(
     directory: string,
@@ -142,6 +144,7 @@ export async function createFileApplication(
                   `Target file is missing from baseline: ${entry.path}`,
                 );
             await backend.verify(workspace.directory, context);
+            const details = await backend.describeTarget?.(context);
             const initialCandidateRef = await context.recordCandidate(
               artifactRef,
               null,
@@ -149,7 +152,7 @@ export async function createFileApplication(
             return {
               action: 'initialize',
               initialCandidateRef,
-              target: raw,
+              target: details ? { ...raw, ...details } : raw,
               capabilities: [backend.capability],
             };
           } finally {
@@ -290,11 +293,16 @@ export async function createFileApplication(
               await services.facts.write('instances', instanceId, {
                 ...instance,
                 status: 'unknown',
-                cleanupError:
-                  cleanupError instanceof Error
-                    ? cleanupError.message
-                    : String(cleanupError),
+                cleanupError: errorText(cleanupError),
               });
+              if (error instanceof InferenceStartupError)
+                throw Object.assign(
+                  new AggregateError(
+                    [error, cleanupError],
+                    'Inference startup failed and cleanup could not confirm release',
+                  ),
+                  { status: 'unknown' },
+                );
             }
             throw error;
           }

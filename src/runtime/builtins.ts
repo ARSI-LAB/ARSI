@@ -10,11 +10,12 @@ import { operatorProposerDefinition } from '../plugins/proposer-operator/index.j
 import { operatorSummarizerDefinition } from '../plugins/summarizer-operator/index.js';
 import { gridProposerDefinition } from '../plugins/proposer-grid/index.js';
 import { optunaProposerDefinition } from '../plugins/proposer-optuna/index.js';
-import { promptEvolutionSearchDefinition } from '../plugins/search-prompt-evolution/index.js';
+import { paretoEvolutionProposerDefinition } from '../plugins/proposer-pareto-evolution/index.js';
 import { memoryDefinition } from '../plugins/memory-agent/index.js';
 import { reflectionDefinition } from '../plugins/reflection-agent/index.js';
 import { agentbenchDefinition } from '../plugins/evaluator-agentbench/index.js';
 import { inferencebenchDefinition } from '../plugins/evaluator-inferencebench/index.js';
+import { inferenceSelectorDefinition } from '../plugins/selector-inference/index.js';
 import { metricSelectorDefinition } from '../plugins/selector-metrics/index.js';
 import { artifactSelectorDefinition } from '../plugins/selector-artifacts/index.js';
 import { kernelApplicationDefinition } from '../plugins/application-kernel/index.js';
@@ -32,11 +33,12 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     operatorSummarizerDefinition,
     gridProposerDefinition,
     optunaProposerDefinition,
-    promptEvolutionSearchDefinition,
+    paretoEvolutionProposerDefinition,
     memoryDefinition,
     reflectionDefinition,
     agentbenchDefinition,
     inferencebenchDefinition,
+    inferenceSelectorDefinition,
     metricSelectorDefinition,
     artifactSelectorDefinition,
     kernelApplicationDefinition,
@@ -47,8 +49,9 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     'harness2/policy.yaml',
     'wikiskill/policy.yaml',
     'operator-search/policy.yaml',
-    'parameter-grid/policy.yaml',
-    'parameter-optuna/policy.yaml',
+    'parameter/grid/policy.yaml',
+    'parameter/optuna/policy.yaml',
+    'parameter/agent/policy.yaml',
     'gepa/policy.yaml',
   ]) {
     const file = fileURLToPath(new URL(`../policies/${path}`, import.meta.url));

@@ -13,11 +13,7 @@ ember-rsi doctor my-experiment/recipe.yaml
 - 在源码仓库中，完成 `pnpm build` 后使用 `pnpm ember-rsi doctor my-experiment/recipe.yaml`，运行前设置所选组件需要的环境变量。
 - `doctor` 将 Recipe 校验与组件专用检查结合起来，可以发现提示词或基线缺失、绑定不兼容、提案侧模型连接失败，以及 SDK 报告的评测配置、运行前提或下载路线问题。
 
-只需快速检查生效配置和已声明的本地路径时，可以加上 `--static`。
-
-```sh
-ember-rsi doctor my-experiment/recipe.yaml --static
-```
+- 只需快速检查生效配置和已声明的本地路径时，可以加上 `--static`。
 
 ## 2. doctor 的机制简介
 

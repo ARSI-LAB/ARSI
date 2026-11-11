@@ -13,11 +13,7 @@ ember-rsi doctor my-experiment/recipe.yaml
 - From a source checkout, run `pnpm build` first. Set the environment variables required by the selected components before running `pnpm ember-rsi doctor my-experiment/recipe.yaml`.
 - `doctor` combines Recipe validation with component-specific checks. It can catch missing prompts or baselines, incompatible bindings, proposal model connection failures, and evaluator configuration, runtime or download-route problems reported by the SDK.
 
-For a quick check of the effective configuration and declared local paths, add `--static`.
-
-```sh
-ember-rsi doctor my-experiment/recipe.yaml --static
-```
+- For a quick check of the effective configuration and declared local paths, add `--static`.
 
 ## 2. How it works
 

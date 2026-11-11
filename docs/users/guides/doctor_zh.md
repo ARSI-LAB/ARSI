@@ -10,11 +10,8 @@
 ember-rsi doctor my-experiment/recipe.yaml
 ```
 
-在源码仓库中，完成 `pnpm build` 后使用 `pnpm ember-rsi doctor my-experiment/recipe.yaml`。运行前设置所选组件需要的环境变量。如果使用 `.env`，先加载所需变量。
-
-`doctor` 将 Recipe 校验与组件专用检查结合起来，可以发现提示词或基线缺失、绑定不兼容、提案侧模型连接失败，以及 SDK 报告的评测配置、运行前提或下载路线问题。Evaluator 诊断直接来自已安装 SDK 的 doctor，RSI 不再维护另一套评测探针。
-
-完整 SDK doctor 会执行临时下载与 Docker 构建探针，也可能获取镜像；下载的基础镜像可以留在缓存中。它不让模型回答问题，不执行真实评测或优化 Policy，也不能证明任务正确性、性能或优化收益。`run` 独立运行，不会自动调用 doctor，也不要求先生成 doctor 报告。
+- 在源码仓库中，完成 `pnpm build` 后使用 `pnpm ember-rsi doctor my-experiment/recipe.yaml`，运行前设置所选组件需要的环境变量。
+- `doctor` 将 Recipe 校验与组件专用检查结合起来，可以发现提示词或基线缺失、绑定不兼容、提案侧模型连接失败，以及 SDK 报告的评测配置、运行前提或下载路线问题。
 
 ## 2. doctor 的机制简介
 
@@ -47,12 +44,12 @@ flowchart TD
 ```
 
 1. **加载注册。** CLI 沿用正常 Runtime 注册流程，加载内置组件、`~/.ember-rsi/plugins/<name>/index.mjs` 中的用户扩展，以及 `--plugin-dir` 指定的扩展。
-2. **加载生效 Recipe。** `Recipe.load` 校验 Schema、绑定、契约兼容性、Policy 编译、预算和已声明的 Reflection 资源。探测使用合并 Policy 默认配置与 Recipe 覆盖后的配置。加载失败时输出失败诊断，不再执行组件探测。
+2. **加载生效 Recipe。** `Recipe.load` 校验 Schema、绑定、契约兼容性、Policy 编译、预算和已声明的 Reflection 资源。
+   - 探测使用合并 Policy 默认配置与 Recipe 覆盖后的配置。
+   - 加载失败时输出失败诊断，不再执行组件探测。
 3. **检查已声明的本地路径。** 对 Application、每个生效绑定及已配置的 Reflection 实现，检查 Schema 中用 `x-rsi-path` 标记的本地文件或目录是否存在、类型是否正确、是否可读。
 4. **执行组件的 doctor 回调。** 框架调用已注册定义上的 `doctor` 函数并记录各项状态。组件省略回调时，`plugin` 项记为 `unchecked`。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。
-5. **清理并输出。** RSI 检查使用隔离临时存储，传递取消信号，释放自己创建的实例与进程，并删除临时文件。原有制品可作为输入读取，RSI 产生的捕获与写入留在临时 Runtime 内。下载与构建探针及其清理由 SDK 负责，镜像缓存可能改变。doctor 不创建优化实验，也不向原实验存储记录真实 Measurement。
-
-报告会对已识别的凭据和包含凭据的 URL 脱敏。
+5. **清理并输出。** RSI 检查使用隔离临时存储，传递取消信号，释放自己创建的实例与进程，并删除临时文件。原有 artifacts 可作为输入读取，RSI 产生的捕获与写入留在临时 Runtime 内。
 
 ### 运行结果
 
@@ -94,10 +91,6 @@ flowchart TD
 | `agent.pi`                | 1. 校验模型、服务地址、密钥和 token 限制的配置。<br>2. 从 RSI 进程连接模型服务，确认模型列表包含所选模型。                                                    |
 | `agent.codex`             | 1. 检查 Codex 命令是否可用、是否支持原生诊断。<br>2. 按所配模型和思考等级，在隔离项目中运行原生诊断并读取结果。                                               |
 
-Pi 从 RSI 进程使用自己的模型、地址和凭据请求 `GET <base_url>/models`。服务返回 HTTP `200` 且 `data` 是有效的模型数组时，检查每个模型 ID 是否为非空字符串，并要求其中一项与配置模型 ID 精确匹配。报告分别说明鉴权拒绝、模型缺失、无效回复、超时或网络错误。
-
-Codex 分别报告原生健康检查和服务可达性，模型列表检查标为 `unchecked`。支持 `--network-only` 的版本会用该选项执行原生 JSON 诊断。
-
 ### Proposer、Memory、Reflection、Selector 与 Search
 
 | 实现                      | 实际检查                                                                                                                                       |
@@ -122,20 +115,8 @@ Codex 分别报告原生健康检查和服务可达性，模型列表检查标�
 | `evaluator.inferencebench` | 1. 核对 Application 兼容性，用占位推理端点准备评测配置。<br>2. 将评测配置交给 SDK 检查。        |
 | `evaluator.operatorbench`  | 1. 读取算子任务，使用首个用例准备评测配置。<br>2. 将评测配置交给 SDK 检查。                     |
 
-以下以绑定名 `evaluator` 为例。
-
-| 检查什么                              | 返回什么                                                                                   |
-| ------------------------------------- | ------------------------------------------------------------------------------------------ |
-| RSI 能否准备 SDK 配置。               | `evaluator.configuration` 记录配置准备结果。                                               |
-| SDK 能否完成诊断并返回有效报告。      | `evaluator.sdk-doctor` 记录调用与报告校验结果。                                            |
-| SDK 检查的配置和运行前提。            | `evaluator.sdk.check-<index>` 逐项保留 SDK 的名称、状态和说明。                            |
-| 下载源、镜像获取与构建网络。          | `evaluator.sdk.network` 记录汇总状态，探测证据、路线和建议保留在 `details`。               |
-| Agentbench 的评测模型列表和磁盘容量。 | `evaluator.model-access` 和 `evaluator.docker-disk-capacity` 均标为 `unchecked`。          |
-| Inferencebench 的真实推理端点。       | `evaluator.inference-endpoint` 标为 `unchecked`。实际端点由 Application 在实验运行时创建。 |
-
-SDK 根据配置检查 Docker、Python、声明的本地输入及 Ray 连接前提。网络诊断会实际下载临时资源，Docker 路径还会测试镜像获取和 `FROM`、`RUN` 构建。SDK 负责清理探测资源，已下载的基础镜像可能留在缓存中。
-
-SDK 的 `not-checked` 和网络汇总的 `incomplete` 映射为 `unchecked`。SDK 可以因覆盖不完整而返回退出码 `1`。收到有效报告后，RSI 根据检查结果决定自己的退出码。缺少必需配置或凭据导致 SDK 无法生成报告时，`evaluator.sdk-doctor` 记为失败。
+- SDK 根据配置检查 Docker、Python、声明的本地输入及 Ray 连接前提。**网络诊断会实际下载临时资源，Docker 路径还会测试镜像获取和 `FROM`、`RUN` 构建。** SDK 负责清理探测资源，已下载的基础镜像可能留在缓存中。
+- SDK 的 `not-checked` 和网络汇总的 `incomplete` 映射为 `unchecked`。SDK 可以因覆盖不完整而返回退出码 `1`。收到有效报告后，RSI 根据检查结果决定自己的退出码。
 
 ## 4. 自定义组件如何接入 doctor
 
@@ -175,7 +156,7 @@ export const customDefinition = {
   contract: proposerContract,
   configSchema,
   create: createCustom,
-  doctor: checkCustom,
+  doctor: checkCustom, // 可选
 };
 ```
 
@@ -184,8 +165,6 @@ export const customDefinition = {
 ```sh
 ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ```
-
-绑定名为 `custom` 时，`custom.resource.inputFile` 对应路径检查，`custom.input-content` 对应内容检查。相对路径按配置声明文件解析。通用路径检查使用具体路径，环境变量引用由组件解析。
 
 ### 回调约定与生命周期
 
@@ -197,13 +176,9 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 | `unchecked(id, reason, details?)` | 记录因前提缺失或执行路径未支持而跳过的检查。                                               |
 | `missing(resource)`               | 记录缺失输入及相关检查 ID。另用 `unchecked` 记录跳过的依赖检查。                           |
 
-组件注册和 Recipe 加载负责保留回调，`doctor` 命令才会调用它。省略 `doctor` 时，框架仍执行通用检查，并将组件专用的 `plugin` 项标为 `unchecked`。
-
-检查 ID 使用绑定内的名称。框架负责添加绑定名前缀、汇总结果和脱敏。临时文件放在 `context.directory` 或隔离 Runtime 中，外部操作使用单项检查的信号，脚本在 `finally` 中清理自己创建的资源。
-
-组件回调负责检查运行前提。真实 Agent 调用、Policy 执行和评测属于实验执行流程。Evaluator 的下载和构建探测由 SDK 负责。
-
-自定义 doctor 测试展示了回调注册、生效配置和隔离存储。[测试示例](../../../tests/unit/doctor-definition.test.ts)
+- 组件注册和 Recipe 加载负责保留回调，`doctor` 命令才会调用它。
+- 省略 `doctor` 时，框架仍执行通用检查，并将组件专用的 `plugin` 项标为 `unchecked`。
+- 临时文件放在 `context.directory` 或隔离 Runtime 中，外部操作使用单项检查的信号，脚本在 `finally` 中清理自己创建的资源。
 
 ## 5. doctor 的时间限制
 

@@ -10,11 +10,8 @@ English | [简体中文](doctor_zh.md) · [Getting started](../getting-started.m
 ember-rsi doctor my-experiment/recipe.yaml
 ```
 
-From a source checkout, build first with `pnpm build`, then use `pnpm ember-rsi doctor my-experiment/recipe.yaml`. Supply the environment variables required by the selected components; RSI does not automatically load `.env` files.
-
-Doctor combines Recipe validation with component-specific checks. It can catch missing prompts or baselines, incompatible bindings, proposal model-access failures and SDK-reported evaluator configuration, runtime or download-route problems. Evaluator diagnostics come directly from the installed Evaluator SDK's doctor; RSI does not maintain a second set of evaluator probes.
-
-Doctor does not run the optimization Policy, ask a model to answer a question or perform a real evaluation. The SDK's full evaluator doctor does perform temporary download and Docker build probes, and can acquire images; downloaded base images can remain cached. Its results establish only the facts checked at that moment, not task correctness, performance or optimization gains. `run` remains independent: it does not invoke doctor automatically or require a saved doctor report.
+- From a source checkout, run `pnpm build` first. Set the environment variables required by the selected components before running `pnpm ember-rsi doctor my-experiment/recipe.yaml`.
+- `doctor` combines Recipe validation with component-specific checks. It can catch missing prompts or baselines, incompatible bindings, proposal model connection failures, and evaluator configuration, runtime or download-route problems reported by the SDK.
 
 ## 2. How it works
 
@@ -46,13 +43,13 @@ flowchart TD
     O --> P["Write the JSON report<br/>Exit 1 for any failed check, otherwise exit 0"]
 ```
 
-1. **Load registrations.** The CLI uses normal Runtime registration: built-in components, user extensions in `~/.ember-rsi/plugins/<name>/index.mjs`, and explicit `--plugin-dir` directories. An extension must export `register(registry)`.
-2. **Load the effective Recipe.** `Recipe.load` validates Schemas, bindings, contract compatibility, Policy compilation, budgets and declared Reflection resources. Policy defaults and Recipe overrides are merged before probes run. A loading error produces a failed diagnostic and stops component probes.
-3. **Check declared local paths.** For the Application, each effective binding and the configured Reflection implementation, doctor checks local file/directory fields marked with `x-rsi-path` for existence, type and readability. Relative paths follow the file declaring each configuration value. URL-like resources are not fetched.
+1. **Load registrations.** The CLI uses the usual Runtime registration to load built-in components, user extensions in `~/.ember-rsi/plugins/<name>/index.mjs` and extensions specified by `--plugin-dir`.
+2. **Load the effective Recipe.** `Recipe.load` validates Schemas, bindings, contract compatibility, Policy compilation, budgets and declared Reflection resources.
+   - Probes use the configuration produced by merging Policy defaults and Recipe overrides.
+   - A loading error produces a failed diagnostic and stops component probes.
+3. **Check declared local paths.** For the Application, each effective binding and the configured Reflection implementation, doctor checks local files and directories marked with `x-rsi-path` for existence, type and readability.
 4. **Run the component's doctor callback.** The framework calls `doctor` on the registered definition and records each result. A definition that omits the callback receives `unchecked` for its `plugin` check. Unavailable prerequisites can leave dependent checks `unchecked` while independent checks continue.
-5. **Clean up and report.** RSI checks use isolated temporary storage, propagate cancellation, release owned instances/processes and remove temporary files. Original artifacts may be read as inputs; RSI captures and writes stay in the temporary Runtime. The SDK owns its download/build probes and their cleanup; image caches can change. Doctor does not create an optimization run or record real Measurements in the experiment store.
-
-Identified credentials and credential-bearing URLs are redacted from reported diagnostics.
+5. **Clean up and report.** RSI checks use isolated temporary storage, propagate cancellation, release the instances and processes they create, and remove temporary files. Checks can read existing artifacts as inputs. RSI keeps its captures and writes in the temporary Runtime.
 
 ### Reading the JSON report
 
@@ -65,7 +62,7 @@ Normal completion writes one JSON report to stdout, including configuration or r
 | `checks`           | Individual results with `id`, `status`, optional `binding`, `pluginId`, `reason` and `details`.            |
 | `missingResources` | Missing input references, their configuration fields and kinds, and dependent check IDs that were not run. |
 
-Component check IDs start with the binding name: a binding named `agent` using Pi produces `agent.model-config` and `agent.model-access`. A different name changes the prefix. `recipe.validate` is the Recipe-loading result.
+Component check IDs start with the binding name. A binding named `agent` using Pi produces `agent.model-config` and `agent.model-access`. A different binding name changes the prefix.
 
 | Status      | Interpretation                                                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -73,7 +70,12 @@ Component check IDs start with the binding name: a binding named `agent` using P
 | `failed`    | The check found an error or could not complete a required probe, for example rejected credentials or a request timeout. Read its explanation before retrying. |
 | `unchecked` | The check could not establish a conclusion, for example because an earlier prerequisite failed or the selected execution path has no supported diagnostic.    |
 
-Exit code `1` means at least one check failed; `0` means no check failed, **including reports with unchecked entries**. Interruption returns `130`; command usage errors, such as omitting the Recipe argument, return `2`. These latter cases do not promise a completed JSON report. Review unchecked results even when the exit code is zero.
+Review `unchecked` results even when the exit code is zero. A complete JSON report may be unavailable after interruption or a command usage error.
+
+- `1` means at least one check failed.
+- `0` means no check failed, **including reports with unchecked entries**.
+- Interruption returns `130`.
+- A command usage error, such as omitting the Recipe argument, returns `2`.
 
 ## 3. Checks for built-in components
 
@@ -88,10 +90,6 @@ The following 17 built-in implementations declare their own `doctor` callback. D
 | `application.inference`   | 1. Check the target definition and baseline inputs.<br>2. Check the local launch command, working directory and resources, or the remote controller interpreter, script and parameter file.<br>3. Validate the credential environment variables and launch settings. |
 | `agent.pi`                | 1. Validate the model, service address, credentials and token limits.<br>2. Connect to the model service from the RSI process and confirm that its model list contains the selected model.                                                                           |
 | `agent.codex`             | 1. Check that the Codex command is available and supports native diagnostics.<br>2. Run native diagnostics in an isolated project using the configured model and reasoning level, then read the results.                                                             |
-
-Pi requests `GET <base_url>/models` from the RSI process using its own model, address and credential. The check requires HTTP `200`, a valid `data` array with nonempty string IDs and one ID that exactly matches the configured model. The report distinguishes authentication rejection, a missing model, invalid replies, timeouts and network errors.
-
-Codex reports native health and provider reachability separately. Its model-list check is `unchecked`. Versions that support `--network-only` use it for native JSON diagnostics.
 
 ### Proposers, Memory, Reflection, Selectors and Search
 
@@ -117,20 +115,8 @@ All three Evaluators use their configuration adapters to call the installed Eval
 | `evaluator.inferencebench` | 1. Check Application compatibility and prepare the evaluation configuration with a placeholder inference endpoint.<br>2. Pass the evaluation configuration to the SDK for diagnosis. |
 | `evaluator.operatorbench`  | 1. Read the operator task and prepare the evaluation configuration with its first case.<br>2. Pass the evaluation configuration to the SDK for diagnosis.                            |
 
-The examples below use `evaluator` as the binding name.
-
-| What is checked                                                     | What is returned                                                                                                         |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Whether RSI can prepare the SDK configuration.                      | `evaluator.configuration` records the configuration preparation result.                                                  |
-| Whether the SDK can complete diagnostics and return a valid report. | `evaluator.sdk-doctor` records the invocation and report validation result.                                              |
-| Configuration and runtime prerequisites checked by the SDK.         | `evaluator.sdk.check-<index>` retains each SDK check name, status and explanation.                                       |
-| Download sources, image acquisition and Docker build networking.    | `evaluator.sdk.network` records the summary status. Probe evidence, routes and guidance are retained in `details`.       |
-| Agentbench evaluation model lists and disk capacity.                | `evaluator.model-access` and `evaluator.docker-disk-capacity` are marked `unchecked`.                                    |
-| The real Inferencebench endpoint.                                   | `evaluator.inference-endpoint` is marked `unchecked`. The Application creates the actual endpoint during the experiment. |
-
-Depending on the configuration, the SDK checks Docker, Python, declared local inputs and Ray connection prerequisites. Network diagnostics perform real downloads. The Docker path also tests image acquisition and `FROM` and `RUN` builds. The SDK cleans its probe resources, and downloaded base images may stay cached.
-
-SDK `not-checked` and network summary `incomplete` map to `unchecked`. Incomplete coverage can cause the SDK to exit with code `1`. After receiving a valid report, RSI determines its own exit code from the check results. Missing required configuration or credentials that prevent the SDK from reporting make `evaluator.sdk-doctor` fail.
+- The SDK checks Docker, Python, declared local inputs and Ray connection prerequisites based on the configuration. **Network diagnostics download temporary resources. The Docker path also tests image acquisition and `FROM` and `RUN` builds.** The SDK cleans up its probe resources. Downloaded base images may stay cached.
+- The SDK's `not-checked` status and `incomplete` network summary map to `unchecked`. Incomplete coverage can cause the SDK to exit with code `1`. After receiving a valid report, RSI determines its own exit code from the check results.
 
 ## 4. Connecting custom components
 
@@ -170,7 +156,7 @@ export const customDefinition = {
   contract: proposerContract,
   configSchema,
   create: createCustom,
-  doctor: checkCustom,
+  doctor: checkCustom, // Optional
 };
 ```
 
@@ -179,8 +165,6 @@ Build the extension, call `registry.registerOperation(customDefinition)` from it
 ```sh
 ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ```
-
-With a binding named `custom`, `custom.resource.inputFile` reports the path check and `custom.input-content` reports the content check. Relative paths follow the file declaring the configuration value. Common path checks use concrete paths. Components resolve environment references.
 
 ### Callback contract and lifecycle
 
@@ -192,13 +176,9 @@ Import the public types `OperationDoctor<C>` and `DoctorContext<C>` from `ember-
 | `unchecked(id, reason, details?)` | Record work skipped because a prerequisite is unavailable or the execution path is unsupported.                                             |
 | `missing(resource)`               | Record a missing input and related check IDs. Use `unchecked` separately for skipped dependent checks.                                      |
 
-Component registration and Recipe loading retain the callback. The `doctor` command invokes it. When the definition omits `doctor`, the common checks still run and the component-specific `plugin` result is `unchecked`.
-
-Use check IDs local to the binding. The framework adds binding prefixes, aggregates results and redacts diagnostics. Keep temporary files in `context.directory` or the isolated Runtime, pass each check's signal to external operations and clean up owned resources in `finally`.
-
-The callback checks runtime prerequisites. Agent calls, Policy execution and evaluation belong to the experiment workflow. The SDK owns Evaluator download and build probes.
-
-The custom doctor test demonstrates callback registration, effective configuration and isolated storage. [Test example](../../../tests/unit/doctor-definition.test.ts)
+- Component registration and Recipe loading retain the callback for the `doctor` command to invoke.
+- When a component omits `doctor`, the framework still runs the common checks and marks the component-specific `plugin` check as `unchecked`.
+- Keep temporary files in `context.directory` or the isolated Runtime. Pass each check's signal to external operations and clean up the resources the diagnostic creates in `finally`.
 
 ## 5. Doctor time limits
 

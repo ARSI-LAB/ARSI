@@ -346,8 +346,8 @@ async function fixture() {
       accepted: false,
     },
     explanation: 'Measured slowdown; cause remains a hypothesis',
-    lessons: ['Keep the original entry source'],
-    avoidPatterns: ['This change'],
+    lessons: [{ text: 'Keep the original entry source', basis: 'hypothesis' }],
+    avoidPatterns: [{ text: 'This change', basis: 'hypothesis' }],
     tryPatterns: [],
   };
   return {

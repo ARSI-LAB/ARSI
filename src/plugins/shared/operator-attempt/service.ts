@@ -26,16 +26,34 @@ import {
   analysisSchema,
   summarySchema,
   historySchema,
-  type MetricsBottleneck,
+  type MetricsDiagnosis,
   type MetricsAnalysis,
   type MetricsSummary,
   type MetricsHistory,
-  metricsBottleneckSchema,
+  metricsDiagnosisSchema,
   metricsAnalysisSchema,
   metricsSummarySchema,
   metricsHistorySchema,
   type OperatorAttempt,
+  type OperatorInsight,
 } from './schema.js';
+
+export function assertSummaryEvidence(
+  summary: {
+    lessons: OperatorInsight[];
+    avoidPatterns: OperatorInsight[];
+    tryPatterns: OperatorInsight[];
+  },
+  measurementRefs: string[],
+): void {
+  if (
+    !measurementRefs.length &&
+    [...summary.lessons, ...summary.avoidPatterns, ...summary.tryPatterns].some(
+      (item) => item.basis === 'evaluation',
+    )
+  )
+    throw new Error('Summary evaluation claims require an attempt measurement');
+}
 
 export async function readOperatorCandidate(
   ref: string,
@@ -489,15 +507,16 @@ export async function readHistory(
 }
 
 /** Bind every model evidence value to a measured kernel metric, excluding assumed hardware ratios. */
-export function parseMetricsBottleneck(
+export function parseMetricsDiagnosis(
   raw: unknown,
   profile: JsonObject,
-): MetricsBottleneck {
-  const result = parseConfig<MetricsBottleneck>(
-    metricsBottleneckSchema,
+): MetricsDiagnosis {
+  const result = parseConfig<MetricsDiagnosis>(
+    metricsDiagnosisSchema,
     raw,
     'Metric bottleneck',
   );
+  if (result.status === 'no-new-hypothesis') return result;
   for (const evidence of result.evidence) {
     if (
       !/^\/kernels\/\d+\/metrics\/[^/]+\//.test(evidence.path) ||
@@ -538,6 +557,7 @@ async function readSummary(
     'Operator summary',
   );
   assertOwned(summary, context);
+  assertSummaryEvidence(summary, summary.measurementRefs);
   if (
     summary.analysisRef !== analysisRef ||
     summary.facts.baselineMs !== analysis.baselineMs
@@ -672,8 +692,8 @@ export async function readMetricsAnalysis(
     baseline,
     context,
   );
-  if (analysis.bottleneck !== null)
-    parseMetricsBottleneck(analysis.bottleneck, diagnostic);
+  if (analysis.diagnosis !== null)
+    parseMetricsDiagnosis(analysis.diagnosis, diagnostic);
   return { analysis, parent, baseline, diagnostic };
 }
 
@@ -707,6 +727,7 @@ export async function priorHistory(
       await context.artifacts.readJson(item),
       'Metric summary',
     );
+    assertSummaryEvidence(stored, stored.measurementRefs);
     if (
       stored.experimentId !== context.experimentId ||
       stored.round !== summaries.length + 1 ||

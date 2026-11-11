@@ -68,18 +68,23 @@ export async function requestOperatorAgent(
     const instructions =
       stage === 'summarize'
         ? 'Read context/input.json for the confirmed facts and the read-only source snapshot. Return the requested summary as JSON.'
-        : `Read context/input.json for the stage data. Read the operator source tree in ${sourceSnapshot} and the task snapshots in context/task/. Treat all snapshots as read-only. Return proposed edits in the JSON response using only exact candidate-relative paths from editablePaths in context/input.json. The entry is ${JSON.stringify(request.sourcePath)}. Delegate when useful and return the complete JSON response.`;
+        : `Read context/input.json for the stage data. Read the operator source tree in ${sourceSnapshot} and the task snapshots in context/task/. Treat all snapshots as read-only. ${stage === 'generate' || stage === 'repair' ? 'Return proposed edits in the JSON response using only exact candidate-relative paths from editablePaths in context/input.json.' : 'Return the diagnosis matching outputSchema.'} The entry is ${JSON.stringify(request.sourcePath)}. Delegate when useful and return the complete JSON response.`;
     const cwd = await prepareAgentProject(
       context,
       request.prompt + '\n\n' + instructions,
       {
         ...request.files,
-        'context/input.json': JSON.stringify({
-          ...request.input,
-          sourcePath: request.sourcePath,
-          sourceFiles: request.sourceFiles,
-          editablePaths: request.editablePaths,
-        }),
+        'context/input.json':
+          JSON.stringify(
+            {
+              ...request.input,
+              sourcePath: request.sourcePath,
+              sourceFiles: request.sourceFiles,
+              editablePaths: request.editablePaths,
+            },
+            null,
+            2,
+          ) + '\n',
       },
       [],
       [operatorReviewer],

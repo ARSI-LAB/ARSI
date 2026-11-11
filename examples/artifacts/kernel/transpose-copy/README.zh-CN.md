@@ -102,22 +102,30 @@ Manager 执行 Recipe 的操作数、模型调用数、评测次数和时间预�
 指标阶段采集当前最佳候选的 profile，分析实测瓶颈、检索指导，
 并基于该候选生成新实现。每次接受改进后，在下一轮之前重新采集 profile；
 没有接受改进时，复用未改变候选的诊断证据。
-Profiling 不可用时停止指标阶段。两种模式都在结束时独立复测选中的源码。
+Profiling 不可用时停止指标阶段。诊断可返回 `no-new-hypothesis`，跳过检索和生成后停止搜索。
+默认连续 3 轮指标提案为空时也停止；产生候选即重置这项独立计数。
+两种模式都在结束时独立复测选中的源码。
 
-| Recipe 设置                                                    | 示例值     | 含义                                                                           |
-| -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------ |
-| `policy.config.maxAttempts`                                    | `3`        | 静态尝试次数上限，取正整数。                                                   |
-| `policy.config.repairLimit`                                    | `3`        | 每条无效候选链的修复次数上限，取非负整数。                                     |
-| `policy.config.maxRounds`                                      | `10`       | 指标阶段轮数上限，取正整数。                                                   |
-| `policy.config.maxNoImprovement`                               | `5`        | 上次接受改进后，未被接受的有效候选数上限，取正整数。                           |
-| `bindings.proposer.config.historyWindow`                       | `5`        | 提供给生成阶段的最近总结数量，默认 5；`0` 关闭近期历史注入，完整历史仍被保存。 |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`   | 一个完整模型阶段的时间上限，单位 ms；`0` 关闭此本地期限。                      |
-| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`   | 检索 worker 的时间上限，单位 ms；`0` 关闭此期限。                              |
-| `bindings.proposer.config.embedding.maxPayloadBytes`           | 省略       | 可选的单份外部检索 JSON 数据字节上限。                                         |
-| `bindings.proposer.config.embedding.maxLogBytes`               | 省略       | 可选的检索 worker 单个输出流的字节上限。                                       |
-| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`      | 检索匹配分数下限。                                                             |
-| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20` | 评测预热次数与计时重复次数。                                                   |
-| `bindings.selector.config.minRelativeImprovement`              | `0.02`     | 合格候选平均延迟所需的相对降低比例。                                           |
+生成阶段提交合理、可测的候选，不要求提前证明提速，由正式评估和选择决定结果。
+历史经验逐项包含 `text`、`basis`（`evaluation`、`agent-report`、`hypothesis`），
+分别表示正式评估观察、Agent 自述和推断。本地探测与静态解释仅供参考，
+不能作为正式测量或整类实验的禁令。空编辑轮次没有候选计时证据。
+
+| Recipe 设置                                                    | 示例值     | 含义                                                                                 |
+| -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------ |
+| `policy.config.maxAttempts`                                    | `3`        | 静态尝试次数上限，取正整数。                                                         |
+| `policy.config.repairLimit`                                    | `3`        | 每条无效候选链的修复次数上限，取非负整数。                                           |
+| `policy.config.maxRounds`                                      | `10`       | 指标阶段轮数上限，取正整数。                                                         |
+| `policy.config.maxNoImprovement`                               | `5`        | 上次接受改进后，未被接受的有效候选数上限，取正整数。                                 |
+| `policy.config.maxConsecutiveNoChange`                         | `3`        | 连续空指标提案数上限，取正整数；产生候选后重置计数。                                 |
+| `bindings.proposer.config.historyWindow`                       | `5`        | 提供给诊断与生成阶段的最近总结数量，默认 5；`0` 关闭近期历史注入，完整历史仍被保存。 |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`   | 一个完整模型阶段的时间上限，单位 ms；`0` 关闭此本地期限。                            |
+| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`   | 检索 worker 的时间上限，单位 ms；`0` 关闭此期限。                                    |
+| `bindings.proposer.config.embedding.maxPayloadBytes`           | 省略       | 可选的单份外部检索 JSON 数据字节上限。                                               |
+| `bindings.proposer.config.embedding.maxLogBytes`               | 省略       | 可选的检索 worker 单个输出流的字节上限。                                             |
+| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`      | 检索匹配分数下限。                                                                   |
+| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20` | 评测预热次数与计时重复次数。                                                         |
+| `bindings.selector.config.minRelativeImprovement`              | `0.02`     | 合格候选平均延迟所需的相对降低比例。                                                 |
 
 本例 Manager 上限为 1,024 次操作、65 次评测、152 次模型调用、
 7,200,000 ms 总时长，以及 60,000 ms 清理预留时间。

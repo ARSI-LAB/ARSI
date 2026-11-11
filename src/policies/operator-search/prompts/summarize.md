@@ -49,9 +49,21 @@ Return exactly these fields in one JSON object matching outputSchema:
 ```json
 {
   "explanation": "An evidence-grounded explanation with remaining uncertainty",
-  "lessons": ["Concise lessons from this attempt"],
-  "avoidPatterns": ["Specific transformations to avoid repeating"],
-  "tryPatterns": ["Concrete next transformations and invariants"]
+  "lessons": [
+    {
+      "text": "An observation from the supplied formal measurement",
+      "basis": "evaluation"
+    }
+  ],
+  "avoidPatterns": [
+    {
+      "text": "A specifically reported local probe, not a formal result",
+      "basis": "agent-report"
+    }
+  ],
+  "tryPatterns": [
+    { "text": "A concrete next test and its invariant", "basis": "hypothesis" }
+  ]
 }
 ```
 
@@ -59,3 +71,24 @@ Each array may be empty. Do not add correctness,
 timings, accepted, outcome, candidate/measurement/decision references, edits or
 other program-owned fields. RSI attaches validated facts to the stored summary.
 Return JSON only, without fences or surrounding prose.
+
+## Evidence strength
+
+Every item in lessons, avoidPatterns and tryPatterns must have exactly `text` and
+`basis`. Use `evaluation` only for direct observations supported by this attempt's
+formal `measurementRefs` and supplied Evaluator evidence. Existing incumbent
+timing alone is not an evaluation of an unsubmitted candidate. If measurementRefs
+is empty, no item may use `evaluation`.
+
+Use `agent-report` for claims in action rationales, including temporary benchmarks
+or alleged failures not represented by formal measurement evidence. Use
+`hypothesis` for causal explanations, static arguments and proposed future tests.
+Do not promote a local timing report into a formal result or a causal hypothesis
+into a proven mechanism. Missing evidence stays unknown.
+
+A no-change round adds no candidate measurement. Do not describe it as another
+failed measured experiment or use it to blacklist a whole transformation family.
+Keep avoid patterns specific to the tested source and conditions. Try patterns
+are optional experiments, not new prerequisites for all future edits. Do not
+require proven speedup or additional profiler counters before any plausible
+contract-preserving candidate may be submitted. The arrays may be empty.

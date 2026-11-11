@@ -253,7 +253,10 @@ export type PreparedAttempt = {
   analysisRef: string;
   generationContext: JsonObject;
   generatePrompt: string;
-  noStaticIssues: boolean;
+  noChange: {
+    reasonCode: 'no-static-issues' | 'no-new-hypothesis';
+    rationale: string;
+  } | null;
 };
 
 export type AnalysisReceipt = { analysisRef: string | null };

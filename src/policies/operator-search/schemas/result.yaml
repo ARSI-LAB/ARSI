@@ -93,6 +93,8 @@ properties:
       - no-static-issues
       - max-rounds
       - no-improvement
+      - no-new-hypothesis
+      - consecutive-no-change
       - profiling-unavailable
   staticHistoryRef:
     anyOf:
@@ -176,6 +178,9 @@ properties:
   noImprovementCount:
     type: integer
     minimum: 0
+  consecutiveNoChangeCount:
+    type: integer
+    minimum: 0
   phase:
     enum:
       - static
@@ -195,4 +200,5 @@ required:
   - metricsRounds
   - diagnosticRefs
   - noImprovementCount
+  - consecutiveNoChangeCount
   - phase

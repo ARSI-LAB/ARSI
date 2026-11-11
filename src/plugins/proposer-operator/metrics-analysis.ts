@@ -15,7 +15,7 @@ import {
 } from './schema.js';
 import {
   type MetricsAnalysis,
-  metricsBottleneckSchema,
+  metricsDiagnosisSchema,
 } from '../shared/operator-attempt/schema.js';
 import {
   readOperatorCandidate,
@@ -25,7 +25,7 @@ import {
   readAssessment,
   operatorScalar,
   readHistory,
-  parseMetricsBottleneck,
+  parseMetricsDiagnosis,
   profile,
   priorHistory,
 } from '../shared/operator-attempt/service.js';
@@ -85,7 +85,7 @@ export async function prepareMetrics(
       resourcesDigest: loaded.digest,
       embeddingDigest: sha(await readFile(config.embedding.identityFile)),
       hardwareDigest: hardware?.sha256 ?? null,
-      bottleneck: null,
+      diagnosis: null,
       knowledgeContext: '',
       retrievalRef: null,
       retrievalStatus: 'skipped',
@@ -141,47 +141,49 @@ export async function prepareMetrics(
           staticHistory: metricContext.staticHistory,
           hardwareContext: hardware?.text ?? null,
         },
-        outputSchema: metricsBottleneckSchema,
+        outputSchema: metricsDiagnosisSchema,
       },
       context,
       config.modelRequestTimeoutMs,
     );
     try {
-      analysis.bottleneck = parseMetricsBottleneck(response, diagnostic);
+      analysis.diagnosis = parseMetricsDiagnosis(response, diagnostic);
     } catch (error) {
       throw new OperatorModelOutputError(
         error instanceof Error ? error.message : String(error),
         { cause: error },
       );
     }
-    const bottleneck = analysis.bottleneck;
-    try {
-      const retrieved = await retrieveMetricsKnowledge(
-        `${bottleneck.category}: ${bottleneck.summary} ${bottleneck.recommendedFix}`,
-        config.embedding,
-        context,
-      );
-      if (
-        retrieved.resourcesDigest !== loaded.knowledgeDigest ||
-        retrieved.workerDigest !== loaded.workerDigest ||
-        retrieved.embeddingDigest !== analysis.embeddingDigest
-      )
-        throw new Error('Metric retrieval resource identity changed');
-      analysis.retrievalRef = await context.artifacts.putJson(retrieved);
-      analysis.knowledgeContext = retrieved.knowledgeContext;
-      analysis.retrievalStatus = 'available';
-    } catch (error) {
-      if (!(error instanceof MetricsRetrievalUnavailable)) throw error;
-      analysis.retrievalRef = await context.artifacts.putJson({
-        status: 'unavailable',
-        reason: error.message,
-      });
-      analysis.retrievalStatus = 'unavailable';
+    const diagnosis = analysis.diagnosis;
+    if (diagnosis.status === 'hypothesis') {
+      try {
+        const retrieved = await retrieveMetricsKnowledge(
+          `${diagnosis.category}: ${diagnosis.summary} ${diagnosis.recommendedFix}`,
+          config.embedding,
+          context,
+        );
+        if (
+          retrieved.resourcesDigest !== loaded.knowledgeDigest ||
+          retrieved.workerDigest !== loaded.workerDigest ||
+          retrieved.embeddingDigest !== analysis.embeddingDigest
+        )
+          throw new Error('Metric retrieval resource identity changed');
+        analysis.retrievalRef = await context.artifacts.putJson(retrieved);
+        analysis.knowledgeContext = retrieved.knowledgeContext;
+        analysis.retrievalStatus = 'available';
+      } catch (error) {
+        if (!(error instanceof MetricsRetrievalUnavailable)) throw error;
+        analysis.retrievalRef = await context.artifacts.putJson({
+          status: 'unavailable',
+          reason: error.message,
+        });
+        analysis.retrievalStatus = 'unavailable';
+      }
     }
     analysisRef = await context.artifacts.putJson(analysis);
     receipt.analysisRef = analysisRef;
   }
-  if (input.action === 'repair' && analysis.bottleneck === null)
+  if (input.action === 'repair' && analysis.diagnosis?.status !== 'hypothesis')
     throw new Error('Metric repair requires a completed analysis');
   return {
     parent,
@@ -196,6 +198,12 @@ export async function prepareMetrics(
       hardwareContext: hardware?.text ?? null,
     },
     generatePrompt: loaded.metricsGenerate,
-    noStaticIssues: false,
+    noChange:
+      analysis.diagnosis?.status === 'no-new-hypothesis'
+        ? {
+            reasonCode: 'no-new-hypothesis',
+            rationale: analysis.diagnosis.reason,
+          }
+        : null,
   };
 }

@@ -195,15 +195,15 @@ export const createOperatorProposer: OperationDefinition<
                 loaded,
                 receipt,
               );
-        if (input.action === 'propose' && prepared.noStaticIssues)
+        if (input.action === 'propose' && prepared.noChange)
           return {
             action: 'propose',
             status: 'no-change',
             candidateRef: prepared.parent.ref,
             diffRef: null,
-            rationale: 'No supported static issues were diagnosed.',
+            rationale: prepared.noChange.rationale,
             analysisRef: prepared.analysisRef,
-            reasonCode: 'no-static-issues',
+            reasonCode: prepared.noChange.reasonCode,
           };
         let parent = prepared.parent;
         if (input.action === 'repair') {

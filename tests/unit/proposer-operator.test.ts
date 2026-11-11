@@ -32,7 +32,10 @@ import { loadOperatorTask } from '../../src/plugins/shared/operator-task.js';
 import { prepareOperatorCase } from '../../src/plugins/evaluator-operatorbench/kernel-input.js';
 import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';
 import { createOperatorProposer } from '../../src/plugins/proposer-operator/service.js';
-import { readHistory } from '../../src/plugins/shared/operator-attempt/service.js';
+import {
+  readHistory,
+  priorHistory,
+} from '../../src/plugins/shared/operator-attempt/service.js';
 import {
   configSchema,
   type OperatorProposerConfig,
@@ -69,6 +72,8 @@ async function setup(
     metrics?: boolean;
     hardwareText?: string;
     invalidMetrics?: boolean;
+    noMetricsHypothesis?: boolean;
+    summaryBasis?: 'evaluation' | 'agent-report' | 'hypothesis';
     historyWindow?: number;
     invalidSummary?: boolean;
     promptsDirectory?: string;
@@ -131,18 +136,27 @@ async function setup(
           await context.charge('modelCalls', 1);
           const stage = input.stage;
           if (stage === 'diagnose-metrics')
-            return options.invalidMetrics
-              ? { invalid: true }
-              : {
-                  category: 'vector',
-                  summary: 'Measured vector activity',
-                  reasoning: 'Use the visible scalar work as one hypothesis',
-                  rootCause: 'Scalar overhead is a hypothesis',
-                  recommendedFix: 'Hoist invariant scalar work',
-                  evidence: [
-                    { path: '/kernels/0/metrics/0/aiv_vec_ratio', value: 0.7 },
-                  ],
-                };
+            return options.noMetricsHypothesis
+              ? {
+                  status: 'no-new-hypothesis',
+                  reason: 'No distinct testable transformation remains',
+                }
+              : options.invalidMetrics
+                ? { invalid: true }
+                : {
+                    status: 'hypothesis',
+                    category: 'vector',
+                    summary: 'Measured vector activity',
+                    reasoning: 'Use the visible scalar work as one hypothesis',
+                    rootCause: 'Scalar overhead is a hypothesis',
+                    recommendedFix: 'Hoist invariant scalar work',
+                    evidence: [
+                      {
+                        path: '/kernels/0/metrics/0/aiv_vec_ratio',
+                        value: 0.7,
+                      },
+                    ],
+                  };
           if (stage === 'diagnose')
             return {
               issues: noIssues
@@ -163,9 +177,21 @@ async function setup(
           if (stage === 'summarize')
             return {
               explanation: 'Observed attempt facts; cause remains a hypothesis',
-              lessons: ['Use one hypothesis'],
-              avoidPatterns: ['Previously measured change'],
-              tryPatterns: ['Try another source-backed change'],
+              lessons: [
+                {
+                  text: 'Use one hypothesis',
+                  basis: options.summaryBasis ?? 'hypothesis',
+                },
+              ],
+              avoidPatterns: [
+                { text: 'Previously reported change', basis: 'agent-report' },
+              ],
+              tryPatterns: [
+                {
+                  text: 'Try another source-backed change',
+                  basis: 'hypothesis',
+                },
+              ],
             };
           if (stage === options.editRejection?.stage) {
             await Promise.resolve();
@@ -1028,6 +1054,11 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
         JSON.stringify(object(generates[1]!.input).history),
         /candidateMs.*9/,
       );
+      const history = generates[1]!.input.history;
+      assert.ok(Array.isArray(history));
+      assert.deepEqual(object(history[0]).lessons, [
+        { text: 'Use one hypothesis', basis: 'evaluation' },
+      ]);
       assert.equal(
         generates[1]!.source,
         operatorFixtureSource('fixture:latency=9'),
@@ -1035,7 +1066,12 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
       return { parent, historyRef };
     },
     false,
-    { metrics: true, initialValid: true, hardwareText },
+    {
+      metrics: true,
+      initialValid: true,
+      hardwareText,
+      summaryBasis: 'evaluation',
+    },
   );
   t.after(() => fixture.dispose());
   const result = await fixture.runtime.manager.run(fixture.recipePath, {
@@ -1638,5 +1674,175 @@ for (const [label, error] of [
       (failure: unknown) =>
         failure instanceof Error && failure.message.includes(error.message),
     );
+  });
+}
+
+for (const repair of [false, true]) {
+  test(
+    repair
+      ? 'metric repair rejects an absent hypothesis'
+      : 'metric diagnosis can finish without retrieval, generation or candidate commit',
+    async (t) => {
+      const fixture = await setup(
+        async (context, requests) => {
+          const { entry, baselineRef } = await baseline(context);
+          const diagnostic = object(
+            await context.invoke('evaluator', {
+              action: 'profile',
+              candidateRef: entry,
+              caseIds: ['fixed'],
+              assessmentMeasurementRef: baselineRef,
+            }),
+          );
+          const proposal = object(
+            await context.invoke('proposer', {
+              action: 'propose',
+              phase: 'metrics',
+              parentCandidateRef: entry,
+              incumbentMeasurementRef: baselineRef,
+              diagnosticMeasurementRef: diagnostic.measurementRef,
+              round: 1,
+              historyRef: null,
+              staticHistoryRef: null,
+              goal: 'Find a distinct testable hypothesis',
+            }),
+          );
+          assert.equal(proposal.status, 'no-change');
+          assert.equal(proposal.reasonCode, 'no-new-hypothesis');
+          assert.equal(proposal.candidateRef, entry);
+          assert.equal(
+            proposal.rationale,
+            'No distinct testable transformation remains',
+          );
+          assert.deepEqual(
+            requests.map(({ input }) => input.stage),
+            ['diagnose-metrics'],
+          );
+          const analysis = object(
+            await context.artifacts.readJson(string(proposal.analysisRef)),
+          );
+          assert.equal(analysis.retrievalStatus, 'skipped');
+          assert.equal(analysis.retrievalRef, null);
+          assert.deepEqual(analysis.diagnosis, {
+            status: 'no-new-hypothesis',
+            reason: 'No distinct testable transformation remains',
+          });
+          const summary = object(
+            await context.invoke('summarizer', {
+              action: 'summarize',
+              phase: 'metrics',
+              parentCandidateRef: entry,
+              incumbentMeasurementRef: baselineRef,
+              round: 1,
+              analysisRef: proposal.analysisRef,
+              historyRef: null,
+              actions: [proposal],
+              candidateRefs: [entry],
+              measurementRefs: [],
+              decisionRef: null,
+              candidateDiagnosticMeasurementRef: null,
+              outcome: 'no-change',
+            }),
+          );
+          const stored = object(
+            await context.artifacts.readJson(string(summary.summaryRef)),
+          );
+          assert.equal(object(stored.facts).candidateMs, null);
+          assert.equal(object(stored.facts).accepted, false);
+          const history = await priorHistory(
+            string(summary.historyRef),
+            2,
+            entry,
+            context,
+          );
+          assert.equal(history.summaries[0]!.facts.outcome, 'no-change');
+          if (repair)
+            await context.invoke('proposer', {
+              action: 'repair',
+              phase: 'metrics',
+              failedCandidateRef: entry,
+              measurementRef: baselineRef,
+              analysisRef: proposal.analysisRef,
+              round: 1,
+              repairIndex: 1,
+              historyRef: null,
+              staticHistoryRef: null,
+              goal: 'Do not repair an absent hypothesis',
+            });
+          return proposal;
+        },
+        false,
+        { metrics: true, noMetricsHypothesis: true },
+      );
+      t.after(() => fixture.dispose());
+      const run = () =>
+        fixture.runtime.manager.run(fixture.recipePath, {
+          id: 'no-metric-hypothesis',
+        });
+      if (repair)
+        await assert.rejects(
+          run,
+          /Metric repair requires a completed analysis/,
+        );
+      else assert.equal((await run()).status, 'succeeded');
+    },
+  );
+}
+
+for (const basis of ['evaluation', 'agent-report', 'hypothesis'] as const) {
+  test(`unmeasured summary ${basis} claims retain their actual evidence strength`, async (t) => {
+    const fixture = await setup(
+      async (context) => {
+        const { entry, baselineRef } = await baseline(context);
+        const proposal = object(
+          await context.invoke('proposer', {
+            action: 'propose',
+            phase: 'static',
+            entryCandidateRef: entry,
+            baselineMeasurementRef: baselineRef,
+            attempt: 1,
+            goal: 'Find a testable change',
+            analysisRef: null,
+            historyRef: null,
+          }),
+        );
+        const summary = object(
+          await context.invoke('summarizer', {
+            action: 'summarize',
+            phase: 'static',
+            entryCandidateRef: entry,
+            attempt: 1,
+            analysisRef: proposal.analysisRef,
+            historyRef: null,
+            actions: [proposal],
+            candidateRefs: [entry],
+            measurementRefs: [],
+            decisionRef: null,
+            outcome: 'no-change',
+          }),
+        );
+        const stored = object(
+          await context.artifacts.readJson(string(summary.summaryRef)),
+        );
+        assert.equal(
+          stored.summaryStatus,
+          basis === 'evaluation' ? 'unavailable' : 'available',
+        );
+        if (basis !== 'evaluation')
+          assert.deepEqual(stored.lessons, [
+            { text: 'Use one hypothesis', basis },
+          ]);
+        else
+          assert.match(string(stored.explanation), /evaluation.*measurement/i);
+        return summary;
+      },
+      true,
+      { summaryBasis: basis },
+    );
+    t.after(() => fixture.dispose());
+    const result = await fixture.runtime.manager.run(fixture.recipePath, {
+      id: `summary-basis-${basis}`,
+    });
+    assert.equal(result.status, 'succeeded');
   });
 }

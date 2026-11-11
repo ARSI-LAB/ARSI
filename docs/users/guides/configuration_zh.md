@@ -103,6 +103,8 @@ bindings:
 
 - `api_key` 必须是环境变量引用，不能直接填写密钥。
 
+`bashMode` 默认为 `sandbox`，在 Linux 上使用 bubblewrap，在 macOS 上使用 sandbox-exec。显式设置 `bashMode: direct` 后，bash 在项目目录中以宿主账户的文件和进程权限执行，适用于无法创建沙箱 namespace 的环境。read、edit 和 write 工具继续校验各自的路径。
+
 - `timeoutMs` 限制每次模型请求，省略 `timeoutMs` 时底层 HTTP 客户端使用十分钟请求超时。两个字段都接受 1 到 2,147,483,647 的整数毫秒。
 - `executionTimeoutMs` 限制整个 Agent 调用，包括模型请求、工具、输出纠正、上下文压缩、重试等待和等待中的子 Agent，不会在每次请求后重置。
 
@@ -178,7 +180,9 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 
 ### 算子执行控制
 
-算子 Policy 默认执行 3 次静态尝试、每个候选最多修复 3 次、10 轮指标优化，并在连续 5 轮无改进后停止。这些是可配置默认值，不是 Schema 上限。通过 `policy.config` 中的 `maxAttempts`、`repairLimit`、`maxRounds`、`maxNoImprovement` 调整；契约和持久化历史支持配置后的搜索规模。Proposer 不额外设置阶段模型调用上限，显式 Recipe 模型调用预算仍统计委派请求和工具续接。
+算子 Policy 默认执行 3 次静态尝试、每个候选最多修复 3 次、10 轮指标优化，在 5 个有效候选未被采纳或连续 3 轮指标提案为空时停止。通过 `policy.config` 中的 `maxAttempts`、`repairLimit`、`maxRounds`、`maxNoImprovement`、`maxConsecutiveNoChange` 调整；这些默认值不是 Schema 上限。产生候选后，即使没有被采纳，也会重置连续空编辑计数。指标诊断返回 `status: no-new-hypothesis` 时，跳过检索和生成，记录本轮总结后立即停止指标搜索。两种停止原因分别为 `no-new-hypothesis`、`consecutive-no-change`，都会保留当前最佳候选并独立执行最终评估。结果通过 `consecutiveNoChangeCount`、`noImprovementCount` 分别记录两类计数。Proposer 不额外设置阶段模型调用上限，显式 Recipe 模型调用预算仍统计委派请求和工具续接。
+
+指标诊断返回两种结果之一：`status: hypothesis` 及 `category`、`summary`、`reasoning`、`rootCause`、`recommendedFix` 和准确引用 profile 的 `evidence`；或 `status: no-new-hypothesis` 及 `reason`。生成阶段提交合理且遵守契约的候选，由正式评估验证，不要求事先证明提速，也不通过本地计时扫描提前筛选。持久化历史将程序拥有的事实与模型建议分开。`lessons`、`avoidPatterns`、`tryPatterns` 中的每项都包含 `text`、`basis`：`evaluation` 表示本轮正式测量支持的观察，`agent-report` 表示尚未核实的 Agent 自述，`hypothesis` 表示推断或后续实验。没有候选测量的轮次不能声称经验来自正式评估；无效总结会被记录为不可用。自述和推断不能扩展为整类技术的禁令或所有提案的新前置条件。
 
 | 配置                                                                            | 含义                                                                                              |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |

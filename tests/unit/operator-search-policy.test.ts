@@ -112,9 +112,18 @@ async function setup(
             if (options.failSummary) throw new Error('Fixture summary failure');
             return {
               explanation: 'Measured facts guide the next attempt',
-              lessons: ['Measured fixture feedback'],
-              avoidPatterns: ['Repeat failed changes'],
-              tryPatterns: ['Use another source-backed hypothesis'],
+              lessons: [
+                { text: 'Measured fixture feedback', basis: 'hypothesis' },
+              ],
+              avoidPatterns: [
+                { text: 'Repeat failed changes', basis: 'hypothesis' },
+              ],
+              tryPatterns: [
+                {
+                  text: 'Use another source-backed hypothesis',
+                  basis: 'hypothesis',
+                },
+              ],
             };
           }
           const marker = options.markers?.[generated++];

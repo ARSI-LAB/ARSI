@@ -237,6 +237,11 @@ export async function prepareStatic(
       hardwareContext: hardware?.text ?? null,
     },
     generatePrompt: loaded.prompts.generate,
-    noStaticIssues: !analysis.issues.length,
+    noChange: analysis.issues.length
+      ? null
+      : {
+          reasonCode: 'no-static-issues',
+          rationale: 'No supported static issues were diagnosed.',
+        },
   };
 }

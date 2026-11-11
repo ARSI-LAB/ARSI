@@ -97,6 +97,9 @@ properties:
   noImprovementCount:
     type: integer
     minimum: 0
+  consecutiveNoChangeCount:
+    type: integer
+    minimum: 0
   metricsStopped:
     type: boolean
   roundDiagnosticMeasurementRef:
@@ -152,6 +155,7 @@ required:
   - metricsRounds
   - roundCount
   - noImprovementCount
+  - consecutiveNoChangeCount
   - metricsStopped
   - roundDiagnosticMeasurementRef
   - metricParent

@@ -36,6 +36,7 @@ state:
   metricsRounds: []
   roundCount: 0
   noImprovementCount: 0
+  consecutiveNoChangeCount: 0
   metricsStopped: false
   roundDiagnosticMeasurementRef: null
   metricParent: ${{ input.candidateRef }}
@@ -542,6 +543,7 @@ steps:
                 noImprovementCount:
                   ${{ if(state.accepted, 0, if(state.feasible, state.noImprovementCount + 1,
                   state.noImprovementCount)) }}
+                consecutiveNoChangeCount: ${{ if(state.outcome == 'no-change', state.consecutiveNoChangeCount + 1, 0) }}
                 metricRound:
                   round: ${{ state.roundCount }}
                   parentCandidateRef: ${{ state.metricParent }}
@@ -560,6 +562,18 @@ steps:
               state:
                 metricsRounds: ${{ append(state.metricsRounds, state.metricRound) }}
               type: state
+            - id: check_search_progress
+              if: ${{ steps.metrics_propose.output.reasonCode == 'no-new-hypothesis' || state.consecutiveNoChangeCount >= config.maxConsecutiveNoChange }}
+              then:
+                steps:
+                  - id: no_more_proposals
+                    state:
+                      metricsStopped: true
+                      stopReason: ${{ if(steps.metrics_propose.output.reasonCode == 'no-new-hypothesis', 'no-new-hypothesis', 'consecutive-no-change') }}
+                    type: state
+              else:
+                steps: []
+              type: if
             - id: check_plateau
               if: ${{ !state.metricsStopped && state.noImprovementCount >= config.maxNoImprovement }}
               then:
@@ -608,4 +622,5 @@ output:
   metricsRounds: ${{ state.metricsRounds }}
   diagnosticRefs: ${{ state.diagnosticRefs }}
   noImprovementCount: ${{ state.noImprovementCount }}
+  consecutiveNoChangeCount: ${{ state.consecutiveNoChangeCount }}
   phase: ${{ state.phase }}

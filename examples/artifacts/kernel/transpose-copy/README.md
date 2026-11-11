@@ -118,23 +118,32 @@ The metrics stage profiles the current best candidate, analyzes its measured
 bottlenecks, retrieves guidance, and generates a candidate from that incumbent.
 It profiles each accepted improvement before the next round; without promotion,
 the unchanged incumbent's diagnostic evidence is reused. Unavailable profiling
-stops the metrics stage. Both modes independently reassess the selected source
+stops the metrics stage. Diagnosis may return `no-new-hypothesis` to stop without
+retrieval or generation. Three consecutive empty metric proposals also stop by
+default; any candidate resets that separate count. Both modes independently reassess the selected source
 at the end.
 
-| Recipe setting                                                 | Example value | Meaning                                                                                                                                      |
-| -------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `policy.config.maxAttempts`                                    | `3`           | Positive static attempt limit.                                                                                                               |
-| `policy.config.repairLimit`                                    | `3`           | Nonnegative repair limit per invalid candidate chain.                                                                                        |
-| `policy.config.maxRounds`                                      | `10`          | Positive metrics round limit.                                                                                                                |
-| `policy.config.maxNoImprovement`                               | `5`           | Positive limit of valid candidates without promotion since the last promotion.                                                               |
-| `bindings.proposer.config.historyWindow`                       | `5`           | Number of recent summaries delivered to generation; defaults to 5. Set `0` to omit recent summaries while retaining complete stored history. |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms; `0` disables this local deadline.                                                              |
-| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`      | Retrieval worker deadline, in ms; `0` disables it.                                                                                           |
-| `bindings.proposer.config.embedding.maxPayloadBytes`           | Omitted       | Optional byte limit for each external retrieval JSON payload.                                                                                |
-| `bindings.proposer.config.embedding.maxLogBytes`               | Omitted       | Optional byte limit for each retrieval worker output stream.                                                                                 |
-| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`         | Minimum retrieval match score.                                                                                                               |
-| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                                                                                     |
-| `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                                                                              |
+Generation submits a plausible testable candidate without first proving a speedup;
+formal evaluation and selection decide its outcome. History guidance items contain
+`text` and `basis` (`evaluation`, `agent-report`, or `hypothesis`). Local probe
+reports and static explanations are advisory, not formal measurements or blanket
+bans on future experiments. A no-change round has no candidate timing evidence.
+
+| Recipe setting                                                 | Example value | Meaning                                                                                                                                                    |
+| -------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `policy.config.maxAttempts`                                    | `3`           | Positive static attempt limit.                                                                                                                             |
+| `policy.config.repairLimit`                                    | `3`           | Nonnegative repair limit per invalid candidate chain.                                                                                                      |
+| `policy.config.maxRounds`                                      | `10`          | Positive metrics round limit.                                                                                                                              |
+| `policy.config.maxNoImprovement`                               | `5`           | Positive limit of valid candidates without promotion since the last promotion.                                                                             |
+| `policy.config.maxConsecutiveNoChange`                         | `3`           | Positive limit of consecutive empty metric proposals; a candidate resets the count.                                                                        |
+| `bindings.proposer.config.historyWindow`                       | `5`           | Number of recent summaries delivered to diagnosis and generation; defaults to 5. Set `0` to omit recent summaries while retaining complete stored history. |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms; `0` disables this local deadline.                                                                            |
+| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`      | Retrieval worker deadline, in ms; `0` disables it.                                                                                                         |
+| `bindings.proposer.config.embedding.maxPayloadBytes`           | Omitted       | Optional byte limit for each external retrieval JSON payload.                                                                                              |
+| `bindings.proposer.config.embedding.maxLogBytes`               | Omitted       | Optional byte limit for each retrieval worker output stream.                                                                                               |
+| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`         | Minimum retrieval match score.                                                                                                                             |
+| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                                                                                                   |
+| `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                                                                                            |
 
 This example's Manager limits are 1,024 operations, 65 evaluation runs, 152 model
 calls, 7,200,000 ms elapsed time, and a 60,000 ms cleanup reserve. Evaluation runs

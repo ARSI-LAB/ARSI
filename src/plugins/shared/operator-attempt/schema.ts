@@ -75,9 +75,14 @@ type SummaryContent = {
   decisionRef: string | null;
   actionSummary: string;
   explanation: string;
-  lessons: string[];
-  avoidPatterns: string[];
-  tryPatterns: string[];
+  lessons: OperatorInsight[];
+  avoidPatterns: OperatorInsight[];
+  tryPatterns: OperatorInsight[];
+};
+/** Only evaluation-backed observations may constrain later attempts as measured results. */
+export type OperatorInsight = {
+  text: string;
+  basis: 'evaluation' | 'agent-report' | 'hypothesis';
 };
 export type OperatorSummary = SummaryContent & {
   schemaVersion: 'rsi.operator-summary/v1';
@@ -179,11 +184,18 @@ const summaryReferenceProperties = {
   measurementRefs: refs(0),
   decisionRef: { anyOf: [ref, { type: 'null' }] },
 };
+const insights = {
+  type: 'array',
+  items: recordSchema({
+    text,
+    basis: { enum: ['evaluation', 'agent-report', 'hypothesis'] },
+  }),
+};
 const summaryResponseProperties: JsonObject = {
   explanation: { type: 'string' },
-  lessons: strings(),
-  avoidPatterns: strings(),
-  tryPatterns: strings(),
+  lessons: insights,
+  avoidPatterns: insights,
+  tryPatterns: insights,
 };
 export const summaryResponseSchema = recordSchema(summaryResponseProperties);
 export const summarySchema = recordSchema({
@@ -213,14 +225,23 @@ export const historySchema = recordSchema({
   summaryRefs: refs(0),
 });
 
-export type MetricsBottleneck = {
-  category: 'scalar' | 'vector' | 'mte2' | 'mte3' | 'underutilized' | 'tiling';
-  summary: string;
-  reasoning: string;
-  rootCause: string;
-  recommendedFix: string;
-  evidence: { path: string; value: number }[];
-};
+export type MetricsDiagnosis =
+  | {
+      status: 'hypothesis';
+      category:
+        | 'scalar'
+        | 'vector'
+        | 'mte2'
+        | 'mte3'
+        | 'underutilized'
+        | 'tiling';
+      summary: string;
+      reasoning: string;
+      rootCause: string;
+      recommendedFix: string;
+      evidence: { path: string; value: number }[];
+    }
+  | { status: 'no-new-hypothesis'; reason: string };
 export type MetricsAnalysis = {
   schemaVersion: 'rsi.operator-metrics-analysis/v1';
   experimentId: string;
@@ -233,7 +254,7 @@ export type MetricsAnalysis = {
   resourcesDigest: string;
   embeddingDigest: string;
   hardwareDigest: string | null;
-  bottleneck: MetricsBottleneck | null;
+  diagnosis: MetricsDiagnosis | null;
   knowledgeContext: string;
   retrievalRef: string | null;
   retrievalStatus: 'skipped' | 'available' | 'unavailable';
@@ -255,20 +276,29 @@ export type MetricsHistory = {
   experimentId: string;
   summaryRefs: string[];
 };
-export const metricsBottleneckSchema = recordSchema({
-  category: {
-    enum: ['scalar', 'vector', 'mte2', 'mte3', 'underutilized', 'tiling'],
-  },
-  summary: text,
-  reasoning: text,
-  rootCause: text,
-  recommendedFix: text,
-  evidence: {
-    type: 'array',
-    minItems: 1,
-    items: recordSchema({ path: ref, value: { type: 'number' } }),
-  },
-});
+export const metricsDiagnosisSchema: JsonObject = {
+  oneOf: [
+    recordSchema({
+      status: { const: 'hypothesis' },
+      category: {
+        enum: ['scalar', 'vector', 'mte2', 'mte3', 'underutilized', 'tiling'],
+      },
+      summary: text,
+      reasoning: text,
+      rootCause: text,
+      recommendedFix: text,
+      evidence: {
+        type: 'array',
+        minItems: 1,
+        items: recordSchema({ path: ref, value: { type: 'number' } }),
+      },
+    }),
+    recordSchema({
+      status: { const: 'no-new-hypothesis' },
+      reason: text,
+    }),
+  ],
+};
 export const metricsAnalysisSchema = recordSchema({
   schemaVersion: { const: 'rsi.operator-metrics-analysis/v1' },
   experimentId: ref,
@@ -281,7 +311,7 @@ export const metricsAnalysisSchema = recordSchema({
   resourcesDigest: hash,
   embeddingDigest: hash,
   hardwareDigest: { anyOf: [hash, { type: 'null' }] },
-  bottleneck: { anyOf: [metricsBottleneckSchema, { type: 'null' }] },
+  diagnosis: { anyOf: [metricsDiagnosisSchema, { type: 'null' }] },
   knowledgeContext: { type: 'string' },
   retrievalRef: { anyOf: [ref, { type: 'null' }] },
   retrievalStatus: { enum: ['skipped', 'available', 'unavailable'] },

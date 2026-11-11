@@ -70,6 +70,7 @@ function projectBash(
 export async function projectTools(
   root: string,
   readOnly: boolean,
+  bashMode: 'sandbox' | 'direct' = 'sandbox',
 ): Promise<ToolDefinition[]> {
   const writable = readOnly ? [] : ['candidate', 'scratch'];
   const checked = async (path: string, write = false): Promise<string> => {
@@ -114,10 +115,13 @@ export async function projectTools(
     defineTool(createReadToolDefinition(root, { operations: read })),
     defineTool(
       createBashToolDefinition(root, {
-        operations: projectBash(
-          root,
-          writable.map((path) => join(root, path)),
-        ),
+        operations:
+          bashMode === 'direct'
+            ? createLocalBashOperations({ shellPath: '/bin/bash' })
+            : projectBash(
+                root,
+                writable.map((path) => join(root, path)),
+              ),
         exposeSessionEnvironment: false,
       }),
     ),

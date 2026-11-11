@@ -7,7 +7,7 @@ import {
   type OperatorSummarizerOutput,
   type RuntimeContext,
 } from '../../contracts/index.js';
-import { canonical, string, strings } from '../../shared/json.js';
+import { canonical, strings } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import {
   requestOperatorAgent,
@@ -26,6 +26,7 @@ import {
   readOperatorCandidate,
   readOperatorSource,
   staticFacts,
+  assertSummaryEvidence,
 } from '../shared/operator-attempt/service.js';
 import {
   metricsSummarySchema,
@@ -91,13 +92,21 @@ async function summaryExplanation(
       context,
       timeoutMs,
     );
-    return {
-      summaryStatus: 'available',
-      explanation: string(response.explanation),
-      lessons: strings(response.lessons),
-      avoidPatterns: strings(response.avoidPatterns),
-      tryPatterns: strings(response.tryPatterns),
-    };
+    const content = parseConfig<
+      Pick<
+        MetricsSummary,
+        'explanation' | 'lessons' | 'avoidPatterns' | 'tryPatterns'
+      >
+    >(summaryResponseSchema, response, 'Operator summary response');
+    try {
+      assertSummaryEvidence(content, strings(request.input.measurementRefs));
+    } catch (error) {
+      throw new OperatorModelOutputError(
+        error instanceof Error ? error.message : String(error),
+        { cause: error },
+      );
+    }
+    return { summaryStatus: 'available', ...content };
   } catch (error) {
     if (!(error instanceof OperatorModelOutputError)) throw error;
     return {

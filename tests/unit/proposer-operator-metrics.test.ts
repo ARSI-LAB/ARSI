@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { operatorProposerContract } from '../../src/contracts/plugin-types/proposer-operator.js';
 import { operatorEditOutputSchema } from '../../src/plugins/proposer-operator/schema.js';
-import { parseMetricsBottleneck as parse } from '../../src/plugins/shared/operator-attempt/service.js';
+import { parseMetricsDiagnosis as parse } from '../../src/plugins/shared/operator-attempt/service.js';
 import { validate } from '../../src/shared/schema.js';
+import { summaryResponseSchema } from '../../src/plugins/shared/operator-attempt/schema.js';
 
 test('metrics proposal contract requires current evidence and a positive round', () => {
   const input = {
@@ -49,6 +51,7 @@ test('invalid model output is an explicit business failure with retained analysi
 test('metric analysis requires measured numeric evidence and keeps model inference distinct', async () => {
   const profile = { kernels: [{ metrics: { '0': { aiv_vec_ratio: 0.8 } } }] };
   const reply = {
+    status: 'hypothesis',
     category: 'vector',
     summary: 'Vector pipe is busy',
     reasoning: 'Optimize the vector work',
@@ -96,4 +99,46 @@ test('operator edits accept complete source only at the literal Target path', ()
         reason: 'Outside the Target',
       }),
     );
+});
+
+test('metric diagnosis distinguishes an unsupported search direction from an invalid diagnosis', () => {
+  const reply = {
+    status: 'no-new-hypothesis',
+    reason: 'All supported distinct edits have been considered',
+  };
+  assert.deepEqual(parse(reply, {}), reply);
+  for (const invalid of [
+    { status: 'no-new-hypothesis', reason: '' },
+    { ...reply, recommendedFix: 'Invent another fix' },
+    { status: 'hypothesis', reason: 'No metric citations' },
+  ])
+    assert.throws(() => parse(invalid, {}));
+  const output = {
+    action: 'propose',
+    status: 'no-change',
+    candidateRef: 'parent',
+    analysisRef: 'analysis',
+    rationale: reply.reason,
+    diffRef: null,
+    reasonCode: 'no-new-hypothesis',
+  };
+  validate(operatorProposerContract.output_schema, output);
+  assert.throws(() =>
+    validate(operatorProposerContract.output_schema, {
+      ...output,
+      action: 'repair',
+    }),
+  );
+});
+
+test('packaged and example summary JSON examples satisfy the model response contract', async () => {
+  for (const path of [
+    'src/policies/operator-search/prompts/summarize.md',
+    'examples/artifacts/kernel/transpose-copy/prompts/summarize.md',
+  ]) {
+    const prompt = await readFile(path, 'utf8');
+    const example = prompt.match(/```json\n([\s\S]*?)\n```/);
+    assert.ok(example, path);
+    validate(summaryResponseSchema, JSON.parse(example[1]), path);
+  }
 });

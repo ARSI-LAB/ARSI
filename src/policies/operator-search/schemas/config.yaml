@@ -31,6 +31,10 @@ properties:
     type: integer
     minimum: 1
     default: 5
+  maxConsecutiveNoChange:
+    type: integer
+    minimum: 1
+    default: 3
 required:
   - goal
   - caseIds

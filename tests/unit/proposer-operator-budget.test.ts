@@ -93,6 +93,49 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
   );
 });
 
+test('operator profile snapshots remain readable in chunks by the Agent read tool', async (t) => {
+  const metrics = Object.fromEntries(
+    Array.from({ length: 1500 }, (_, index) => [
+      String(index) + '核/vector~0',
+      { 'aiv_gm_to_ub_bw(GB/s)': 32.414, aiv_vec_ratio: 0.955 },
+    ]),
+  );
+  const input = { profile: { kernels: [{ metrics }] } };
+  const context = (await projectContext(t)).extend({
+    experimentId: 'large-profile',
+    callId: 'diagnose-metrics',
+    signal: new AbortController().signal,
+    async invokeAgent(_binding, request) {
+      const text = await readFile(
+        join(request.cwd, 'context/input.json'),
+        'utf8',
+      );
+      assert.ok(Buffer.byteLength(text) > 50 * 1024);
+      // Pi's read tool cannot return a single line exceeding its 50 KiB window.
+      assert.ok(
+        text.split('\n').every((line) => Buffer.byteLength(line) < 50 * 1024),
+      );
+      assert.deepEqual(object(JSON.parse(text)).profile, input.profile);
+      return {};
+    },
+  });
+  await requestOperatorAgent(
+    'diagnose-metrics',
+    'agent',
+    {
+      goal: 'Read the measured profile',
+      prompt: 'Return the measured bottleneck',
+      input,
+      sourcePath: 'input.py',
+      sourceFiles: ['input.py'],
+      editablePaths: ['input.py'],
+      files: {},
+      outputSchema: { type: 'object' },
+    },
+    context,
+  );
+});
+
 test('operator stages forward authorized snapshots above 2 MiB without an implicit evidence cap', async (t) => {
   const source = 'x'.repeat(2 * 1024 * 1024 + 1);
   const context = (await projectContext(t)).extend({

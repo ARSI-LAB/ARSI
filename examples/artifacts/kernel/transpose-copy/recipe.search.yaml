@@ -21,6 +21,7 @@ policy:
     metricsEnabled: true
     maxRounds: 10
     maxNoImprovement: 5
+    maxConsecutiveNoChange: 3
 bindings:
   agent:
     plugin: agent.pi

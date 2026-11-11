@@ -73,7 +73,10 @@ export type OperatorProposerOutput =
       analysisRef: string;
       rationale: string;
       diffRef: null;
-      reasonCode: 'no-supported-change' | 'no-static-issues';
+      reasonCode:
+        | 'no-supported-change'
+        | 'no-static-issues'
+        | 'no-new-hypothesis';
     }
   | {
       action: 'repair';
@@ -252,7 +255,13 @@ export const operatorProposerContract = defineContract({
           action: { const: 'propose' },
           status: { const: 'no-change' },
           diffRef: { type: 'null' },
-          reasonCode: { enum: ['no-supported-change', 'no-static-issues'] },
+          reasonCode: {
+            enum: [
+              'no-supported-change',
+              'no-static-issues',
+              'no-new-hypothesis',
+            ],
+          },
         },
         required: [
           'candidateRef',

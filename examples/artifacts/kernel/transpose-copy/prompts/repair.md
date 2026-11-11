@@ -67,3 +67,22 @@ Use only exact paths from `editablePaths` in `context/input.json` for edits. Ret
 not return a Python code block. A remaining uncertainty is not a successful
 repair. When no supported modification exists, return an empty edits array and
 an explicit reason; the Policy decides whether to end the repair attempt.
+
+## Use history without turning uncertainty into a ban
+
+Program-owned `facts` and `measurementRefs` record formal Evaluator results. Each
+lesson, avoid pattern and try pattern has `text` and `basis`:
+
+- `evaluation`: an observation backed by this attempt's formal measurements.
+- `agent-report`: an Agent's account of local probes or other unverified observations.
+- `hypothesis`: a static inference or an untested explanation or next experiment.
+
+Only formal results establish measured candidate outcomes. Agent reports and
+hypotheses remain advisory. Do not turn a failed concrete candidate into a ban on
+an entire technique, require proven speedup before proposing, or accumulate
+prerequisites that block every next experiment. Avoid repeating the same measured
+losing transformation unless a changed assumption or mechanism makes the new
+experiment distinct; explain that difference.
+
+Repair correctness first. A repair need not prove speedup before it is submitted
+for formal evaluation; do not use local timing as a promotion decision.

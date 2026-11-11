@@ -40,8 +40,8 @@ Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供�
 | Proposer    | `proposer.agent`                                | 根据优化目标和执行证据调用模型修改文件。                              | 改进提示词、Skill 或代码。                   |
 | Proposer    | `proposer.operator`                             | 根据源码分析、评测或性能分析结果生成、修复和总结算子修改。            | 迭代改进算子实现。                           |
 | Proposer    | `proposer.grid`                                 | 按预设取值逐一生成参数组合。                                          | 取值有限、组合较少的参数搜索。               |
-| Search      | `proposer.optuna`                               | 通过 Optuna 提出参数组合并接收评测反馈。                              | 在有限预算内逐步调优。                       |
-| Search | `search.prompt-evolution` | 通过反馈提案、Pareto 采样和基于血缘的交叉演化提示词模块。 | 根据训练与验证任务的反馈优化提示词。 |
+| Proposer    | `proposer.optuna`                               | 通过 Optuna 提出参数组合并接收评测反馈。                              | 在有限预算内逐步调优。                       |
+| Proposer | `proposer.pareto-evolution` | 通过反馈提案、Pareto 采样和基于血缘的交叉演化提示词模块。 | 根据训练与验证任务的反馈优化提示词。 |
 | Evaluator   | `evaluator.agentbench`                          | 运行 Agent 基准任务并保存得分与执行证据。                             | 检验提示词、Skill 或代码修改的效果。         |
 | Evaluator   | `evaluator.inferencebench`                      | 对推理服务执行基准测试，测量吞吐量、延迟等指标。                      | 比较不同服务配置的性能。                     |
 | Evaluator   | `evaluator.operatorbench`                       | 通过 Evaluator SDK 检查算子正确性、测量耗时，并按需采集性能分析数据。 | 判断算子修改是否正确、是否更快。             |

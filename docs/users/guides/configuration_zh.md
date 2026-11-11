@@ -175,8 +175,8 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | OperatorBench Evaluator                               | `benchmark.config.profiling.attemptTimeoutSeconds` | 一次性能分析尝试的时长上限，单位秒。                                                                      | SDK 默认 300 秒（5 分钟）。                                                       |
 | Inference Application                                 | `remote.timeoutMs`                                | 一次远端脚本调用的时长上限，单位毫秒。                                                                    | 无远端调用的独立时长上限。                                                        |
 | Inference Application                                 | `healthcheck.timeoutMs`                           | 等待推理服务就绪的时长上限，单位毫秒。                                                                    | 远端模式继承 `remote.timeoutMs`；该值也未设置或使用本地模式时，不设就绪等待上限。 |
-| 提示词演化搜索 | `maxRounds` | 逻辑尝试轮数上限，包含无修改和被拒绝的尝试。 | 必填，无默认值。 |
-| 提示词演化搜索 | `maxRollouts` | 初始评分、父候选与提案比较、种群选择消耗的任务 rollout 总额度，与评测调用次数预算分别计算。 | 必填，无默认值。 |
+| Pareto 演化提案器 | `maxRounds` | 逻辑尝试轮数上限，包含无修改和被拒绝的尝试。 | 必填，无默认值。 |
+| Pareto 演化提案器 | `maxRollouts` | 初始评分、父候选与提案比较、种群选择消耗的任务 rollout 总额度，与评测调用次数预算分别计算。 | 必填，无默认值。 |
 | Optuna Proposer                                       | `python.timeoutMs`                                | 单次 Python worker 调用的时长上限，单位毫秒。                                                             | 无单次 worker 调用的独立时长上限。                                                |
 | Optuna Proposer                                       | `maxSamplingAttempts`                             | 整个搜索的采样尝试次数上限，包含不进入评测的重复参数组合；评测次数另由 `policy.config.maxTrials` 限制。   | 不额外限制采样尝试次数。                                                          |
 | Reflection 文件                                       | `budget.modelCalls`                               | 单次 Reflection 的模型请求数上限；设为 0 时不启动内置生成器，正数上限需要后端支持计量。                   | 无单次 Reflection 的模型调用次数上限。                                            |

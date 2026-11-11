@@ -7,16 +7,20 @@ import type {
   RuntimeContext,
 } from '../../contracts/index.js';
 import type {
-  SearchFeedback,
-  SearchInput,
-  SearchOutput,
-  SearchWork,
-} from '../../contracts/plugin-types/search.js';
-import { configSchema, type GepaModule, type GepaConfig } from './schema.js';
+  IterativeProposerFeedback,
+  IterativeProposerInput,
+  IterativeProposerOutput,
+  IterativeProposerWork,
+} from '../../contracts/plugin-types/proposer-iterative.js';
 import {
-  readSearchState,
-  writeSearchState,
-  type GepaStepResult,
+  configSchema,
+  type PromptModule,
+  type ParetoEvolutionConfig,
+} from './schema.js';
+import {
+  readParetoEvolutionState,
+  writeParetoEvolutionState,
+  type ParetoEvolutionStepResult,
   type RoundPlan,
 } from './state.js';
 import { digest, object, string, strings } from '../../shared/json.js';
@@ -39,7 +43,7 @@ import {
   stateRngFrom,
   type CandidateRecord,
   type EvaluationOutcome,
-  type GepaState,
+  type ParetoEvolutionState,
   type RoundReport,
 } from './engine.js';
 
@@ -53,7 +57,7 @@ function safePath(path: string): string {
     parts.some((part) => !part || part === '.' || part === '..')
   )
     throw new Error(
-      `GEPA module path is not a safe bundle-relative path: ${path}`,
+      `Pareto evolution proposer module path is not a safe bundle-relative path: ${path}`,
     );
   return path;
 }
@@ -71,14 +75,18 @@ function literalModulePattern(path: string): string {
   );
 }
 
-function validateModules(modules: readonly GepaModule[]): void {
+function validateModules(modules: readonly PromptModule[]): void {
   const ids = new Set<string>();
   const paths = new Set<string>();
   for (const module of modules) {
     if (ids.has(module.id))
-      throw new Error(`GEPA module id is duplicated: ${module.id}`);
+      throw new Error(
+        `Pareto evolution proposer module id is duplicated: ${module.id}`,
+      );
     if (paths.has(module.path))
-      throw new Error(`GEPA module path is duplicated: ${module.path}`);
+      throw new Error(
+        `Pareto evolution proposer module path is duplicated: ${module.path}`,
+      );
     paths.add(module.path);
     ids.add(module.id);
     safePath(module.path);
@@ -96,7 +104,7 @@ function scoresFromEvaluation(
 
 async function readEvaluation(
   ctx: RuntimeContext,
-  state: GepaState,
+  state: ParetoEvolutionState,
   measurementRef: string,
   candidateRef: string,
   taskIds: string[],
@@ -104,7 +112,9 @@ async function readEvaluation(
   ctx.signal.throwIfAborted();
   const measurement = await ctx.readMeasurement(measurementRef);
   if (measurement.candidateRef !== candidateRef)
-    throw new Error('GEPA measurement belongs to another candidate');
+    throw new Error(
+      'Pareto evolution proposer measurement belongs to another candidate',
+    );
   const reused = state.evaluationRefs.includes(measurementRef);
   const outcome: EvaluationOutcome = {
     comparisonKey: null,
@@ -120,10 +130,13 @@ async function readEvaluation(
   const status =
     typeof measurement.status === 'string' ? measurement.status : 'unknown';
   if (status === 'cancelled')
-    throw Object.assign(new Error('GEPA evaluation was cancelled'), {
-      status: 'cancelled',
-      measurementRef,
-    });
+    throw Object.assign(
+      new Error('Pareto evolution proposer evaluation was cancelled'),
+      {
+        status: 'cancelled',
+        measurementRef,
+      },
+    );
   outcome.comparisonKey =
     typeof measurement.comparisonKey === 'string' && measurement.comparisonKey
       ? measurement.comparisonKey
@@ -173,7 +186,11 @@ async function readEvaluation(
     if (definitionRef !== null) {
       try {
         const definition = await ctx.artifacts.readJson(definitionRef);
-        validate(metricDefinitionSchema, definition, 'GEPA score definition');
+        validate(
+          metricDefinitionSchema,
+          definition,
+          'Pareto evolution proposer score definition',
+        );
         const spec = object(definition);
         definitionValid = spec.id === 'score' && spec.valueKind === 'scalar';
       } catch (error) {
@@ -247,7 +264,7 @@ function scoreConditions(
 }
 
 function selectionScores(
-  state: GepaState,
+  state: ParetoEvolutionState,
   evaluation: EvaluationOutcome,
 ): Record<string, number | null> {
   return Object.fromEntries(
@@ -266,7 +283,7 @@ function selectionScores(
 async function loadPrompts(
   ctx: RuntimeContext,
   candidate: CandidateRecord,
-  modules: readonly GepaModule[],
+  modules: readonly PromptModule[],
 ): Promise<Record<string, string>> {
   const workspace = await ctx.workspaces.create(candidate.artifactRef);
   try {
@@ -285,7 +302,7 @@ async function loadPrompts(
 async function loadPopulationPrompts(
   ctx: RuntimeContext,
   candidates: readonly CandidateRecord[],
-  modules: readonly GepaModule[],
+  modules: readonly PromptModule[],
 ): Promise<Record<string, Record<string, string>>> {
   const result: Record<string, Record<string, string>> = {};
   for (const candidate of candidates)
@@ -295,9 +312,9 @@ async function loadPopulationPrompts(
 
 async function commitPrompts(
   ctx: RuntimeContext,
-  settings: GepaConfig,
+  settings: ParetoEvolutionConfig,
   base: CandidateRecord,
-  modules: readonly GepaModule[],
+  modules: readonly PromptModule[],
   prompts: Readonly<Record<string, string>>,
 ): Promise<SingleProposerOutput> {
   const workspace = await ctx.workspaces.create(base.artifactRef, base.ref);
@@ -318,9 +335,13 @@ async function commitPrompts(
       }),
     );
     if (output.action !== 'commit')
-      throw new Error('GEPA Application commit returned another action');
+      throw new Error(
+        'Pareto evolution proposer Application commit returned another action',
+      );
     if (output.status !== 'created' && output.status !== 'no-change')
-      throw new Error('GEPA Application commit status is invalid');
+      throw new Error(
+        'Pareto evolution proposer Application commit status is invalid',
+      );
     if (output.status === 'no-change')
       return {
         status: 'no-change',
@@ -332,7 +353,7 @@ async function commitPrompts(
       status: 'created',
       candidateRef: string(output.candidateRef),
       diffRef: string(output.diffRef),
-      rationale: 'Deterministic ancestry-aware GEPA crossover.',
+      rationale: 'Deterministic ancestry-aware module crossover.',
     };
   } finally {
     await ctx.workspaces.release(workspace.ref);
@@ -396,7 +417,10 @@ async function recordCandidateMeta(
   return newCandidate(ref, record.artifactRef, meta);
 }
 
-function finishState(state: GepaState, settings: GepaConfig): void {
+function finishState(
+  state: ParetoEvolutionState,
+  settings: ParetoEvolutionConfig,
+): void {
   const best = bestCandidate(state.candidates, state.selectionTaskIds);
   state.bestCandidateRef = best.candidate?.ref ?? null;
   state.bestAggregateScore = best.score;
@@ -419,18 +443,18 @@ function finishState(state: GepaState, settings: GepaConfig): void {
 }
 
 function result(
-  state: GepaState,
+  state: ParetoEvolutionState,
   plan: RoundPlan | null = null,
   selectionRequired = false,
-): GepaStepResult {
+): ParetoEvolutionStepResult {
   return { state, plan, selectionRequired };
 }
 
 function finishRound(
-  state: GepaState,
-  settings: GepaConfig,
+  state: ParetoEvolutionState,
+  settings: ParetoEvolutionConfig,
   report: RoundReport,
-): GepaStepResult {
+): ParetoEvolutionStepResult {
   if (report.status === 'admitted' || report.status === 'rejected')
     state.completedRounds += 1;
   state.rounds.push(report);
@@ -439,7 +463,7 @@ function finishRound(
 }
 
 function roundReport(
-  state: GepaState,
+  state: ParetoEvolutionState,
   strategy: 'mutation' | 'crossover',
   parents: string[],
   modules: string[],
@@ -464,9 +488,9 @@ function roundReport(
 
 async function prepareRound(
   ctx: RuntimeContext,
-  state: GepaState,
-  settings: GepaConfig,
-): Promise<GepaStepResult> {
+  state: ParetoEvolutionState,
+  settings: ParetoEvolutionConfig,
+): Promise<ParetoEvolutionStepResult> {
   finishState(state, settings);
   if (state.done) return result(state);
   const rng = stateRngFrom(state);
@@ -532,7 +556,10 @@ async function prepareRound(
     }
   }
   const parent = selectCandidate(state.candidates, state.selectionTaskIds, rng);
-  if (!parent) throw new Error('GEPA mutation has no eligible parent');
+  if (!parent)
+    throw new Error(
+      'Pareto evolution proposer mutation has no eligible parent',
+    );
   const module =
     settings.modules[state.moduleCursor % settings.modules.length]!;
   state.moduleCursor += 1;
@@ -578,12 +605,12 @@ async function prepareRound(
 }
 
 async function compareRound(
-  input: Extract<SearchFeedback, { kind: 'proposal' }>,
+  input: Extract<IterativeProposerFeedback, { kind: 'proposal' }>,
   ctx: RuntimeContext,
-  state: GepaState,
+  state: ParetoEvolutionState,
   plan: RoundPlan,
-  settings: GepaConfig,
-): Promise<GepaStepResult> {
+  settings: ParetoEvolutionConfig,
+): Promise<ParetoEvolutionStepResult> {
   const { report } = plan;
   const parentEvaluations: EvaluationOutcome[] = [];
   // A no-change deterministic merge has no source evaluations; a mutation
@@ -594,7 +621,7 @@ async function compareRound(
       : report.parentRefs.length;
   if (input.parentMeasurementRefs.length !== expectedParents)
     throw new Error(
-      'GEPA comparison requires one measurement per genetic parent',
+      'Pareto evolution proposer comparison requires one measurement per genetic parent',
     );
   for (let index = 0; index < input.parentMeasurementRefs.length; index++) {
     const evaluation = await readEvaluation(
@@ -619,7 +646,7 @@ async function compareRound(
   }
   if (!input.proposalMeasurementRef)
     throw new Error(
-      'GEPA comparison requires the proposed candidate measurement',
+      'Pareto evolution proposer comparison requires the proposed candidate measurement',
     );
   const candidate = await recordCandidateMeta(
     ctx,
@@ -696,18 +723,18 @@ async function compareRound(
   return result(state, plan, true);
 }
 
-async function advanceSearch(
-  input: SearchInput,
+async function advanceParetoEvolution(
+  input: IterativeProposerInput,
   context: RuntimeContext,
-  settings: GepaConfig,
+  settings: ParetoEvolutionConfig,
   configuration: string,
-): Promise<GepaStepResult> {
+): Promise<ParetoEvolutionStepResult> {
   context.signal.throwIfAborted();
   validateModules(settings.modules);
   if (input.action === 'initialize') {
     if (!input.feedbackTaskIds?.length || !input.selectionTaskIds?.length)
       throw new Error(
-        'GEPA initialization requires feedbackTaskIds and selectionTaskIds',
+        'Pareto evolution proposer initialization requires feedbackTaskIds and selectionTaskIds',
       );
     const initialization = {
       ...settings,
@@ -743,7 +770,7 @@ async function advanceSearch(
     ];
     return result(state);
   }
-  const { state, plan } = await readSearchState(
+  const { state, plan } = await readParetoEvolutionState(
     context,
     input.stateRef,
     configuration,
@@ -752,22 +779,28 @@ async function advanceSearch(
   const feedback = input.feedback;
   if (feedback.kind === 'proposal') {
     if (!plan || input.workId !== `proposal:${plan.report.round}`)
-      throw new Error('GEPA feedback does not match the pending proposal work');
+      throw new Error(
+        'Pareto evolution proposer feedback does not match the pending proposal work',
+      );
     return compareRound(feedback, context, state, plan, settings);
   }
   const expectedWorkId = plan ? `selection:${plan.report.round}` : 'initial';
   if (input.workId !== expectedWorkId)
-    throw new Error('GEPA feedback does not match the pending evaluation work');
+    throw new Error(
+      'Pareto evolution proposer feedback does not match the pending evaluation work',
+    );
   const expectedMeasurements = state.selectionTaskIds.length ? 1 : 0;
   if (feedback.measurementRefs.length !== expectedMeasurements)
     throw new Error(
-      'GEPA feedback requires one measurement per requested evaluation',
+      'Pareto evolution proposer feedback requires one measurement per requested evaluation',
     );
   const measurementRef = feedback.measurementRefs[0];
   if (!plan) {
     if (state.selectionTaskIds.length) {
       if (!measurementRef)
-        throw new Error('GEPA initial selection requires a measurement');
+        throw new Error(
+          'Pareto evolution proposer initial selection requires a measurement',
+        );
       const initial = state.candidates[0]!;
       const evaluation = await readEvaluation(
         context,
@@ -793,7 +826,9 @@ async function advanceSearch(
   }
   const { candidate, report } = plan;
   if (!candidate)
-    throw new Error('GEPA selection requires a compared candidate');
+    throw new Error(
+      'Pareto evolution proposer selection requires a compared candidate',
+    );
   const selection = await readEvaluation(
     context,
     state,
@@ -820,7 +855,10 @@ async function advanceSearch(
   return finishRound(state, settings, report);
 }
 
-function searchResult(state: GepaState, settings: GepaConfig): JsonObject {
+function paretoEvolutionResult(
+  state: ParetoEvolutionState,
+  settings: ParetoEvolutionConfig,
+): JsonObject {
   return {
     baselineCandidateRef: state.baselineCandidateRef,
     bestCandidateRef: state.bestCandidateRef,
@@ -839,9 +877,9 @@ function searchResult(state: GepaState, settings: GepaConfig): JsonObject {
 }
 
 function requestedWork(
-  input: SearchInput,
-  step: GepaStepResult,
-): SearchWork | null {
+  input: IterativeProposerInput,
+  step: ParetoEvolutionStepResult,
+): IterativeProposerWork | null {
   const { state, plan } = step;
   if (input.action === 'initialize')
     return {
@@ -872,28 +910,44 @@ function requestedWork(
       proposalInput: { ...plan.proposalInput, evidenceRefs: [] },
       proposalResult: null,
     };
-  if (!plan.proposalResult) throw new Error('GEPA round plan has no proposal');
+  if (!plan.proposalResult)
+    throw new Error('Pareto evolution proposer round plan has no proposal');
   return { ...work, proposalInput: null, proposalResult: plan.proposalResult };
 }
 
-export const createPromptEvolutionSearch: OperationDefinition<
-  SearchInput,
-  SearchOutput,
-  GepaConfig
->['create'] = async (raw): Promise<Operation<SearchInput, SearchOutput>> => {
-  const settings = parseConfig<GepaConfig>(configSchema, raw, 'GEPA config');
+export const createParetoEvolutionProposer: OperationDefinition<
+  IterativeProposerInput,
+  IterativeProposerOutput,
+  ParetoEvolutionConfig
+>['create'] = async (
+  raw,
+): Promise<Operation<IterativeProposerInput, IterativeProposerOutput>> => {
+  const settings = parseConfig<ParetoEvolutionConfig>(
+    configSchema,
+    raw,
+    'Pareto evolution proposer config',
+  );
   const configuration = digest(settings);
   return {
-    async execute(input, context): Promise<SearchOutput> {
-      const step = await advanceSearch(input, context, settings, configuration);
+    async execute(input, context): Promise<IterativeProposerOutput> {
+      const step = await advanceParetoEvolution(
+        input,
+        context,
+        settings,
+        configuration,
+      );
       const { state } = step;
-      const stateRef = await writeSearchState(context, configuration, step);
+      const stateRef = await writeParetoEvolutionState(
+        context,
+        configuration,
+        step,
+      );
       return {
         stateRef,
         done: state.done,
         iterationLimit: settings.maxRounds,
         work: requestedWork(input, step),
-        result: state.done ? searchResult(state, settings) : null,
+        result: state.done ? paretoEvolutionResult(state, settings) : null,
       };
     },
     async dispose(): Promise<void> {},

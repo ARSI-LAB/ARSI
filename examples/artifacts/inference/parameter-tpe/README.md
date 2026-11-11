@@ -32,7 +32,7 @@ path of that environment's Python interpreter. The Application's
 dependencies are listed in
 `node_modules/ember-rsi/dist/src/plugins/proposer-optuna/python/requirements.txt`.
 See [limits and budgets](../../../../docs/users/guides/configuration.md#limits-and-budgets)
-and [stateful search](../../../../docs/users/guides/writing-plugins.md#stateful-search)
+and [iterative proposer](../../../../src/contracts/plugin-types/proposer-iterative.ts)
 for sampling limits and recovery.
 Validation checks schemas without starting Python or the remote server.
 

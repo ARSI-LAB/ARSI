@@ -7,7 +7,11 @@ import {
 } from '../../contracts/plugin-types/proposer.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { stringArray } from './schema.js';
-import type { CandidateRecord, GepaState, RoundReport } from './engine.js';
+import type {
+  CandidateRecord,
+  ParetoEvolutionState,
+  RoundReport,
+} from './engine.js';
 
 export interface RoundPlan extends JsonObject {
   report: RoundReport;
@@ -18,18 +22,18 @@ export interface RoundPlan extends JsonObject {
   candidate: CandidateRecord | null;
 }
 
-export type GepaStepResult = {
-  state: GepaState;
+export type ParetoEvolutionStepResult = {
+  state: ParetoEvolutionState;
   plan: RoundPlan | null;
   selectionRequired: boolean;
 };
 
-interface GepaSnapshot extends JsonObject {
-  schemaVersion: 'gepa.search/v1';
+interface ParetoEvolutionSnapshot extends JsonObject {
+  schemaVersion: 'rsi.proposer-pareto-evolution-snapshot/v1';
   configuration: string;
   experimentId: string;
   bindingId: string;
-  state: GepaState;
+  state: ParetoEvolutionState;
   plan: RoundPlan | null;
 }
 
@@ -115,7 +119,7 @@ const roundReportSchema: JsonObject = {
   },
 };
 
-export const gepaStateSchema: JsonObject = {
+export const paretoEvolutionStateSchema: JsonObject = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -142,7 +146,7 @@ export const gepaStateSchema: JsonObject = {
     'weightsChanged',
   ],
   properties: {
-    schemaVersion: { const: 'gepa.state/v1' },
+    schemaVersion: { const: 'rsi.proposer-pareto-evolution-state/v1' },
     seed: { type: 'integer', minimum: 0, maximum: 4294967295 },
     rng: { type: 'integer', minimum: 0, maximum: 4294967295 },
     feedbackTaskIds: stringArray(1),
@@ -171,7 +175,7 @@ export const gepaStateSchema: JsonObject = {
     weightsChanged: { const: false },
   },
 };
-export const gepaPlanSchema: JsonObject = {
+export const paretoEvolutionPlanSchema: JsonObject = {
   type: 'object',
   additionalProperties: false,
   required: ['report', 'proposalInput', 'proposalResult', 'candidate'],
@@ -199,24 +203,24 @@ const snapshotSchema: JsonObject = {
     'plan',
   ],
   properties: {
-    schemaVersion: { const: 'gepa.search/v1' },
+    schemaVersion: { const: 'rsi.proposer-pareto-evolution-snapshot/v1' },
     configuration: { type: 'string', minLength: 1 },
     experimentId: { type: 'string', minLength: 1 },
     bindingId: { type: 'string', minLength: 1 },
-    state: gepaStateSchema,
-    plan: { anyOf: [{ type: 'null' }, gepaPlanSchema] },
+    state: paretoEvolutionStateSchema,
+    plan: { anyOf: [{ type: 'null' }, paretoEvolutionPlanSchema] },
   },
 };
 
-export async function readSearchState(
+export async function readParetoEvolutionState(
   context: RuntimeContext,
   stateRef: string,
   configuration: string,
-): Promise<GepaSnapshot> {
-  const snapshot = parseConfig<GepaSnapshot>(
+): Promise<ParetoEvolutionSnapshot> {
+  const snapshot = parseConfig<ParetoEvolutionSnapshot>(
     snapshotSchema,
     await context.artifacts.readJson(stateRef),
-    'GEPA search state',
+    'Pareto evolution proposer state',
   );
   if (
     snapshot.configuration !== configuration ||
@@ -224,24 +228,24 @@ export async function readSearchState(
     snapshot.bindingId !== context.bindingId
   )
     throw new Error(
-      'GEPA search state configuration or execution scope mismatch',
+      'Pareto evolution proposer state configuration or execution scope mismatch',
     );
   return snapshot;
 }
 
-export async function writeSearchState(
+export async function writeParetoEvolutionState(
   context: RuntimeContext,
   configuration: string,
-  result: GepaStepResult,
+  result: ParetoEvolutionStepResult,
 ): Promise<string> {
-  const snapshot: GepaSnapshot = {
-    schemaVersion: 'gepa.search/v1',
+  const snapshot: ParetoEvolutionSnapshot = {
+    schemaVersion: 'rsi.proposer-pareto-evolution-snapshot/v1',
     configuration,
     experimentId: context.experimentId,
     bindingId: context.bindingId,
     state: result.state,
     plan: result.plan,
   };
-  validate(snapshotSchema, snapshot, 'GEPA search state');
+  validate(snapshotSchema, snapshot, 'Pareto evolution proposer state');
   return context.artifacts.putJson(snapshot);
 }

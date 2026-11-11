@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { RuntimeContext, JsonObject } from '../../contracts/index.js';
 import type { ApplicationBackend } from '../shared/file-application/files.js';
-import { safePath } from '../shared/file-application/target.js';
+import { safePath, scanTree } from '../shared/file-application/target.js';
 import { digest, object, string } from '../../shared/json.js';
 import { InferenceStartupError } from '../../shared/errors.js';
 
@@ -209,7 +209,10 @@ export async function createRemoteBackend(
   const executable =
     remote.executable === undefined ? 'python3' : string(remote.executable);
   const scriptDigest = digest(await readFile(script, 'utf8'));
-  const parametersFile = safePath(remote.parametersFile ?? 'tuning.json');
+  const workspaceMode = remote.parametersFile === null;
+  const parametersFile = workspaceMode
+    ? null
+    : safePath(remote.parametersFile ?? 'tuning.json');
   const timeout =
     remote.timeoutMs === undefined
       ? undefined
@@ -380,8 +383,20 @@ export async function createRemoteBackend(
     await rm(lock, { recursive: true, force: true });
     active.delete(instanceId);
   };
-  const verify: ApplicationBackend['verify'] = async (directory, context) => {
+  const verify: ApplicationBackend['verify'] = async (
+    directory,
+    context,
+  ): Promise<JsonObject> => {
     context.signal.throwIfAborted();
+    if (parametersFile === null) {
+      const workspace = Object.fromEntries(
+        Object.entries(await scanTree(directory)).map(([path, file]) => [
+          path,
+          { content: file.content, mode: file.mode },
+        ]),
+      );
+      return { parameters: {}, workspace, parametersDigest: digest(workspace) };
+    }
     const parameters = object(
       JSON.parse(await readFile(join(directory, parametersFile), 'utf8')),
       'engine parameters',
@@ -418,34 +433,37 @@ export async function createRemoteBackend(
     utilization: number,
   ): JsonObject => ({
     ...resources,
-    ...(tuneMemory ? {} : { gpuMemoryUtilization: utilization }),
+    ...(tuneMemory || workspaceMode
+      ? {}
+      : { gpuMemoryUtilization: utilization }),
   });
   return {
     capability: 'inference-endpoint',
-    ...(discoverParameters && {
-      async describeTarget(context: RuntimeContext): Promise<JsonObject> {
-        const signal =
-          timeout === undefined
-            ? context.signal
-            : AbortSignal.any([context.signal, AbortSignal.timeout(timeout)]);
-        const response = await command(
-          executable,
-          script,
-          { action: 'describe-parameters' },
-          signal,
-        );
-        const parameterCatalog = object(
-          response.parameters,
-          'installed engine parameters',
-        );
-        if (!tuneMemory) delete parameterCatalog.gpu_memory_utilization;
-        if (!Object.keys(parameterCatalog).length)
-          throw new Error(
-            'The inference launcher did not discover any tunable parameters',
+    ...(!workspaceMode &&
+      discoverParameters && {
+        async describeTarget(context: RuntimeContext): Promise<JsonObject> {
+          const signal =
+            timeout === undefined
+              ? context.signal
+              : AbortSignal.any([context.signal, AbortSignal.timeout(timeout)]);
+          const response = await command(
+            executable,
+            script,
+            { action: 'describe-parameters' },
+            signal,
           );
-        return { parameterCatalog };
-      },
-    }),
+          const parameterCatalog = object(
+            response.parameters,
+            'installed engine parameters',
+          );
+          if (!tuneMemory) delete parameterCatalog.gpu_memory_utilization;
+          if (!Object.keys(parameterCatalog).length)
+            throw new Error(
+              'The inference launcher did not discover any tunable parameters',
+            );
+          return { parameterCatalog };
+        },
+      }),
     verify,
     release,
     async validateInstance(instance, context): Promise<void> {
@@ -484,6 +502,9 @@ export async function createRemoteBackend(
         experimentId: context.experimentId,
         parameters,
         parametersDigest: identity.parametersDigest,
+        ...(identity.workspace === undefined
+          ? {}
+          : { workspace: identity.workspace }),
         memoryUtilization: utilization,
         endpoint: { origin, model: string(endpoint.model) },
       };
@@ -608,6 +629,9 @@ export async function createRemoteBackend(
         instanceId,
         parameters,
         parametersDigest: identity.parametersDigest,
+        ...(identity.workspace === undefined
+          ? {}
+          : { workspace: identity.workspace }),
         memoryUtilization: utilization,
       };
       await persist();
@@ -635,6 +659,9 @@ export async function createRemoteBackend(
         resources: comparableResources(resources, utilization),
         ...(tuneMemory ? { gpuMemoryUtilization: utilization } : {}),
         parametersDigest: identity.parametersDigest,
+        ...(identity.workspace === undefined
+          ? {}
+          : { workspace: identity.workspace }),
         credentialRef: object(config.credentials ?? {}).apiKeyEnv ?? null,
       };
     },

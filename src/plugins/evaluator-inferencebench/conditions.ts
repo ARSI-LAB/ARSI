@@ -7,10 +7,27 @@ import {
   plain,
 } from '../shared/evaluator-adapter/data.js';
 export function conditions(
-  config: SdkEvaluatorConfig,
+  config: SdkEvaluatorConfig | null,
   snapshot: JsonObject | null,
   execution: JsonObject,
 ): JsonObject {
+  if (config === null)
+    return {
+      protocol: 1,
+      kind: 'inferencebench',
+      known: false,
+      reasons: ['Instance acquisition failed before evaluation'],
+      fixed: {
+        config: null,
+        source: null,
+        identity: null,
+        solver: null,
+        taskIds: [],
+        serviceResources: null,
+        environments: [],
+      },
+      candidateFactors: [],
+    };
   const run = snapshot ? plain(snapshot.run) : {};
   const source = run.source ?? null;
   const identity = run.identity ?? null;
@@ -33,6 +50,7 @@ export function conditions(
   }
   delete fixed.output;
   const r = plain(fixed.run);
+  delete r.timeoutSeconds;
   delete r.taskIds;
   delete r.maxTasks;
   delete r.sampling;

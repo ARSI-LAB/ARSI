@@ -854,3 +854,188 @@ test('remote discovery gives the proposer installed choices and treats memory as
     await f.close();
   }
 });
+
+test('a handled startup rejection leaves the real Manager alive for later trials', async () => {
+  const f = await fixture(undefined, 'start');
+  const registry = new Registry();
+  const manager = new Manager({ registry, rootDirectory: f.root });
+  try {
+    registry.registerOperation(inferenceDefinition);
+    registry.registerOperation({
+      id: 'test.inference-evaluator',
+      contract: inferencebenchContract,
+      configSchema: { type: 'object' },
+      async create() {
+        return {
+          async execute(input, context) {
+            try {
+              return await context.withInstance(
+                String(object(input).candidateRef),
+                'inference-endpoint',
+                async () => assert.fail('Rejected instance cannot run'),
+              );
+            } catch (error) {
+              assert.ok(error instanceof Error);
+              assert.equal(error.name, 'InferenceStartupError');
+              context.signal.throwIfAborted();
+              return { measurementRef: 'measurement-rejected-startup' };
+            }
+          },
+          async dispose() {},
+        };
+      },
+    });
+    const policyPath = join(f.root, 'policy.yaml');
+    await writeFile(
+      policyPath,
+      stringify({
+        schemaVersion: 'rsi.policy/v1',
+        id: 'test.inference-evaluation',
+        input_schema: { type: 'object' },
+        output_schema: { type: 'object' },
+        require: {
+          evaluator: { contract: inferencebenchContract.id },
+        },
+        steps: [
+          {
+            id: 'check',
+            type: 'invoke',
+            use: 'evaluator',
+            with: {
+              candidateRef: '${{ application.initialCandidate }}',
+            },
+          },
+          {
+            id: 'next-trial',
+            type: 'invoke',
+            use: 'evaluator',
+            with: {
+              candidateRef: '${{ application.initialCandidate }}',
+            },
+          },
+        ],
+        output: '${{ steps.check.output }}',
+      }),
+    );
+    registry.registerPolicy('test.inference-evaluation', policyPath);
+    const recipePath = join(f.root, 'recipe.yaml');
+    await writeFile(
+      recipePath,
+      stringify({
+        schemaVersion: 'rsi.recipe/v1',
+        id: 'trial',
+        application: {
+          plugin: inferenceDefinition.id,
+          config: {
+            ...f.config,
+            remote: {
+              script: f.config.remote.script,
+              executable: process.execPath,
+            },
+          },
+        },
+        policy: { id: 'test.inference-evaluation', config: {}, input: {} },
+        bindings: {
+          evaluator: { plugin: 'test.inference-evaluator', config: {} },
+        },
+        budget: { operations: 10, elapsedWallMs: 10000 },
+      }),
+    );
+    await manager.run(recipePath, { id: 'trial' });
+    const result = await manager.get('trial');
+    assert.equal(result.status, 'succeeded');
+    const instances = await manager.facts.list('instances');
+    assert.deepEqual(
+      instances.map((record) => record.status),
+      ['released', 'released'],
+    );
+  } finally {
+    await manager.dispose();
+    await registry.dispose();
+    await f.close();
+  }
+});
+
+test('workspace mode sends all candidate bytes without a parameter catalog and supports recovery', async () => {
+  const f = await fixture();
+  const services = servicesFor(f.root);
+  const config = {
+    ...f.config,
+    target: {
+      schema: {
+        schemaVersion: 'rsi.target/v1',
+        id: 'workspace',
+        entries: [
+          {
+            path: 'workspace',
+            kind: 'directory',
+            description: 'Engine workspace',
+            changes: ['create', 'modify', 'delete'],
+          },
+        ],
+      },
+    },
+    remote: {
+      script: f.config.remote.script,
+      executable: process.execPath,
+      parametersFile: null,
+    },
+  };
+  await rm(join(f.root, 'baseline/tuning.json'));
+  await mkdir(join(f.root, 'baseline/workspace'));
+  const source = 'print("candidate source")\n' + '# new source\n'.repeat(500);
+  await writeFile(join(f.root, 'baseline/workspace/serve.py'), source);
+  await writeFile(
+    join(f.root, 'baseline/workspace/launch.json'),
+    '{"new_engine_flag":true}',
+  );
+  const app = await inferenceDefinition.create(config, services);
+  try {
+    const initial = await app.execute({ action: 'initialize' }, call(services));
+    assert.equal(initial.action, 'initialize');
+    if (initial.action !== 'initialize') throw Error('initialize');
+    await app.execute(
+      {
+        action: 'acquire',
+        candidateRef: initial.initialCandidateRef,
+        instanceId: 'workspace-test',
+        capability: 'inference-endpoint',
+      },
+      call(services),
+    );
+    const requests = (await readFile(join(f.root, 'requests.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => object(JSON.parse(line)));
+    assert.equal(
+      requests.some((r) => r.action === 'describe-parameters'),
+      false,
+    );
+    const start = requests.find((r) => r.action === 'start')!;
+    const workspace = object(start.workspace);
+    assert.equal(
+      Buffer.from(
+        String(object(workspace['workspace/serve.py']).content),
+        'base64',
+      ).toString(),
+      source,
+    );
+    assert.equal(start.parametersDigest, digest(workspace));
+    const recovered = await inferenceDefinition.create(config, services);
+    try {
+      await recovered.execute(
+        { action: 'release', instanceId: 'workspace-test' },
+        call(services),
+      );
+      await recovered.execute(
+        { action: 'release', instanceId: 'workspace-test' },
+        call(services),
+      );
+    } finally {
+      await recovered.dispose();
+    }
+  } finally {
+    await app.dispose();
+    await f.close();
+  }
+});

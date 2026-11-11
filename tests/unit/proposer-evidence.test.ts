@@ -1,3 +1,4 @@
+import { metricEvidence } from '../../src/plugins/proposer-agent/metric-evidence.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -364,4 +365,50 @@ test('Tool-return prefixes preserve Unicode and failure identity without shorten
   assert.equal(payload.truncated, true);
   assert.equal(Array.from(String(payload.preview)).length, 2000);
   assert.doesNotMatch(packet, /UNREAD_TAIL|\uFFFD/);
+});
+
+test('training metric evidence retains values and units without copying private profiles', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'metric-evidence-'));
+  const artifacts = new FileArtifacts(root);
+  try {
+    const definitionRef = await artifacts.putJson({
+      id: 'throughput',
+      unit: 'tokens/s',
+      valueKind: 'scalar',
+    });
+    const metrics = {
+      throughput: {
+        definitionRef,
+        status: 'available',
+        value: { kind: 'scalar', value: 4588.57 },
+      },
+    };
+    const context = new RuntimeContext().extend({
+      artifacts,
+      async readMeasurement(ref) {
+        return {
+          ref,
+          candidateRef: 'c',
+          status: 'succeeded',
+          coverage: 'complete',
+          comparisonKey: 'same-load',
+          metrics,
+          profile: { secret: 'PRIVATE' },
+        };
+      },
+    });
+    const evidence = await metricEvidence(['m', 'm'], context);
+    assert.equal(
+      object(object(evidence.metricDefinitions)[definitionRef]).unit,
+      'tokens/s',
+    );
+    assert.equal(JSON.stringify(evidence).includes('4588.57'), true);
+    assert.equal(JSON.stringify(evidence).includes('PRIVATE'), false);
+    assert.equal(
+      Array.isArray(evidence.measurements) && evidence.measurements.length,
+      1,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

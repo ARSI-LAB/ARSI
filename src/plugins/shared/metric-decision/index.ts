@@ -13,6 +13,7 @@ type ConstraintCheck = {
   definitionRef: string;
   min: number | null;
   max: number | null;
+  exclusiveMax?: boolean;
   incumbentValue: number;
   candidateValue: number;
   passed: boolean;
@@ -48,16 +49,20 @@ const shape = (
 });
 const checks = {
   type: 'array',
-  items: shape({
-    metric: ref,
-    statistic,
-    definitionRef: ref,
-    min: bound,
-    max: bound,
-    incumbentValue: { type: 'number' },
-    candidateValue: { type: 'number' },
-    passed: { type: 'boolean' },
-  }),
+  items: shape(
+    {
+      metric: ref,
+      statistic,
+      definitionRef: ref,
+      min: bound,
+      max: bound,
+      exclusiveMax: { type: 'boolean' },
+      incumbentValue: { type: 'number' },
+      candidateValue: { type: 'number' },
+      passed: { type: 'boolean' },
+    },
+    ['exclusiveMax'],
+  ),
 };
 export const metricDecisionSchema: JsonSchema = shape(
   {
@@ -177,7 +182,12 @@ export async function readDecisionFeedback(
     )
       throw new Error('Decision constraint does not match measurement');
     if (check.min !== null) constraints.push(check.min - check.candidateValue);
-    if (check.max !== null) constraints.push(check.candidateValue - check.max);
+    if (check.max !== null)
+      constraints.push(
+        check.exclusiveMax && check.candidateValue === check.max
+          ? Number.EPSILON
+          : check.candidateValue - check.max,
+      );
   }
   return {
     loss:
@@ -201,6 +211,7 @@ export async function readDecisionFeedback(
         definitionRef: c.definitionRef,
         min: c.min,
         max: c.max,
+        ...(c.exclusiveMax ? { exclusiveMax: true } : {}),
       })),
     },
   };

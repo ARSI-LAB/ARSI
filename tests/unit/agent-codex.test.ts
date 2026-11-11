@@ -129,6 +129,7 @@ async function fixture(
   options: {
     model?: string;
     thinkingLevel?: string;
+    webSearch?: 'disabled' | 'cached' | 'live';
     timeoutMs?: number;
     retries?: number;
     approvalRequired?: boolean;
@@ -257,6 +258,9 @@ async function fixture(
   const operation = await createAgentCodex(
     {
       executable: process.env.RSI_TEST_CODEX_EXECUTABLE ?? executable,
+      ...(options.webSearch === undefined
+        ? {}
+        : { webSearch: options.webSearch }),
       ...(options.model === undefined ? {} : { model: options.model }),
       ...(options.thinkingLevel === undefined
         ? {}
@@ -328,6 +332,7 @@ test('Codex uses the managed project cwd and the native tool surface', async (t)
     assert.equal(object(audit.thread).cwd, await realpath(project));
     assert.equal(object(audit.turn).cwd, await realpath(project));
     assert.equal(object(audit.thread).dynamicTools, undefined);
+    assert.equal(object(audit.thread).ephemeral, false);
     assert.match(JSON.stringify(audit.args), /project_root_markers/);
     assert.match(String(object(audit.thread).permissions), /^rsi-agent-/);
     assert.match(JSON.stringify(audit.args), /workspace_roots/);
@@ -568,5 +573,23 @@ test('existing Policy accepts the native Codex binding', async () => {
   } finally {
     await runtime.dispose();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('Codex forwards explicit web search and keeps calls without roles ephemeral', async () => {
+  const f = await fixture(['{"answer":"ok"}'], { webSearch: 'live' });
+  try {
+    await f.run();
+    if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
+      const audit = object(
+        JSON.parse(await readFile(join(f.directory, 'execution.json'), 'utf8')),
+      );
+      assert.equal(object(audit.thread).ephemeral, true);
+      assert.ok(
+        Array.isArray(audit.args) && audit.args.includes('web_search="live"'),
+      );
+    }
+  } finally {
+    await f.close();
   }
 });

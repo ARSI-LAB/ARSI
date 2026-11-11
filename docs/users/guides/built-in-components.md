@@ -28,7 +28,7 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 
 Agent, Grid, and Optuna each evaluate the initial configuration once before search. Supply a configuration that can start the service and reserve one evaluation run for the baseline. A baseline evaluation failure stops the experiment.
 
-`parameter.agent` invokes `evaluator.inferencebench` directly for each candidate, serially. A startup or evaluation failure stops the experiment and triggers instance cleanup. With its default `selector.inference`, the Policy can retain an improved candidate before all performance targets are met. Its output keeps the incumbent `candidateRef` and `measurementRef`; `candidateFeasible` reports whether it satisfies the configured constraints, including when `status` is `no-feasible-configuration`.
+`parameter.agent` invokes `evaluator.inferencebench` directly for each candidate, serially. A confirmed, cleaned startup or measurement failure records a failed Measurement and rejects that candidate. Cancellation, incomplete collection or unconfirmed cleanup stops the experiment. A failed baseline cannot seed the search. With its default `selector.inference`, the Policy can retain an improved candidate before all performance targets are met. Its output keeps the incumbent `candidateRef` and `measurementRef`; `candidateFeasible` reports whether it satisfies the configured constraints, including when `status` is `no-feasible-configuration`.
 
 ## Loop components
 
@@ -102,3 +102,34 @@ Reflection requires an explicit execution step in the Policy. Specify the guidan
 - **Harness²**: Authorizes changes to the Invariant Proposer and Domain Proposer's `guidance` files. Its `improve_guidance` step is commented out by default; enabling it in a custom Policy allows these files to be updated for later Proposer calls to use when generating proposals.
 
 Runtime activates validated changes within the current experiment for later plugin calls to read and use. Follow the [Reflection guide](reflection.md) for configuration, resource authorization, and reuse across experiments.
+
+
+### Open inference workspaces
+
+Set `application.config.remote.parametersFile: null` to send the sealed candidate
+file tree to the remote launcher as `workspace` (relative path to base64 `content`
+and numeric `mode`). Its digest covers every file. The launcher owns materializing
+and executing that workspace; the framework does not interpret its engine options.
+Existing parameter-file mode remains available for narrower applications.
+
+`parameter.agent` takes `goal`, a `selection` description for the proposer, and an
+optional `parameterFile` hint (`null` for workspace mode). The Application Target
+owns editable paths; the Policy adds no parameter-file restriction. Use a directory
+Target with create/modify/delete to search scripts and source as well as parameters.
+Model quality, precision and context preservation may be stated in prompts; this
+mode does not verify accuracy or automatically prove those properties.
+
+Metric constraints support `exclusiveMax: true` for a strict upper bound.
+`selector.inference.minProgressImprovement` is the minimum fractional reduction
+of at least one nonzero constraint violation, with no other violation worsening.
+Once feasible, `minRelativeImprovement` controls primary-metric gains. For example,
+TPOT P90 strictly below 100 ms with output throughput maximized uses the scalar
+`tpotP90` constraint and `outputThroughput` objective. Failed candidates can be
+rejected without fabricated numeric scores. Unknown or cancelled outcomes remain
+errors. Training-summary proposers receive full public metric values and units in
+`context/metrics.json`, independently of bounded evidence previews.
+
+AISBench `workload.dataset: synthetic` maps the SDK's native synthetic workload.
+Complete request/token counts and the dataset implementation digest enter result
+validation and comparability; operational timeout settings do not define workload
+identity. Performance evidence is not an accuracy test.

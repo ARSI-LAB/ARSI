@@ -27,6 +27,7 @@ export async function runSession(options: {
   directory: string;
   model?: string;
   reasoningEffort?: string;
+  webSearch?: 'disabled' | 'cached' | 'live';
   request: AgentInput;
   signal: AbortSignal;
   record: (type: string, data: unknown) => void;
@@ -44,8 +45,10 @@ export async function runSession(options: {
   const launchConfig = [
     `project_root_markers=[${JSON.stringify(projectMarker)}]`,
     `default_permissions=${JSON.stringify(permissions)}`,
-    `permissions.${permissions}.filesystem={":root"="deny",":minimal"="read",":workspace_roots"="read"}`,
+    `permissions.${permissions}.filesystem={":root"="deny",":minimal"="read",":workspace_roots"="read"${process.platform === 'darwin' ? ',"/System/Library/OpenSSL"="read"' : ''}}`,
   ];
+  if (options.webSearch !== undefined)
+    launchConfig.push(`web_search=${JSON.stringify(options.webSearch)}`);
   const agentsDir = join(options.directory, '.codex', 'agents');
   const roles = await readdir(agentsDir, { withFileTypes: true }).catch(
     (error: unknown) => {
@@ -58,18 +61,21 @@ export async function runSession(options: {
       return [];
     },
   );
+  let hasRoles = false;
   for (const role of roles) {
     const name = role.name.slice(0, -5);
     if (
       role.isFile() &&
       role.name.endsWith('.toml') &&
       new RegExp(roleNamePattern).test(name)
-    )
+    ) {
+      hasRoles = true;
       launchConfig.push(
         `agents.${name}.config_file=${JSON.stringify(join(agentsDir, role.name))}`,
       );
+    }
   }
-  if (roles.length)
+  if (hasRoles)
     launchConfig.push('agents.max_depth=1', 'features.multi_agent=true');
   await runCodexProcess(
     options.executable,
@@ -96,7 +102,7 @@ export async function runSession(options: {
           method: 'thread/start',
           params: {
             cwd: options.directory,
-            ephemeral: true,
+            ephemeral: !hasRoles,
             ...(options.model === undefined ? {} : { model: options.model }),
             ...(options.reasoningEffort === undefined
               ? {}

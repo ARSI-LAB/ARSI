@@ -44,7 +44,7 @@ export const conditionsSchema = recordSchema({
   known: { type: 'boolean' },
   reasons: texts,
   fixed: recordSchema({
-    config: configSchema,
+    config: nullable(configSchema),
     source: nullable(sourceSchema),
     identity: nullable(identitySchema),
     solver: nullable(stringMap),
@@ -72,7 +72,7 @@ export const provenanceSchema = recordSchema({
   runIdentity: nullable(identitySchema),
   solverProvenance: nullable(stringMap),
   source: nullable(sourceSchema),
-  configuration: configSchema,
+  configuration: nullable(configSchema),
   collectedAt: text,
   metricsRevision: nullable(integer),
   usageKnown: { type: 'boolean' },

@@ -6,6 +6,7 @@ export type MetricStatistic = 'mean' | 'p50' | 'p95' | 'p99';
 export type MetricConstraint = {
   metric: string;
   statistic?: MetricStatistic;
+  exclusiveMax?: boolean;
 } & ({ min: number; max?: number } | { min?: number; max: number });
 export type MetricSelectorConfig = {
   metric?: string;
@@ -15,6 +16,7 @@ export type MetricSelectorConfig = {
   eligibility?: MetricConstraint[];
   constraints?: MetricConstraint[];
   minRelativeImprovement?: number;
+  minProgressImprovement?: number;
   tieBreak?: 'retain-incumbent';
 };
 export type ResolvedMetricSelectorConfig = MetricSelectorConfig &
@@ -39,6 +41,7 @@ const constraintSchema: JsonObject = {
         statistic: statisticSchema,
         min: { type: 'number' },
         max: { type: 'number' },
+        exclusiveMax: { type: 'boolean' },
       },
       ['metric'],
     ),
@@ -54,6 +57,12 @@ export const configSchema: JsonSchema = operationSchema(
     eligibility: { type: 'array', items: constraintSchema, default: [] },
     constraints: { type: 'array', items: constraintSchema, default: [] },
     minRelativeImprovement: {
+      type: 'number',
+      minimum: 0,
+      exclusiveMaximum: 1,
+      default: 0,
+    },
+    minProgressImprovement: {
       type: 'number',
       minimum: 0,
       exclusiveMaximum: 1,

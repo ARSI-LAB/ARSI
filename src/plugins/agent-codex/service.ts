@@ -60,6 +60,9 @@ export const createAgentCodex: OperationDefinition<
           tokenUsage: 'native',
         });
         return await runSession({
+          ...(config.webSearch === undefined
+            ? {}
+            : { webSearch: config.webSearch }),
           executable: config.executable,
           directory: cwd,
           model: config.model,

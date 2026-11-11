@@ -21,7 +21,7 @@ export type RemoteInferenceConfig = InferenceCommonConfig & {
   remote: {
     script: string;
     executable?: string;
-    parametersFile?: string;
+    parametersFile?: string | null;
     timeoutMs?: number;
     discoverParameters?: boolean;
     memoryUtilization?: number;
@@ -46,7 +46,7 @@ export const configSchema: JsonSchema = {
       properties: {
         script: { type: 'string', minLength: 1, 'x-rsi-path': 'file' },
         executable: { type: 'string', minLength: 1 },
-        parametersFile: { type: 'string', minLength: 1 },
+        parametersFile: { type: ['string', 'null'], minLength: 1 },
         timeoutMs: { type: 'integer', minimum: 1 },
         discoverParameters: { type: 'boolean' },
         memoryUtilization: { type: 'number', exclusiveMinimum: 0, maximum: 1 },

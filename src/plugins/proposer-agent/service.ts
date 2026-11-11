@@ -19,6 +19,7 @@ import {
 } from '../shared/agent-editing/index.js';
 import { proposerExecutionContext } from './execution-context.js';
 import { mergeEdits } from './merge-edits.js';
+import { metricEvidence } from './metric-evidence.js';
 import { expandEdits, proposerEditOutputSchema } from './edits.js';
 
 export const createProposerAgent: OperationDefinition<
@@ -51,6 +52,23 @@ export const createProposerAgent: OperationDefinition<
           }),
         );
         execution = proposerExecutionContext(full);
+      }
+      if (config.evidenceView === 'training-summary') {
+        execution = {
+          files: {
+            'context/metrics.json': JSON.stringify(
+              await metricEvidence(editEvidenceRefs(input), context),
+            ),
+          },
+          evidence: await context.readEvidence(editEvidenceRefs(input), {
+            view: 'training-summary',
+          }),
+          input: {
+            metricEvidencePath: 'context/metrics.json',
+            metricEvidenceInstruction:
+              'Read actual metric values and units here when previews omit them. Missing metrics are unknown, not zero.',
+          },
+        };
       }
       const batchSchema: JsonSchema | undefined =
         input.maxCandidates === undefined

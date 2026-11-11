@@ -1,3 +1,5 @@
+import { OperationRejectedError } from '../contracts/runtime/errors.js';
+
 /** Error boundaries keep diagnostics without persisting configured credentials. */
 export function errorText(error: unknown): string {
   const visiting = new Set<Error>();
@@ -21,7 +23,7 @@ export function errorText(error: unknown): string {
 }
 
 /** The candidate did not start. Expose this to the caller only after confirming cleanup. */
-export class InferenceStartupError extends Error {
+export class InferenceStartupError extends OperationRejectedError {
   override readonly name = 'InferenceStartupError';
 
   constructor(reason: string) {

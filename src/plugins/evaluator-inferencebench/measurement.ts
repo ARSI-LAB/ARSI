@@ -60,14 +60,14 @@ function adapterIdentity(): Promise<string> {
   ]));
 }
 export async function normalizeEvaluation(
-  native: SdkEvaluatorConfig,
+  native: SdkEvaluatorConfig | null,
   input: JsonObject,
   execution: JsonObject,
   resultValue: unknown,
   context: RuntimeContext,
   failure: JsonObject | null = null,
 ): Promise<string> {
-  const aisbench = object(native.benchmark).name === 'aisbench';
+  const aisbench = object(native?.benchmark ?? {}).name === 'aisbench';
   const result = object(redact(resultValue ?? {}));
   const snapshot = await snapshotOf(result);
   const run = snapshot ? plain(snapshot.run) : {};
@@ -164,7 +164,13 @@ export async function normalizeEvaluation(
       );
       pointCoverage = 'complete';
       pointKey = conditionsKey
-        ? digest({ conditionsKey, workload: point.workload })
+        ? digest({
+            conditionsKey,
+            workload: point.workload,
+            ...(point.datasetImplementation === undefined
+              ? {}
+              : { datasetImplementation: point.datasetImplementation }),
+          })
         : null;
       // AISBench's one point is the run result. Never average multiple points.
       if (taskIds.length === 1) {
@@ -251,7 +257,11 @@ export async function normalizeEvaluation(
     : null;
   const profile = await typed(
     context,
-    aisbench ? 'measurement.aisbench/v1' : 'measurement.agentx/v1',
+    native === null
+      ? 'measurement.inference/v1'
+      : aisbench
+        ? 'measurement.aisbench/v1'
+        : 'measurement.agentx/v1',
     inferenceProfileSchema,
     {
       run: nativeRun,
@@ -284,7 +294,12 @@ export async function normalizeEvaluation(
       typeof run.startedAt === 'string'
         ? run.startedAt
         : new Date().toISOString(),
-    finishedAt: typeof run.finishedAt === 'string' ? run.finishedAt : null,
+    finishedAt:
+      typeof run.finishedAt === 'string'
+        ? run.finishedAt
+        : native === null && failure
+          ? new Date().toISOString()
+          : null,
     status,
     coverage:
       taskIds.length && completedPoints === taskIds.length

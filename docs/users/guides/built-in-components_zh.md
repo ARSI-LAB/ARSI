@@ -28,7 +28,7 @@
 
 Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供能正常启动的配置，并为基线预留一次 evaluation run。基线评测失败时，实验停止。
 
-`parameter.agent` 按顺序直接调用 `evaluator.inferencebench` 评测每个候选。启动或评测失败会停止实验并触发实例清理。默认的 `selector.inference` 允许 Policy 在全部性能目标达成前保留有改善的候选。输出始终保留当前最优版本的 `candidateRef` 和 `measurementRef`，由 `candidateFeasible` 表示其是否满足配置的约束；即使 `status` 为 `no-feasible-configuration`，这些引用也会保留。
+`parameter.agent` 按顺序直接调用 `evaluator.inferencebench` 评测每个候选。已确认且完成清理的启动或评测失败记为失败 Measurement，并拒绝该候选；取消、收集不完整或清理状态不明会停止实验。失败基线不能启动搜索。默认的 `selector.inference` 允许 Policy 在全部性能目标达成前保留有改善的候选。输出始终保留当前最优版本的 `candidateRef` 和 `measurementRef`，由 `candidateFeasible` 表示其是否满足配置的约束；即使 `status` 为 `no-feasible-configuration`，这些引用也会保留。
 
 ## Loop 组件
 
@@ -102,3 +102,26 @@ Reflection 只需要 Policy 显式声明执行。在 Reflection配置文件中 �
 - **Harness²**：已授权修改 Invariant Proposer 和 Domain Proposer 的 `guidance` 指导文件。`improve_guidance` 步骤默认注释；在自定义 Policy 中启用后，可更新这些文件，供后续 Proposer 生成提案时使用。
 
 通过校验的修改由 Runtime 在当前实验中启用，供后续插件调用读取使用。具体配置、资源授权和跨实验复用见 [Reflection 使用指南](reflection_zh.md)。
+
+
+### 开放推理工作区
+
+设置 `application.config.remote.parametersFile: null` 后，远程启动器收到封存的
+候选文件树 `workspace`：相对路径对应 base64 `content` 和数字 `mode`，摘要覆盖
+所有文件。启动器负责落盘与执行，框架不解释引擎选项；原有参数文件模式仍可使用。
+
+`parameter.agent` 接收 `goal`、给提案器的 `selection` 说明及 `parameterFile`
+提示（工作区模式填 `null`）。可编辑范围由 Application Target 定义，Policy 不再
+额外限制参数文件。使用允许 create/modify/delete 的目录 Target，可同时搜索参数、
+脚本与源码。模型质量、精度和上下文长度要求可写在提示词中；此模式不自动验证精度。
+
+指标约束支持 `exclusiveMax: true` 表示严格上界。`selector.inference` 的
+`minProgressImprovement` 表示至少一个非零约束违反量的最小相对下降比例，且其他
+违反量不能增加。可行后用 `minRelativeImprovement` 判断主指标收益。例如以
+`tpotP90` 严格小于 100 ms 为约束，最大化 `outputThroughput`。失败候选可直接
+拒绝，不伪造数值；未知或取消状态仍是错误。training-summary 提案器从
+`context/metrics.json` 读取完整公共指标数值及单位，不受摘要预览截断影响。
+
+AISBench 的 `workload.dataset: synthetic` 使用 SDK 原生合成负载。完整请求数、
+输入输出 token 总数和数据生成实现摘要参与验证与可比性判断；运行超时不是负载身份。
+性能结果不等于精度测试。

@@ -283,7 +283,7 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`doctor` checks contracts, bindings and configuration, then invokes each selected component definition's optional `doctor` function. It incorporates the returned `DoctorResult` into the report. Export and package the function with the component and register it with `registerOperation(definition)`. A definition without `doctor` receives `unchecked` for its plugin-specific coverage while automatic structural/path checks still run. Doctor performs no model inference or optimization run; Evaluators delegate to the full SDK doctor, including its download and build probes. After running the experiment, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
+`doctor` checks contracts, bindings and configuration, then invokes each selected component definition's optional `doctor` function. It incorporates the returned `DoctorResult` into the report.
 
 ## Use RuntimeContext
 

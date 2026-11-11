@@ -283,7 +283,7 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`doctor` 检查契约、绑定和配置，再调用每个所选组件定义上的可选 `doctor` 函数，并将返回的 `DoctorResult` 纳入报告。将函数与组件一起导出、打包，通过 `registerOperation(definition)` 注册。定义省略 `doctor` 时，插件专用覆盖记为 `unchecked`，自动结构与路径检查仍会运行。Doctor 不执行模型推理或优化实验；Evaluator 委托完整 SDK doctor，包括其下载和构建探针。实验运行后检查 `propose` 的输出是否包含 `status: no-change` 和预期的 `rationale`；查看步骤结果的方法见[运行与检查实验](running-experiments_zh.md)。
+`doctor` 检查契约、绑定和配置，再调用每个所选组件定义上的可选 `doctor` 函数，并将返回的 `DoctorResult` 纳入报告。
 
 ## 使用 RuntimeContext
 

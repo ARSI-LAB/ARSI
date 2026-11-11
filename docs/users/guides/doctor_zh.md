@@ -175,16 +175,10 @@ export const customDefinition = {
 ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ```
 
-### 回调约定与生命周期
+从 `ember-rsi/contracts` 或 `ember-rsi` 导入 `OperationDoctor<C>`、`DoctorContext<C>` 和 `DoctorResult`。
 
-从 `ember-rsi/contracts` 或 `ember-rsi` 导入 `OperationDoctor<C>`、`DoctorContext<C>` 和 `DoctorResult`。`context.binding.config` 提供类型为 `C` 的生效配置。回调返回 `Promise<DoctorResult>`，包含 `checks` 和可选的 `missingResources`。检查项填写组件内的 `id`、`status` 以及可选的 `reason` 和 `details`。RSI 统一补上绑定名前缀、绑定和插件信息，脱敏诊断数据，汇总状态并确定退出码。
-
-- 从 `ember-rsi` 导入 `runDoctorCheck`，用 `runDoctorCheck(id, action, { signal: context.signal })` 执行有时限的探测。外部操作使用 `action` 收到的信号。该函数返回一条 `passed` 或 `failed` 检查，选项还可填写 `timeoutMs`、`reason` 和 `details`。
-- 跳过的检查返回 `status: 'unchecked'` 并说明原因。缺失的输入写入 `missingResources`，包含 `field`、`kind`、`reference` 和 `checksNotRun`。`checksNotRun` 的每个 ID 都对应同一份结果中的一条 `unchecked` 检查。
-- 遇到预期问题时返回 `failed` 检查，让独立检查继续。回调发生未处理的异常或返回无效结果时，RSI 将 `<binding>.script` 记为 `failed`。RSI 只能汇总回调成功返回的结果。
 - 组件注册和 Recipe 加载负责保留回调，`doctor` 命令才会调用它。
 - 省略 `doctor` 时，框架仍执行通用检查，并将组件专用的 `plugin` 项标为 `unchecked`。
-- 临时文件放在 `context.directory` 或隔离 Runtime 中，外部操作使用单项检查的信号，脚本在 `finally` 中清理自己创建的资源。
 
 ## 5. doctor 的时间限制
 

@@ -175,16 +175,10 @@ Build the extension, call `registry.registerOperation(customDefinition)` from it
 ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ```
 
-### Callback contract and lifecycle
+Import `OperationDoctor<C>`, `DoctorContext<C>` and `DoctorResult` from `ember-rsi/contracts` or `ember-rsi`.
 
-Import `OperationDoctor<C>`, `DoctorContext<C>` and `DoctorResult` from `ember-rsi/contracts` or `ember-rsi`. `context.binding.config` holds the effective configuration of type `C`. The callback returns `Promise<DoctorResult>` with `checks` and optional `missingResources`. Each check supplies a component-local `id`, `status` and optional `reason` and `details`. RSI prefixes the IDs with the binding name, adds binding and plugin metadata, redacts diagnostics, and computes the totals and exit status.
-
-- Use `runDoctorCheck(id, action, { signal: context.signal })` from `ember-rsi` for a bounded probe. The action uses the signal it receives for external operations. The helper returns one `passed` or `failed` check. Its options also accept `timeoutMs`, `reason` and `details`.
-- Return `status: 'unchecked'` for a skipped check and give its reason. List missing inputs under `missingResources` with `field`, `kind`, `reference` and `checksNotRun`. Each entry in `checksNotRun` names a local `unchecked` check in the same result.
-- Return `failed` checks for expected problems so independent checks can continue. An unexpected callback error or invalid result produces `<binding>.script` with status `failed`. RSI can only collect results the callback returns successfully.
 - Component registration and Recipe loading retain the callback for the `doctor` command to invoke.
 - When a component omits `doctor`, the framework still runs the common checks and marks the component-specific `plugin` check as `unchecked`.
-- Keep temporary files in `context.directory` or the isolated Runtime. Pass each check's signal to external operations and clean up the resources the diagnostic creates in `finally`.
 
 ## 5. Doctor time limits
 

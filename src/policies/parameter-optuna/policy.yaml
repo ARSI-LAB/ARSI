@@ -55,7 +55,7 @@ output_schema:
   $ref: ./schemas/result.yaml
 require:
   proposer:
-    contract: contract.search
+    contract: contract.proposer-iterative
   evaluator:
     contract: contract.inferencebench
   selector:

@@ -6,7 +6,7 @@ import {
   type ProposerOutput,
 } from './proposer.js';
 
-export type SearchWork =
+export type IterativeProposerWork =
   | {
       kind: 'evaluation';
       id: string;
@@ -24,7 +24,7 @@ export type SearchWork =
       | { proposalInput: null; proposalResult: ProposerOutput }
     ));
 
-export type SearchFeedback =
+export type IterativeProposerFeedback =
   | {
       kind: 'evaluation';
       /** Measurements follow the order of the requested evaluations. */
@@ -39,12 +39,12 @@ export type SearchFeedback =
     };
 
 /**
- * Search implementations own their algorithm and immutable state artifacts.
+ * Iterative proposers own their algorithm and immutable state artifacts.
  * Policies execute requested work and return feedback with its opaque work ID.
  * Continue with the returned stateRef, including after checkpoint recovery.
  * Suggest starts another attempt; observe can request further work for it.
  */
-export type SearchInput =
+export type IterativeProposerInput =
   | {
       action: 'initialize';
       parent: string;
@@ -56,16 +56,16 @@ export type SearchInput =
       action: 'observe';
       stateRef: string;
       workId: string;
-      feedback: SearchFeedback;
+      feedback: IterativeProposerFeedback;
     };
 
-export type SearchOutput = {
+export type IterativeProposerOutput = {
   stateRef: string;
   done: boolean;
   /** Algorithm attempt limit, or null when the Policy supplies its own bound. */
   iterationLimit: number | null;
-  work: SearchWork | null;
-  /** Final implementation-specific deliverable; null while search is active. */
+  work: IterativeProposerWork | null;
+  /** Final implementation-specific deliverable; null while iteration is active. */
   result: JsonObject | null;
 };
 
@@ -92,8 +92,8 @@ const proposalWork = {
   taskIds: refs(1),
 };
 
-export const searchContract = defineContract({
-  id: 'contract.search',
+export const iterativeProposerContract = defineContract({
+  id: 'contract.proposer-iterative',
   input_schema: {
     oneOf: [
       {

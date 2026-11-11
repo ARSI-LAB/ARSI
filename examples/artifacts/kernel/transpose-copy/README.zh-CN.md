@@ -73,9 +73,11 @@ Embedding 身份文件使用 `rsi.operator-embedding-identity/v1`，包含带 `i
 pnpm install --frozen-lockfile
 pnpm build
 pnpm ember-rsi validate examples/artifacts/kernel/transpose-copy/recipe.search.yaml
-pnpm ember-rsi run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
+node --import ./examples/artifacts/kernel/transpose-copy/http-timeout.mjs dist/src/entries/cli/main.js run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
 pnpm ember-rsi show transpose-copy-search-001
 ```
+
+运行命令预加载 [HTTP 超时配置](./http-timeout.mjs)，使客户端等待响应头及响应体数据的超时与 Recipe 的单次模型请求时限一致。如果模型端点经过缓冲代理，还需按部署情况调整代理超时，以允许该等待时间。设备编号由 `benchmark.config.device` 指定。
 
 续跑时使用相同 Recipe 和 ID 再次执行 `run`，并添加 `--resume`。
 输入、构建和外部资源必须保持一致。已完成实验的续跑会复用已记录结果。
@@ -119,7 +121,9 @@ Profiling 不可用时停止指标阶段。诊断可返回 `no-new-hypothesis`�
 | `policy.config.maxNoImprovement`                               | `5`        | 上次接受改进后，未被接受的有效候选数上限，取正整数。                                 |
 | `policy.config.maxConsecutiveNoChange`                         | `3`        | 连续空指标提案数上限，取正整数；产生候选后重置计数。                                 |
 | `bindings.proposer.config.historyWindow`                       | `5`        | 提供给诊断与生成阶段的最近总结数量，默认 5；`0` 关闭近期历史注入，完整历史仍被保存。 |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`   | 一个完整模型阶段的时间上限，单位 ms；`0` 关闭此本地期限。                            |
+| `bindings.agent.config.timeoutMs`                              | `1800000`  | 单次模型请求的上限（30 分钟）。                                                      |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `0`        | 关闭提案阶段的时限，一个阶段可包含多次模型请求。                                     |
+| `bindings.summarizer.config.modelRequestTimeoutMs`             | `0`        | 关闭总结阶段的时限。                                                                 |
 | `bindings.proposer.config.embedding.timeoutMs`                 | `300000`   | 检索 worker 的时间上限，单位 ms；`0` 关闭此期限。                                    |
 | `bindings.proposer.config.embedding.maxPayloadBytes`           | 省略       | 可选的单份外部检索 JSON 数据字节上限。                                               |
 | `bindings.proposer.config.embedding.maxLogBytes`               | 省略       | 可选的检索 worker 单个输出流的字节上限。                                             |
@@ -127,13 +131,9 @@ Profiling 不可用时停止指标阶段。诊断可返回 `no-new-hypothesis`�
 | `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20` | 评测预热次数与计时重复次数。                                                         |
 | `bindings.selector.config.minRelativeImprovement`              | `0.02`     | 合格候选平均延迟所需的相对降低比例。                                                 |
 
-本例 Manager 上限为 1,024 次操作、65 次评测、152 次模型调用、
-7,200,000 ms 总时长，以及 60,000 ms 清理预留时间。
-评测次数同时包含 `evaluate` 和 `profile`；模型调用同时包含工具后续调用与委派。
-单个 Agent 请求和执行范围还可以配置更低上限。提高总预算不会绕过这些限制，
-也不保证所有配置的轮次都能执行。Proposer 的两个超时字段接受
-`0` 到 `2147483647` 的整数毫秒数，并保留上表中的默认值。
-省略检索字节上限时，不限制对应维度。
+Manager 的预算为 4,096 次操作、65 次评测、2,048 次模型调用、12 小时总时长，另设 60 秒清理预留。评测次数包含 `evaluate` 和 `profile`，模型调用数包含工具调用后的后续请求和委派请求。可按设备可用时间和模型配额调整这些上限。
+
+Proposer 的阶段和检索超时均接受 0 到 2147483647 的整数毫秒数。省略检索字节上限时，不限制对应维度。
 Application 的 [Target](./target.yaml) 控制源码大小与修改字节数上限；
 本例将两者显式设为 32,768 字节。授权更大源码时，提高或省略这些 Target 限制。
 

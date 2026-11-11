@@ -85,9 +85,11 @@ a positive `batchSize` (for example `32`), and a `files` inventory of relative p
 pnpm install --frozen-lockfile
 pnpm build
 pnpm ember-rsi validate examples/artifacts/kernel/transpose-copy/recipe.search.yaml
-pnpm ember-rsi run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
+node --import ./examples/artifacts/kernel/transpose-copy/http-timeout.mjs dist/src/entries/cli/main.js run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
 pnpm ember-rsi show transpose-copy-search-001
 ```
+
+The run command preloads the [HTTP timeout configuration](./http-timeout.mjs) so the client uses the Recipe’s per-request timeout when waiting for response headers or body data. If the model endpoint uses a buffering proxy, configure its timeout to allow that wait as well. Set `benchmark.config.device` to the device allocated for the run.
 
 To resume, repeat `run` with the same Recipe and ID and add `--resume`. Keep the
 inputs, build, and external resources identical. Completed resumes reuse recorded
@@ -137,7 +139,9 @@ bans on future experiments. A no-change round has no candidate timing evidence.
 | `policy.config.maxNoImprovement`                               | `5`           | Positive limit of valid candidates without promotion since the last promotion.                                                                             |
 | `policy.config.maxConsecutiveNoChange`                         | `3`           | Positive limit of consecutive empty metric proposals; a candidate resets the count.                                                                        |
 | `bindings.proposer.config.historyWindow`                       | `5`           | Number of recent summaries delivered to diagnosis and generation; defaults to 5. Set `0` to omit recent summaries while retaining complete stored history. |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms; `0` disables this local deadline.                                                                            |
+| `bindings.agent.config.timeoutMs`                              | `1800000`     | Deadline for one model request (30 minutes).                                                                                                               |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `0`           | Disable the proposer stage deadline. A stage can make multiple model requests.                                                                             |
+| `bindings.summarizer.config.modelRequestTimeoutMs`             | `0`           | Disable the summary stage deadline.                                                                                                                        |
 | `bindings.proposer.config.embedding.timeoutMs`                 | `300000`      | Retrieval worker deadline, in ms; `0` disables it.                                                                                                         |
 | `bindings.proposer.config.embedding.maxPayloadBytes`           | Omitted       | Optional byte limit for each external retrieval JSON payload.                                                                                              |
 | `bindings.proposer.config.embedding.maxLogBytes`               | Omitted       | Optional byte limit for each retrieval worker output stream.                                                                                               |
@@ -145,14 +149,9 @@ bans on future experiments. A no-change round has no candidate timing evidence.
 | `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                                                                                                   |
 | `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                                                                                            |
 
-This example's Manager limits are 1,024 operations, 65 evaluation runs, 152 model
-calls, 7,200,000 ms elapsed time, and a 60,000 ms cleanup reserve. Evaluation runs
-include both `evaluate` and `profile`; model calls include tool continuations and
-delegates. Individual Agent requests and execution scopes can impose lower
-configured limits. Raising the overall budget does not bypass those limits and
-does not guarantee that every configured round will run. Both Proposer timeout
-fields accept integer milliseconds from `0` to `2147483647` and keep the defaults
-shown above. Omitted retrieval byte limits leave those dimensions unrestricted.
+The Manager budget allows 4,096 operations, 65 evaluations, 2,048 model calls and 12 hours of elapsed time, with a 60-second cleanup reserve. Evaluations include both `evaluate` and `profile`. Model calls include requests following tool calls and requests by delegated agents. Adjust these limits to the available device time and model quota.
+
+The proposer stage and retrieval timeouts accept integer milliseconds from 0 to 2147483647. Omitted retrieval byte limits leave those dimensions unrestricted.
 The Application [Target](./target.yaml) controls source and changed-byte limits;
 this example explicitly sets both to 32,768 bytes. Raise or omit those Target
 limits when authorizing larger sources.

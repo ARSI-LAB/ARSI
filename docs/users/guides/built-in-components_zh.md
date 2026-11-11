@@ -28,7 +28,7 @@
 
 Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供能正常启动的配置，并为基线预留一次 evaluation run。基线评测失败时，实验停止。
 
-`parameter.agent` 按顺序直接调用 `evaluator.inferencebench` 评测每个候选。已确认且完成清理的启动或评测失败记为失败 Measurement，并拒绝该候选；取消、收集不完整或清理状态不明会停止实验。失败基线不能启动搜索。默认的 `selector.inference` 允许 Policy 在全部性能目标达成前保留有改善的候选。输出始终保留当前最优版本的 `candidateRef` 和 `measurementRef`，由 `candidateFeasible` 表示其是否满足配置的约束；即使 `status` 为 `no-feasible-configuration`，这些引用也会保留。
+`parameter.agent` 按顺序直接调用 `evaluator.inferencebench` 评测每个候选。已确认且完成清理的启动失败记为失败 Measurement，并拒绝该候选；SDK 评测失败、取消、收集不完整或清理状态不明会停止实验。失败基线不能启动搜索。默认的 `selector.inference` 允许 Policy 在全部性能目标达成前保留有改善的候选。输出始终保留当前最优版本的 `candidateRef` 和 `measurementRef`，由 `candidateFeasible` 表示其是否满足配置的约束；即使 `status` 为 `no-feasible-configuration`，这些引用也会保留。
 
 ## Loop 组件
 
@@ -120,6 +120,3 @@ Reflection 只需要 Policy 显式声明执行。在 Reflection配置文件中 �
 判断主指标收益。指标名称、阈值与优化方向由 Recipe 配置，selector 不硬编码目标。
 失败候选可直接拒绝，不伪造数值；未知或取消状态仍是错误。training-summary 提案器
 从 `context/metrics.json` 读取公共指标数值及单位，不受摘要预览截断影响。
-
-AISBench 的 `workload.dataset: synthetic` 使用 SDK 原生合成负载，校验完整请求数、
-输入输出 token 总数与数据生成实现身份。性能结果不等于精度测试。

@@ -16,7 +16,7 @@ export const inferenceProfileSchema = recordSchema({
 });
 
 const positiveInteger: JsonObject = { type: 'integer', minimum: 1 };
-const aisbenchFields = {
+export const aisbenchWorkloadSchema = recordSchema({
   inputLength: positiveInteger,
   outputLength: positiveInteger,
   dataCount: positiveInteger,
@@ -31,12 +31,4 @@ const aisbenchFields = {
     dp: positiveInteger,
     seed: { type: 'integer', minimum: 0 },
   }),
-};
-export const aisbenchWorkloadSchema = {
-  ...recordSchema(aisbenchFields),
-  properties: {
-    ...aisbenchFields,
-    dataset: { const: 'synthetic' },
-    warmups: { type: 'integer', minimum: 0 },
-  },
-};
+});

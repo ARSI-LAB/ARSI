@@ -28,7 +28,7 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 
 Agent, Grid, and Optuna each evaluate the initial configuration once before search. Supply a configuration that can start the service and reserve one evaluation run for the baseline. A baseline evaluation failure stops the experiment.
 
-`parameter.agent` invokes `evaluator.inferencebench` directly for each candidate, serially. A confirmed, cleaned startup or measurement failure records a failed Measurement and rejects that candidate. Cancellation, incomplete collection or unconfirmed cleanup stops the experiment. A failed baseline cannot seed the search. With its default `selector.inference`, the Policy can retain an improved candidate before all performance targets are met. Its output keeps the incumbent `candidateRef` and `measurementRef`; `candidateFeasible` reports whether it satisfies the configured constraints, including when `status` is `no-feasible-configuration`.
+`parameter.agent` invokes `evaluator.inferencebench` directly for each candidate, serially. A confirmed, cleaned startup failure records a failed Measurement and rejects that candidate. SDK measurement failures, cancellation, incomplete collection or unconfirmed cleanup stop the experiment. A failed baseline cannot seed the search. With its default `selector.inference`, the Policy can retain an improved candidate before all performance targets are met. Its output keeps the incumbent `candidateRef` and `measurementRef`; `candidateFeasible` reports whether it satisfies the configured constraints, including when `status` is `no-feasible-configuration`.
 
 ## Loop components
 
@@ -126,7 +126,3 @@ belong to Recipe configuration, not hardcoded selector goals. Failed candidates
 can be rejected without fabricated scores; unknown or cancelled outcomes remain
 errors. Training-summary proposers receive public metric values and units in
 `context/metrics.json`, independently of bounded evidence previews.
-
-AISBench `workload.dataset: synthetic` maps the SDK's native synthetic workload.
-Complete request/token counts and dataset implementation identity are validated.
-Performance evidence is not an accuracy test.

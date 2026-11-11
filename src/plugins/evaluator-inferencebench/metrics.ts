@@ -94,11 +94,7 @@ export async function aisbenchPoint(
   summary: JsonObject,
   run: JsonObject,
   taskId: string,
-): Promise<{
-  workload: JsonObject;
-  metrics: JsonObject;
-  datasetImplementation?: string;
-}> {
+): Promise<{ workload: JsonObject; metrics: JsonObject }> {
   const source = object(run.source, 'AISBench source');
   const provenance = object(run.solverProvenance, 'AISBench provenance');
   const workload = object(summary.workload, 'AISBench workload');
@@ -108,10 +104,7 @@ export async function aisbenchPoint(
   if (
     summary.schemaVersion !== 1 ||
     summary.kind !== 'aisbench' ||
-    source.source !==
-      (workload.dataset === 'synthetic'
-        ? 'aisbench:synthetic'
-        : 'github:rayn-zzz/aisbench_auto_tools_prefix') ||
+    source.source !== 'github:rayn-zzz/aisbench_auto_tools_prefix' ||
     !/^[a-f0-9]{64}$/.test(bundleDigest) ||
     bundleDigest !== object(source.metadata).bundleDigest ||
     bundleDigest !== provenance.bundleDigest ||
@@ -132,19 +125,6 @@ export async function aisbenchPoint(
     throw new Error(
       'AISBench final CSV row must cover the workload and report positive qps',
     );
-  if (workload.dataset === 'synthetic') {
-    if (
-      !/^[a-f0-9]{64}$/.test(String(row.dataset_implementation)) ||
-      aisbenchNumber(row.failed_req) !== 0 ||
-      aisbenchNumber(row.total_input_tokens) !==
-        Number(workload.inputLength) * Number(workload.dataCount) ||
-      aisbenchNumber(row.total_output_tokens) !==
-        Number(workload.outputLength) * Number(workload.dataCount)
-    )
-      throw new Error(
-        'Synthetic AISBench request/token totals or dataset identity mismatch',
-      );
-  }
   const sourceRef = await artifacts.putJson(summary);
   const metrics: JsonObject = {};
   for (const [id, column, unit] of aisbenchFields) {
@@ -176,11 +156,5 @@ export async function aisbenchPoint(
             source,
           };
   }
-  return {
-    metrics,
-    workload,
-    ...(workload.dataset === 'synthetic'
-      ? { datasetImplementation: string(row.dataset_implementation) }
-      : {}),
-  };
+  return { metrics, workload };
 }

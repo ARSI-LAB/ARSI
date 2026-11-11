@@ -164,13 +164,7 @@ export async function normalizeEvaluation(
       );
       pointCoverage = 'complete';
       pointKey = conditionsKey
-        ? digest({
-            conditionsKey,
-            workload: point.workload,
-            ...(point.datasetImplementation === undefined
-              ? {}
-              : { datasetImplementation: point.datasetImplementation }),
-          })
+        ? digest({ conditionsKey, workload: point.workload })
         : null;
       // AISBench's one point is the run result. Never average multiple points.
       if (taskIds.length === 1) {

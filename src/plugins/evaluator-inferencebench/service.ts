@@ -1,6 +1,6 @@
 import { OperationRejectedError } from '../../contracts/runtime/errors.js';
 import { errorText } from '../../shared/errors.js';
-import { mkdir, writeFile, readdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   InferencebenchInput,
@@ -81,8 +81,6 @@ export async function createInferencebench(
                 context,
                 diagnostic,
               );
-              if (!context.signal.aborted && (await confirmedFailure(partial)))
-                return { measurementRef };
               throw Object.assign(
                 new Error(
                   error instanceof Error ? error.message : String(error),
@@ -109,10 +107,7 @@ export async function createInferencebench(
                 ),
                 { measurementRef, status: 'unknown' },
               );
-            if (
-              context.signal.aborted ||
-              (raw.exitCode !== 0 && !(await confirmedFailure(raw)))
-            ) {
+            if (context.signal.aborted || raw.exitCode !== 0) {
               const status = evaluationStatus(raw, context);
               throw Object.assign(
                 new Error('Evaluator completed with nonzero exitCode'),
@@ -215,38 +210,4 @@ function prepareEvaluationConfig(
   if (plain(config.output).directory !== undefined)
     throw new Error('output.directory is owned by RSI');
   return parsed;
-}
-
-/** Only settled native failures may become rejected candidates. Uncertain cleanup is fatal. */
-async function confirmedFailure(value: unknown): Promise<boolean> {
-  if (!value || typeof value !== 'object') return false;
-  const result = object(value);
-  const snapshot = result.snapshot ? object(result.snapshot) : null;
-  if (
-    !snapshot ||
-    !Array.isArray(snapshot.pendingTaskIds) ||
-    snapshot.pendingTaskIds.length ||
-    !Array.isArray(snapshot.records) ||
-    !snapshot.records.length
-  )
-    return false;
-  for (const raw of snapshot.records) {
-    const record = object(raw);
-    if (
-      record.cleanupStatus !== 'cleaned' ||
-      object(record.collection).artifacts !== 'complete' ||
-      !['completed', 'failed'].includes(String(record.executionStatus))
-    )
-      return false;
-  }
-  if (typeof result.runDirectory !== 'string') return false;
-  async function uncertain(directory: string): Promise<boolean> {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.name === 'cleanup-unconfirmed.json') return true;
-      if (entry.isDirectory() && (await uncertain(join(directory, entry.name))))
-        return true;
-    }
-    return false;
-  }
-  return !(await uncertain(result.runDirectory));
 }

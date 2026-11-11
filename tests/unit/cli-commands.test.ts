@@ -40,6 +40,7 @@ test('CLI provides command-specific and nested help', () => {
     assert.equal(result.command, 'help');
     assert.match(result.help ?? '', /Usage:/);
     if (args.includes('run')) assert.match(result.help ?? '', /--resume/);
+    if (args.includes('doctor')) assert.match(result.help ?? '', /--static/);
     if (args.includes('apply')) assert.match(result.help ?? '', /revisionID/);
   }
 });
@@ -83,6 +84,7 @@ test('CLI maps existing commands and defaults to execution inputs', () => {
   assert.equal(parseCommand(['dashboard']).port, 4317);
   assert.equal(parseCommand(['dashboard', '--port=65535']).port, 65535);
   assert.equal(parseCommand(['run', 'r.yaml']).resume, false);
+  assert.equal(parseCommand(['doctor', 'r.yaml', '--static']).staticOnly, true);
 });
 
 test('CLI usage errors include focused help like evaluator', () => {

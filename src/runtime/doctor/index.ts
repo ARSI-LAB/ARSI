@@ -66,6 +66,7 @@ export async function doctorRecipe(
   options: {
     signal?: AbortSignal;
     timeoutMs?: number;
+    staticOnly?: boolean;
   } = {},
 ): Promise<DoctorReport> {
   const signal = options.signal ?? new AbortController().signal;
@@ -351,6 +352,13 @@ export async function doctorRecipe(
             throw error;
           }
         });
+      }
+      if (options.staticOnly) {
+        context.unchecked(
+          'plugin',
+          'Component diagnostics were skipped by --static.',
+        );
+        continue;
       }
       const doctor = binding.definition.doctor;
       if (!doctor)

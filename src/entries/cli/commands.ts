@@ -20,6 +20,7 @@ interface ParsedCommand {
   pluginDirectories: string[];
   id?: string;
   resume?: boolean;
+  staticOnly?: boolean;
   port?: number;
   help?: string;
 }
@@ -61,6 +62,8 @@ export function parseCommand(argv: string[]): ParsedCommand {
       result.id = opts.id;
       result.resume = opts.resume ?? false;
     }
+    if (command === 'doctor')
+      result.staticOnly = cmd.opts<{ static?: boolean }>().static ?? false;
     if (command === 'dashboard')
       result.port = cmd.opts<{ port: number }>().port;
   };
@@ -75,6 +78,7 @@ export function parseCommand(argv: string[]): ParsedCommand {
   program
     .command('doctor <recipe.yaml>')
     .description('Check experiment configuration and runtime prerequisites')
+    .option('--static', 'Check configuration and declared local paths only')
     .action((file: string, _opts: unknown, cmd: Command) =>
       capture('doctor', [file], cmd),
     );

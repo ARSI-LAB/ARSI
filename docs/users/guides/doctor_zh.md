@@ -13,6 +13,12 @@ ember-rsi doctor my-experiment/recipe.yaml
 - 在源码仓库中，完成 `pnpm build` 后使用 `pnpm ember-rsi doctor my-experiment/recipe.yaml`，运行前设置所选组件需要的环境变量。
 - `doctor` 将 Recipe 校验与组件专用检查结合起来，可以发现提示词或基线缺失、绑定不兼容、提案侧模型连接失败，以及 SDK 报告的评测配置、运行前提或下载路线问题。
 
+只需快速检查生效配置和已声明的本地路径时，可以加上 `--static`。
+
+```sh
+ember-rsi doctor my-experiment/recipe.yaml --static
+```
+
 ## 2. doctor 的机制简介
 
 ### 加载与分发
@@ -29,7 +35,7 @@ flowchart TD
     F -- 否 --> G["记录 recipe.validate 失败"]
     F -- 是 --> H["准备隔离临时 Runtime<br/>遍历 Application、绑定和 Reflection"]
     H --> I["检查当前组件声明的本地路径"]
-    I --> J{"组件定义声明了<br/>doctor 回调？"}
+    I --> J{"执行完整检查且组件<br/>声明了 doctor 回调？"}
     J -- 是 --> K["执行 doctor 回调"]
     K --> Q["分别记录各项检查结果<br/>passed、failed 或 unchecked"]
     J -- 否 --> L["将该组件的 plugin 检查<br/>记为 unchecked"]
@@ -48,7 +54,7 @@ flowchart TD
    - 探测使用合并 Policy 默认配置与 Recipe 覆盖后的配置。
    - 加载失败时输出失败诊断，不再执行组件探测。
 3. **检查已声明的本地路径。** 对 Application、每个生效绑定及已配置的 Reflection 实现，检查 Schema 中用 `x-rsi-path` 标记的本地文件或目录是否存在、类型是否正确、是否可读。
-4. **执行组件的 doctor 回调。** 框架调用已注册定义上的 `doctor` 函数并记录各项状态。组件省略回调时，`plugin` 项记为 `unchecked`。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。
+4. **执行组件检查。** 默认情况下，框架调用组件定义上声明的 `doctor` 函数。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。`--static` 跳过所有回调，省去回调中的模型访问、实例准备和 SDK 探测。使用该选项或组件省略回调时，报告将 `<binding>.plugin` 记为 `unchecked` 并说明原因。
 5. **清理并输出。** RSI 检查使用隔离临时存储，传递取消信号，释放自己创建的实例与进程，并删除临时文件。原有 artifacts 可作为输入读取，RSI 产生的捕获与写入留在临时 Runtime 内。
 
 ### 运行结果
@@ -62,7 +68,7 @@ flowchart TD
 | `checks`           | 每项结果的 `id`、`status`，以及可选的 `binding`、`pluginId`、`reason`、`details`。 |
 | `missingResources` | 缺失输入的引用、配置字段、资源种类，以及因此未执行的依赖检查 ID。                  |
 
-组件检查 ID 以绑定名开头，例如，名为 `agent` 的 Pi 绑定会产生 `agent.model-config` 和 `agent.model-access`；更换绑定名后，前缀也随之变化。
+组件检查 ID 以绑定名开头。完整检查时，名为 `agent` 的 Pi 绑定会产生 `agent.model-config` 和 `agent.model-access`。更换绑定名后，前缀也随之变化。
 
 | 状态        | 如何理解                                                                           |
 | ----------- | ---------------------------------------------------------------------------------- |

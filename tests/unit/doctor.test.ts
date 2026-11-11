@@ -174,6 +174,55 @@ test('doctor checks effective per-binding overrides and reports uncovered implem
   }
 });
 
+test('static doctor checks declared paths without running component callbacks', async () => {
+  const f = await fixture();
+  try {
+    const recipe = object(JSON.parse(await readFile(f.path, 'utf8')));
+    object(recipe.application).config = { input: './input.txt' };
+    await writeFile(f.path, JSON.stringify(recipe));
+    let callbacks = 0;
+    const doctor: OperationDoctor = async () => {
+      callbacks++;
+    };
+    f.doctors({ 'test.application': doctor, 'selector.metric': doctor });
+
+    const missing = await doctorRecipe(f.runtime, f.path, { staticOnly: true });
+    assert.equal(
+      missing.checks.find((check) => check.id === 'application.resource.input')
+        ?.status,
+      'failed',
+    );
+    assert.equal(missing.summary.failed, 1);
+    assert.equal(
+      missing.missingResources[0]?.field,
+      'application.config.input',
+    );
+    verifyReport(missing);
+
+    await writeFile(join(f.root, 'input.txt'), 'fixture');
+    const ready = await doctorRecipe(f.runtime, f.path, { staticOnly: true });
+    assert.equal(ready.recipeId, 'doctor-fixture');
+    assert.equal(ready.summary.failed, 0);
+    assert.deepEqual(ready.missingResources, []);
+    assert.equal(
+      ready.checks.find((check) => check.id === 'application.resource.input')
+        ?.status,
+      'passed',
+    );
+    for (const binding of ['application', 'left', 'right']) {
+      const check = ready.checks.find(
+        (entry) => entry.id === `${binding}.plugin`,
+      );
+      assert.equal(check?.status, 'unchecked');
+      assert.match(check?.reason ?? '', /--static/);
+    }
+    assert.equal(callbacks, 0);
+    verifyReport(ready);
+  } finally {
+    await f.dispose();
+  }
+});
+
 test('doctor retains Recipe schema, Policy, binding, budget and Reflection validation before probes', async () => {
   const f = await fixture();
   try {

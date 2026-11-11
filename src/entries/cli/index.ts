@@ -46,6 +46,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         try {
           report = await doctorRecipe(runtime, args[0], {
             signal: controller.signal,
+            staticOnly: parsed.staticOnly,
           });
         } catch (error) {
           controller.signal.throwIfAborted();

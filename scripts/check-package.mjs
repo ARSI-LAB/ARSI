@@ -98,7 +98,7 @@ try {
     'installed executable works outside its source checkout',
   );
   assert.match(help, /reflection/);
-  assert.match(help, /^\s+doctor <recipe\.yaml>/m);
+  assert.match(help, /^\s+doctor \[options\] <recipe\.yaml>/m);
   assert.doesNotMatch(help, /^\s+validate(?:\s|$)/m);
   assert.throws(
     () =>
@@ -257,8 +257,22 @@ export function register(registry){
       return true;
     },
   );
+  const staticReport = JSON.parse(
+    execFileSync(process.execPath, [...doctorArgs, '--static'], doctorOptions),
+  );
+  assert.equal(staticReport.summary.failed, 0);
+  assert.equal(
+    staticReport.checks.find(
+      (check) => check.id === 'custom.resource.inputFile',
+    )?.status,
+    'passed',
+  );
+  assert.equal(
+    staticReport.checks.find((check) => check.id === 'custom.plugin')?.status,
+    'unchecked',
+  );
   console.log(
-    'Installed component doctor: ordinary registration, successful and failed checks passed.',
+    'Installed component doctor: registration, full checks and static mode passed.',
   );
 
   assert.deepEqual(

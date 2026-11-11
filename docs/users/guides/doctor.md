@@ -13,6 +13,12 @@ ember-rsi doctor my-experiment/recipe.yaml
 - From a source checkout, run `pnpm build` first. Set the environment variables required by the selected components before running `pnpm ember-rsi doctor my-experiment/recipe.yaml`.
 - `doctor` combines Recipe validation with component-specific checks. It can catch missing prompts or baselines, incompatible bindings, proposal model connection failures, and evaluator configuration, runtime or download-route problems reported by the SDK.
 
+For a quick check of the effective configuration and declared local paths, add `--static`.
+
+```sh
+ember-rsi doctor my-experiment/recipe.yaml --static
+```
+
 ## 2. How it works
 
 ### Loading and dispatch
@@ -29,7 +35,7 @@ flowchart TD
     F -- No --> G["Record recipe.validate failure"]
     F -- Yes --> H["Prepare a temporary Runtime<br/>Visit the Application, bindings and Reflection"]
     H --> I["Check declared local paths"]
-    I --> J{"Does the component definition<br/>declare a doctor callback?"}
+    I --> J{"Full check with a<br/>declared doctor callback?"}
     J -- Yes --> K["Run the doctor callback"]
     K --> Q["Record passed, failed or unchecked results"]
     J -- No --> L["Mark the plugin check unchecked"]
@@ -48,7 +54,7 @@ flowchart TD
    - Probes use the configuration produced by merging Policy defaults and Recipe overrides.
    - A loading error produces a failed diagnostic and stops component probes.
 3. **Check declared local paths.** For the Application, each effective binding and the configured Reflection implementation, doctor checks local files and directories marked with `x-rsi-path` for existence, type and readability.
-4. **Run the component's doctor callback.** The framework calls `doctor` on the registered definition and records each result. A definition that omits the callback receives `unchecked` for its `plugin` check. Unavailable prerequisites can leave dependent checks `unchecked` while independent checks continue.
+4. **Run component checks.** By default, the framework calls `doctor` on each definition that declares it. Unavailable prerequisites can leave dependent checks `unchecked` while independent checks continue. `--static` skips all callbacks, including their model access, instance preparation and SDK probes. The report marks `<binding>.plugin` as `unchecked` when the flag skips a callback or the definition omits it, with a reason for each case.
 5. **Clean up and report.** RSI checks use isolated temporary storage, propagate cancellation, release the instances and processes they create, and remove temporary files. Checks can read existing artifacts as inputs. RSI keeps its captures and writes in the temporary Runtime.
 
 ### Reading the JSON report
@@ -62,7 +68,7 @@ Normal completion writes one JSON report to stdout, including configuration or r
 | `checks`           | Individual results with `id`, `status`, optional `binding`, `pluginId`, `reason` and `details`.            |
 | `missingResources` | Missing input references, their configuration fields and kinds, and dependent check IDs that were not run. |
 
-Component check IDs start with the binding name. A binding named `agent` using Pi produces `agent.model-config` and `agent.model-access`. A different binding name changes the prefix.
+Component check IDs start with the binding name. In a full check, a binding named `agent` using Pi produces `agent.model-config` and `agent.model-access`. A different binding name changes the prefix.
 
 | Status      | Interpretation                                                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |

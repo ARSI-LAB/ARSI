@@ -22,6 +22,12 @@ export interface MissingResource {
   checksNotRun: string[];
 }
 
+/** IDs and dependent check references are local to the component binding. */
+export interface DoctorResult {
+  checks: Omit<DoctorCheck, 'binding' | 'pluginId'>[];
+  missingResources?: Omit<MissingResource, 'binding' | 'pluginId'>[];
+}
+
 export interface DoctorReport {
   recipeId: string | null;
   summary: { passed: number; failed: number; unchecked: number };
@@ -53,7 +59,7 @@ export interface DoctorRegistry {
   ): void;
 }
 
-/** The runner owns temporary storage, deadlines, result aggregation and redaction. */
+/** The runner owns temporary storage, result aggregation and redaction. */
 export interface DoctorContext<C extends JsonObject = JsonObject> {
   readonly binding: DoctorBinding<C>;
   readonly recipe: DoctorRecipe;
@@ -61,17 +67,9 @@ export interface DoctorContext<C extends JsonObject = JsonObject> {
   readonly runtime: RuntimeContext;
   readonly directory: string;
   readonly signal: AbortSignal;
-  /** IDs are local to this binding; propagate this action's signal and release owned work. */
-  check(
-    id: string,
-    action: (signal: AbortSignal) => Promise<void>,
-    options?: { timeoutMs?: number; reason?: string; details?: JsonObject },
-  ): Promise<boolean>;
-  unchecked(id: string, reason: string, details?: JsonObject): void;
-  missing(resource: Omit<MissingResource, 'binding' | 'pluginId'>): void;
 }
 
 /** Optional preflight capability; never invoked by registration or experiment execution. */
 export type OperationDoctor<C extends JsonObject = JsonObject> = (
   context: DoctorContext<C>,
-) => Promise<void>;
+) => Promise<DoctorResult>;

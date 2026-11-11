@@ -1,7 +1,13 @@
 import { lstat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { DoctorContext, JsonObject } from '../../../contracts/index.js';
+import type {
+  DoctorContext,
+  DoctorResult,
+  JsonObject,
+} from '../../../contracts/index.js';
+import { runDoctorCheck } from '../../../shared/doctor-check.js';
+import { errorText } from '../../../shared/errors.js';
 import { object, string } from '../../../shared/json.js';
 import type { SdkEvaluatorConfig } from './configuration.js';
 import {
@@ -10,7 +16,10 @@ import {
   type SdkDoctorRunner,
 } from './doctor-sdk.js';
 
-async function networkConfigPath(ctx: DoctorContext): Promise<string> {
+async function networkConfigPath(
+  directory: string,
+  signal: AbortSignal,
+): Promise<string> {
   if (process.env.EVALUATOR_NETWORK_CONFIG)
     return resolve(process.env.EVALUATOR_NETWORK_CONFIG);
   const configured = join(homedir(), '.ember-evaluator', 'network.yaml');
@@ -22,8 +31,8 @@ async function networkConfigPath(ctx: DoctorContext): Promise<string> {
       throw error;
   }
   // Native doctor must not initialize configuration in the user's home.
-  const path = join(ctx.directory, 'network.yaml');
-  await writeFile(path, '{}\n', { mode: 0o600 });
+  const path = join(directory, 'network.yaml');
+  await writeFile(path, '{}\n', { mode: 0o600, signal });
   return path;
 }
 
@@ -79,27 +88,13 @@ function report(value: unknown): SdkReport {
   return { checks, network };
 }
 
-async function record(
-  ctx: DoctorContext,
-  id: string,
+function doctorStatus(
   status: string,
-  reason: string,
-  details?: JsonObject,
-): Promise<void> {
-  if (status !== 'passed' && status !== 'failed') {
-    ctx.unchecked(id, reason, details);
-    return;
-  }
-  await ctx.check(
-    id,
-    async () => {
-      if (status === 'failed') throw new Error(reason);
-    },
-    { reason, ...(details ? { details } : {}) },
-  );
+): DoctorResult['checks'][number]['status'] {
+  return status === 'passed' || status === 'failed' ? status : 'unchecked';
 }
 
-/** Return whether the SDK produced a report, including failed or unchecked checks. */
+/** Report configuration preparation and any diagnostics produced by the SDK. */
 export async function checkSdkDoctor(
   ctx: DoctorContext,
   prepareConfig: (
@@ -107,26 +102,36 @@ export async function checkSdkDoctor(
     env: NodeJS.ProcessEnv,
   ) => SdkEvaluatorConfig | Promise<SdkEvaluatorConfig>,
   run: SdkDoctorRunner = sdkDoctor,
-): Promise<boolean> {
+): Promise<{ checks: DoctorResult['checks']; reported: boolean }> {
   let options: Omit<SdkDoctorOptions, 'signal'> | undefined;
-  const configured = await ctx.check('configuration', async (signal) => {
-    signal.throwIfAborted();
-    const env = { ...process.env };
-    const config = await prepareConfig(ctx, env);
-    const configPath = join(ctx.directory, 'evaluator.json');
-    await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
-    options = {
-      configPath,
-      networkConfigPath: await networkConfigPath(ctx),
-      env,
-    };
-  });
-  if (!configured || !options) {
-    ctx.unchecked(
-      'sdk-doctor',
-      'Evaluator SDK doctor was not run because its configuration could not be prepared.',
-    );
-    return false;
+  const configuration = await runDoctorCheck(
+    'configuration',
+    async (signal) => {
+      signal.throwIfAborted();
+      const env = { ...process.env };
+      const config = await prepareConfig(ctx, env);
+      const configPath = join(ctx.directory, 'evaluator.json');
+      await writeFile(configPath, JSON.stringify(config), {
+        mode: 0o600,
+        signal,
+      });
+      options = {
+        configPath,
+        networkConfigPath: await networkConfigPath(ctx.directory, signal),
+        env,
+      };
+    },
+    { signal: ctx.signal },
+  );
+  const checks: DoctorResult['checks'] = [configuration];
+  if (configuration.status !== 'passed' || !options) {
+    checks.push({
+      id: 'sdk-doctor',
+      status: 'unchecked',
+      reason:
+        'Evaluator SDK doctor was not run because its configuration could not be prepared.',
+    });
+    return { checks, reported: false };
   }
   let result: SdkReport;
   try {
@@ -135,37 +140,37 @@ export async function checkSdkDoctor(
     ctx.signal.throwIfAborted();
   } catch (error) {
     ctx.signal.throwIfAborted();
-    await ctx.check('sdk-doctor', async () => {
-      throw error;
+    checks.push({
+      id: 'sdk-doctor',
+      status: 'failed',
+      reason: `${errorText(error)} Plugin availability is unknown unless established by another check.`,
     });
-    return false;
+    return { checks, reported: false };
   }
-  await record(
-    ctx,
-    'sdk-doctor',
-    'passed',
-    'Evaluator SDK doctor returned its diagnostic report.',
-  );
+  checks.push({
+    id: 'sdk-doctor',
+    status: 'passed',
+    reason: 'Evaluator SDK doctor returned its diagnostic report.',
+  });
   for (const [index, check] of result.checks.entries())
-    await record(
-      ctx,
-      `sdk.check-${index}`,
-      check.status,
-      `${check.name}: ${check.detail}`,
-      {
+    checks.push({
+      id: `sdk.check-${index}`,
+      status: doctorStatus(check.status),
+      reason: `${check.name}: ${check.detail}`,
+      details: {
         sdkName: check.name,
         sdkStatus: check.status,
       },
-    );
+    });
   const networkStatus = string(result.network.status);
-  await record(
-    ctx,
-    'sdk.network',
-    networkStatus,
-    networkStatus === 'passed'
-      ? 'Evaluator SDK network probes passed; see the SDK probe evidence for their scope.'
-      : 'Evaluator SDK network probes did not all pass; inspect the SDK probe evidence and guidance.',
-    result.network,
-  );
-  return true;
+  checks.push({
+    id: 'sdk.network',
+    status: doctorStatus(networkStatus),
+    reason:
+      networkStatus === 'passed'
+        ? 'Evaluator SDK network probes passed; see the SDK probe evidence for their scope.'
+        : 'Evaluator SDK network probes did not all pass; inspect the SDK probe evidence and guidance.',
+    details: result.network,
+  });
+  return { checks, reported: true };
 }

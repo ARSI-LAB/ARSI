@@ -22,11 +22,7 @@ import {
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
 import { object } from '../../src/shared/json.js';
-import type {
-  DoctorCheck,
-  DoctorContext,
-  MissingResource,
-} from '../../src/contracts/index.js';
+import type { DoctorContext } from '../../src/contracts/index.js';
 
 const target = (path: string): JsonObject => ({
   schemaVersion: 'rsi.target/v1',
@@ -35,6 +31,19 @@ const target = (path: string): JsonObject => ({
     { path, kind: 'file', description: 'Editable source', changes: ['modify'] },
   ],
 });
+
+function shortenDoctorDeadline(t: TestContext, timeoutMs: number): void {
+  const schedule = globalThis.setTimeout;
+  t.mock.method(
+    globalThis,
+    'setTimeout',
+    (
+      callback: (...args: unknown[]) => void,
+      delay?: number,
+      ...args: unknown[]
+    ) => schedule(callback, delay === 60000 ? timeoutMs : delay, ...args),
+  );
+}
 
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-doctor-applications-'));
@@ -89,13 +98,7 @@ async function fixture(t: TestContext) {
     registry,
     { sourcePath: join(root, 'recipe.yaml'), policy },
   );
-  const run = async (
-    pluginId: string,
-    settings: JsonObject,
-    timeoutMs?: number,
-  ) => {
-    const checks: DoctorCheck[] = [];
-    const missingResources: MissingResource[] = [];
+  const run = async (pluginId: string, settings: JsonObject) => {
     const context: DoctorContext = {
       binding: {
         name: 'probe',
@@ -108,48 +111,8 @@ async function fixture(t: TestContext) {
       runtime,
       directory: root,
       signal: controller.signal,
-      async check(id, action, options) {
-        const deadline = new AbortController();
-        const signal = AbortSignal.any([controller.signal, deadline.signal]);
-        const timer =
-          timeoutMs === undefined
-            ? undefined
-            : setTimeout(
-                () => deadline.abort(new Error('probe timed out')),
-                timeoutMs,
-              );
-        try {
-          await action(signal);
-          checks.push({
-            id,
-            status: 'passed',
-            ...(options?.reason ? { reason: options.reason } : {}),
-            ...(options?.details ? { details: options.details } : {}),
-          });
-          return true;
-        } catch (error) {
-          checks.push({
-            id,
-            status: 'failed',
-            reason:
-              options?.reason ??
-              (error instanceof Error ? error.message : String(error)),
-            ...(options?.details ? { details: options.details } : {}),
-          });
-          return false;
-        } finally {
-          clearTimeout(timer);
-        }
-      },
-      unchecked(id, reason) {
-        checks.push({ id, status: 'unchecked', reason });
-      },
-      missing(resource) {
-        missingResources.push({ ...resource, binding: 'probe', pluginId });
-      },
     };
-    await context.binding.definition.doctor!(context);
-    return { checks, missingResources };
+    return context.binding.definition.doctor!(context);
   };
   return { root, baseline, config, runtime, controller, run };
 }
@@ -215,12 +178,12 @@ test('doctor verifies bundle lifecycle and links missing Target input to checks 
     absent.checks.find((check) => check.id === 'verify-bundle')?.status,
     'unchecked',
   );
-  assert.deepEqual(absent.missingResources[0].checksNotRun, [
+  assert.deepEqual(absent.missingResources?.[0]?.checksNotRun, [
     'verify-bundle',
     'acquire-instance',
   ]);
   assert.equal(
-    absent.missingResources[0].reference,
+    absent.missingResources?.[0]?.reference,
     join(baseline, 'workflow.yaml'),
   );
   await writeFile(join(baseline, 'workflow.yaml'), 'workflow: {}\n');
@@ -285,7 +248,10 @@ test('doctor checks local and remote inference launch inputs without starting th
       ?.status,
     'failed',
   );
-  assert.equal(brokenRemote.missingResources[0].field, 'remote.parametersFile');
+  assert.equal(
+    brokenRemote.missingResources?.[0]?.field,
+    'remote.parametersFile',
+  );
 });
 
 test('doctor resolves Pi model references and token limits without inference or secret output', async (t) => {
@@ -552,7 +518,8 @@ else if (args[1] === '--help') process.stdout.write('Options:\\n  --json Emit re
 else setInterval(() => {}, 1000);
 `,
   );
-  const result = await run('agent.codex', { executable }, 1000);
+  shortenDoctorDeadline(t, 1000);
+  const result = await run('agent.codex', { executable });
   assert.equal(
     result.checks.find((check) => check.id === 'doctor')?.status,
     'failed',
@@ -576,10 +543,8 @@ test('doctor disposes a cancelled application acquisition and leaves no workspac
       controller.abort(new Error('cancelled after materialization'));
     return result;
   };
-  const result = await run('application.kernel', config);
-  assert.match(
-    result.checks.find((check) => check.id === 'acquire-instance')?.reason ??
-      '',
+  await assert.rejects(
+    run('application.kernel', config),
     /cancelled after materialization/,
   );
   assert.deepEqual(await readdir(runtime.workspaces.directory), []);
@@ -599,11 +564,12 @@ test('doctor releases an application lease after its probe deadline while the co
     if (++calls === 2) await delay(250);
     return result;
   };
-  const result = await run('application.kernel', config, 100);
+  shortenDoctorDeadline(t, 100);
+  const result = await run('application.kernel', config);
   assert.match(
     result.checks.find((check) => check.id === 'acquire-instance')?.reason ??
       '',
-    /probe timed out/,
+    /timed out/i,
   );
   assert.equal(controller.signal.aborted, false);
   assert.equal(

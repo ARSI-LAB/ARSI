@@ -2,10 +2,12 @@ import { mkdtemp, mkdir, rm, stat, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { constants } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { JsonValue } from '../../contracts/index.js';
+import type { JsonSchema, JsonValue } from '../../contracts/index.js';
 import { configPathFields, isResourceUrl } from '../../shared/config-paths.js';
+import { runDoctorCheck } from '../../shared/doctor-check.js';
 import { errorText } from '../../shared/errors.js';
-import { object } from '../../shared/json.js';
+import { json, object } from '../../shared/json.js';
+import { validate } from '../../shared/schema.js';
 import type { Runtime } from '../context.js';
 import { Recipe } from '../loaders/recipe.js';
 import { Manager } from '../manager/index.js';
@@ -15,7 +17,44 @@ import type {
   DoctorCheck,
   DoctorContext,
   DoctorReport,
+  DoctorResult,
 } from '../../contracts/index.js';
+
+const doctorResultSchema: JsonSchema = {
+  type: 'object',
+  required: ['checks'],
+  additionalProperties: false,
+  properties: {
+    checks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['id', 'status'],
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', minLength: 1 },
+          status: { enum: ['passed', 'failed', 'unchecked'] },
+          reason: { type: 'string' },
+          details: { type: 'object' },
+        },
+      },
+    },
+    missingResources: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['field', 'kind', 'reference', 'checksNotRun'],
+        additionalProperties: false,
+        properties: {
+          field: { type: 'string' },
+          kind: { type: 'string' },
+          reference: { type: 'string' },
+          checksNotRun: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  },
+};
 
 function redactor(value?: JsonValue): (message: string) => string {
   const secrets = new Set<string>();
@@ -65,7 +104,6 @@ export async function doctorRecipe(
   path: string,
   options: {
     signal?: AbortSignal;
-    timeoutMs?: number;
     staticOnly?: boolean;
   } = {},
 ): Promise<DoctorReport> {
@@ -167,12 +205,11 @@ export async function doctorRecipe(
   const add = (check: DoctorCheck): void => {
     if (report.checks.some((entry) => entry.id === check.id))
       throw new Error(`Duplicate doctor check ID: ${check.id}`);
+    const { reason, details, ...metadata } = check;
     report.checks.push({
-      ...check,
-      ...(check.reason ? { reason: redact(check.reason) } : {}),
-      ...(check.details
-        ? { details: object(redactValues(check.details)) }
-        : {}),
+      ...metadata,
+      ...(reason ? { reason: redact(reason) } : {}),
+      ...(details ? { details: object(redactValues(details)) } : {}),
     });
   };
   const redactValues = (value: JsonValue): JsonValue => {
@@ -191,129 +228,36 @@ export async function doctorRecipe(
       await mkdir(directory);
       const scoped = (id: string): string => `${binding.name}.${id}`;
       const identity = { binding: binding.name, pluginId: binding.pluginId };
-      const context: DoctorContext = {
-        binding,
-        recipe,
-        registry: runtime.registry,
-        directory,
-        signal,
-        runtime: base.extend({ directory, bindingId: binding.name }),
-        async check(id, action, checkOptions) {
-          signal.throwIfAborted();
-          const controller = new AbortController();
-          const bounded = AbortSignal.any([signal, controller.signal]);
-          const timeoutMs =
-            checkOptions?.timeoutMs ?? options.timeoutMs ?? 60000;
-          const timer = setTimeout(
-            () =>
-              controller.abort(
-                new Error(
-                  `Probe timed out after ${timeoutMs} ms. Plugin availability is unknown.`,
-                ),
-              ),
-            timeoutMs,
-          );
-          let abort: (() => void) | undefined;
-          const job = Promise.resolve().then(() => action(bounded));
-          try {
-            await Promise.race([
-              job,
-              new Promise<never>((_done, reject) => {
-                abort = () => reject(bounded.reason);
-                if (bounded.aborted) abort();
-                else bounded.addEventListener('abort', abort, { once: true });
-              }),
-            ]);
-            add({
-              id: scoped(id),
-              ...identity,
-              status: 'passed',
-              ...(checkOptions?.reason ? { reason: checkOptions.reason } : {}),
-              ...(checkOptions?.details
-                ? { details: checkOptions.details }
-                : {}),
-            });
-            return true;
-          } catch (error) {
-            let completionError: unknown;
-            // Cooperating probes settle their finally blocks before temporary storage is removed.
-            if (bounded.aborted) {
-              let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
-              const settled = await Promise.race([
-                job.then(
-                  () => true,
-                  (cause: unknown) => {
-                    if (cause !== bounded.reason) completionError = cause;
-                    return true;
-                  },
-                ),
-                new Promise<false>((done) => {
-                  cleanupTimer = setTimeout(() => done(false), 15000);
-                }),
-              ]);
-              clearTimeout(cleanupTimer);
-              if (!settled)
-                add({
-                  id: scoped(`${id}.cleanup`),
-                  ...identity,
-                  status: 'failed',
-                  reason:
-                    'Probe did not settle after cancellation; cleanup could not be confirmed.',
-                });
-            }
-            signal.throwIfAborted();
-            add({
-              id: scoped(id),
-              ...identity,
-              status: 'failed',
-              reason: checkOptions?.reason
-                ? `${checkOptions.reason}${completionError === undefined ? '' : ` Probe completion/cleanup: ${errorText(completionError)}`}`
-                : `${errorText(error)}${completionError === undefined ? '' : ` Probe completion/cleanup: ${errorText(completionError)}`} Plugin availability is unknown unless established by another check.`,
-              ...(checkOptions?.details
-                ? { details: checkOptions.details }
-                : {}),
-            });
-            return false;
-          } finally {
-            clearTimeout(timer);
-            if (abort) bounded.removeEventListener('abort', abort);
-          }
-        },
-        unchecked(id, reason, details) {
-          add({
-            id: scoped(id),
-            ...identity,
-            status: 'unchecked',
-            reason,
-            ...(details ? { details } : {}),
-          });
-        },
-        missing(resource) {
-          const field =
-            resource.field.startsWith(`${binding.name}.`) ||
-            resource.field.startsWith('application.config.')
-              ? resource.field
-              : `${binding.name}.${resource.field.startsWith('config.') ? '' : 'config.'}${resource.field}`;
-          const item = {
-            ...resource,
-            field,
-            ...identity,
-            reference: redact(resource.reference),
-            checksNotRun: resource.checksNotRun.map(scoped),
-          };
-          const previous = report.missingResources.find(
-            (known) =>
-              known.binding === item.binding &&
-              known.field === item.field &&
-              known.kind === item.kind &&
-              known.reference === item.reference,
-          );
-          if (previous)
-            previous.checksNotRun = [
-              ...new Set([...previous.checksNotRun, ...item.checksNotRun]),
-            ];
-          else report.missingResources.push(item);
-        },
+      const addCheck = (check: DoctorResult['checks'][number]): void => {
+        add({ ...check, ...identity, id: scoped(check.id) });
+      };
+      const addMissing = (
+        resource: NonNullable<DoctorResult['missingResources']>[number],
+      ): void => {
+        const field =
+          resource.field.startsWith(`${binding.name}.`) ||
+          resource.field.startsWith('application.config.')
+            ? resource.field
+            : `${binding.name}.${resource.field.startsWith('config.') ? '' : 'config.'}${resource.field}`;
+        const item = {
+          ...resource,
+          field,
+          ...identity,
+          reference: redact(resource.reference),
+          checksNotRun: resource.checksNotRun.map(scoped),
+        };
+        const previous = report.missingResources.find(
+          (known) =>
+            known.binding === item.binding &&
+            known.field === item.field &&
+            known.kind === item.kind &&
+            known.reference === item.reference,
+        );
+        if (previous)
+          previous.checksNotRun = [
+            ...new Set([...previous.checksNotRun, ...item.checksNotRun]),
+          ];
+        else report.missingResources.push(item);
       };
       for (const field of configPathFields(
         binding.definition.configSchema,
@@ -329,55 +273,84 @@ export async function doctorRecipe(
         if (typeof value !== 'string' || isResourceUrl(value)) continue;
         const reference = value;
         const id = `resource${field.pointer.replaceAll('/', '.')}`;
-        await context.check(id, async () => {
-          try {
-            const info = await stat(reference);
-            if (!(field.kind === 'file' ? info.isFile() : info.isDirectory()))
-              throw new Error(
-                `${field.pointer}: expected ${field.kind}: ${reference}`,
-              );
-            await access(reference, constants.R_OK);
-          } catch (error) {
-            if (
-              error instanceof Error &&
-              'code' in error &&
-              error.code === 'ENOENT'
-            )
-              context.missing({
-                field: `${binding.name}.config${field.pointer.replaceAll('/', '.')}`,
-                kind: field.kind,
-                reference,
-                checksNotRun: [],
-              });
-            throw error;
-          }
-        });
-      }
-      if (options.staticOnly) {
-        context.unchecked(
-          'plugin',
-          'Component diagnostics were skipped by --static.',
+        let missing = false;
+        const check = await runDoctorCheck(
+          id,
+          async () => {
+            try {
+              const info = await stat(reference);
+              if (!(field.kind === 'file' ? info.isFile() : info.isDirectory()))
+                throw new Error(
+                  `${field.pointer}: expected ${field.kind}: ${reference}`,
+                );
+              await access(reference, constants.R_OK);
+            } catch (error) {
+              missing =
+                error instanceof Error &&
+                'code' in error &&
+                error.code === 'ENOENT';
+              throw error;
+            }
+          },
+          { signal },
         );
-        continue;
+        addCheck(check);
+        if (missing)
+          addMissing({
+            field: `config${field.pointer.replaceAll('/', '.')}`,
+            kind: field.kind,
+            reference,
+            checksNotRun: [],
+          });
       }
       const doctor = binding.definition.doctor;
-      if (!doctor)
-        context.unchecked(
-          'plugin',
-          `Binding ${binding.name}, implementation ${binding.pluginId}, has no doctor capability; registration, contract, and configuration were validated.`,
-        );
-      else {
-        try {
-          await doctor(context);
-        } catch (error) {
-          signal.throwIfAborted();
-          add({
-            id: scoped('script'),
-            ...identity,
-            status: 'failed',
-            reason: `${errorText(error)} Plugin availability is unknown.`,
-          });
+      if (options.staticOnly || !doctor) {
+        addCheck({
+          id: 'plugin',
+          status: 'unchecked',
+          reason: options.staticOnly
+            ? 'Component diagnostics were skipped by --static.'
+            : `Binding ${binding.name}, implementation ${binding.pluginId}, has no doctor capability; registration, contract, and configuration were validated.`,
+        });
+        continue;
+      }
+      const context: DoctorContext = {
+        binding,
+        recipe,
+        registry: runtime.registry,
+        directory,
+        signal,
+        runtime: base.extend({ directory, bindingId: binding.name }),
+      };
+      try {
+        const result = await doctor(context);
+        signal.throwIfAborted();
+        validate(doctorResultSchema, result, 'Doctor result');
+        const ids = new Set(report.checks.map(({ id }) => id));
+        const unchecked = new Set<string>();
+        for (const check of result.checks) {
+          if (check.details !== undefined) json(check.details);
+          const id = scoped(check.id);
+          if (ids.has(id)) throw new Error(`Duplicate doctor check ID: ${id}`);
+          ids.add(id);
+          if (check.status === 'unchecked') unchecked.add(check.id);
         }
+        for (const resource of result.missingResources ?? [])
+          for (const id of resource.checksNotRun)
+            if (!unchecked.has(id))
+              throw new Error(
+                `Missing resource references a check that is not unchecked: ${scoped(id)}`,
+              );
+        for (const check of result.checks) addCheck(check);
+        for (const resource of result.missingResources ?? [])
+          addMissing(resource);
+      } catch (error) {
+        signal.throwIfAborted();
+        addCheck({
+          id: 'script',
+          status: 'failed',
+          reason: `${errorText(error)} Plugin availability is unknown.`,
+        });
       }
     }
   } finally {
@@ -402,16 +375,7 @@ export async function doctorRecipe(
       });
     }
   }
-  for (const resource of report.missingResources)
-    for (const id of resource.checksNotRun)
-      if (
-        !report.checks.some(
-          (check) => check.id === id && check.status === 'unchecked',
-        )
-      )
-        throw new Error(
-          `Missing resource references a check that is not unchecked: ${id}`,
-        );
+  signal.throwIfAborted();
   for (const check of report.checks) report.summary[check.status]++;
   return report;
 }

@@ -88,6 +88,7 @@ test('doctor is an optional function capability and registration never invokes i
     ...worker,
     async doctor() {
       calls++;
+      return { checks: [] };
     },
   });
   assert.equal(typeof registry.get(worker.id).doctor, 'function');

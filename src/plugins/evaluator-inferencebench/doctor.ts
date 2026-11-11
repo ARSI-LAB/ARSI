@@ -33,11 +33,15 @@ export function createInferencebenchDoctor(
   run?: SdkDoctorRunner,
 ): OperationDoctor {
   return async (ctx) => {
-    if (!(await checkSdkDoctor(ctx, prepareConfig, run))) return;
-    ctx.unchecked(
-      'inference-endpoint',
-      'The Application creates the endpoint during execution; SDK doctor used a placeholder without establishing service readiness.',
-    );
+    const { checks, reported } = await checkSdkDoctor(ctx, prepareConfig, run);
+    if (reported)
+      checks.push({
+        id: 'inference-endpoint',
+        status: 'unchecked',
+        reason:
+          'The Application creates the endpoint during execution; SDK doctor used a placeholder without establishing service readiness.',
+      });
+    return { checks };
   };
 }
 

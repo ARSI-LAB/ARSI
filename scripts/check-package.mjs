@@ -196,18 +196,19 @@ try {
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {proposerContract,applicationContract} from 'ember-rsi/contracts';
+import {runDoctorCheck} from 'ember-rsi';
 export const customDefinition={
  id:'proposer.consumer-doctor',contract:proposerContract,
  configSchema:{type:'object',properties:{inputFile:{type:'string','x-rsi-path':'file'}},required:['inputFile']},
  async create(){throw Error('Doctor must not instantiate the proposer');},
  async doctor(context){
-  await context.check('read-input',async signal=>{
+  const input=await runDoctorCheck('read-input',async signal=>{
    if(this.id!==context.binding.pluginId)throw Error('Missing definition receiver');
    if(context.binding.pluginId!=='proposer.consumer-doctor')throw Error('Missing binding metadata');
    const value=await readFile(context.binding.config.inputFile,{encoding:'utf8',signal});
    if(value!=='doctor-ready')throw Error('Input is not doctor-ready');
-  });
-  context.unchecked('remote','This fixture does not probe remote services.');
+  },{signal:context.signal});
+  return {checks:[input,{id:'remote',status:'unchecked',reason:'This fixture does not probe remote services.'}]};
  }
 };
 export function register(registry){
@@ -773,13 +774,14 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
   await writeFile(
     join(consumer, 'doctor-consumer.ts'),
     `
-import {proposerContract,type OperationDefinition,type ProposerInput,type ProposerOutput,type OperationDoctor,type DoctorContext} from 'ember-rsi/contracts';
-import type {OperationDoctor as RootOperationDoctor} from 'ember-rsi';
+import {proposerContract,type OperationDefinition,type ProposerInput,type ProposerOutput,type OperationDoctor,type DoctorContext,type DoctorResult} from 'ember-rsi/contracts';
+import {runDoctorCheck,type OperationDoctor as RootOperationDoctor,type DoctorResult as RootDoctorResult} from 'ember-rsi';
 type Config={inputFile:string};
-export const checkCustom:OperationDoctor<Config>=async(context:DoctorContext<Config>)=>{
+export const checkCustom:OperationDoctor<Config>=async(context:DoctorContext<Config>):Promise<DoctorResult>=>{
  const path:string=context.binding.config.inputFile;
- await context.check('input',async signal=>{signal.throwIfAborted();void path;});
- context.unchecked('remote','No remote probe.');
+ const input=await runDoctorCheck('input',async signal=>{signal.throwIfAborted();void path;},{signal:context.signal});
+ const result:RootDoctorResult={checks:[input,{id:'remote',status:'unchecked',reason:'No remote probe.'}]};
+ return result;
 };
 const rootDoctor:RootOperationDoctor<Config>=checkCustom;void rootDoctor;
 export const doctorDefinition:OperationDefinition<ProposerInput,ProposerOutput,Config>={

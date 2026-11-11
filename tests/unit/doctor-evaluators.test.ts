@@ -12,7 +12,7 @@ import { createInferencebenchDoctor } from '../../src/plugins/evaluator-inferenc
 import { createOperatorbenchDoctor } from '../../src/plugins/evaluator-operatorbench/doctor.js';
 import type { SdkDoctorRunner } from '../../src/plugins/shared/evaluator-adapter/doctor-sdk.js';
 import { object } from '../../src/shared/json.js';
-import type { DoctorCheck, DoctorContext } from '../../src/contracts/index.js';
+import type { DoctorContext } from '../../src/contracts/index.js';
 
 const nativeReport = () => ({
   checks: [
@@ -72,63 +72,24 @@ async function fixture(t: test.TestContext) {
     registry,
     { sourcePath: join(directory, 'recipe.json') },
   );
-  const context = (config: JsonObject, pluginId = 'evaluator.agentbench') => {
-    const checks: DoctorCheck[] = [];
-    const ctx: Omit<DoctorContext, 'recipe' | 'directory' | 'signal'> & {
-      recipe: Recipe;
-      directory: string;
-      signal: AbortSignal;
-    } = {
-      binding: {
-        name: 'evaluator',
-        pluginId,
-        config,
-        definition: registry.get(pluginId),
-      },
-      recipe,
-      registry,
-      directory,
-      runtime: new RuntimeContext(),
-      signal: new AbortController().signal,
-      async check(id, action, options) {
-        try {
-          await action(ctx.signal);
-          checks.push({
-            id,
-            status: 'passed',
-            ...(options?.reason ? { reason: options.reason } : {}),
-            ...(options?.details ? { details: options.details } : {}),
-          });
-          return true;
-        } catch (error) {
-          ctx.signal.throwIfAborted();
-          checks.push({
-            id,
-            status: 'failed',
-            reason:
-              options?.reason ||
-              (error instanceof Error ? error.message : String(error)),
-            ...(options?.details ? { details: options.details } : {}),
-          });
-          return false;
-        }
-      },
-      unchecked(id, reason, details) {
-        checks.push({
-          id,
-          status: 'unchecked',
-          reason,
-          ...(details ? { details } : {}),
-        });
-      },
-      missing() {
-        throw new Error(
-          'SDK results must not fabricate RSI missing-resource dependencies',
-        );
-      },
-    };
-    return { ctx, checks };
-  };
+  const context = (
+    config: JsonObject,
+    pluginId = 'evaluator.agentbench',
+    overrides: Partial<DoctorContext> = {},
+  ): DoctorContext => ({
+    binding: {
+      name: 'evaluator',
+      pluginId,
+      config,
+      definition: registry.get(pluginId),
+    },
+    recipe,
+    registry,
+    directory,
+    runtime: new RuntimeContext(),
+    signal: new AbortController().signal,
+    ...overrides,
+  });
   return { directory, registry, recipe, context, networkConfigPath };
 }
 
@@ -151,7 +112,7 @@ test('agentbench delegates effective task and service configuration to SDK docto
   t.mock.method(globalThis, 'fetch', () => {
     throw new Error('RSI must not probe evaluator services');
   });
-  const { ctx, checks } = f.context(agentConfig());
+  const ctx = f.context(agentConfig());
   let calls = 0;
   const runner: SdkDoctorRunner = async (options) => {
     calls++;
@@ -182,8 +143,10 @@ test('agentbench delegates effective task and service configuration to SDK docto
     );
     return nativeReport();
   };
-  await createAgentbenchDoctor(runner)(ctx);
+  const { checks, missingResources } =
+    await createAgentbenchDoctor(runner)(ctx);
   assert.equal(calls, 1);
+  assert.equal(missingResources, undefined);
   assert.equal(
     checks.find((check) => check.id === 'configuration')?.status,
     'passed',
@@ -218,8 +181,8 @@ test('agentbench delegates effective task and service configuration to SDK docto
 
 test('SDK diagnostics preserve failures, unsupported checks and incomplete network evidence', async (t) => {
   const f = await fixture(t);
-  const { ctx, checks } = f.context(agentConfig());
-  await createAgentbenchDoctor(async () => ({
+  const ctx = f.context(agentConfig());
+  const { checks } = await createAgentbenchDoctor(async () => ({
     checks: [
       {
         name: 'Model credentials',
@@ -263,16 +226,16 @@ test('SDK diagnostics preserve failures, unsupported checks and incomplete netwo
 
 test('relative SDK network configuration follows the launch directory rather than probe storage', async (t) => {
   const f = await fixture(t);
-  const { ctx, checks } = f.context(agentConfig());
-  ctx.directory = join(f.directory, 'probe');
-  await mkdir(ctx.directory);
+  const directory = join(f.directory, 'probe');
+  const ctx = f.context(agentConfig(), 'evaluator.agentbench', { directory });
+  await mkdir(directory);
   const originalDirectory = process.cwd();
   const previousNetwork = process.env.EVALUATOR_NETWORK_CONFIG;
   let calls = 0;
   try {
     process.chdir(f.directory);
     process.env.EVALUATOR_NETWORK_CONFIG = 'network.yaml';
-    await createAgentbenchDoctor(async (options) => {
+    const { checks } = await createAgentbenchDoctor(async (options) => {
       calls++;
       assert.equal(
         options.networkConfigPath,
@@ -282,23 +245,23 @@ test('relative SDK network configuration follows the launch directory rather tha
       assert.equal(await readFile(options.networkConfigPath, 'utf8'), '{}\n');
       return nativeReport();
     })(ctx);
+    assert.equal(calls, 1);
+    assert.equal(
+      checks.find((check) => check.id === 'sdk-doctor')?.status,
+      'passed',
+    );
   } finally {
     process.chdir(originalDirectory);
     if (previousNetwork === undefined)
       delete process.env.EVALUATOR_NETWORK_CONFIG;
     else process.env.EVALUATOR_NETWORK_CONFIG = previousNetwork;
   }
-  assert.equal(calls, 1);
-  assert.equal(
-    checks.find((check) => check.id === 'sdk-doctor')?.status,
-    'passed',
-  );
 });
 
 test('SDK transport errors fail delegation without inventing component readiness', async (t) => {
   const f = await fixture(t);
-  const { ctx, checks } = f.context(agentConfig());
-  await createAgentbenchDoctor(async () => {
+  const ctx = f.context(agentConfig());
+  const { checks } = await createAgentbenchDoctor(async () => {
     throw new Error('SDK subprocess could not complete');
   })(ctx);
   assert.equal(
@@ -332,8 +295,8 @@ test('invalid SDK reports fail instead of producing successful readiness', async
       },
     })),
   ]) {
-    const { ctx, checks } = f.context(agentConfig());
-    await createAgentbenchDoctor(async () => report)(ctx);
+    const ctx = f.context(agentConfig());
+    const { checks } = await createAgentbenchDoctor(async () => report)(ctx);
     assert.ok(
       checks.some((check) => check.status === 'failed'),
       JSON.stringify(checks),
@@ -349,9 +312,10 @@ test('invalid SDK reports fail instead of producing successful readiness', async
 
 test('cancelling evaluator doctor reaches the SDK boundary and propagates interruption', async (t) => {
   const f = await fixture(t);
-  const { ctx } = f.context(agentConfig());
   const controller = new AbortController();
-  ctx.signal = controller.signal;
+  const ctx = f.context(agentConfig(), 'evaluator.agentbench', {
+    signal: controller.signal,
+  });
   let observed: AbortSignal | undefined;
   const task = createAgentbenchDoctor(async (options) => {
     observed = options.signal;
@@ -386,8 +350,8 @@ test('agentbench rejects Application-owned solver and output overrides before SD
     { ...agentConfig(), output: { directory: '/unowned' } },
   ];
   for (const config of invalidConfigs) {
-    const { ctx, checks } = f.context(config);
-    await createAgentbenchDoctor(async () => {
+    const ctx = f.context(config);
+    const { checks } = await createAgentbenchDoctor(async () => {
       calls++;
       return nativeReport();
     })(ctx);
@@ -414,13 +378,13 @@ test('inferencebench delegates SDK configuration while the future Application en
   const recipe = await Recipe.fromJSON(data, f.registry, {
     sourcePath: join(f.directory, 'recipe.json'),
   });
-  const { ctx, checks } = f.context(
+  const ctx = f.context(
     { benchmark: 'agentx', services: { default: {} } },
     'evaluator.inferencebench',
+    { recipe },
   );
-  ctx.recipe = recipe;
   let calls = 0;
-  await createInferencebenchDoctor(async (options) => {
+  const { checks } = await createInferencebenchDoctor(async (options) => {
     calls++;
     const config = object(
       JSON.parse(await readFile(options.configPath, 'utf8')),
@@ -458,12 +422,12 @@ test('inferencebench rejects service fields owned by its Application before SDK 
     { default: { model: 'external' } },
   ];
   for (const services of invalidServices) {
-    const { ctx, checks } = f.context(
+    const ctx = f.context(
       { benchmark: 'agentx', services },
       'evaluator.inferencebench',
+      { recipe },
     );
-    ctx.recipe = recipe;
-    await createInferencebenchDoctor(async () => {
+    const { checks } = await createInferencebenchDoctor(async () => {
       calls++;
       return nativeReport();
     })(ctx);
@@ -486,7 +450,7 @@ test('operatorbench delegates first-case SDK assessment configuration and reject
   const config = { task: { directory: f.directory }, benchmark: 'kernel' };
   const positive = f.context(config, 'evaluator.operatorbench');
   let calls = 0;
-  await createOperatorbenchDoctor(async (options) => {
+  const positiveResult = await createOperatorbenchDoctor(async (options) => {
     calls++;
     const prepared = object(
       JSON.parse(await readFile(options.configPath, 'utf8')),
@@ -505,10 +469,10 @@ test('operatorbench delegates first-case SDK assessment configuration and reject
       ),
     );
     return nativeReport();
-  })(positive.ctx);
+  })(positive);
   assert.equal(calls, 1);
   assert.equal(
-    positive.checks.find((check) => check.id === 'sdk-doctor')?.status,
+    positiveResult.checks.find((check) => check.id === 'sdk-doctor')?.status,
     'passed',
   );
   const path = join(f.directory, 'task.json');
@@ -517,12 +481,12 @@ test('operatorbench delegates first-case SDK assessment configuration and reject
   definition.cases.push(definition.cases[0]);
   await writeFile(path, JSON.stringify(definition));
   const broken = f.context(config, 'evaluator.operatorbench');
-  await createOperatorbenchDoctor(async () => {
+  const brokenResult = await createOperatorbenchDoctor(async () => {
     calls++;
     return nativeReport();
-  })(broken.ctx);
+  })(broken);
   assert.equal(
-    broken.checks.find((check) => check.id === 'configuration')?.status,
+    brokenResult.checks.find((check) => check.id === 'configuration')?.status,
     'failed',
   );
   assert.equal(calls, 1);

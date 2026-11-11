@@ -10,17 +10,12 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { JsonObject } from '../../src/contracts/index.js';
+import type { DoctorContext, JsonObject } from '../../src/contracts/index.js';
 import { createRuntime } from '../../src/runtime/context.js';
 import type { Registry } from '../../src/runtime/registry/index.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { Policy } from '../../src/runtime/policy/index.js';
 import { checkOptunaDependencies } from '../../src/plugins/proposer-optuna/doctor.js';
-import type {
-  DoctorCheck,
-  DoctorContext,
-  MissingResource,
-} from '../../src/contracts/index.js';
 
 async function fixture(t: TestContext): Promise<{
   root: string;
@@ -31,8 +26,6 @@ async function fixture(t: TestContext): Promise<{
   ): Omit<DoctorContext, 'recipe' | 'registry'> & {
     recipe: Recipe;
     registry: Registry;
-    checks: DoctorCheck[];
-    missingResources: MissingResource[];
   };
 }> {
   const root = await mkdtemp(join(tmpdir(), 'rsi-doctor-business-'));
@@ -83,11 +76,7 @@ async function fixture(t: TestContext): Promise<{
     prompt,
     probe(id, config) {
       const signal = new AbortController().signal;
-      const checks: DoctorCheck[] = [];
-      const missingResources: MissingResource[] = [];
       return {
-        checks,
-        missingResources,
         binding: {
           name: 'probe',
           pluginId: id,
@@ -102,30 +91,6 @@ async function fixture(t: TestContext): Promise<{
         }),
         directory: join(root, 'probe'),
         signal,
-        async check(checkId, action) {
-          try {
-            await action(signal);
-            checks.push({ id: checkId, status: 'passed' });
-            return true;
-          } catch (error) {
-            checks.push({
-              id: checkId,
-              status: 'failed',
-              reason: error instanceof Error ? error.message : String(error),
-            });
-            return false;
-          }
-        },
-        unchecked(checkId, reason) {
-          checks.push({ id: checkId, status: 'unchecked', reason });
-        },
-        missing(resource) {
-          missingResources.push({
-            binding: 'probe',
-            pluginId: id,
-            ...resource,
-          });
-        },
       };
     },
   };
@@ -140,9 +105,9 @@ for (const id of [
   test(`${id} prepares an editing project without invoking an Agent and reports a missing prompt`, async (t) => {
     const f = await fixture(t);
     const working = f.probe(id, { agentRef: 'agent', prompt: f.prompt });
-    await working.binding.definition.doctor!(working);
+    const workingResult = await working.binding.definition.doctor!(working);
     assert.deepEqual(
-      working.checks.map((check) => check.status),
+      workingResult.checks.map((check) => check.status),
       ['passed', 'passed', 'passed'],
     );
     const projects = await readdir(join(f.root, 'probe/agent-projects'));
@@ -160,20 +125,22 @@ for (const id of [
       agentRef: 'agent',
       prompt: join(f.root, 'missing.md'),
     });
-    await broken.binding.definition.doctor!(broken);
+    const brokenResult = await broken.binding.definition.doctor!(broken);
     assert.equal(
-      broken.checks.find((check) => check.id === 'editing-inputs')?.status,
+      brokenResult.checks.find((check) => check.id === 'editing-inputs')
+        ?.status,
       'failed',
     );
     assert.equal(
-      broken.checks.find((check) => check.id === 'prepare-project')?.status,
+      brokenResult.checks.find((check) => check.id === 'prepare-project')
+        ?.status,
       'unchecked',
     );
     assert.equal(
-      broken.missingResources[0]?.reference,
+      brokenResult.missingResources?.[0]?.reference,
       join(f.root, 'missing.md'),
     );
-    assert.deepEqual(broken.missingResources[0]?.checksNotRun, [
+    assert.deepEqual(brokenResult.missingResources?.[0]?.checksNotRun, [
       'prepare-project',
     ]);
   });
@@ -185,18 +152,23 @@ test('editor checks resolve the selected Agent and reject duplicate roles and sk
     agentRef: 'absent',
     prompt: f.prompt,
   });
-  await missingAgent.binding.definition.doctor!(missingAgent);
-  assert.match(missingAgent.checks[0]!.reason!, /agentRef.*absent/);
-  assert.equal(missingAgent.checks.at(-1)?.status, 'passed');
+  const missingAgentResult =
+    await missingAgent.binding.definition.doctor!(missingAgent);
+  assert.match(missingAgentResult.checks[0]!.reason!, /agentRef.*absent/);
+  assert.equal(missingAgentResult.checks.at(-1)?.status, 'passed');
 
   const missingGuidance = f.probe('memory.agent', {
     agentRef: 'agent',
     prompt: f.prompt,
     guidance: join(f.root, 'missing-guidance'),
   });
-  await missingGuidance.binding.definition.doctor!(missingGuidance);
-  assert.equal(missingGuidance.missingResources[0]?.field, 'config.guidance');
-  assert.equal(missingGuidance.missingResources[0]?.kind, 'directory');
+  const missingGuidanceResult =
+    await missingGuidance.binding.definition.doctor!(missingGuidance);
+  assert.equal(
+    missingGuidanceResult.missingResources?.[0]?.field,
+    'config.guidance',
+  );
+  assert.equal(missingGuidanceResult.missingResources?.[0]?.kind, 'directory');
 
   const role = { name: 'reviewer', description: 'Review', prompt: f.prompt };
   const duplicateRoles = f.probe('proposer.agent', {
@@ -204,8 +176,12 @@ test('editor checks resolve the selected Agent and reject duplicate roles and sk
     prompt: f.prompt,
     subagents: [role, role],
   });
-  await duplicateRoles.binding.definition.doctor!(duplicateRoles);
-  assert.match(duplicateRoles.checks.at(-1)!.reason!, /duplicate agent role/);
+  const duplicateRolesResult =
+    await duplicateRoles.binding.definition.doctor!(duplicateRoles);
+  assert.match(
+    duplicateRolesResult.checks.at(-1)!.reason!,
+    /duplicate agent role/,
+  );
 
   const skill = join(f.root, 'skill');
   await mkdir(skill);
@@ -218,8 +194,12 @@ test('editor checks resolve the selected Agent and reject duplicate roles and sk
     prompt: f.prompt,
     skills: [skill, skill],
   });
-  await duplicateSkills.binding.definition.doctor!(duplicateSkills);
-  assert.match(duplicateSkills.checks.at(-1)!.reason!, /Duplicate skill name/);
+  const duplicateSkillsResult =
+    await duplicateSkills.binding.definition.doctor!(duplicateSkills);
+  assert.match(
+    duplicateSkillsResult.checks.at(-1)!.reason!,
+    /Duplicate skill name/,
+  );
 });
 
 test('proposer.grid constructs a valid grid and rejects repeated axes', async (t) => {
@@ -229,28 +209,28 @@ test('proposer.grid constructs a valid grid and rejects repeated axes', async (t
     path: 'params.json',
     searchSpace: [axis],
   });
-  await working.binding.definition.doctor!(working);
-  assert.equal(working.checks[0]!.status, 'passed');
+  const workingResult = await working.binding.definition.doctor!(working);
+  assert.equal(workingResult.checks[0]!.status, 'passed');
   const broken = f.probe('proposer.grid', {
     path: 'params.json',
     searchSpace: [axis, axis],
   });
-  await broken.binding.definition.doctor!(broken);
-  assert.match(broken.checks[0]!.reason!, /duplicate/);
+  const brokenResult = await broken.binding.definition.doctor!(broken);
+  assert.match(brokenResult.checks[0]!.reason!, /duplicate/);
   assert.deepEqual(await broken.runtime.facts.list('candidates'), []);
 });
 
 test('selector.metric constructs a valid selector and checks both bound collections', async (t) => {
   const f = await fixture(t);
   const working = f.probe('selector.metric', { direction: 'minimize' });
-  await working.binding.definition.doctor!(working);
-  assert.equal(working.checks[0]!.status, 'passed');
+  const workingResult = await working.binding.definition.doctor!(working);
+  assert.equal(workingResult.checks[0]!.status, 'passed');
   for (const field of ['eligibility', 'constraints']) {
     const broken = f.probe('selector.metric', {
       [field]: [{ metric: 'latency', min: 2, max: 1 }],
     });
-    await broken.binding.definition.doctor!(broken);
-    assert.match(broken.checks[0]!.reason!, /min exceeds max/);
+    const brokenResult = await broken.binding.definition.doctor!(broken);
+    assert.match(brokenResult.checks[0]!.reason!, /min exceeds max/);
   }
 });
 
@@ -267,9 +247,9 @@ test('proposer.pareto-evolution checks module identities and the real baseline f
     modules: [{ id: 'module', path: 'module.md' }],
   };
   const working = f.probe('proposer.pareto-evolution', config);
-  await working.binding.definition.doctor!(working);
+  const workingResult = await working.binding.definition.doctor!(working);
   assert.deepEqual(
-    working.checks.map((check) => check.status),
+    workingResult.checks.map((check) => check.status),
     ['passed', 'passed'],
   );
   for (const modules of [
@@ -277,18 +257,18 @@ test('proposer.pareto-evolution checks module identities and the real baseline f
     [{ id: 'unsafe', path: '../module.md' }],
   ]) {
     const broken = f.probe('proposer.pareto-evolution', { ...config, modules });
-    await broken.binding.definition.doctor!(broken);
-    assert.equal(broken.checks[0]!.status, 'failed');
-    assert.equal(broken.checks[1]!.status, 'unchecked');
+    const brokenResult = await broken.binding.definition.doctor!(broken);
+    assert.equal(brokenResult.checks[0]!.status, 'failed');
+    assert.equal(brokenResult.checks[1]!.status, 'unchecked');
   }
   const missing = f.probe('proposer.pareto-evolution', {
     ...config,
     modules: [{ id: 'missing', path: 'missing.md' }],
   });
-  await missing.binding.definition.doctor!(missing);
-  assert.equal(missing.checks[1]!.status, 'failed');
+  const missingResult = await missing.binding.definition.doctor!(missing);
+  assert.equal(missingResult.checks[1]!.status, 'failed');
   assert.equal(
-    missing.missingResources[0]?.reference,
+    missingResult.missingResources?.[0]?.reference,
     join(f.root, 'baseline/missing.md'),
   );
 
@@ -307,9 +287,9 @@ test('proposer.pareto-evolution checks module identities and the real baseline f
     artifact.registry,
     { policy: artifact.recipe.policy },
   );
-  await artifact.binding.definition.doctor!(artifact);
+  const artifactResult = await artifact.binding.definition.doctor!(artifact);
   assert.deepEqual(
-    artifact.checks.map((check) => check.status),
+    artifactResult.checks.map((check) => check.status),
     ['passed', 'passed'],
   );
 });
@@ -324,26 +304,32 @@ test('proposer.optuna requests only the dependency check and rejects wrong depen
     ],
   };
   const working = f.probe('proposer.optuna', config);
-  await checkOptunaDependencies(working, async (_config, request) => {
-    assert.equal(request.action, 'check');
-    assert.deepEqual(request.history, []);
-    return {
-      environment: { python: '3.13.1', optuna: '4.5.0', numpy: '2.2.6' },
-    };
-  });
-  assert.equal(working.checks[0]!.status, 'passed');
+  const workingResult = await checkOptunaDependencies(
+    working,
+    async (_config, request) => {
+      assert.equal(request.action, 'check');
+      assert.deepEqual(request.history, []);
+      return {
+        environment: { python: '3.13.1', optuna: '4.5.0', numpy: '2.2.6' },
+      };
+    },
+  );
+  assert.equal(workingResult.checks[0]!.status, 'passed');
   const incompatible = f.probe('proposer.optuna', config);
-  await checkOptunaDependencies(incompatible, async () => ({
-    environment: { python: '3.13.1', optuna: '4.4.0', numpy: '2.2.6' },
-  }));
-  assert.equal(incompatible.checks[0]!.status, 'failed');
+  const incompatibleResult = await checkOptunaDependencies(
+    incompatible,
+    async () => ({
+      environment: { python: '3.13.1', optuna: '4.4.0', numpy: '2.2.6' },
+    }),
+  );
+  assert.equal(incompatibleResult.checks[0]!.status, 'failed');
   const missing = f.probe('proposer.optuna', {
     ...config,
     python: { executable: join(f.root, 'missing-python') },
   });
-  await missing.binding.definition.doctor!(missing);
-  assert.equal(missing.checks[0]!.status, 'failed');
-  assert.match(missing.checks[0]!.reason!, /ENOENT/);
+  const missingResult = await missing.binding.definition.doctor!(missing);
+  assert.equal(missingResult.checks[0]!.status, 'failed');
+  assert.match(missingResult.checks[0]!.reason!, /ENOENT/);
 });
 
 test('proposer.operator loads task, stage prompts and knowledge without retrieval or inference', async (t) => {
@@ -408,20 +394,22 @@ test('proposer.operator loads task, stage prompts and knowledge without retrieva
     },
   };
   const working = f.probe('proposer.operator', config);
-  await working.binding.definition.doctor!(working);
+  const workingResult = await working.binding.definition.doctor!(working);
   assert.deepEqual(
-    working.checks.map((check) => check.status),
+    workingResult.checks.map((check) => check.status),
     ['passed', 'passed', 'passed'],
   );
   await rm(join(prompts, 'repair.md'));
   const missingPrompt = f.probe('proposer.operator', config);
-  await missingPrompt.binding.definition.doctor!(missingPrompt);
-  assert.match(missingPrompt.checks.at(-1)!.reason!, /repair.md/);
+  const missingPromptResult =
+    await missingPrompt.binding.definition.doctor!(missingPrompt);
+  assert.match(missingPromptResult.checks.at(-1)!.reason!, /repair.md/);
   await writeFile(manifest, '{}');
   const invalidManifest = f.probe('proposer.operator', config);
-  await invalidManifest.binding.definition.doctor!(invalidManifest);
+  const invalidManifestResult =
+    await invalidManifest.binding.definition.doctor!(invalidManifest);
   assert.match(
-    invalidManifest.checks.at(-1)!.reason!,
+    invalidManifestResult.checks.at(-1)!.reason!,
     /Invalid external operator knowledge manifest/,
   );
 });

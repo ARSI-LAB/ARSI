@@ -1,5 +1,6 @@
-import type { DoctorContext } from '../../../contracts/index.js';
+import type { DoctorContext, DoctorResult } from '../../../contracts/index.js';
 import { agentContract } from '../../../contracts/plugin-types/agent.js';
+import { runDoctorCheck } from '../../../shared/doctor-check.js';
 
 export function resolveAgent(context: DoctorContext, reference: string): void {
   const binding = context.recipe.bindings[reference];
@@ -22,17 +23,21 @@ export function missingPath(error: unknown): string | undefined {
 
 export async function checkOperationConfiguration(
   context: DoctorContext,
-): Promise<void> {
-  await context.check('configuration', async (signal) => {
-    signal.throwIfAborted();
-    const operation = await context.binding.definition.create(
-      structuredClone(context.binding.config),
-      context.runtime.extend({ signal }),
-    );
-    try {
-      signal.throwIfAborted();
-    } finally {
-      await operation.dispose();
-    }
-  });
+): Promise<DoctorResult> {
+  const configuration = await runDoctorCheck(
+    'configuration',
+    async (signal) => {
+      const operation = await context.binding.definition.create(
+        structuredClone(context.binding.config),
+        context.runtime.extend({ signal }),
+      );
+      try {
+        signal.throwIfAborted();
+      } finally {
+        await operation.dispose();
+      }
+    },
+    { signal: context.signal },
+  );
+  return { checks: [configuration] };
 }

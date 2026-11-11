@@ -1,66 +1,88 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DoctorContext } from '../../contracts/index.js';
+import type { DoctorContext, DoctorResult } from '../../contracts/index.js';
+import { runDoctorCheck } from '../../shared/doctor-check.js';
 import { object, string } from '../../shared/json.js';
 import { projectMarker } from '../shared/agent-editing/project.js';
 import { executablePath } from '../shared/doctor/executable.js';
 import { runCommand } from '../shared/doctor/process.js';
 import { codexCommand } from './executable.js';
 
-export async function checkCodexAgent(context: DoctorContext): Promise<void> {
+export async function checkCodexAgent(
+  context: DoctorContext,
+): Promise<DoctorResult> {
+  const options = { signal: context.signal };
   let launch: { executable: string; args: string[] } | undefined;
   let supportsDoctor = false;
   let supportsNetworkOnly = false;
-  const available = await context.check('executable', async (signal) => {
-    const configured =
-      context.binding.config.executable === undefined
-        ? 'codex'
-        : string(context.binding.config.executable);
-    const command = codexCommand(configured);
-    const executable = await executablePath(
-      command.executable,
-      context.runtime.rootDirectory,
-    );
-    launch = { executable, args: command.args };
-    try {
-      const help = await runCommand(executable, [...command.args, '--help'], {
-        signal,
-        cwd: context.runtime.rootDirectory,
-      });
-      // Older CLIs can interpret an unknown subcommand as a prompt.
-      if (!/^\s{2,}doctor\s+\S/m.test(help.stdout)) return;
-      const doctorHelp = await runCommand(
-        executable,
-        [...command.args, 'doctor', '--help'],
-        { signal, cwd: context.runtime.rootDirectory },
+  const available = await runDoctorCheck(
+    'executable',
+    async (signal) => {
+      const configured =
+        context.binding.config.executable === undefined
+          ? 'codex'
+          : string(context.binding.config.executable);
+      const command = codexCommand(configured);
+      const executable = await executablePath(
+        command.executable,
+        context.runtime.rootDirectory,
       );
-      supportsDoctor = /(?:^|\s)--json(?:\s|$)/m.test(doctorHelp.stdout);
-      supportsNetworkOnly = /(?:^|\s)--network-only(?:\s|$)/m.test(
-        doctorHelp.stdout,
-      );
-    } catch {
-      throw new Error(
-        'The proposal-side Codex executable could not provide CLI help; check agent.codex.executable and the Codex installation.',
-      );
-    }
-  });
-  if (!available || !launch) {
-    context.unchecked(
-      'model-access',
-      'Proposal-side model access was not checked because the Codex executable is unavailable.',
-    );
-    return;
+      launch = { executable, args: command.args };
+      try {
+        const help = await runCommand(executable, [...command.args, '--help'], {
+          signal,
+          cwd: context.runtime.rootDirectory,
+        });
+        // Older CLIs can interpret an unknown subcommand as a prompt.
+        if (!/^\s{2,}doctor\s+\S/m.test(help.stdout)) return;
+        const doctorHelp = await runCommand(
+          executable,
+          [...command.args, 'doctor', '--help'],
+          { signal, cwd: context.runtime.rootDirectory },
+        );
+        supportsDoctor = /(?:^|\s)--json(?:\s|$)/m.test(doctorHelp.stdout);
+        supportsNetworkOnly = /(?:^|\s)--network-only(?:\s|$)/m.test(
+          doctorHelp.stdout,
+        );
+      } catch {
+        throw new Error(
+          'The proposal-side Codex executable could not provide CLI help; check agent.codex.executable and the Codex installation.',
+        );
+      }
+    },
+    options,
+  );
+  if (available.status !== 'passed' || !launch) {
+    return {
+      checks: [
+        available,
+        {
+          id: 'model-access',
+          status: 'unchecked',
+          reason:
+            'Proposal-side model access was not checked because the Codex executable is unavailable.',
+        },
+      ],
+    };
   }
   if (!supportsDoctor) {
-    context.unchecked(
-      'doctor',
-      'The configured Codex CLI does not advertise doctor with JSON output; install a version that supports it.',
-    );
-    context.unchecked(
-      'model-access',
-      'Proposal-side model access was not checked because this Codex CLI does not support a machine-readable doctor report.',
-    );
-    return;
+    return {
+      checks: [
+        available,
+        {
+          id: 'doctor',
+          status: 'unchecked',
+          reason:
+            'The configured Codex CLI does not advertise doctor with JSON output; install a version that supports it.',
+        },
+        {
+          id: 'model-access',
+          status: 'unchecked',
+          reason:
+            'Proposal-side model access was not checked because this Codex CLI does not support a machine-readable doctor report.',
+        },
+      ],
+    };
   }
   const overrides = [
     '-c',
@@ -74,18 +96,11 @@ export async function checkCodexAgent(context: DoctorContext): Promise<void> {
     if (value !== undefined)
       overrides.push('-c', `${key}=${JSON.stringify(string(value))}`);
   }
-  const options: {
-    reason?: string;
-    details: { modelList: string; providerReachability: string };
-  } = {
-    details: { modelList: 'unchecked', providerReachability: 'unchecked' },
-  };
+  let reason =
+    'Proposal-side Codex doctor completed its native health checks without establishing model-list availability.';
+  const details = { modelList: 'unchecked', providerReachability: 'unchecked' };
   const command = launch;
-  const failure = (reason: string): Error => {
-    options.reason = reason;
-    return new Error(reason);
-  };
-  await context.check(
+  const doctor = await runDoctorCheck(
     'doctor',
     async (signal) => {
       let stdout: string;
@@ -104,7 +119,7 @@ export async function checkCodexAgent(context: DoctorContext): Promise<void> {
           { signal, cwd: directory },
         ));
       } catch {
-        throw failure(
+        throw new Error(
           signal.aborted
             ? 'Proposal-side Codex doctor timed out or was cancelled; check the model-service address and proposal environment network.'
             : 'Proposal-side Codex doctor could not complete; check Codex configuration, credentials and the proposal environment network.',
@@ -129,7 +144,7 @@ export async function checkCodexAgent(context: DoctorContext): Promise<void> {
             throw new Error('Unknown native doctor status');
         }
       } catch {
-        throw failure(
+        throw new Error(
           'Proposal-side Codex doctor returned an invalid or unsupported JSON report; check the configured Codex CLI version.',
         );
       }
@@ -138,22 +153,32 @@ export async function checkCodexAgent(context: DoctorContext): Promise<void> {
         report.overallStatus === 'error' ||
         Object.values(checks).some((check) => object(check).status === 'error')
       )
-        throw failure(
+        throw new Error(
           'Proposal-side Codex doctor reported a health or model-service failure; check Codex configuration, credentials and network.',
         );
       const reachability = checks['network.provider_reachability'];
-      options.reason =
-        'Proposal-side Codex doctor completed its native health checks without establishing model-list availability.';
       if (reachability && object(reachability).status === 'ok') {
-        options.details.providerReachability = 'passed';
-        options.reason =
+        details.providerReachability = 'passed';
+        reason =
           'Proposal-side Codex doctor reached the configured model service without establishing model-list availability.';
       }
     },
     options,
   );
-  context.unchecked(
-    'model-access',
-    'Codex doctor does not establish that a valid model list contains the configured model; proposal-side model availability remains unchecked.',
-  );
+  return {
+    checks: [
+      available,
+      {
+        ...doctor,
+        ...(doctor.status === 'passed' ? { reason } : {}),
+        details,
+      },
+      {
+        id: 'model-access',
+        status: 'unchecked',
+        reason:
+          'Codex doctor does not establish that a valid model list contains the configured model; proposal-side model availability remains unchecked.',
+      },
+    ],
+  };
 }

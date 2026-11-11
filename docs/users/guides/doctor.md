@@ -33,9 +33,9 @@ flowchart TD
     H --> I["Check declared local paths"]
     I --> J{"Full check with a<br/>declared doctor callback?"}
     J -- Yes --> K["Run the doctor callback"]
-    K --> Q["Record passed, failed or unchecked results"]
+    K --> Q["Return DoctorResult or record a script failure"]
     J -- No --> L["Mark the plugin check unchecked"]
-    Q --> M["Collect results and missing resources"]
+    Q --> M["Add binding metadata and collect results"]
     L --> M
     M --> N{"More components?"}
     N -- Yes --> I
@@ -50,7 +50,7 @@ flowchart TD
    - Probes use the configuration produced by merging Policy defaults and Recipe overrides.
    - A loading error produces a failed diagnostic and stops component probes.
 3. **Check declared local paths.** For the Application, each effective binding and the configured Reflection implementation, doctor checks local files and directories marked with `x-rsi-path` for existence, type and readability.
-4. **Run component checks.** By default, the framework calls `doctor` on each definition that declares it. Unavailable prerequisites can leave dependent checks `unchecked` while independent checks continue. `--static` skips all callbacks, including their model access, instance preparation and SDK probes. The report marks `<binding>.plugin` as `unchecked` when the flag skips a callback or the definition omits it, with a reason for each case.
+4. **Run component checks.** By default, the framework calls `doctor` on each definition that declares it and collects its `DoctorResult`. Unavailable prerequisites can leave dependent checks `unchecked` while independent checks continue. `--static` skips all callbacks, including their model access, instance preparation and SDK probes. The report marks `<binding>.plugin` as `unchecked` when the flag skips a callback or the definition omits it, with a reason for each case.
 5. **Clean up and report.** RSI checks use isolated temporary storage, propagate cancellation, release the instances and processes they create, and remove temporary files. Checks can read existing artifacts as inputs. RSI keeps its captures and writes in the temporary Runtime.
 
 ### Reading the JSON report
@@ -131,18 +131,24 @@ In this example, the existing `configSchema` declares a required string named `i
 
 ```ts
 import { readFile } from 'node:fs/promises';
+import { runDoctorCheck } from 'ember-rsi';
 import type { OperationDoctor } from 'ember-rsi/contracts';
 
 type CustomConfig = { inputFile: string };
 
 export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
-  await context.check('input-content', async (signal) => {
-    const text = await readFile(context.binding.config.inputFile, {
-      encoding: 'utf8',
-      signal,
-    });
-    if (!text.trim()) throw new Error('inputFile must contain text.');
-  });
+  const inputContent = await runDoctorCheck(
+    'input-content',
+    async (signal) => {
+      const text = await readFile(context.binding.config.inputFile, {
+        encoding: 'utf8',
+        signal,
+      });
+      if (!text.trim()) throw new Error('inputFile must contain text.');
+    },
+    { signal: context.signal },
+  );
+  return { checks: [inputContent] };
 };
 ```
 
@@ -171,14 +177,11 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 
 ### Callback contract and lifecycle
 
-Import the public types `OperationDoctor<C>` and `DoctorContext<C>` from `ember-rsi/contracts` or `ember-rsi`. `C` is the component configuration type, available as effective configuration in `context.binding.config`. The callback returns `Promise<void>` and records results through the context.
+Import `OperationDoctor<C>`, `DoctorContext<C>` and `DoctorResult` from `ember-rsi/contracts` or `ember-rsi`. `context.binding.config` holds the effective configuration of type `C`. The callback returns `Promise<DoctorResult>` with `checks` and optional `missingResources`. Each check supplies a component-local `id`, `status` and optional `reason` and `details`. RSI prefixes the IDs with the binding name, adds binding and plugin metadata, redacts diagnostics, and computes the totals and exit status.
 
-| Context method                    | Use                                                                                                                                         |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `check(id, action, options?)`     | Record one check as passed or failed and return a boolean. The action receives its own cancellation signal. Set its limit with `timeoutMs`. |
-| `unchecked(id, reason, details?)` | Record work skipped because a prerequisite is unavailable or the execution path is unsupported.                                             |
-| `missing(resource)`               | Record a missing input and related check IDs. Use `unchecked` separately for skipped dependent checks.                                      |
-
+- Use `runDoctorCheck(id, action, { signal: context.signal })` from `ember-rsi` for a bounded probe. The action uses the signal it receives for external operations. The helper returns one `passed` or `failed` check. Its options also accept `timeoutMs`, `reason` and `details`.
+- Return `status: 'unchecked'` for a skipped check and give its reason. List missing inputs under `missingResources` with `field`, `kind`, `reference` and `checksNotRun`. Each entry in `checksNotRun` names a local `unchecked` check in the same result.
+- Return `failed` checks for expected problems so independent checks can continue. An unexpected callback error or invalid result produces `<binding>.script` with status `failed`. RSI can only collect results the callback returns successfully.
 - Component registration and Recipe loading retain the callback for the `doctor` command to invoke.
 - When a component omits `doctor`, the framework still runs the common checks and marks the component-specific `plugin` check as `unchecked`.
 - Keep temporary files in `context.directory` or the isolated Runtime. Pass each check's signal to external operations and clean up the resources the diagnostic creates in `finally`.
@@ -189,7 +192,7 @@ Doctor checks bindings sequentially. The command's total duration depends on the
 
 | Operation or check ID                          | Limit                                                                  | Scope                                                                                                                                  |
 | ---------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Common `context.check` checks                  | 60 seconds per check by default                                        | Local paths, configuration and Application verification/acquisition have separate timers; operations within one check share its limit. |
+| Common `runDoctorCheck` checks                 | 60 seconds per check by default                                        | Local paths, configuration and Application verification/acquisition have separate timers; operations within one check share its limit. |
 | `agent.codex` `executable` and `doctor`        | 60 seconds each                                                        | CLI help and native doctor help share the `executable` timer; native JSON diagnostics are separate.                                    |
 | Pi `model-access` HTTP request                 | 10 seconds per request                                                 | Covers the HTTP request and complete response body within the outer 60-second check.                                                   |
 | Optuna `python-dependencies`                   | 60 seconds outside; configured `python.timeoutMs` also applies         | A shorter worker timeout can finish earlier; a longer value cannot extend the enclosing RSI check.                                     |
@@ -198,6 +201,6 @@ Doctor checks bindings sequentially. The command's total duration depends on the
 
 Nested limits expire at the first deadline. For Pi, the request's 10 seconds are part of its 60-second check, not an extra allowance. The CLI has no doctor-specific timeout option, and these limits do not come from Recipe experiment budgets. Pi/Codex `config.timeoutMs` applies to real Agent execution; see [Configure Recipes, Targets and components](configuration.md).
 
-An RSI check timeout produces `failed`, meaning the probe could not complete rather than establishing that the plugin is unavailable. The runner waits up to **15 additional seconds** for a cancelled common check to settle; otherwise it records an extra `<binding>.<check ID>.cleanup: failed`. Final Runtime and temporary-directory cleanup are outside that wait, so the command need not return within 60 or 75 seconds.
+An RSI check timeout produces `failed` because the probe did not finish. `runDoctorCheck` waits up to **15 additional seconds** for a cancelled probe to settle. If that wait expires after a timeout, the same check's reason says cleanup could not be confirmed. Final Runtime and temporary-directory cleanup have their own duration.
 
 On Evaluator cancellation, RSI asks the SDK to stop its probes and clean up. The SDK has up to 60 seconds to respond. RSI starts forced process-tree termination when that time expires or when it cannot deliver the cancellation message. Cleanup of Docker daemon resources is unknown after forced termination. The pinned SDK allows 30 seconds to remove probe images. Downloaded base images may stay cached.

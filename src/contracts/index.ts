@@ -12,6 +12,7 @@ export type {
   DoctorRecipe,
   DoctorRegistry,
   DoctorReport,
+  DoctorResult,
   MissingResource,
   OperationDoctor,
 } from './doctor.js';

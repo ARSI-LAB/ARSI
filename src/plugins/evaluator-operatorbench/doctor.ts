@@ -30,7 +30,8 @@ export function createOperatorbenchDoctor(
   run?: SdkDoctorRunner,
 ): OperationDoctor {
   return async (ctx) => {
-    await checkSdkDoctor(ctx, prepareConfig, run);
+    const { checks } = await checkSdkDoctor(ctx, prepareConfig, run);
+    return { checks };
   };
 }
 

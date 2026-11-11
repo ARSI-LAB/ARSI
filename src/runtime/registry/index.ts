@@ -6,6 +6,7 @@ import type {
   OperationDefinition,
   RuntimeContext,
   DoctorContext,
+  DoctorResult,
 } from '../../contracts/index.js';
 import {
   defineContract,
@@ -106,13 +107,13 @@ export class Registry {
       contract,
       ...(doctor
         ? {
-            async doctor(context: DoctorContext): Promise<void> {
+            async doctor(context: DoctorContext): Promise<DoctorResult> {
               validate(
                 definition.configSchema,
                 context.binding.config,
                 'plugin doctor config',
               );
-              await doctor.call(definition, {
+              return doctor.call(definition, {
                 ...context,
                 binding: {
                   name: context.binding.name,

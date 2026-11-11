@@ -1,7 +1,7 @@
 import type { JsonObject, JsonSchema, JsonValue } from './json.js';
 import type { PluginContract } from './contract.js';
 import type { RuntimeContext } from './runtime/context.js';
-import type { DoctorContext } from './doctor.js';
+import type { DoctorContext, DoctorResult } from './doctor.js';
 
 /** A concrete plugin uses the input and output types owned by its public contract. */
 export interface Operation<
@@ -31,6 +31,6 @@ export interface OperationDefinition<
   contract: PluginContract;
   configSchema: JsonSchema;
   /** Optional diagnostic capability, called only by doctor with validated effective configuration. */
-  doctor?(context: DoctorContext<C>): Promise<void>;
+  doctor?(context: DoctorContext<C>): Promise<DoctorResult>;
   create(config: C, context: RuntimeContext): Promise<Operation<I, O>>;
 }

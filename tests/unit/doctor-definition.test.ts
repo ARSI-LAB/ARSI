@@ -31,6 +31,7 @@ test('an extension exports and registers its own doctor with effective config an
   });
   const contracts = new URL('../../src/contracts/index.ts', import.meta.url)
     .href;
+  const publicApi = new URL('../../src/index.ts', import.meta.url).href;
   const modulePath = join(extension, 'index.mjs');
   await writeFile(
     modulePath,
@@ -38,6 +39,7 @@ test('an extension exports and registers its own doctor with effective config an
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { proposerContract, applicationContract } from ${JSON.stringify(contracts)};
+import { runDoctorCheck } from ${JSON.stringify(publicApi)};
 export const calls = { doctor: 0, create: 0, execute: 0 };
 export const customDefinition = {
   id: 'proposer.custom', contract: proposerContract,
@@ -53,11 +55,12 @@ export const customDefinition = {
     calls.doctor++;
     if (this.id !== context.binding.pluginId) throw Error('Doctor lost its definition receiver');
     const details = { pluginId: context.binding.pluginId, label: context.binding.config.label, input: context.binding.config.inputFile, directory: context.directory };
-    await context.check('content', async signal => {
+    const check = await runDoctorCheck('content', async signal => {
       await writeFile(join(context.directory, 'owned-marker'), 'owned');
       const content = await readFile(context.binding.config.inputFile, { encoding: 'utf8', signal });
       if (content !== 'ready') throw Error('Input must be ready: ' + process.env.DOCTOR_PUBLIC_FIXTURE_SECRET);
-    }, { details });
+    }, { signal: context.signal, details });
+    return { checks: [check] };
   }
 };
 export function register(registry) {

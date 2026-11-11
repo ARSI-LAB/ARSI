@@ -33,9 +33,9 @@ flowchart TD
     H --> I["检查当前组件声明的本地路径"]
     I --> J{"执行完整检查且组件<br/>声明了 doctor 回调？"}
     J -- 是 --> K["执行 doctor 回调"]
-    K --> Q["分别记录各项检查结果<br/>passed、failed 或 unchecked"]
+    K --> Q["返回 DoctorResult 或记录脚本失败"]
     J -- 否 --> L["将该组件的 plugin 检查<br/>记为 unchecked"]
-    Q --> M["汇集当前组件的结果和缺失资源"]
+    Q --> M["补充绑定信息并汇集结果"]
     L --> M
     M --> N{"还有组件？"}
     N -- 是 --> I
@@ -50,7 +50,7 @@ flowchart TD
    - 探测使用合并 Policy 默认配置与 Recipe 覆盖后的配置。
    - 加载失败时输出失败诊断，不再执行组件探测。
 3. **检查已声明的本地路径。** 对 Application、每个生效绑定及已配置的 Reflection 实现，检查 Schema 中用 `x-rsi-path` 标记的本地文件或目录是否存在、类型是否正确、是否可读。
-4. **执行组件检查。** 默认情况下，框架调用组件定义上声明的 `doctor` 函数。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。`--static` 跳过所有回调，省去回调中的模型访问、实例准备和 SDK 探测。使用该选项或组件省略回调时，报告将 `<binding>.plugin` 记为 `unchecked` 并说明原因。
+4. **执行组件检查。** 默认情况下，框架调用组件定义上声明的 `doctor` 函数并收集它返回的 `DoctorResult`。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。`--static` 跳过所有回调，省去回调中的模型访问、实例准备和 SDK 探测。使用该选项或组件省略回调时，报告将 `<binding>.plugin` 记为 `unchecked` 并说明原因。
 5. **清理并输出。** RSI 检查使用隔离临时存储，传递取消信号，释放自己创建的实例与进程，并删除临时文件。原有 artifacts 可作为输入读取，RSI 产生的捕获与写入留在临时 Runtime 内。
 
 ### 运行结果
@@ -131,18 +131,24 @@ flowchart TD
 
 ```ts
 import { readFile } from 'node:fs/promises';
+import { runDoctorCheck } from 'ember-rsi';
 import type { OperationDoctor } from 'ember-rsi/contracts';
 
 type CustomConfig = { inputFile: string };
 
 export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
-  await context.check('input-content', async (signal) => {
-    const text = await readFile(context.binding.config.inputFile, {
-      encoding: 'utf8',
-      signal,
-    });
-    if (!text.trim()) throw new Error('inputFile must contain text.');
-  });
+  const inputContent = await runDoctorCheck(
+    'input-content',
+    async (signal) => {
+      const text = await readFile(context.binding.config.inputFile, {
+        encoding: 'utf8',
+        signal,
+      });
+      if (!text.trim()) throw new Error('inputFile must contain text.');
+    },
+    { signal: context.signal },
+  );
+  return { checks: [inputContent] };
 };
 ```
 
@@ -171,14 +177,11 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 
 ### 回调约定与生命周期
 
-从 `ember-rsi/contracts` 或 `ember-rsi` 导入公开类型 `OperationDoctor<C>` 和 `DoctorContext<C>`。`C` 是组件配置类型，生效配置通过 `context.binding.config` 读取。回调返回 `Promise<void>`，通过上下文记录结果。
+从 `ember-rsi/contracts` 或 `ember-rsi` 导入 `OperationDoctor<C>`、`DoctorContext<C>` 和 `DoctorResult`。`context.binding.config` 提供类型为 `C` 的生效配置。回调返回 `Promise<DoctorResult>`，包含 `checks` 和可选的 `missingResources`。检查项填写组件内的 `id`、`status` 以及可选的 `reason` 和 `details`。RSI 统一补上绑定名前缀、绑定和插件信息，脱敏诊断数据，汇总状态并确定退出码。
 
-| 上下文方法                        | 用途                                                                                       |
-| --------------------------------- | ------------------------------------------------------------------------------------------ |
-| `check(id, action, options?)`     | 记录一项检查的通过或失败并返回布尔值。操作接收自己的取消信号，`timeoutMs` 可设置单项时限。 |
-| `unchecked(id, reason, details?)` | 记录因前提缺失或执行路径未支持而跳过的检查。                                               |
-| `missing(resource)`               | 记录缺失输入及相关检查 ID。另用 `unchecked` 记录跳过的依赖检查。                           |
-
+- 从 `ember-rsi` 导入 `runDoctorCheck`，用 `runDoctorCheck(id, action, { signal: context.signal })` 执行有时限的探测。外部操作使用 `action` 收到的信号。该函数返回一条 `passed` 或 `failed` 检查，选项还可填写 `timeoutMs`、`reason` 和 `details`。
+- 跳过的检查返回 `status: 'unchecked'` 并说明原因。缺失的输入写入 `missingResources`，包含 `field`、`kind`、`reference` 和 `checksNotRun`。`checksNotRun` 的每个 ID 都对应同一份结果中的一条 `unchecked` 检查。
+- 遇到预期问题时返回 `failed` 检查，让独立检查继续。回调发生未处理的异常或返回无效结果时，RSI 将 `<binding>.script` 记为 `failed`。RSI 只能汇总回调成功返回的结果。
 - 组件注册和 Recipe 加载负责保留回调，`doctor` 命令才会调用它。
 - 省略 `doctor` 时，框架仍执行通用检查，并将组件专用的 `plugin` 项标为 `unchecked`。
 - 临时文件放在 `context.directory` 或隔离 Runtime 中，外部操作使用单项检查的信号，脚本在 `finally` 中清理自己创建的资源。
@@ -189,7 +192,7 @@ doctor 按顺序检查各个绑定。命令总耗时取决于各项检查与清�
 
 | 操作或检查 ID                           | 时限                                               | 计时范围                                                                         |
 | --------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
-| 通用 `context.check` 检查               | 默认每项 60 秒                                     | 本地路径、配置、Application 验证与获取各自计时，同一项内的多个操作共用时限。     |
+| 通用 `runDoctorCheck` 检查              | 默认每项 60 秒                                     | 本地路径、配置、Application 验证与获取各自计时，同一项内的多个操作共用时限。     |
 | `agent.codex` 的 `executable`、`doctor` | 各 60 秒                                           | CLI 帮助与原生 doctor 帮助共用 `executable` 时限，原生 JSON 诊断另算一项。       |
 | Pi 的 `model-access` HTTP 请求          | 每次请求 10 秒                                     | 包含 HTTP 请求和完整响应正文读取，位于外层 60 秒检查内。                         |
 | Optuna 的 `python-dependencies`         | 外层 60 秒，同时受已配置的 `python.timeoutMs` 约束 | 更短的 worker 时限可提前结束，更长的值不能延长外层 RSI 检查。                    |
@@ -198,6 +201,6 @@ doctor 按顺序检查各个绑定。命令总耗时取决于各项检查与清�
 
 嵌套时限以先到期者为准。Pi 请求自己的 10 秒包含在外层 60 秒中，不能额外相加。CLI 没有 doctor 专用的超时参数，这些时限也不取自 Recipe 的实验预算。Pi/Codex 的 `config.timeoutMs` 用于真实 Agent 执行，参见[配置 Recipe、Target 与组件](configuration_zh.md)。
 
-RSI 检查超时会记为 `failed`，说明探测未完成，不能据此认定插件不可用。通用检查取消后，runner 最多再等待 **15 秒**使其结束；否则额外记录 `<绑定名>.<检查 ID>.cleanup: failed`。最终 Runtime 与临时目录清理不受该等待统一覆盖，因此命令不保证在 60 秒或 75 秒内返回。
+RSI 检查超时会记为 `failed`，表示探测未完成。取消探测后，`runDoctorCheck` 最多再等待 **15 秒**使其结束。若检查超时且等待结束时探测仍未完成，同一检查项的原因会说明清理无法确认。最后清理 Runtime 和临时目录还需要额外时间。
 
 Evaluator 取消时，RSI 请求 SDK 结束探测并清理资源。SDK 最长有 60 秒响应。超时或取消消息无法送达时，RSI 开始强制终止进程树，此时 Docker daemon 所有资源的清理状态仍为未知。当前固定 SDK 给删除探测镜像的操作 30 秒。下载的基础镜像可能留在缓存中。

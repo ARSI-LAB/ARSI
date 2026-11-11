@@ -43,7 +43,7 @@ The Policy's `require` specifies the contract, and the binding selects a plugin 
 | `contract`             | Declare the public contract the plugin follows.                     | Required imported contract object, such as `proposerContract`.                                                                 |
 | `configSchema`         | Validate this implementation's configuration.                       | Required JSON Schema; declare an object Schema even when there are no settings.                                                |
 | `create`               | Create a plugin instance from configuration.                        | Required async function `create(config, context)` returning an object with `execute` and `dispose`.                            |
-| `doctor`               | Diagnose this component's prerequisites before an experiment.       | Optional `OperationDoctor<C>` function receiving `DoctorContext<C>`; records checks using the effective binding configuration. |
+| `doctor`               | Diagnose this component's prerequisites before an experiment.       | Optional `OperationDoctor<C>` function that receives `DoctorContext<C>` and returns a `DoctorResult`.                          |
 | `implementationDigest` | Identify the implementation version so recovery can detect changes. | Optional digest covering the actual implementation code; update it when the code changes.                                      |
 
 - Without `implementationDigest`, Registry generates a digest from the `create` function text, contract, and configuration Schema.
@@ -283,7 +283,7 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`doctor` checks contracts, bindings and configuration, then invokes each selected component definition's optional `doctor` function. Export and package that function with the component; normal `registerOperation(definition)` registration is sufficient. A definition without `doctor` receives `unchecked` for its plugin-specific coverage while automatic structural/path checks still run. Doctor performs no model inference or optimization run; Evaluators delegate to the full SDK doctor, including its download and build probes. After running the experiment, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
+`doctor` checks contracts, bindings and configuration, then invokes each selected component definition's optional `doctor` function. It incorporates the returned `DoctorResult` into the report. Export and package the function with the component and register it with `registerOperation(definition)`. A definition without `doctor` receives `unchecked` for its plugin-specific coverage while automatic structural/path checks still run. Doctor performs no model inference or optimization run; Evaluators delegate to the full SDK doctor, including its download and build probes. After running the experiment, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
 
 ## Use RuntimeContext
 

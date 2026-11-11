@@ -179,6 +179,12 @@ export class PolicyCheckpoints implements IncrementalPolicyCheckpoint {
     return snapshot;
   }
 
+  async restoreOrdered(): Promise<JsonObject | undefined> {
+    const snapshot = await this.restore();
+    // Legacy snapshot journals were sorted by path when serialized.
+    return this.hasBaseline ? undefined : snapshot;
+  }
+
   async append(change: PolicyCheckpointChange): Promise<void> {
     const owned = structuredClone(change);
     string(owned.identity, 'checkpoint entry.identity');

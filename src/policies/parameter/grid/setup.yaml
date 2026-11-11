@@ -1,0 +1,58 @@
+state_schema:
+  type: object
+  properties:
+    cursor:
+      type: integer
+      minimum: 0
+    exhausted:
+      type: boolean
+    bestCandidate:
+      type:
+        - string
+        - 'null'
+    bestMeasurement:
+      type:
+        - string
+        - 'null'
+    bestParameters:
+      type:
+        - object
+        - 'null'
+    history:
+      type: array
+      items:
+        type: string
+  required:
+    - cursor
+    - exhausted
+    - bestCandidate
+    - bestMeasurement
+    - bestParameters
+    - history
+  additionalProperties: false
+state:
+  cursor: 0
+  exhausted: false
+  bestCandidate: null
+  bestMeasurement: null
+  bestParameters: null
+  history: []
+require:
+  proposer:
+    contract: contract.proposer-grid
+  evaluator:
+    contract: contract.inferencebench
+  selector:
+    contract: contract.selector-metrics
+defaults:
+  bindings:
+    proposer:
+      plugin: proposer.grid
+    selector:
+      plugin: selector.metric
+      config:
+        metric: requestThroughput
+        direction: maximize
+        constraints:
+          - metric: sloSatisfied
+            min: 1

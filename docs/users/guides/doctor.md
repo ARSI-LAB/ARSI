@@ -79,7 +79,7 @@ Review `unchecked` results even when the exit code is zero. A complete JSON repo
 
 ## 3. Checks for built-in components
 
-The following 17 built-in implementations declare their own `doctor` callback. Doctor checks the components selected by the effective Recipe.
+The following 18 built-in implementations declare their own `doctor` callback. Doctor checks the components selected by the effective Recipe.
 
 ### Applications and Agents
 
@@ -91,19 +91,20 @@ The following 17 built-in implementations declare their own `doctor` callback. D
 | `agent.pi`                | 1. Validate the model, service address, credentials and token limits.<br>2. Connect to the model service from the RSI process and confirm that its model list contains the selected model.                                                                           |
 | `agent.codex`             | 1. Check that the Codex command is available and supports native diagnostics.<br>2. Run native diagnostics in an isolated project using the configured model and reasoning level, then read the results.                                                             |
 
-### Proposers, Memory, Reflection, Selectors and Search
+### Proposers, Memory, Reflection and Selectors
 
-| Implementation            | Checks performed                                                                                                                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `proposer.agent`          | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and role prompts.<br>3. Prepare an isolated editing project and confirm that these inputs can be assembled.                         |
-| `proposer.operator`       | 1. Check the selected Agent binding and compatibility.<br>2. Read the operator task and cases, and validate their identifiers.<br>3. Read stage prompts, external knowledge, retrieval resources and optional hardware context. |
-| `proposer.grid`           | 1. Check the parameter path and search-axis names.<br>2. Validate the grid size and confirm that the component can be created and disposed.                                                                                     |
-| `proposer.optuna`         | 1. Validate the sampler, search space and constraint-handling settings.<br>2. Run the Python dependency check and verify the required dependency versions.                                                                      |
-| `memory.agent`            | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and role prompts.<br>3. Assemble the editing environment in an isolated project.                                                    |
-| `reflection.agent`        | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and the built-in reviewer prompt.<br>3. Assemble the editing environment in an isolated project.                                    |
-| `selector.metric`         | 1. Validate the metric-selection settings.<br>2. Check candidate eligibility conditions and constraint bounds, and confirm that the component can be created and disposed.                                                      |
-| `selector.artifact`       | 1. Check the selected Agent binding and compatibility.<br>2. Read selection prompts, guidance, skills and role prompts.<br>3. Prepare an isolated selection project.                                                            |
-| `search.prompt-evolution` | 1. Validate the prompt-module definitions.<br>2. Check that each module file exists in the local baseline or file-tree artifact.                                                                                                |
+| Implementation              | Checks performed                                                                                                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `proposer.agent`            | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and role prompts.<br>3. Prepare an isolated editing project and confirm that these inputs can be assembled.                         |
+| `proposer.operator`         | 1. Check the selected Agent binding and compatibility.<br>2. Read the operator task and cases, and validate their identifiers.<br>3. Read stage prompts, external knowledge, retrieval resources and optional hardware context. |
+| `proposer.grid`             | 1. Check the parameter path and search-axis names.<br>2. Validate the grid size and confirm that the component can be created and disposed.                                                                                     |
+| `proposer.optuna`           | 1. Validate the sampler, search space and constraint-handling settings.<br>2. Run the Python dependency check and verify the required dependency versions.                                                                      |
+| `proposer.pareto-evolution` | 1. Validate the prompt-module definitions.<br>2. Check that each module file exists in the local baseline or file-tree artifact.                                                                                                |
+| `memory.agent`              | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and role prompts.<br>3. Assemble the editing environment in an isolated project.                                                    |
+| `reflection.agent`          | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and the built-in reviewer prompt.<br>3. Assemble the editing environment in an isolated project.                                    |
+| `selector.metric`           | 1. Validate the metric-selection settings.<br>2. Check candidate eligibility conditions and constraint bounds, and confirm that the component can be created and disposed.                                                      |
+| `selector.artifact`         | 1. Check the selected Agent binding and compatibility.<br>2. Read selection prompts, guidance, skills and role prompts.<br>3. Prepare an isolated selection project.                                                            |
+| `selector.inference`        | 1. Validate the inference selection settings.<br>2. Check constraint bounds and confirm that the component can be created and disposed.                                                                                         |
 
 ### Evaluators
 

@@ -1,0 +1,42 @@
+type: object
+additionalProperties: false
+properties:
+  status: { enum: [selected, no-feasible-configuration] }
+  stopReason: { enum: [max-trials, no-change] }
+  baselineCandidateRef: { type: string, minLength: 1 }
+  baselineMeasurementRef: { type: string, minLength: 1 }
+  candidateRef: { type: string, minLength: 1 }
+  measurementRef: { type: string, minLength: 1 }
+  candidateFeasible: { type: boolean }
+  trials:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      properties:
+        candidateRef: { type: string }
+        measurementRef: { type: string, minLength: 1 }
+        status: { const: measured }
+        reason: { type: string }
+        accepted: { type: boolean }
+        candidateFeasible: { type: boolean }
+      required:
+        [
+          candidateRef,
+          measurementRef,
+          status,
+          reason,
+          accepted,
+          candidateFeasible,
+        ]
+required:
+  [
+    status,
+    stopReason,
+    baselineCandidateRef,
+    baselineMeasurementRef,
+    candidateRef,
+    measurementRef,
+    candidateFeasible,
+    trials,
+  ]

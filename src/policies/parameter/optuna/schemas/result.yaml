@@ -1,0 +1,32 @@
+type: object
+additionalProperties: false
+properties:
+  status:
+    enum: [selected, no-feasible-configuration]
+  stopReason:
+    enum: [search-exhausted, sampling-limit, max-trials]
+  baselineCandidateRef: { type: string, minLength: 1 }
+  baselineMeasurementRef: { type: string, minLength: 1 }
+  candidateRef:
+    type: [string, 'null']
+  measurementRef:
+    type: [string, 'null']
+  parameters:
+    type: [object, 'null']
+    additionalProperties: true
+  measurementRefs:
+    type: array
+    items:
+      type: string
+  searchStateRef:
+    type: [string, 'null']
+required:
+  - status
+  - stopReason
+  - baselineCandidateRef
+  - baselineMeasurementRef
+  - candidateRef
+  - measurementRef
+  - parameters
+  - measurementRefs
+  - searchStateRef

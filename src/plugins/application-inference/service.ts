@@ -18,6 +18,7 @@ import {
 } from '../shared/file-application/files.js';
 import { safePath } from '../shared/file-application/target.js';
 import { digest, object, string, unknownKeys } from '../../shared/json.js';
+import { InferenceStartupError } from '../../shared/errors.js';
 import { createRemoteBackend } from './remote.js';
 import type { InferenceConfig } from './schema.js';
 interface OwnedProcess {
@@ -340,16 +341,18 @@ export const createApplicationInference: OperationDefinition<
       );
       while (true) {
         context.signal.throwIfAborted();
-        if (
-          spawnState.error ||
-          child.exitCode !== null ||
-          child.signalCode !== null
-        )
-          throw new Error(
-            `Inference service exited before readiness: ${spawnState.error?.message ?? child.exitCode}`,
+        if (spawnState.error)
+          throw new Error('Could not spawn inference service', {
+            cause: spawnState.error,
+          });
+        if (child.exitCode !== null || child.signalCode !== null)
+          throw new InferenceStartupError(
+            `Inference service exited before readiness: ${child.exitCode ?? child.signalCode}`,
           );
         if (deadline !== undefined && Date.now() >= deadline)
-          throw new Error('Inference service readiness timeout');
+          throw new InferenceStartupError(
+            'Inference service readiness timeout',
+          );
         try {
           const response = await fetch(origin + path, {
             signal: AbortSignal.any([

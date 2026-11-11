@@ -243,7 +243,7 @@ ember-rsi dashboard
       <td>
         <a href="src/plugins/agent-pi"><code>agent.pi</code></a><br>
         <a href="src/plugins/proposer-agent"><code>proposer.agent</code></a><br>
-        <a href="src/plugins/search-prompt-evolution"><code>search.prompt-evolution</code></a><br>
+        <a href="src/plugins/proposer-pareto-evolution"><code>proposer.pareto-evolution</code></a><br>
         <a href="src/plugins/evaluator-agentbench"><code>evaluator.agentbench</code></a>
       </td>
     </tr>

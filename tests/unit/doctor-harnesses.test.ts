@@ -254,8 +254,9 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
     }
     if (name === 'dsh-gepa')
       assert.equal(
-        report.checks.find((check) => check.id === 'search.baseline-modules')
-          ?.status,
+        report.checks.find(
+          (check) => check.id === 'evolutionProposer.baseline-modules',
+        )?.status,
         'passed',
       );
     assert.deepEqual(await readFile(String(originalTarget)), targetBefore);
@@ -327,8 +328,9 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
       );
       if (name === 'dsh-gepa' && missing === 'baseline')
         assert.equal(
-          report.missingResources.find((entry) => entry.binding === 'search')
-            ?.field,
+          report.missingResources.find(
+            (entry) => entry.binding === 'evolutionProposer',
+          )?.field,
           'application.config.baseline.directory',
         );
       verifyReport(report);

@@ -254,7 +254,7 @@ test('selector.metric constructs a valid selector and checks both bound collecti
   }
 });
 
-test('search.prompt-evolution checks module identities and the real baseline files', async (t) => {
+test('proposer.pareto-evolution checks module identities and the real baseline files', async (t) => {
   const f = await fixture(t);
   const config = {
     maxRounds: 1,
@@ -266,7 +266,7 @@ test('search.prompt-evolution checks module identities and the real baseline fil
     goal: 'Improve prompt',
     modules: [{ id: 'module', path: 'module.md' }],
   };
-  const working = f.probe('search.prompt-evolution', config);
+  const working = f.probe('proposer.pareto-evolution', config);
   await working.binding.definition.doctor!(working);
   assert.deepEqual(
     working.checks.map((check) => check.status),
@@ -276,12 +276,12 @@ test('search.prompt-evolution checks module identities and the real baseline fil
     [config.modules[0]!, config.modules[0]!],
     [{ id: 'unsafe', path: '../module.md' }],
   ]) {
-    const broken = f.probe('search.prompt-evolution', { ...config, modules });
+    const broken = f.probe('proposer.pareto-evolution', { ...config, modules });
     await broken.binding.definition.doctor!(broken);
     assert.equal(broken.checks[0]!.status, 'failed');
     assert.equal(broken.checks[1]!.status, 'unchecked');
   }
-  const missing = f.probe('search.prompt-evolution', {
+  const missing = f.probe('proposer.pareto-evolution', {
     ...config,
     modules: [{ id: 'missing', path: 'missing.md' }],
   });
@@ -292,7 +292,7 @@ test('search.prompt-evolution checks module identities and the real baseline fil
     join(f.root, 'baseline/missing.md'),
   );
 
-  const artifact = f.probe('search.prompt-evolution', config);
+  const artifact = f.probe('proposer.pareto-evolution', config);
   const artifactRef = await artifact.runtime.artifacts.capture(
     join(f.root, 'baseline'),
   );

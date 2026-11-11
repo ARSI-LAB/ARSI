@@ -7,7 +7,8 @@ import type {
   Operation,
   RuntimeContext,
 } from '../../contracts/index.js';
-import { object, string, unknownKeys } from '../../shared/json.js';
+import { inferencebenchContract } from '../../contracts/plugin-types/inferencebench.js';
+import { object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { plain, redact } from '../shared/evaluator-adapter/data.js';
 import {
@@ -29,11 +30,9 @@ export async function createInferencebench(
   validate(configSchema, config, 'evaluator config');
   return {
     async execute(input, context): Promise<InferencebenchOutput> {
-      object(input);
-      unknownKeys(input, ['candidateRef'], 'evaluator input');
-      string(input.candidateRef);
+      validate(inferencebenchContract.input_schema, input, 'evaluator input');
       return context.withInstance(
-        string(input.candidateRef),
+        input.candidateRef,
         'inference-endpoint',
         async (execution) => {
           context.signal.throwIfAborted();
@@ -101,15 +100,17 @@ export async function createInferencebench(
               new Error('Evaluator result has no confirmed collected snapshot'),
               { measurementRef, status: 'unknown' },
             );
-          if (raw.exitCode !== 0)
+          if (raw.exitCode !== 0) {
+            const status = evaluationStatus(raw, context);
             throw Object.assign(
               new Error('Evaluator completed with nonzero exitCode'),
               {
                 measurementRef,
-                status: evaluationStatus(raw, context),
+                status,
                 exitCode: raw.exitCode,
               },
             );
+          }
           return { measurementRef };
         },
       );
@@ -169,8 +170,10 @@ export function prepareEvaluationConfig(
     directory: join(directory, 'sdk'),
   };
   const parsed = parseEvaluatorConfig(prepared);
-  if (benchmark.name !== 'agentx')
-    throw new Error('inferencebench requires benchmark.name=agentx');
+  if (benchmark.name !== 'agentx' && benchmark.name !== 'aisbench')
+    throw new Error(
+      'inferencebench requires benchmark.name=agentx or aisbench',
+    );
   const environment =
     typeof parsed.environment === 'string'
       ? parsed.environment
@@ -179,7 +182,7 @@ export function prepareEvaluationConfig(
     parsed.deployment !== undefined ||
     (environment !== undefined && environment !== 'local')
   )
-    throw new Error('Owned inference service requires local AgentX execution');
+    throw new Error('Owned inference service requires local execution');
   if (plain(config.output).directory !== undefined)
     throw new Error('output.directory is owned by RSI');
   return parsed;

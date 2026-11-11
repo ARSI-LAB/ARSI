@@ -259,7 +259,7 @@ test('Evaluator plugins check native configuration before charging or invoking t
         } finally {
           await invalidOperation.dispose();
         }
-      }, /supplied by the Application|configuration|services.default.maxTokens|duplicates|api_key|owned by RSI|must be agentbundle|requires benchmark.name=agentx|requires local AgentX/);
+      }, /supplied by the Application|configuration|services.default.maxTokens|duplicates|api_key|owned by RSI|must be agentbundle|requires benchmark.name=agentx or aisbench|requires local execution/);
     }
   }
   assert.equal(sdkCalls, 0);
@@ -343,7 +343,7 @@ test('agentbench binds the exact task set while preserving SDK configuration and
   assert.deepEqual(config, before);
 });
 
-test('inferencebench rejects non-AgentX benchmarks before invoking the SDK', async (t) => {
+test('inferencebench rejects unknown benchmarks before invoking the SDK', async (t) => {
   const directory = await temporaryDirectory(t);
   await assert.rejects(
     () =>
@@ -354,8 +354,63 @@ test('inferencebench rejects non-AgentX benchmarks before invoking the SDK', asy
         { baseUrl: 'http://localhost', model: 'test' },
         directory,
       ),
-    /requires benchmark.name=agentx/,
+    /requires benchmark.name=agentx or aisbench/,
   );
+});
+
+test('inferencebench resolves the bundled AISBench SSH profile with the owned endpoint', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const solverConfig = {
+    tokenizerPath: '/model',
+    remote: {
+      ssh: { host: 'benchmark.internal', user: 'benchmark' },
+      pythonExecutable: '/opt/aisbench/bin/python',
+      aisbenchWorkPath: '/opt/aisbench',
+      aisbenchVersion: '1.0.0',
+      workRoot: '/tmp/aisbench',
+    },
+  };
+  const config: EvaluatorConfig = {
+    services: { workload: {} },
+    benchmark: {
+      name: 'aisbench',
+      config: { workload: { inputLength: 512, concurrency: 4 } },
+      solver: { service: 'workload', config: solverConfig },
+    },
+  };
+  const native = await inferencebenchConfiguration(
+    config,
+    {
+      baseUrl: 'http://ascend.internal:8000/v1',
+      model: 'served-model',
+      credentialRef: 'VLLM_API_KEY',
+    },
+    directory,
+  );
+  assert.deepEqual(object(native.benchmark).solver, {
+    service: 'workload',
+    config: solverConfig,
+  });
+  assert.deepEqual(object(native.services).workload, {
+    model: 'served-model',
+    base_url: 'http://ascend.internal:8000/v1',
+    api_key: '${VLLM_API_KEY}',
+  });
+  assert.equal(native.scheduler, undefined);
+  const networkConfigPath = join(directory, 'network.yaml');
+  await writeFile(networkConfigPath, '{}\n');
+  const resolved = await loadConfig(
+    join(directory, 'evaluator.json'),
+    {},
+    { VLLM_API_KEY: 'EMPTY', EVALUATOR_CACHE_DIR: join(directory, 'cache') },
+    { networkConfigPath },
+  );
+  assert.equal(resolved.experiment.benchmark.name, 'aisbench');
+  assert.equal(resolved.experiment.solver.name, 'aisbench-ssh');
+  assert.equal(resolved.experiment.solver.service, 'workload');
+  assert.equal(resolved.experiment.services.workload.api, 'openai-completions');
+  assert.equal(resolved.experiment.scheduler.name, 'local');
+  assert.equal(resolved.experiment.scheduler.config.concurrency, 1);
 });
 
 test('agentbench forwards only explicitly configured service output limits', async (t) => {

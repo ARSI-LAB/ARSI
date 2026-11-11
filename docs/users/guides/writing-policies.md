@@ -43,6 +43,8 @@ List steps in execution order under `steps`. Each step declares `id` and `type`,
 | `control`    | Exit a loop, skip the current iteration, or end the flow.  | Set `control` to `break`, `continue`, or `fail`; `fail` also requires `reason`.                                                                                                                                                                                        |
 | `reflection` | Use the built-in Reflection capability for self-evolution. | Set the step's `type: reflection` and declare the module in `defaults.reflection`. Requires serial execution; see the [Reflection guide](reflection.md) for configuration.                                                                                             |
 
+The Runtime enforces the [Recipe budget](configuration.md#limits-and-budgets) across the workflow.
+
 ### Read data with expressions
 
 Use field names from the relevant Schema and step IDs declared by the Policy. For example:

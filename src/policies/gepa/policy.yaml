@@ -19,17 +19,17 @@ state_schema:
   type: object
   additionalProperties: false
   required:
-    - search
+    - evolution
   properties:
-    search:
+    evolution:
       type: object
 state:
-  search: {}
+  evolution: {}
 output_schema:
   $ref: ./schemas/output.yaml
 require:
-  search:
-    contract: contract.search
+  evolutionProposer:
+    contract: contract.proposer-iterative
   evaluator:
     contract: contract.agentbench
   proposer:
@@ -38,8 +38,8 @@ require:
     contract: contract.agent
 defaults:
   bindings:
-    search:
-      plugin: search.prompt-evolution
+    evolutionProposer:
+      plugin: proposer.pareto-evolution
     proposer:
       plugin: proposer.agent
       config:
@@ -49,7 +49,7 @@ defaults:
 steps:
   - id: initialize
     type: invoke
-    use: search
+    use: evolutionProposer
     with:
       action: initialize
       parent: ${{ input.candidateRef }}
@@ -58,10 +58,10 @@ steps:
   - id: save_initial
     type: state
     state:
-      search: ${{ steps.initialize.output }}
+      evolution: ${{ steps.initialize.output }}
   - id: initial_evaluation
     type: if
-    if: ${{ size(state.search.work.evaluations) > 0 }}
+    if: ${{ size(state.evolution.work.evaluations) > 0 }}
     then:
       steps:
         - id: evaluate
@@ -69,7 +69,7 @@ steps:
           use: evaluator
           with:
             candidateRef: ${{ input.candidateRef }}
-            taskIds: ${{ state.search.work.evaluations[0].taskIds }}
+            taskIds: ${{ state.evolution.work.evaluations[0].taskIds }}
       output:
         - ${{ steps.evaluate.output.measurementRef }}
     else:
@@ -77,36 +77,36 @@ steps:
       output: []
   - id: observe_initial
     type: invoke
-    use: search
+    use: evolutionProposer
     with:
       action: observe
-      workId: ${{ state.search.work.id }}
+      workId: ${{ state.evolution.work.id }}
       feedback:
         kind: evaluation
         measurementRefs: ${{ steps.initial_evaluation.output }}
-      stateRef: ${{ state.search.stateRef }}
+      stateRef: ${{ state.evolution.stateRef }}
   - id: save_observed
     type: state
     state:
-      search: ${{ steps.observe_initial.output }}
+      evolution: ${{ steps.observe_initial.output }}
   - id: optimize
     type: loop
-    maxIterations: ${{ state.search.iterationLimit }}
-    while: ${{ !state.search.done }}
+    maxIterations: ${{ state.evolution.iterationLimit }}
+    while: ${{ !state.evolution.done }}
     steps:
       - id: prepare
         type: invoke
-        use: search
+        use: evolutionProposer
         with:
           action: suggest
-          stateRef: ${{ state.search.stateRef }}
+          stateRef: ${{ state.evolution.stateRef }}
       - id: save_plan
         type: state
         state:
-          search: ${{ steps.prepare.output }}
+          evolution: ${{ steps.prepare.output }}
       - id: stop_if_done
         type: if
-        if: ${{ state.search.work == null }}
+        if: ${{ state.evolution.work == null }}
         then:
           steps:
             - id: stop
@@ -114,22 +114,22 @@ steps:
               control: break
       - id: proposal
         type: if
-        if: ${{ state.search.work.proposalInput != null }}
+        if: ${{ state.evolution.work.proposalInput != null }}
         then:
           steps:
             - id: evaluate_parent
               type: invoke
               use: evaluator
               with:
-                candidateRef: ${{ state.search.work.proposalInput.parent }}
-                taskIds: ${{ state.search.work.taskIds }}
+                candidateRef: ${{ state.evolution.work.proposalInput.parent }}
+                taskIds: ${{ state.evolution.work.taskIds }}
             - id: propose
               type: invoke
               use: proposer
               with:
-                parent: ${{ state.search.work.proposalInput.parent }}
-                goal: ${{ state.search.work.proposalInput.goal }}
-                editConstraints: ${{ state.search.work.proposalInput.editConstraints }}
+                parent: ${{ state.evolution.work.proposalInput.parent }}
+                goal: ${{ state.evolution.work.proposalInput.goal }}
+                editConstraints: ${{ state.evolution.work.proposalInput.editConstraints }}
                 evidenceRefs:
                   - ${{ steps.evaluate_parent.output.measurementRef }}
           output:
@@ -140,12 +140,12 @@ steps:
           steps:
             - id: evaluate_merge_parents
               type: if
-              if: ${{ state.search.work.proposalResult.status == 'created' }}
+              if: ${{ state.evolution.work.proposalResult.status == 'created' }}
               then:
                 steps:
                   - id: parents
                     type: foreach
-                    foreach: ${{ state.search.work.parentRefs }}
+                    foreach: ${{ state.evolution.work.parentRefs }}
                     as: parent
                     key: ${{ parent }}
                     steps:
@@ -154,14 +154,14 @@ steps:
                         use: evaluator
                         with:
                           candidateRef: ${{ parent }}
-                          taskIds: ${{ state.search.work.taskIds }}
+                          taskIds: ${{ state.evolution.work.taskIds }}
                     output: ${{ steps.evaluate.output.measurementRef }}
                 output: ${{ steps.parents.output }}
               else:
                 steps: []
                 output: []
           output:
-            proposal: ${{ state.search.work.proposalResult }}
+            proposal: ${{ state.evolution.work.proposalResult }}
             parentMeasurementRefs: ${{ steps.evaluate_merge_parents.output }}
       - id: proposal_evaluation
         type: if
@@ -173,27 +173,27 @@ steps:
               use: evaluator
               with:
                 candidateRef: ${{ steps.proposal.output.proposal.candidateRef }}
-                taskIds: ${{ state.search.work.taskIds }}
+                taskIds: ${{ state.evolution.work.taskIds }}
           output: ${{ steps.evaluate.output.measurementRef }}
         else:
           steps: []
           output: null
       - id: compare
         type: invoke
-        use: search
+        use: evolutionProposer
         with:
           action: observe
-          workId: ${{ state.search.work.id }}
+          workId: ${{ state.evolution.work.id }}
           feedback:
             kind: proposal
             parentMeasurementRefs: ${{ steps.proposal.output.parentMeasurementRefs }}
             proposal: ${{ steps.proposal.output.proposal }}
             proposalMeasurementRef: ${{ steps.proposal_evaluation.output }}
-          stateRef: ${{ state.search.stateRef }}
+          stateRef: ${{ state.evolution.stateRef }}
       - id: save_comparison
         type: state
         state:
-          search: ${{ steps.compare.output }}
+          evolution: ${{ steps.compare.output }}
       - id: select_if_accepted
         type: if
         if: ${{ steps.compare.output.work != null }}
@@ -203,21 +203,21 @@ steps:
               type: invoke
               use: evaluator
               with:
-                candidateRef: ${{ state.search.work.evaluations[0].candidateRef }}
-                taskIds: ${{ state.search.work.evaluations[0].taskIds }}
+                candidateRef: ${{ state.evolution.work.evaluations[0].candidateRef }}
+                taskIds: ${{ state.evolution.work.evaluations[0].taskIds }}
             - id: select
               type: invoke
-              use: search
+              use: evolutionProposer
               with:
                 action: observe
-                workId: ${{ state.search.work.id }}
+                workId: ${{ state.evolution.work.id }}
                 feedback:
                   kind: evaluation
                   measurementRefs:
                     - ${{ steps.evaluate_selection.output.measurementRef }}
-                stateRef: ${{ state.search.stateRef }}
+                stateRef: ${{ state.evolution.stateRef }}
             - id: save_selection
               type: state
               state:
-                search: ${{ steps.select.output }}
-output: ${{ state.search.result }}
+                evolution: ${{ steps.select.output }}
+output: ${{ state.evolution.result }}

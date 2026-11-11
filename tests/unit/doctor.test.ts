@@ -133,11 +133,11 @@ function verifyReport(report: DoctorReport): void {
       );
 }
 
-test('all 17 built-ins register their own doctor capability', async () => {
+test('all 18 built-ins register their own doctor capability', async () => {
   const runtime = await createRuntime({ homeDirectory: false });
   try {
     const plugins = runtime.registry.catalog().plugins;
-    assert.equal(plugins.length, 17);
+    assert.equal(plugins.length, 18);
     for (const id of plugins)
       assert.equal(typeof runtime.registry.get(id).doctor, 'function', id);
   } finally {

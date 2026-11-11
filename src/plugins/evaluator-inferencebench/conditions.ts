@@ -50,7 +50,6 @@ export function conditions(
   }
   delete fixed.output;
   const r = plain(fixed.run);
-  delete r.timeoutSeconds;
   delete r.taskIds;
   delete r.maxTasks;
   delete r.sampling;

@@ -956,86 +956,52 @@ test('a handled startup rejection leaves the real Manager alive for later trials
   }
 });
 
-test('workspace mode sends all candidate bytes without a parameter catalog and supports recovery', async () => {
+test('configuration candidates allow engine options and nested values without discovery', async () => {
   const f = await fixture();
   const services = servicesFor(f.root);
-  const config = {
-    ...f.config,
-    target: {
-      schema: {
-        schemaVersion: 'rsi.target/v1',
-        id: 'workspace',
-        entries: [
-          {
-            path: 'workspace',
-            kind: 'directory',
-            description: 'Engine workspace',
-            changes: ['create', 'modify', 'delete'],
-          },
-        ],
-      },
-    },
-    remote: {
-      script: f.config.remote.script,
-      executable: process.execPath,
-      parametersFile: null,
-    },
+  const parameters = {
+    tensor_parallel_size: 4,
+    max_model_len: 393216,
+    dtype: 'auto',
+    enable_prefix_caching: true,
+    gpu_memory_utilization: 0.91,
+    'attention_config.indexer_kv_dtype': 'int8',
+    compilation_config: { cudagraph_mode: 'FULL_DECODE_ONLY' },
+    environment: { OMP_NUM_THREADS: '20' },
   };
-  await rm(join(f.root, 'baseline/tuning.json'));
-  await mkdir(join(f.root, 'baseline/workspace'));
-  const source = 'print("candidate source")\n' + '# new source\n'.repeat(500);
-  await writeFile(join(f.root, 'baseline/workspace/serve.py'), source);
   await writeFile(
-    join(f.root, 'baseline/workspace/launch.json'),
-    '{"new_engine_flag":true}',
+    join(f.root, 'baseline/tuning.json'),
+    JSON.stringify(parameters),
   );
-  const app = await inferenceDefinition.create(config, services);
+  const backend = await createRemoteBackend(
+    {
+      ...f.config,
+      remote: { script: f.config.remote.script, executable: process.execPath },
+    },
+    services,
+  );
   try {
-    const initial = await app.execute({ action: 'initialize' }, call(services));
-    assert.equal(initial.action, 'initialize');
-    if (initial.action !== 'initialize') throw Error('initialize');
-    await app.execute(
-      {
-        action: 'acquire',
-        candidateRef: initial.initialCandidateRef,
-        instanceId: 'workspace-test',
-        capability: 'inference-endpoint',
-      },
+    const identity = await backend.verify(
+      join(f.root, 'baseline'),
       call(services),
     );
-    const requests = (await readFile(join(f.root, 'requests.jsonl'), 'utf8'))
-      .trim()
-      .split('\n')
-      .map((line) => object(JSON.parse(line)));
-    assert.equal(
-      requests.some((r) => r.action === 'describe-parameters'),
-      false,
-    );
-    const start = requests.find((r) => r.action === 'start')!;
-    const workspace = object(start.workspace);
-    assert.equal(
-      Buffer.from(
-        String(object(workspace['workspace/serve.py']).content),
-        'base64',
-      ).toString(),
-      source,
-    );
-    assert.equal(start.parametersDigest, digest(workspace));
-    const recovered = await inferenceDefinition.create(config, services);
-    try {
-      await recovered.execute(
-        { action: 'release', instanceId: 'workspace-test' },
-        call(services),
+    assert.deepEqual(identity.parameters, parameters);
+    for (const key of [
+      'host',
+      'port',
+      'served_model_name',
+      'data_parallel_rpc_port',
+    ]) {
+      await writeFile(
+        join(f.root, 'baseline/tuning.json'),
+        JSON.stringify({ [key]: 'changed' }),
       );
-      await recovered.execute(
-        { action: 'release', instanceId: 'workspace-test' },
-        call(services),
+      await assert.rejects(
+        backend.verify(join(f.root, 'baseline'), call(services)),
+        /owned by deployment/,
       );
-    } finally {
-      await recovered.dispose();
     }
   } finally {
-    await app.dispose();
     await f.close();
   }
 });

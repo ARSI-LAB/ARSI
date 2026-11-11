@@ -222,18 +222,17 @@ test('inference selection keeps eligibility hard and rejects incomparable measur
   );
 });
 
-test('strict latency bounds, minimum progress and cleaned failed candidates', async () => {
+test('configurable strict bounds and cleaned failed candidates', async () => {
   const f = await selectionFixture();
   const config = {
     constraints: [{ metric: 'ttft', max: 100, exclusiveMax: true }],
-    minProgressImprovement: 0.01,
   };
   await f.measured('before', { throughput: 100, ttft: 99 });
   await f.measured('after', { throughput: 200, ttft: 100 });
   assert.equal((await f.select(config)).accepted, false);
   await f.measured('before', { throughput: 100, ttft: 120 });
   await f.measured('after', { throughput: 200, ttft: 119.99 });
-  assert.equal((await f.select(config)).accepted, false);
+  assert.equal((await f.select(config)).accepted, true);
   await f.measured('after', { throughput: 90, ttft: 110 });
   assert.equal((await f.select(config)).accepted, true);
   await f.measured(

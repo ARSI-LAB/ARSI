@@ -7,15 +7,6 @@ allowBuilds:
   'agent-bundle-core@git+https://github.com/evolving-foundry/agentbundle.git': true
   'agentbundle-workspace@git+https://github.com/evolving-foundry/agentbundle.git': true
 overrides:
-  # The SDK pins Pi 1.1; its internal caret ranges must not select RSI Pi 1.5.
-  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/chord': 1.1.0
-  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-agent-core': 1.1.0
-  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-ai': 1.1.0
-  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-codemode': 1.1.0
-  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-mcp': 1.1.0
-  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-tui': 1.1.0
-  '@earendil-works/pi-agent-core@1.1.0>@earendil-works/pi-ai': 1.1.0
-  '@earendil-works/pi-ai@1.1.0>@earendil-works/pi-telemetry': 1.1.0
   agent-bundle-core: 'git+https://github.com/evolving-foundry/agentbundle.git#0.0.1&path:/packages/core'
 nodeLinker: hoisted
 blockExoticSubdeps: false

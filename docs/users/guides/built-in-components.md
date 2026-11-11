@@ -104,32 +104,29 @@ Reflection requires an explicit execution step in the Policy. Specify the guidan
 Runtime activates validated changes within the current experiment for later plugin calls to read and use. Follow the [Reflection guide](reflection.md) for configuration, resource authorization, and reuse across experiments.
 
 
-### Open inference workspaces
+### Inference configuration candidates
 
-Set `application.config.remote.parametersFile: null` to send the sealed candidate
-file tree to the remote launcher as `workspace` (relative path to base64 `content`
-and numeric `mode`). Its digest covers every file. The launcher owns materializing
-and executing that workspace; the framework does not interpret its engine options.
-Existing parameter-file mode remains available for narrower applications.
+Remote inference reads one JSON candidate from `remote.parametersFile` (default
+`tuning.json`). `parameter.agent` edits only `config.parameterFile`; the launcher
+remains fixed. The Policy accepts a configurable `goal` and `selection` description
+for the proposer. Nested options and environment settings can be interpreted by
+the launcher without uploading engine source or build scripts.
 
-`parameter.agent` takes `goal`, a `selection` description for the proposer, and an
-optional `parameterFile` hint (`null` for workspace mode). The Application Target
-owns editable paths; the Policy adds no parameter-file restriction. Use a directory
-Target with create/modify/delete to search scripts and source as well as parameters.
-Model quality, precision and context preservation may be stated in prompts; this
-mode does not verify accuracy or automatically prove those properties.
+The framework reserves service endpoint options (`host`, `port`,
+`served_model_name`, `data_parallel_rpc_port`); other engine choices are validated
+by the launcher and engine. Memory utilization is tunable unless startup
+calibration owns it. Quality, precision and context preservation remain prompt
+requirements, not an automated accuracy guarantee.
 
 Metric constraints support `exclusiveMax: true` for a strict upper bound.
-`selector.inference.minProgressImprovement` is the minimum fractional reduction
-of at least one nonzero constraint violation, with no other violation worsening.
-Once feasible, `minRelativeImprovement` controls primary-metric gains. For example,
-TPOT P90 strictly below 100 ms with output throughput maximized uses the scalar
-`tpotP90` constraint and `outputThroughput` objective. Failed candidates can be
-rejected without fabricated numeric scores. Unknown or cancelled outcomes remain
-errors. Training-summary proposers receive full public metric values and units in
+`selector.inference` can accept reduced constraint violations before feasibility,
+without worsening another violation. Once feasible, `minRelativeImprovement`
+controls primary-metric gains. Metric names, bounds and optimization direction
+belong to Recipe configuration, not hardcoded selector goals. Failed candidates
+can be rejected without fabricated scores; unknown or cancelled outcomes remain
+errors. Training-summary proposers receive public metric values and units in
 `context/metrics.json`, independently of bounded evidence previews.
 
 AISBench `workload.dataset: synthetic` maps the SDK's native synthetic workload.
-Complete request/token counts and the dataset implementation digest enter result
-validation and comparability; operational timeout settings do not define workload
-identity. Performance evidence is not an accuracy test.
+Complete request/token counts and dataset implementation identity are validated.
+Performance evidence is not an accuracy test.

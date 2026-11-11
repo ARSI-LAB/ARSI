@@ -61,14 +61,9 @@ export const createInferenceSelector: OperationDefinition<
           };
         if (violations.some(({ before, after }) => after < before))
           return {
-            accepted: violations.some(
-              ({ before, after }) =>
-                after < before &&
-                (before - after) / before >=
-                  (config.minProgressImprovement ?? 0),
-            ),
+            accepted: true,
             reason:
-              'Candidate reduces constraint violations without worsening any; acceptance requires the configured minimum progress',
+              'Candidate reduces constraint violations without worsening any',
           };
       }
       return {

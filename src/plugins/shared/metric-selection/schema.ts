@@ -16,7 +16,6 @@ export type MetricSelectorConfig = {
   eligibility?: MetricConstraint[];
   constraints?: MetricConstraint[];
   minRelativeImprovement?: number;
-  minProgressImprovement?: number;
   tieBreak?: 'retain-incumbent';
 };
 export type ResolvedMetricSelectorConfig = MetricSelectorConfig &
@@ -57,12 +56,6 @@ export const configSchema: JsonSchema = operationSchema(
     eligibility: { type: 'array', items: constraintSchema, default: [] },
     constraints: { type: 'array', items: constraintSchema, default: [] },
     minRelativeImprovement: {
-      type: 'number',
-      minimum: 0,
-      exclusiveMaximum: 1,
-      default: 0,
-    },
-    minProgressImprovement: {
       type: 'number',
       minimum: 0,
       exclusiveMaximum: 1,

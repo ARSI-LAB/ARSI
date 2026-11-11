@@ -64,7 +64,9 @@ steps:
             incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
             trials: ${{ state.trials }}
             selection: ${{ config.selection }}
-            parameterFile: ${{ config.parameterFile }}
+          editConstraints:
+            allowedPaths: ['${{ config.parameterFile }}']
+            maxChangedFiles: 1
       - id: candidates
         type: if
         if: ${{ steps.propose.output.status == 'no-change' }}

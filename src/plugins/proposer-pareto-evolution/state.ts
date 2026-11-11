@@ -1,10 +1,10 @@
 import type { JsonObject, RuntimeContext } from '../../contracts/index.js';
 import {
-  proposerContract,
+  singleProposerInputSchema,
+  singleProposerOutputSchema,
   type ProposerInput,
-  type ProposerOutput,
+  type SingleProposerOutput,
 } from '../../contracts/plugin-types/proposer.js';
-import { object } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { stringArray } from './schema.js';
 import type {
@@ -18,7 +18,7 @@ export interface RoundPlan extends JsonObject {
   proposalInput:
     | (Pick<ProposerInput, 'parent' | 'goal'> & { editConstraints: JsonObject })
     | null;
-  proposalResult: ProposerOutput | null;
+  proposalResult: SingleProposerOutput | null;
   candidate: CandidateRecord | null;
 }
 
@@ -40,9 +40,7 @@ interface ParetoEvolutionSnapshot extends JsonObject {
 const nullableString = { type: ['string', 'null'] };
 const nullableNumber = { type: ['number', 'null'] };
 const nonnegativeInteger = { type: 'integer', minimum: 0 };
-const proposerProperties = object(
-  object(proposerContract.input_schema).properties,
-);
+const proposerProperties = singleProposerInputSchema.properties;
 const proposalInputSchema: JsonObject = {
   type: 'object',
   additionalProperties: false,
@@ -187,7 +185,7 @@ export const paretoEvolutionPlanSchema: JsonObject = {
       anyOf: [{ type: 'null' }, proposalInputSchema],
     },
     proposalResult: {
-      anyOf: [{ type: 'null' }, proposerContract.output_schema],
+      anyOf: [{ type: 'null' }, singleProposerOutputSchema],
     },
     candidate: { anyOf: [{ type: 'null' }, candidateSchema] },
   },

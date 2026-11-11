@@ -19,7 +19,7 @@ test('Optuna Policy feeds every measured result back before the next proposal an
     registry.registerContract(contract);
   try {
     const policy = await Policy.load(
-      'src/policies/parameter-optuna/policy.yaml',
+      'src/policies/parameter/optuna/policy.yaml',
       registry,
     );
     const calls: string[] = [];
@@ -94,7 +94,7 @@ test('Optuna Policy feeds every measured result back before the next proposal an
     };
     const output = object(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxTrials: 4 },
         application: {},
         context: new RuntimeContext().extend({
@@ -110,9 +110,10 @@ test('Optuna Policy feeds every measured result back before the next proposal an
       }),
     );
     assert.deepEqual(calls, [
+      'evaluate',
+      'select',
       'initialize',
       'suggest',
-      'evaluate',
       'select',
       'observe',
       'suggest',
@@ -125,17 +126,18 @@ test('Optuna Policy feeds every measured result back before the next proposal an
       'observe',
       'suggest',
     ]);
+    assert.equal(output.baselineMeasurementRef, 'm0');
     assert.equal(output.candidateRef, 'c1');
     assert.equal(output.stopReason, 'search-exhausted');
     assert.deepEqual(output.measurementRefs, ['m0', 'm1', 'm2']);
     assert.equal(output.searchStateRef, 's3');
 
     assert.ok(interrupted);
-    const remaining = calls.slice(3);
+    const remaining = calls.slice(1);
     calls.length = 0;
     assert.deepEqual(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxTrials: 4 },
         application: {},
         context: new RuntimeContext().extend({
@@ -150,12 +152,12 @@ test('Optuna Policy feeds every measured result back before the next proposal an
     assert.deepEqual(
       calls,
       remaining,
-      'resume does not repeat the completed candidate evaluation',
+      'resume does not repeat the completed baseline evaluation',
     );
 
     assert.deepEqual(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxTrials: 4 },
         application: {},
         context: new RuntimeContext().extend({

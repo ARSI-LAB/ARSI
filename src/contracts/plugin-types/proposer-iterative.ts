@@ -1,9 +1,10 @@
 import type { JsonObject } from '../json.js';
 import { defineContract } from '../contract.js';
 import {
-  proposerContract,
+  singleProposerInputSchema,
+  singleProposerOutputSchema,
   type ProposerInput,
-  type ProposerOutput,
+  type SingleProposerOutput,
 } from './proposer.js';
 
 export type IterativeProposerWork =
@@ -20,8 +21,11 @@ export type IterativeProposerWork =
       parentRefs: string[];
       taskIds: string[];
     } & (
-      | { proposalInput: ProposerInput; proposalResult: null }
-      | { proposalInput: null; proposalResult: ProposerOutput }
+      | {
+          proposalInput: Omit<ProposerInput, 'maxCandidates' | 'observations'>;
+          proposalResult: null;
+        }
+      | { proposalInput: null; proposalResult: SingleProposerOutput }
     ));
 
 export type IterativeProposerFeedback =
@@ -34,7 +38,7 @@ export type IterativeProposerFeedback =
   | {
       kind: 'proposal';
       parentMeasurementRefs: string[];
-      proposal: ProposerOutput;
+      proposal: SingleProposerOutput;
       proposalMeasurementRef: string | null;
     };
 
@@ -129,7 +133,7 @@ export const iterativeProposerContract = defineContract({
             shape({
               kind: { const: 'proposal' },
               parentMeasurementRefs: { type: 'array', items: ref },
-              proposal: proposerContract.output_schema,
+              proposal: singleProposerOutputSchema,
               proposalMeasurementRef: { type: ['string', 'null'] },
             }),
           ],
@@ -160,13 +164,13 @@ export const iterativeProposerContract = defineContract({
         ),
         shape({
           ...proposalWork,
-          proposalInput: proposerContract.input_schema,
+          proposalInput: singleProposerInputSchema,
           proposalResult: { type: 'null' },
         }),
         shape({
           ...proposalWork,
           proposalInput: { type: 'null' },
-          proposalResult: proposerContract.output_schema,
+          proposalResult: singleProposerOutputSchema,
         }),
       ],
     },

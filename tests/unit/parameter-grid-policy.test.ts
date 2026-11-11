@@ -35,7 +35,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     registry.registerContract(inferencebenchContract);
     registry.registerContract(metricSelectorContract);
     const policy = await Policy.load(
-      'src/policies/parameter-grid/policy.yaml',
+      'src/policies/parameter/grid/policy.yaml',
       registry,
     );
     const evaluated: string[] = [];
@@ -54,7 +54,8 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
       invoke: async (name: string, raw: unknown): Promise<JsonObject> => {
         const input = object(raw);
         if (name === 'proposer') {
-          assert.equal(input.parent, 'baseline');
+          assert.equal(input.parent, 'c0');
+          assert.equal(evaluated[0], 'c0');
           const cursor = Number(input.cursor);
           proposed.push(cursor);
           return {
@@ -89,19 +90,20 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     };
     const output = object(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 4 },
         ...options,
       }),
     );
     assert.deepEqual(proposed, [0, 1, 2, 3]);
     assert.deepEqual(evaluated, ['c0', 'c1', 'c2', 'c3']);
+    assert.equal(output.baselineMeasurementRef, 'm0');
     assert.equal(output.candidateRef, 'c2');
     assert.equal(output.stopReason, 'search-exhausted');
     assert.deepEqual(output.parameters, { arbitrary: 2 });
     assert.deepEqual(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 4 },
         ...options,
         restore: checkpoint,
@@ -113,7 +115,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     );
     const limited = object(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 1 },
         ...options,
       }),
@@ -125,7 +127,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     evaluated.length = 0;
     await assert.rejects(
       policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 4 },
         ...options,
         invoke: async (name, raw) => {
@@ -138,7 +140,7 @@ test('autotune evaluates each grid point, adopts the first feasible point and re
     );
     const resumed = object(
       await policy.execute({
-        input: { candidateRef: 'baseline' },
+        input: { candidateRef: 'c0' },
         config: { maxCandidates: 4 },
         ...options,
         restore: checkpoint,
@@ -320,7 +322,7 @@ for (const strategy of ['grid', 'optuna'] as const) {
     });
     registry.registerPolicy(
       `policy.parameter-${strategy}`,
-      resolve(`src/policies/parameter-${strategy}/policy.yaml`),
+      resolve(`src/policies/parameter/${strategy}/policy.yaml`),
     );
     const recipePath = join(root, 'recipe.yaml');
     const recipe = {
@@ -382,6 +384,10 @@ for (const strategy of ['grid', 'optuna'] as const) {
       assert.equal(
         object(first.output).stopReason,
         strategy === 'grid' ? 'search-exhausted' : 'max-trials',
+      );
+      assert.equal(
+        typeof object(first.output).baselineMeasurementRef,
+        'string',
       );
       assert.deepEqual(object(first.output).parameters, { x: 2 });
       assert.deepEqual(evaluated, [0, 1, 2, 3]);

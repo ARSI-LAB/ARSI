@@ -118,9 +118,9 @@ bindings:
         # This example's 1.5s limit may be restrictive for long-output traces.
         - { metric: requestLatency, statistic: p99, max: 1500 }
 budget:
-  # Manager operation/evaluation caps; align evaluations with maxCandidates.
+  # Allow one baseline evaluation plus up to four candidate evaluations.
   operations: 100
-  evaluationRuns: 4
+  evaluationRuns: 5
   # Grid search makes no RSI evolution-model calls; AgentX requests are separate.
   modelCalls: 0
   # Total experiment wall time (24h) and reserved cleanup time (1min), ms.

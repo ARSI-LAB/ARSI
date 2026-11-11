@@ -1,6 +1,8 @@
 import { defineContract } from '../contract.js';
 
-export type InferencebenchInput = { candidateRef: string };
+export type InferencebenchInput = {
+  candidateRef: string;
+};
 
 export type InferencebenchOutput = { measurementRef: string };
 

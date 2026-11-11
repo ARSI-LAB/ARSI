@@ -33,9 +33,11 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
       'proposer.pareto-evolution',
       'reflection.agent',
       'selector.artifact',
+      'selector.inference',
       'selector.metric',
     ]);
     assert.deepEqual(catalog.policies.sort(), [
+      'parameter.agent',
       'policy.gepa',
       'policy.harness2',
       'policy.operator-search',

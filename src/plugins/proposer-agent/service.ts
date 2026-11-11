@@ -1,5 +1,7 @@
 import type { AgentEditingConfig } from './schema.js';
 import type {
+  JsonObject,
+  JsonSchema,
   OperationDefinition,
   ProposerInput,
   ProposerOutput,
@@ -50,81 +52,121 @@ export const createProposerAgent: OperationDefinition<
         );
         execution = proposerExecutionContext(full);
       }
+      const batchSchema: JsonSchema | undefined =
+        input.maxCandidates === undefined
+          ? undefined
+          : {
+              type: 'object',
+              additionalProperties: false,
+              required: ['proposals'],
+              properties: {
+                proposals: {
+                  type: 'array',
+                  maxItems: input.maxCandidates,
+                  items: proposerEditOutputSchema,
+                },
+              },
+            };
       const response = await requestEdit(
         config,
         { ...input, target: metadata.target },
         parent.artifactRef,
         context,
         execution,
-        proposerEditOutputSchema,
+        batchSchema ?? proposerEditOutputSchema,
         config.subagents ?? [],
       );
-      const expanded = expandEdits(
-        response,
-        await context.artifacts.readJson(parent.artifactRef),
-      );
-      const edit = await services.workspaces.create(
-        parent.artifactRef,
-        parent.ref,
-      );
-      try {
-        const constraints = input.editConstraints ?? {};
-        let result = expanded.result;
-        if (expanded.hasDuplicates) {
-          // Check scope and raw bounds before a conflict can become a no-change.
-          await validateEdits(
+      if (!batchSchema) return commitProposal(response);
+
+      const candidates: Extract<
+        ProposerOutput,
+        { status: 'batch' }
+      >['candidates'] = [];
+      for (const proposal of response.proposals as JsonObject[]) {
+        const result = await commitProposal(proposal);
+        if (result.status === 'created') {
+          const { candidateRef, diffRef, rationale } = result;
+          candidates.push({ candidateRef, diffRef, rationale });
+        }
+      }
+      if (candidates.length) return { status: 'batch', candidates };
+      return {
+        status: 'no-change',
+        candidateRef: parent.ref,
+        diffRef: null,
+        rationale: 'No candidate changes were proposed.',
+      };
+
+      async function commitProposal(
+        response: JsonObject,
+      ): Promise<Exclude<ProposerOutput, { status: 'batch' }>> {
+        const expanded = expandEdits(
+          response,
+          await context.artifacts.readJson(parent.artifactRef),
+        );
+        const edit = await services.workspaces.create(
+          parent.artifactRef,
+          parent.ref,
+        );
+        try {
+          const constraints = input.editConstraints ?? {};
+          let result = expanded.result;
+          if (expanded.hasDuplicates) {
+            // Check scope and raw bounds before a conflict can become a no-change.
+            await validateEdits(
+              edit.directory,
+              result,
+              context,
+              constraints,
+              true,
+            );
+            result = mergeEdits(
+              result,
+              await resourceFiles(parent.artifactRef, context),
+            );
+          }
+          await applyEdits(
             edit.directory,
             result,
             context,
             constraints,
-            true,
+            expanded.createOnly,
           );
-          result = mergeEdits(
-            result,
-            await resourceFiles(parent.artifactRef, context),
+          const committed = await context.application({
+            action: 'commit',
+            parentCandidateRef: parent.ref,
+            editRef: edit.ref,
+            ...(input.editConstraints
+              ? { editConstraints: input.editConstraints }
+              : {}),
+          });
+          validate(
+            applicationContract.output_schema,
+            committed,
+            'Application commit output',
           );
-        }
-        await applyEdits(
-          edit.directory,
-          result,
-          context,
-          constraints,
-          expanded.createOnly,
-        );
-        const committed = await context.application({
-          action: 'commit',
-          parentCandidateRef: parent.ref,
-          editRef: edit.ref,
-          ...(input.editConstraints
-            ? { editConstraints: input.editConstraints }
-            : {}),
-        });
-        validate(
-          applicationContract.output_schema,
-          committed,
-          'Application commit output',
-        );
-        if (committed.action !== 'commit')
-          throw new Error('Application did not return a commit result');
-        const candidateRef = string(committed.candidateRef);
-        const rationale = string(result.reason);
-        if (committed.status === 'created')
+          if (committed.action !== 'commit')
+            throw new Error('Application did not return a commit result');
+          const candidateRef = string(committed.candidateRef);
+          const rationale = string(result.reason);
+          if (committed.status === 'created')
+            return {
+              status: 'created',
+              candidateRef,
+              diffRef: string(committed.diffRef),
+              rationale,
+            };
+          if (committed.status !== 'no-change' || committed.diffRef !== null)
+            throw new Error('Invalid no-change Application commit output');
           return {
-            status: 'created',
+            status: 'no-change',
             candidateRef,
-            diffRef: string(committed.diffRef),
+            diffRef: null,
             rationale,
           };
-        if (committed.status !== 'no-change' || committed.diffRef !== null)
-          throw new Error('Invalid no-change Application commit output');
-        return {
-          status: 'no-change',
-          candidateRef,
-          diffRef: null,
-          rationale,
-        };
-      } finally {
-        await services.workspaces.release(edit.ref);
+        } finally {
+          await services.workspaces.release(edit.ref);
+        }
       }
     },
     async dispose() {},

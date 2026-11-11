@@ -141,6 +141,24 @@ test('iterative proposer boundaries reject algorithm state, private stages and i
     }),
   );
   assert.throws(() =>
+    validate(iterativeProposerContract.input_schema, {
+      action: 'observe',
+      stateRef: 'state',
+      workId: 'work',
+      feedback: {
+        kind: 'proposal',
+        parentMeasurementRefs: [],
+        proposal: {
+          status: 'batch',
+          candidates: [
+            { candidateRef: 'child', diffRef: 'diff', rationale: 'Change' },
+          ],
+        },
+        proposalMeasurementRef: null,
+      },
+    }),
+  );
+  assert.throws(() =>
     validate(iterativeProposerContract.output_schema, {
       stateRef: 'state',
       done: false,

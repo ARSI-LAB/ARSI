@@ -5,6 +5,8 @@ properties:
     enum: [selected, no-feasible-configuration]
   stopReason:
     enum: [search-exhausted, sampling-limit, max-trials]
+  baselineCandidateRef: { type: string, minLength: 1 }
+  baselineMeasurementRef: { type: string, minLength: 1 }
   candidateRef:
     type: [string, 'null']
   measurementRef:
@@ -17,10 +19,12 @@ properties:
     items:
       type: string
   searchStateRef:
-    type: string
+    type: [string, 'null']
 required:
   - status
   - stopReason
+  - baselineCandidateRef
+  - baselineMeasurementRef
   - candidateRef
   - measurementRef
   - parameters

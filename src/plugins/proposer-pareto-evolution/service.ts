@@ -26,7 +26,7 @@ import {
 import { digest, object, string, strings } from '../../shared/json.js';
 import { metricDefinitionSchema } from '../../contracts/models/measurement.js';
 import { parseConfig, validate } from '../../shared/schema.js';
-import type { ProposerOutput } from '../../contracts/plugin-types/proposer.js';
+import type { SingleProposerOutput } from '../../contracts/plugin-types/proposer.js';
 import {
   Rng,
   addScores,
@@ -316,7 +316,7 @@ async function commitPrompts(
   base: CandidateRecord,
   modules: readonly PromptModule[],
   prompts: Readonly<Record<string, string>>,
-): Promise<ProposerOutput> {
+): Promise<SingleProposerOutput> {
   const workspace = await ctx.workspaces.create(base.artifactRef, base.ref);
   try {
     for (const module of modules) {

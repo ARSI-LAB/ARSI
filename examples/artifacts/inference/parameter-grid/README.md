@@ -5,8 +5,8 @@ This example searches the same two parameters as the earlier Runner example:
 The policy contains no parameter names. The grid proposer lazily enumerates
 `searchSpace` in declaration order, with the last dimension changing fastest.
 Its explicit cursor is checkpointed by the policy; no process-local search
-history is required. The baseline is the first measured point, including when
-proposing it produces no file change.
+history is required. The Policy measures the initial baseline before searching
+and reuses its measurement when a grid point is the baseline candidate.
 
 Each axis declares a nonempty, duplicate-free `values` list. Values can be numbers,
 strings, booleans, null, arrays or objects, including mixed types in one axis.
@@ -27,9 +27,9 @@ searchSpace:
 ```
 
 The grid Policy defaults `maxCandidates` to 1,000. To cover all 16 points,
-allow at least 16 candidates and ensure the evaluation budgets cover them.
-Include the baseline in the grid or measure it separately. Resume with the same
-ordered configuration and cursor.
+allow at least 16 candidate attempts and budget for the baseline evaluation plus
+any points that need a separate evaluation. Resume with the same ordered
+configuration and cursor.
 
 For adaptive sampling, see the [TPE recipe](../parameter-tpe/README.md).
 

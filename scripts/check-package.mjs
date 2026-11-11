@@ -220,12 +220,13 @@ export function register(registry) {
   );
   assert.equal(
     catalog.plugins.length,
-    17,
-    'all seventeen plugin definitions ship in the archive',
+    18,
+    'all built-in plugin definitions ship in the archive',
   );
   for (const id of [
     'application.kernel',
     'evaluator.operatorbench',
+    'selector.inference',
     'proposer.operator',
   ])
     assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
@@ -235,6 +236,7 @@ export function register(registry) {
   assert.deepEqual(
     [...catalog.policies].sort(),
     [
+      'parameter.agent',
       'policy.gepa',
       'policy.harness2',
       'policy.operator-search',
@@ -284,14 +286,19 @@ export function register(registry) {
     join(outside, 'dsh-harness2/baseline'),
     true,
   );
-  for (const name of ['shared', 'parameter-grid', 'parameter-tpe']) {
+  for (const name of [
+    'shared',
+    'parameter-grid',
+    'parameter-tpe',
+    'parameter-agent',
+  ]) {
     await cp(
       join(root, 'examples/artifacts/inference', name),
       join(outside, name),
       { recursive: true },
     );
   }
-  for (const name of ['parameter-grid', 'parameter-tpe']) {
+  for (const name of ['parameter-grid', 'parameter-tpe', 'parameter-agent']) {
     const inferenceValidation = JSON.parse(
       execFileSync(
         process.execPath,
@@ -304,6 +311,13 @@ export function register(registry) {
       true,
       `installed package validates ${name} without source paths`,
     );
+    if (name === 'parameter-agent') {
+      assert.equal(inferenceValidation.policyId, 'parameter.agent');
+      assert.ok(inferenceValidation.plugins.includes('selector.inference'));
+      assert.ok(
+        inferenceValidation.plugins.includes('evaluator.inferencebench'),
+      );
+    }
   }
   const packagedWorker = join(
     consumer,

@@ -7,6 +7,7 @@ export * from './operatorbench.js';
 export * from './proposer.js';
 export * from './proposer-grid.js';
 export * from './reflection.js';
+export * from './release.js';
 export * from './selector-artifacts.js';
 export * from './selector-metrics.js';
 export * from './search.js';

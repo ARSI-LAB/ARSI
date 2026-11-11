@@ -1,0 +1,377 @@
+import type {
+  AgentbenchInput,
+  AgentbenchOutput,
+  JsonObject,
+  Operation,
+  RuntimeContext,
+} from '../../contracts/index.js';
+import { object, string, strings } from '../../shared/json.js';
+import { validate } from '../../shared/schema.js';
+import { activateCandidate } from './activation.js';
+import {
+  GymEvaluationClient,
+  GymEvaluationError,
+  type GymEvalOutcome,
+  type GymEvalRequest,
+} from './client.js';
+import { recordGymMeasurement } from './measurement.js';
+import type { GymActivation, GymConfig } from './schema.js';
+import {
+  gymSubmissionKey,
+  readGymSubmission,
+  writeGymSubmission,
+  type GymSubmission,
+  type GymSubmissionStatus,
+} from './submission.js';
+
+const ENVIRONMENT_REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+export function expandGymEnvironment(
+  value: string,
+  field: string,
+  environment: Readonly<Record<string, string | undefined>>,
+): string {
+  return value.replace(ENVIRONMENT_REFERENCE, (_match, name: string) => {
+    const replacement = environment[name];
+    if (replacement === undefined)
+      throw new Error(
+        `gym ${field} references missing environment variable ${name}`,
+      );
+    return replacement;
+  });
+}
+
+export function resolveGymActivation(
+  activation: GymActivation | undefined,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): GymActivation | undefined {
+  if (activation?.kind === 'directory')
+    return {
+      ...activation,
+      directory: expandGymEnvironment(
+        activation.directory,
+        'activation.directory',
+        environment,
+      ),
+    };
+  if (activation?.kind === 'dsh-user-layer')
+    return {
+      ...activation,
+      dshHome: expandGymEnvironment(
+        activation.dshHome,
+        'activation.dshHome',
+        environment,
+      ),
+      ...(activation.profileName === undefined
+        ? {}
+        : {
+            profileName: expandGymEnvironment(
+              activation.profileName,
+              'activation.profileName',
+              environment,
+            ),
+          }),
+      ...(activation.basePatch === undefined
+        ? {}
+        : {
+            basePatch: expandGymEnvironment(
+              activation.basePatch,
+              'activation.basePatch',
+              environment,
+            ),
+          }),
+    };
+  if (activation?.kind === 'remote-http')
+    return {
+      ...activation,
+      activateUrl: expandGymEnvironment(
+        activation.activateUrl,
+        'activation.activateUrl',
+        environment,
+      ),
+    };
+  return activation;
+}
+
+export function resolveGymConfig(
+  config: GymConfig,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): GymConfig {
+  const resolvedActivation = resolveGymActivation(
+    config.activation,
+    environment,
+  );
+  return {
+    ...config,
+    baseUrl: expandGymEnvironment(config.baseUrl, 'baseUrl', environment),
+    ...(resolvedActivation === undefined
+      ? {}
+      : { activation: resolvedActivation }),
+  };
+}
+
+export async function createGym(
+  config: GymConfig,
+  _context: RuntimeContext,
+  schema: JsonObject,
+): Promise<Operation<AgentbenchInput, AgentbenchOutput>> {
+  validate(schema, config, 'gym evaluator config');
+  const settings = resolveGymConfig(config);
+  return {
+    async execute(input, context): Promise<AgentbenchOutput> {
+      const source = object(input, 'gym evaluator input');
+      const candidateRef = string(
+        source.candidateRef,
+        'gym evaluator input.candidateRef',
+      );
+      const taskIds = strings(source.taskIds, 'gym evaluator input.taskIds');
+      if (new Set(taskIds).size !== taskIds.length)
+        throw new Error('gym evaluator input.taskIds: duplicate task id');
+      const startedAt = new Date().toISOString();
+      return context.withInstance(
+        candidateRef,
+        'agentbundle',
+        async (execution): Promise<AgentbenchOutput> => {
+          context.signal.throwIfAborted();
+          const bundleDigest =
+            typeof execution.bundleDigest === 'string' &&
+            execution.bundleDigest.length > 0
+              ? execution.bundleDigest
+              : null;
+          if (bundleDigest === null)
+            throw new Error(
+              'gym evaluation requires a ready AgentBundle instance with bundleDigest',
+            );
+          const directory =
+            typeof execution.directory === 'string'
+              ? execution.directory
+              : null;
+          if (settings.activation !== undefined && directory === null)
+            throw new Error(
+              'gym activation requires the acquired bundle directory',
+            );
+
+          const key = submissionKey(candidateRef, settings, taskIds);
+          const saved = await readGymSubmission(context.facts, key);
+          const existing =
+            saved?.candidateDigest === bundleDigest ? saved : null;
+          await context.charge('evaluationRuns', 1);
+
+          let outcome: GymEvalOutcome | null = null;
+          let failure: JsonObject | null = null;
+          try {
+            if (settings.activation !== undefined)
+              await activateCandidate(
+                settings.activation,
+                context,
+                candidateRef,
+                directory!,
+                bundleDigest,
+              );
+          } catch (error) {
+            failure = failureRecord(error, 'activation');
+          }
+
+          if (failure === null) {
+            const client = new GymEvaluationClient({
+              baseUrl: settings.baseUrl,
+              intervalMs: settings.poll?.intervalMs,
+              timeoutMs: settings.poll?.timeoutMs,
+            });
+            try {
+              if (existing?.evalId && existing.status !== 'rejected') {
+                outcome = await client.awaitResult(
+                  existing.evalId,
+                  context.signal,
+                );
+              } else {
+                await writeGymSubmission(
+                  context.facts,
+                  record(
+                    key,
+                    candidateRef,
+                    bundleDigest,
+                    settings.baseUrl,
+                    'prepared',
+                    null,
+                    null,
+                  ),
+                );
+                outcome = await client.evaluate(
+                  nativeRequest(candidateRef, bundleDigest, taskIds, settings),
+                  context.signal,
+                  {
+                    onSubmitted: async (evalId) => {
+                      await writeGymSubmission(
+                        context.facts,
+                        record(
+                          key,
+                          candidateRef,
+                          bundleDigest,
+                          settings.baseUrl,
+                          'submitted',
+                          evalId,
+                          null,
+                        ),
+                      );
+                    },
+                  },
+                );
+              }
+              await writeGymSubmission(
+                context.facts,
+                record(
+                  key,
+                  candidateRef,
+                  bundleDigest,
+                  settings.baseUrl,
+                  'completed',
+                  outcome.evalId,
+                  outcome.errorMessage,
+                ),
+              );
+            } catch (error) {
+              failure = failureRecord(error, 'execute');
+              if (error instanceof GymEvaluationError)
+                await writeGymSubmission(
+                  context.facts,
+                  record(
+                    key,
+                    candidateRef,
+                    bundleDigest,
+                    settings.baseUrl,
+                    error.details.outcomeUnknown ? 'unknown' : 'rejected',
+                    error.details.evalId,
+                    error.message,
+                  ),
+                );
+            }
+          }
+
+          const result = await recordGymMeasurement(context, {
+            candidateRef,
+            bundleDigest,
+            baseUrl: settings.baseUrl,
+            config: settings,
+            taskIds,
+            outcome,
+            failure,
+            startedAt,
+          });
+          if (!result.comparable)
+            throw Object.assign(
+              new Error(
+                typeof failure?.message === 'string'
+                  ? `${failure.message} (${result.reason ?? 'Gym produced no comparable measurement'})`
+                  : (result.reason ?? 'Gym produced no comparable measurement'),
+              ),
+              { measurementRef: result.measurementRef, status: result.status },
+            );
+          return { measurementRef: result.measurementRef };
+        },
+      );
+    },
+    async canRetry(input, _receipt, context): Promise<boolean> {
+      const source = object(input, 'gym evaluator input');
+      const candidateRef = string(
+        source.candidateRef,
+        'gym evaluator input.candidateRef',
+      );
+      const taskIds = strings(source.taskIds, 'gym evaluator input.taskIds');
+      const existing = await readGymSubmission(
+        context.facts,
+        submissionKey(candidateRef, settings, taskIds),
+      );
+      return (
+        existing?.evalId !== null &&
+        existing?.evalId !== undefined &&
+        (existing.status === 'submitted' || existing.status === 'unknown')
+      );
+    },
+    async dispose(): Promise<void> {},
+  };
+}
+
+function nativeRequest(
+  candidateRef: string,
+  bundleDigest: string,
+  taskIds: string[],
+  settings: GymConfig,
+): GymEvalRequest {
+  const defaults = settings.requestDefaults;
+  return {
+    candidateId: candidateRef,
+    candidateDigest: bundleDigest,
+    adapter: defaults.adapter,
+    benchmark: defaults.benchmark,
+    split: defaults.split,
+    tier: defaults.tier,
+    seed: defaults.seed,
+    taskIds,
+    ...(settings.budget === undefined ? {} : { budget: settings.budget }),
+    ...(defaults.harnessManifest === undefined
+      ? {}
+      : { harnessManifest: defaults.harnessManifest }),
+  };
+}
+
+function submissionKey(
+  candidateRef: string,
+  settings: GymConfig,
+  taskIds: string[],
+): string {
+  return gymSubmissionKey(candidateRef, settings.baseUrl, {
+    adapter: settings.requestDefaults.adapter,
+    benchmark: settings.requestDefaults.benchmark,
+    split: settings.requestDefaults.split,
+    tier: settings.requestDefaults.tier,
+    seed: settings.requestDefaults.seed,
+    tasks: [...taskIds].sort(),
+    maxRollouts: settings.budget?.maxRollouts ?? null,
+    timeoutS: settings.budget?.timeoutS ?? null,
+    harnessManifest: settings.requestDefaults.harnessManifest ?? null,
+    activation: settings.activation ?? null,
+  });
+}
+
+function record(
+  key: string,
+  candidateRef: string,
+  candidateDigest: string,
+  baseUrl: string,
+  status: GymSubmissionStatus,
+  evalId: string | null,
+  error: string | null,
+): GymSubmission {
+  return {
+    schemaVersion: 'rsi.gym-submission/v1',
+    key,
+    candidateRef,
+    candidateDigest,
+    baseUrl,
+    evalId,
+    status,
+    error,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function failureRecord(error: unknown, phase: string): JsonObject {
+  if (error instanceof GymEvaluationError)
+    return {
+      name: error.name,
+      message: error.message,
+      phase: error.details.phase,
+      evalId: error.details.evalId,
+      submitted: error.details.submitted,
+      outcomeUnknown: error.details.outcomeUnknown,
+    };
+  return {
+    name: error instanceof Error ? error.name : 'Error',
+    message: error instanceof Error ? error.message : String(error),
+    phase,
+    evalId: null,
+    submitted: false,
+    outcomeUnknown: false,
+  };
+}

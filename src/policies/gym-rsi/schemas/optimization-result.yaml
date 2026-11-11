@@ -1,0 +1,43 @@
+type: object
+properties:
+  candidateRef:
+    type: string
+    minLength: 1
+  searchCandidateRef:
+    type: string
+    minLength: 1
+  effectiveRef:
+    type: string
+    minLength: 1
+  measurementRef:
+    type: string
+    minLength: 1
+  memoryRef:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: 'null'
+  testMeasurementRef:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: 'null'
+  releaseDecision:
+    enum: [promote, keep-incumbent, reject]
+  releaseReason:
+    type: string
+    minLength: 1
+  releaseRef:
+    type: string
+    minLength: 1
+required:
+  - candidateRef
+  - searchCandidateRef
+  - effectiveRef
+  - measurementRef
+  - memoryRef
+  - testMeasurementRef
+  - releaseDecision
+  - releaseReason
+  - releaseRef
+additionalProperties: false

@@ -1,0 +1,7 @@
+schemaVersion: rsi.target/v1
+id: target.dsh-gym-gaia
+entries:
+  - path: plugins/gaia-base/prompts/gaia.md
+    kind: file
+    description: Candidate-owned GAIA working discipline.
+    changes: [modify]

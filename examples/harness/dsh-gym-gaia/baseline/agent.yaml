@@ -1,0 +1,3 @@
+# Model authentication and endpoint configuration come from the Gym DSH home.
+plugins:
+  gaia-base: {}

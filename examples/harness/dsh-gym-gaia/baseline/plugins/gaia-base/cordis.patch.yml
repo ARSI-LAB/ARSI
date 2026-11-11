@@ -1,0 +1,3 @@
+- insert:
+    - id: gaia-base
+      name: '@agentbundle/dsh-gaia-base'

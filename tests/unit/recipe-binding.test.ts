@@ -508,6 +508,37 @@ test('bundled Recipes preserve time budgets without injecting call or token limi
   }
 });
 
+test('Gym GAIA Recipe separates train_full search from holdout release', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  const recipe = await Recipe.load(
+    resolve('examples/harness/dsh-gym-gaia/recipe.yaml'),
+    registry,
+  );
+  const evaluator = recipe.bindings.evaluator!;
+  const release = recipe.bindings.release!;
+  assert.equal(recipe.policy.id, 'policy.gym-rsi');
+  assert.equal(evaluator.pluginId, 'evaluator.gym');
+  assert.equal(release.pluginId, 'release.gym');
+  assert.equal(object(evaluator.config.requestDefaults).split, 'train_full');
+  assert.equal(Object.hasOwn(recipe.policyConfig, 'release'), false);
+  const dataset = object(recipe.policyConfig.dataset);
+  assert.deepEqual(dataset.testTaskIds, []);
+  assert.equal(
+    new Set([
+      ...(dataset.trainTaskIds as string[]),
+      ...(dataset.validationTaskIds as string[]),
+    ]).size,
+    (dataset.trainTaskIds as string[]).length +
+      (dataset.validationTaskIds as string[]).length,
+  );
+  assert.equal(
+    object(release.config.promotionDefaults).benchmark,
+    'gaia_text_validation',
+  );
+});
+
 test('Recipe rejects unknown bindings, invalid budgets, legacy fields and mismatched registered Policy IDs', async (t) => {
   const { registry, directory, recipe } = await recipeFixture(t);
   const path = join(directory, 'recipe.yaml');

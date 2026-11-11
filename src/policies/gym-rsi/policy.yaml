@@ -1,0 +1,280 @@
+schemaVersion: rsi.policy/v1
+id: policy.gym-rsi
+description: Run the Gym-RSI closed loop. WikiSkill search uses train_full training and validation tasks, then Gym holdout promotion compares the final candidate with the original incumbent.
+input_schema:
+  $ref: ../../contracts/policies/candidate-input.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+config_schema:
+  $ref: ./schemas/config.yaml
+state_schema:
+  type: object
+  properties:
+    incumbent:
+      type: string
+      minLength: 1
+    measurement:
+      type:
+        - string
+        - 'null'
+    round:
+      type: integer
+      minimum: 0
+    wikiRef:
+      type:
+        - string
+        - 'null'
+    score:
+      type:
+        - number
+        - 'null'
+    observations:
+      type:
+        - object
+        - 'null'
+    testMeasurement:
+      type:
+        - string
+        - 'null'
+    initial:
+      type: string
+      minLength: 1
+    release:
+      type:
+        - object
+        - 'null'
+  required:
+    - incumbent
+    - measurement
+    - round
+    - wikiRef
+    - score
+    - observations
+    - testMeasurement
+    - initial
+    - release
+  additionalProperties: false
+state:
+  incumbent: ${{ input.candidateRef }}
+  measurement: null
+  round: 0
+  wikiRef: null
+  score: null
+  observations: null
+  testMeasurement: null
+  initial: ${{ input.candidateRef }}
+  release: null
+output_schema:
+  $ref: ./schemas/optimization-result.yaml
+require:
+  agent:
+    contract: contract.agent
+  proposer:
+    contract: contract.proposer
+  memoryUpdater:
+    contract: contract.memory
+  evaluator:
+    contract: contract.agentbench
+  selector:
+    contract: contract.selector-metrics
+  release:
+    contract: contract.release
+defaults:
+  bindings:
+    agent:
+      plugin: agent.pi
+      config:
+        model: ${MODEL_NAME}
+        base_url: ${MODEL_ENDPOINT}
+        api_key: ${MODEL_API_KEY}
+        retries: 3
+        retryBaseDelayMs: 2000
+    # WikiSkill 搂3.2 / appendix E: Wiki maintenance and skill proposals use
+    # authorized training scores, outcomes and execution evidence.
+    # Training evidence feeds Wiki/proposals; test and release gates run only
+    # after the learning loop finishes and never become memory evidence.
+    memoryUpdater:
+      plugin: memory.agent
+      config:
+        agentRef: agent
+        prompt: ../wikiskill/memory.md
+        evidenceView: training-summary
+    proposer:
+      plugin: proposer.agent
+      config:
+        agentRef: agent
+        prompt: ../wikiskill/proposer.md
+        evidenceView: training-summary
+    selector:
+      plugin: selector.metric
+      config:
+        metric: successRate
+        direction: maximize
+steps:
+  - id: validate_disjoint_splits
+    type: foreach
+    foreach: ${{ concat(concat(config.dataset.trainTaskIds,
+      config.dataset.validationTaskIds), config.dataset.testTaskIds) }}
+    as: taskId
+    key: ${{ taskId }}
+    concurrency: 1
+    steps: []
+  - id: baseline
+    type: invoke
+    use: evaluator
+    with:
+      candidateRef: ${{ state.incumbent }}
+      taskIds: ${{ config.dataset.validationTaskIds }}
+  - id: save_baseline
+    type: state
+    state:
+      measurement: ${{ steps.baseline.output.measurementRef }}
+  - id: check_baseline_threshold
+    type: if
+    if: ${{ config.stopAtScore != null }}
+    then:
+      steps:
+        - id: baseline_score
+          type: invoke
+          use: selector
+          with:
+            incumbentMeasurementRef: ${{ state.measurement }}
+            candidateMeasurementRef: ${{ state.measurement }}
+        - id: save_baseline_score
+          type: state
+          state:
+            score: ${{ steps.baseline_score.output.selectedValue }}
+  - id: search
+    type: loop
+    maxIterations: ${{ config.maxRounds }}
+    while: ${{ config.stopAtScore == null || state.score < config.stopAtScore }}
+    steps:
+      - id: train
+        type: invoke
+        use: evaluator
+        with:
+          candidateRef: ${{ state.incumbent }}
+          taskIds: ${{ config.dataset.trainTaskIds }}
+      - id: remember
+        type: invoke
+        use: memoryUpdater
+        with:
+          memoryRef: ${{ state.wikiRef }}
+          goal:
+            Consolidate current training experience into the Wiki index, supported
+            action patterns and chronological log. Preserve known rejected
+            approaches, sources and uncertainty without inventing missing gate
+            history.
+          evidenceRefs:
+            - ${{ steps.train.output.measurementRef }}
+          observations: ${{ state.observations }}
+          sources:
+            - candidateRef: ${{ state.incumbent }}
+      - id: save_memory
+        type: state
+        state:
+          wikiRef: ${{ steps.remember.output.memoryRef }}
+      - id: propose
+        type: invoke
+        use: proposer
+        with:
+          parent: ${{ state.incumbent }}
+          goal:
+            Improve reusable skills using observed training outcomes and Wiki
+            evidence, while preserving unrelated behavior.
+          evidenceRefs:
+            - ${{ steps.train.output.measurementRef }}
+          memoryRef: ${{ state.wikiRef }}
+      - id: no_change
+        type: if
+        if: ${{ steps.propose.output.status == 'no-change' }}
+        then:
+          steps:
+            - id: save_no_change
+              type: state
+              state:
+                observations:
+                  status: no-change
+                  candidateRef: ${{ state.incumbent }}
+                  rationale: ${{ steps.propose.output.rationale }}
+            - id: next_round
+              type: control
+              control: continue
+      # Validation ties advance the candidate to the Gym holdout gate; only a
+      # strictly worse candidate is rejected here.
+      - id: validate
+        type: invoke
+        use: evaluator
+        with:
+          candidateRef: ${{ steps.propose.output.candidateRef }}
+          taskIds: ${{ config.dataset.validationTaskIds }}
+      - id: select
+        type: invoke
+        use: selector
+        with:
+          incumbentMeasurementRef: ${{ state.measurement }}
+          candidateMeasurementRef: ${{ steps.validate.output.measurementRef }}
+      - id: save_feedback
+        type: state
+        state:
+          score: ${{ steps.select.output.selectedValue }}
+          observations:
+            status: evaluated
+            candidateRef: ${{ steps.propose.output.candidateRef }}
+            diffRef: ${{ steps.propose.output.diffRef }}
+            rationale: ${{ steps.propose.output.rationale }}
+            metric: ${{ steps.select.output.metric }}
+            incumbentValue: ${{ steps.select.output.incumbentValue }}
+            candidateValue: ${{ steps.select.output.candidateValue }}
+            selectedValue: ${{ steps.select.output.selectedValue }}
+            accepted: ${{ steps.select.output.accepted }}
+            tieAdvanced: ${{ steps.select.output.accepted == false && steps.select.output.candidateValue == steps.select.output.incumbentValue }}
+            reason: ${{ steps.select.output.reason }}
+      - id: adopt
+        type: if
+        if: ${{ steps.select.output.accepted || steps.select.output.candidateValue == steps.select.output.incumbentValue }}
+        then:
+          steps:
+            - id: save
+              type: state
+              state:
+                incumbent: ${{ steps.propose.output.candidateRef }}
+                measurement: ${{ steps.validate.output.measurementRef }}
+  - id: test_if_requested
+    type: if
+    if: ${{ size(config.dataset.testTaskIds) > 0 }}
+    then:
+      steps:
+        - id: test
+          type: invoke
+          use: evaluator
+          with:
+            candidateRef: ${{ state.incumbent }}
+            taskIds: ${{ config.dataset.testTaskIds }}
+        - id: save_test
+          type: state
+          state:
+            testMeasurement: ${{ steps.test.output.measurementRef }}
+  - id: release
+    type: invoke
+    use: release
+    with:
+      candidateRef: ${{ state.incumbent }}
+      incumbentRef: ${{ state.initial }}
+  - id: save_release
+    type: state
+    state:
+      release:
+        decision: ${{ steps.release.output.decision }}
+        reason: ${{ steps.release.output.reason }}
+        releaseRef: ${{ steps.release.output.releaseRef }}
+output:
+  candidateRef: "${{ state.release.decision == 'promote' ? state.incumbent : state.initial }}"
+  searchCandidateRef: ${{ state.incumbent }}
+  effectiveRef: "${{ state.release.decision == 'promote' ? state.incumbent : state.initial }}"
+  measurementRef: ${{ state.measurement }}
+  memoryRef: ${{ state.wikiRef }}
+  testMeasurementRef: ${{ state.testMeasurement }}
+  releaseDecision: ${{ state.release.decision }}
+  releaseReason: ${{ state.release.reason }}
+  releaseRef: ${{ state.release.releaseRef }}

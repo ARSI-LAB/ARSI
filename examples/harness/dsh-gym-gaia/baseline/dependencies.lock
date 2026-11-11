@@ -1,0 +1,5 @@
+bundle: dsh-gym-gaia-baseline
+plugins:
+  - name: '@agentbundle/dsh-gaia-base'
+    version: 0.1.0
+    source: ./plugins/gaia-base

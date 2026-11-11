@@ -1,0 +1,72 @@
+schemaVersion: rsi.recipe/v1
+id: dsh-gym-gaia-train-full
+description: Evolve a DSH AgentBundle candidate on Gym's train_full split, then
+  run Gym's holdout release gate against the original incumbent. Search never
+  evaluates or receives holdout tasks.
+application:
+  plugin: application.agentbundle
+  config:
+    target: { schema: ./target.yaml }
+    baseline: { directory: ./baseline }
+policy:
+  id: policy.gym-rsi
+  config:
+    maxRounds: 1
+    dataset:
+      # Both lists are pinned subsets of Gym's train_full split. They are
+      # disjoint from each other and from Gym's locked holdout dataset.
+      trainTaskIds:
+        - e1fc63a2-da7a-432f-be78-7c4a95598703
+        - 8e867cd7-cff9-4e6c-867a-ff5ddc2550be
+        - ec09fa32-d03f-4bf8-84b0-1f16922c3ae4
+        - 50ad0280-0819-4bd9-b275-5de32d3b5bcb
+        - 42576abe-0deb-4869-8c63-225c2d75a95a
+      # Validation uses text-only tasks; video URL tasks are excluded because
+      # YouTube retrieval is environment-dependent and can exhaust the DSH timeout.
+      validationTaskIds:
+        - 27d5d136-8563-469e-92bf-fd103c28b57c
+      # Gym owns the real holdout gate. RSI must never receive holdout task IDs.
+      testTaskIds: []
+bindings:
+  evaluator:
+    plugin: evaluator.gym
+    config:
+      baseUrl: ${GYM_BASE_URL}
+      requestDefaults:
+        adapter: dsh_candidate
+        benchmark: gaia_text_validation
+        split: train_full
+        tier: screen
+        # A new seed avoids replaying the failed eval-26257179c297408b cache.
+        # Baseline and candidate evaluations all use this same seed.
+        seed: 43
+      poll:
+        intervalMs: 5000
+        timeoutMs: 3600000
+      budget:
+        maxRollouts: 5
+        timeoutS: 3600
+      activation:
+        kind: dsh-user-layer
+        dshHome: ${DSH_HOME}
+        profileName: headless
+        basePatch: ${RSI_DSH_BASE_PATCH}
+  release:
+    plugin: release.gym
+    config:
+      baseUrl: ${GYM_BASE_URL}
+      promotionDefaults:
+        adapter: dsh_candidate
+        benchmark: gaia_text_validation
+        seed: 43
+      poll:
+        intervalMs: 5000
+        timeoutMs: 7200000
+      minDelta: 0
+      activation:
+        kind: dsh-user-layer
+        dshHome: ${DSH_HOME}
+        profileName: headless
+        basePatch: ${RSI_DSH_BASE_PATCH}
+budget:
+  elapsedWallMs: 7200000

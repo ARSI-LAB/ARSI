@@ -111,6 +111,21 @@ Run from an experiment workspace that already contains `.rsi/`. The web dashboar
 
 ![rsi-studio-wikiskill-compact](../assets/rsi-studio-wikiskill-compact.gif)
 
+### Inspect Policy structure
+
+Open an experiment and select **Policy** to inspect its initial saved Policy and Recipe definition. The view identifies the Policy and saved-definition digest. Editing local source files does not change this snapshot. The view is read-only: it does not run plugins, restore resources, or fetch the contents of referenced files.
+
+- **Flow** opens first, showing top-level steps from top to bottom. Select a step to inspect its declaration and saved configuration in the detail panel. Use its separate expand button to reveal a loop, collection body, or branch; nested containers stay collapsed until expanded.
+- **Data** shows grouped sources, steps, and outputs from left to right, with connections attached to fields or expression locations. Shared-state writes, output mappings, and per-item bindings have distinct relationship labels. A dynamic access connects to its known collection or object boundary; it does not identify a runtime element.
+- When a step is selected, switching views reveals the same scoped step. Data initially shows its direct relationships; switch to **Full graph** to inspect all relationships. With no selected step, the full graph is shown. Data-only sources have no corresponding flow step.
+- Drag to pan, use the zoom controls, or select **Fit to view**. With the graph focused, arrow keys pan, `+`/`-` zoom, and `Home` fits the graph. Viewport and expansion choices are retained while the Policy page remains mounted. Detail selection and container expansion have separate keyboard-accessible controls.
+
+Both branches and repeated bodies describe declared possibilities, without showing execution status, iteration instances, or which write supplied a state value. Details preserve expression text and distinguish saved configuration from runtime values. Reflection details describe the initial configuration; use **Reflection & Memory** for later revisions.
+
+Incomplete analysis remains visible in both focused and full views. A partial data analysis can leave a valid flow view available. Missing, unsupported, invalid, or oversized saved definitions have explicit diagnostics; the dashboard never substitutes current source files or silently truncates a graph.
+
+The first version accepts at most 2,000 steps, 20,000 relationships and field ports combined, JSON declaration nesting of 64 levels, and 4 MiB each for the saved input and serialized structure response. These are rejection limits, not pagination. For scale, projection of the existing parameter-grid and Harness² declarations with deterministic saved binding fixtures produced 13 and 19 steps, 49 and 84 data relationships, and approximately 94 and 164 KiB responses respectively; no plugins were executed for these measurements.
+
 ## Troubleshooting
 
 | Symptom                                                           | Check                                                                                                                                                                       |

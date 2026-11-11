@@ -35,6 +35,16 @@ import { measurementItemsSchema } from '../../contracts/models/measurement.js';
 import { parseFileTree } from '../../contracts/models/file-tree.js';
 import { readIterationScopes } from '../../shared/iterations.js';
 import { safeId } from '../storage/index.js';
+import type { PolicyStructure } from '../../contracts/policy-structure.js';
+import {
+  DefinitionLockError,
+  readDefinitionLock,
+} from '../manager/definition-lock.js';
+import {
+  projectPolicyStructure,
+  unavailablePolicyStructure,
+  policyStructureLimits,
+} from '../compiler/policy-structure.js';
 
 function restrictedFile(path: string): boolean {
   return /(^|\/)(\.env(?:\..*)?|\.npmrc|\.?netrc|credentials(?:\.json|\.ya?ml|\.toml)?|secrets?\.(?:json|ya?ml|toml)|id_(?:rsa|ed25519|ecdsa|dsa)|private[-_]?key(?:\.pem|\.key)?|[^/]+\.(?:p12|pfx))$/i.test(
@@ -95,6 +105,117 @@ function page<T>(items: T[], offset: number, limit: number): Page<T> {
   };
 }
 
+/** Redact source text and identities consistently, keeping protocol enums intact. */
+function redactStructureStrings(
+  model: PolicyStructure,
+  secrets: string[],
+): PolicyStructure {
+  const text = (value: string): string => redactText(value, secrets);
+  // Redaction must not collapse distinct endpoint identities into one placeholder.
+  const identity = (value: string): string =>
+    text(value) === value
+      ? value
+      : `redacted:${createHash('sha256').update(value).digest('hex')}`;
+  const optional = (value: string | null): string | null =>
+    value === null ? null : text(value);
+  const optionalIdentity = (value: string | null): string | null =>
+    value === null ? null : identity(value);
+  return {
+    ...model,
+    source: {
+      ...model.source,
+      experimentId: text(model.source.experimentId),
+      policyId: optional(model.source.policyId),
+      definitionDigest: optional(model.source.definitionDigest),
+    },
+    steps: model.steps.map((step) => ({
+      ...step,
+      id: identity(step.id),
+      localId: text(step.localId),
+      label: text(step.label),
+      location: text(step.location),
+      scopeId: identity(step.scopeId),
+      childScopeIds: step.childScopeIds.map(identity),
+      detailId: identity(step.detailId),
+    })),
+    scopes: model.scopes.map((scope) => ({
+      ...scope,
+      id: identity(scope.id),
+      parentStepId: optionalIdentity(scope.parentStepId),
+      location: text(scope.location),
+      stepIds: scope.stepIds.map(identity),
+      entryId: identity(scope.entryId),
+      exitId: identity(scope.exitId),
+    })),
+    flow: {
+      nodes: model.flow.nodes.map((node) => ({
+        ...node,
+        id: identity(node.id),
+        stepId: optionalIdentity(node.stepId),
+        scopeId: identity(node.scopeId),
+        label: text(node.label),
+      })),
+      edges: model.flow.edges.map((edge) => ({
+        ...edge,
+        id: identity(edge.id),
+        source: identity(edge.source),
+        target: identity(edge.target),
+        label: optional(edge.label),
+        location: text(edge.location),
+      })),
+    },
+    data: {
+      nodes: model.data.nodes.map((node) => ({
+        ...node,
+        id: identity(node.id),
+        stepId: optionalIdentity(node.stepId),
+        scopeId: identity(node.scopeId),
+        detailId: identity(node.detailId),
+        label: text(node.label),
+        ports: node.ports.map((port) => ({
+          ...port,
+          id: identity(port.id),
+          label: text(port.label),
+          path: port.path.map(text),
+          location: text(port.location),
+        })),
+      })),
+      edges: model.data.edges.map((edge) => ({
+        ...edge,
+        id: identity(edge.id),
+        source: {
+          nodeId: identity(edge.source.nodeId),
+          portId: identity(edge.source.portId),
+        },
+        target: {
+          nodeId: identity(edge.target.nodeId),
+          portId: identity(edge.target.portId),
+        },
+        label: optional(edge.label),
+        location: text(edge.location),
+      })),
+    },
+    details: model.details.map((detail) => ({
+      ...detail,
+      id: identity(detail.id),
+      bindingId: optionalIdentity(detail.bindingId),
+    })),
+    bindings: model.bindings.map((binding) => ({
+      ...binding,
+      id: identity(binding.id),
+      name: text(binding.name),
+      contract: optional(binding.contract),
+      plugin: optional(binding.plugin),
+    })),
+    diagnostics: model.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      nodeId: optionalIdentity(diagnostic.nodeId),
+      location: optional(diagnostic.location),
+      message: text(diagnostic.message),
+    })),
+  };
+}
+
 /** Reads through existing stores; never writes facts, executes plugins, or interprets Policy outputs. */
 export class ObservationQueries {
   constructor(
@@ -105,6 +226,73 @@ export class ObservationQueries {
 
   source(): ObservationSource {
     return { directory: this.directory ? resolve(this.directory) : null };
+  }
+
+  /** The initial saved declaration only: no source files, artifact reads or resource restoration. */
+  async policyStructure(id: string): Promise<PolicyStructure> {
+    await this.experiment(id);
+    let locked: JsonObject;
+    try {
+      locked = await this.facts.read('definitions', id);
+    } catch (error) {
+      if (missing(error))
+        return unavailablePolicyStructure(
+          id,
+          'missing-source',
+          'No initial saved definition is available for this experiment.',
+        );
+      if (
+        error instanceof SyntaxError ||
+        (error instanceof Error &&
+          /^(value: expected object|Expected finite JSON data|Forbidden key (?:__proto__|constructor|prototype))$/.test(
+            error.message,
+          ))
+      )
+        return unavailablePolicyStructure(
+          id,
+          'invalid-source',
+          'The saved definition is not valid JSON.',
+        );
+      throw error;
+    }
+    // Bound analysis before parsing recursive templates; never return a silently shortened graph.
+    if (
+      Buffer.byteLength(JSON.stringify(locked), 'utf8') >
+      policyStructureLimits.bytes
+    )
+      return unavailablePolicyStructure(
+        id,
+        'oversized',
+        'The saved definition exceeds the 4 MiB visualization limit.',
+      );
+    const secrets = this.payloadSecrets(locked, await this.secrets(id));
+    let source: ReturnType<typeof readDefinitionLock>;
+    try {
+      source = readDefinitionLock(locked);
+    } catch (error) {
+      if (error instanceof DefinitionLockError)
+        return unavailablePolicyStructure(id, error.category, error.message);
+      throw error;
+    }
+    const model = projectPolicyStructure({ experimentId: id, ...source });
+    for (const detail of model.details) {
+      detail.declaration = this.clean(detail.declaration, secrets, true);
+      detail.configuration = this.clean(detail.configuration, secrets, true);
+    }
+    for (const binding of model.bindings)
+      binding.configuration = this.clean(binding.configuration, secrets, true);
+    const redacted = redactStructureStrings(model, secrets);
+    if (
+      Buffer.byteLength(JSON.stringify(redacted), 'utf8') >
+      policyStructureLimits.bytes
+    )
+      return unavailablePolicyStructure(
+        redacted.source.experimentId,
+        'oversized',
+        'The redacted structure exceeds the 4 MiB visualization limit.',
+        redacted.source,
+      );
+    return redacted;
   }
 
   private async experiment(id: string): Promise<JsonObject> {
@@ -131,17 +319,30 @@ export class ObservationQueries {
     visit(await this.experiment(id));
     return values;
   }
-  private clean(value: JsonValue, secrets: string[]): JsonValue {
+  private clean(
+    value: JsonValue,
+    secrets: string[],
+    redactKeys = false,
+  ): JsonValue {
     if (typeof value === 'string') return redactText(value, secrets);
     if (Array.isArray(value))
-      return value.map((item) => this.clean(item, secrets));
-    if (value && typeof value === 'object')
+      return value.map((item) => this.clean(item, secrets, redactKeys));
+    if (value && typeof value === 'object') {
+      const keys = new Set<string>();
       return Object.fromEntries(
-        Object.entries(value).map(([key, item]) => [
-          key,
-          secretField.test(key) ? '[REDACTED]' : this.clean(item, secrets),
-        ]),
+        Object.entries(value).map(([key, item], index) => {
+          let label = redactKeys ? redactText(key, secrets) : key;
+          while (keys.has(label)) label += ` (${index})`;
+          keys.add(label);
+          return [
+            label,
+            secretField.test(key)
+              ? '[REDACTED]'
+              : this.clean(item, secrets, redactKeys),
+          ];
+        }),
       );
+    }
     return value;
   }
   private preview(

@@ -23,6 +23,11 @@ const ScoreCharts = lazy(() =>
     default: module.ScoreCharts,
   })),
 );
+const PolicyStructure = lazy(() =>
+  import('./policy-structure').then((module) => ({
+    default: module.PolicyStructure,
+  })),
+);
 
 const views = [
   'overview',
@@ -30,6 +35,7 @@ const views = [
   'candidates',
   'measurements',
   'learning',
+  'policy',
   'recipe',
   'results',
 ] as const;
@@ -56,51 +62,55 @@ export function Experiment({
   const result = useObservation(`/${encodeURIComponent(id)}`, parseOverview);
   const selected = views.find((item) => item === view) ?? 'overview';
   return (
-    <RoundLabels id={id} finished={!!result.data?.finishedAt}>
-      <div className="page-stack">
-        <header className="page-heading">
-          <div>
-            <a className="text-link" href="#">
-              ← Experiments
-            </a>
-            <h1>{result.data?.recipeId ?? id}</h1>
-            {result.data?.recipeId && result.data.recipeId !== id ? (
-              <p>
-                <code>{id}</code>
-              </p>
-            ) : null}
-            {selected === 'overview' && result.data ? (
-              <p className="muted">
-                Started <Timestamp value={result.data.startedAt} /> · Finished{' '}
-                <Timestamp value={result.data.finishedAt} />
-              </p>
-            ) : null}
-          </div>
-          <div className="actions">
-            {result.data ? <Status value={result.data.status} /> : null}
-          </div>
-        </header>
-        <nav className="view-nav" aria-label="Experiment views">
-          {views.map((item) => (
-            <a
-              key={item}
-              href={
-                selected === item
-                  ? route(id, item, candidate, artifact, navigation)
-                  : viewRoute(id, item)
-              }
-              aria-current={selected === item ? 'page' : undefined}
-            >
-              {item === 'learning'
-                ? 'Reflection & Memory'
-                : item === 'calls'
-                  ? 'Call history'
-                  : item[0]!.toUpperCase() + item.slice(1)}
-            </a>
-          ))}
-        </nav>
-        <Feedback {...result} />
-        {result.data ? (
+    <div className="page-stack">
+      <header className="page-heading">
+        <div>
+          <a className="text-link" href="#">
+            ← Experiments
+          </a>
+          <h1>{result.data?.recipeId ?? id}</h1>
+          {result.data?.recipeId && result.data.recipeId !== id ? (
+            <p>
+              <code>{id}</code>
+            </p>
+          ) : null}
+          {selected === 'overview' && result.data ? (
+            <p className="muted">
+              Started <Timestamp value={result.data.startedAt} /> · Finished{' '}
+              <Timestamp value={result.data.finishedAt} />
+            </p>
+          ) : null}
+        </div>
+        <div className="actions">
+          {result.data ? <Status value={result.data.status} /> : null}
+        </div>
+      </header>
+      <nav className="view-nav" aria-label="Experiment views">
+        {views.map((item) => (
+          <a
+            key={item}
+            href={
+              selected === item
+                ? route(id, item, candidate, artifact, navigation)
+                : viewRoute(id, item)
+            }
+            aria-current={selected === item ? 'page' : undefined}
+          >
+            {item === 'learning'
+              ? 'Reflection & Memory'
+              : item === 'calls'
+                ? 'Call history'
+                : item[0]!.toUpperCase() + item.slice(1)}
+          </a>
+        ))}
+      </nav>
+      <Feedback {...result} />
+      {selected === 'policy' ? (
+        <Suspense fallback={<p role="status">Loading Policy structure…</p>}>
+          <PolicyStructure id={id} />
+        </Suspense>
+      ) : result.data ? (
+        <RoundLabels id={id} finished={!!result.data.finishedAt}>
           <PresentationReady
             required={selected !== 'learning' && selected !== 'recipe'}
           >
@@ -144,8 +154,8 @@ export function Experiment({
               </>
             )}
           </PresentationReady>
-        ) : null}
-      </div>
-    </RoundLabels>
+        </RoundLabels>
+      ) : null}
+    </div>
   );
 }

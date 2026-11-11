@@ -1,3 +1,5 @@
+export type * from './policy-structure.js';
+
 /** Read-only Web projections. These describe recorded facts, not inferred Policy state. */
 export interface Page<T> {
   items: T[];

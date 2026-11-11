@@ -42,6 +42,11 @@ export function registerObservationRoutes(
     { schema: { params } },
     (request) => queries.details(request.params.id),
   );
+  app.get<{ Params: { id: string } }>(
+    '/api/observation/experiments/:id/policy-structure',
+    { schema: { params } },
+    (request) => queries.policyStructure(request.params.id),
+  );
   app.get<{
     Params: { id: string; ref: string };
     Querystring: Window & { path?: string };

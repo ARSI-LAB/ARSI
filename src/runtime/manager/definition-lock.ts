@@ -13,6 +13,83 @@ import type { Recipe } from '../loaders/recipe.js';
 import type { Registry } from '../registry/index.js';
 import type { ReflectionConfig } from '../revisions/validation.js';
 import { inside } from '../storage/index.js';
+import { recipeDeclarationSchema } from '../../contracts/recipe.js';
+
+export class DefinitionLockError extends Error {
+  constructor(
+    readonly category: 'unsupported-source' | 'invalid-source',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'DefinitionLockError';
+  }
+}
+
+/** Validate the saved read boundary without loading plugins or restoring resources. */
+export function readDefinitionLock(locked: JsonObject): {
+  definitionDigest: string;
+  policy: JsonObject;
+  recipe: JsonObject;
+  reflection: JsonValue | null;
+} {
+  if (locked.schemaVersion !== 'rsi.definition-lock/v1')
+    throw new DefinitionLockError(
+      'unsupported-source',
+      'Unsupported saved definition version.',
+    );
+  const { digest: expected, ...content } = locked;
+  if (typeof expected !== 'string' || expected !== digest(content))
+    throw new DefinitionLockError(
+      'invalid-source',
+      'Saved definition digest does not match its contents.',
+    );
+  try {
+    const policy = object(locked.policy, 'locked policy');
+    const recipe = object(locked.recipe, 'locked recipe');
+    if (
+      policy.schemaVersion !== 'rsi.policy/v1' ||
+      recipe.schemaVersion !== 'rsi.recipe/v1'
+    )
+      throw new DefinitionLockError(
+        'unsupported-source',
+        'Unsupported saved Policy or Recipe version.',
+      );
+    validate(recipeDeclarationSchema, recipe, 'locked recipe');
+    const policyId = string(policy.id, 'locked policy.id');
+    if (!policyId || object(recipe.policy).id !== policyId)
+      throw new Error('Saved Policy identity mismatch');
+    object(policy.input_schema, 'locked policy.input_schema');
+    if (typeof policy.output_schema !== 'boolean')
+      object(policy.output_schema, 'locked policy.output_schema');
+    if (!Object.hasOwn(policy, 'output'))
+      throw new Error('Saved Policy output declaration is missing');
+    for (const field of [
+      'input',
+      'state',
+      'require',
+      'defaults',
+      'config_schema',
+      'state_schema',
+    ])
+      if (policy[field] !== undefined)
+        object(policy[field], `locked policy.${field}`);
+    if (locked.reflection !== null && locked.reflection !== undefined)
+      parseLockedReflection(locked.reflection);
+    return {
+      definitionDigest: expected,
+      policy,
+      recipe,
+      reflection: locked.reflection ?? null,
+    };
+  } catch (error) {
+    if (error instanceof DefinitionLockError) throw error;
+    // Persisted declarations may contain credentials; do not relay validator excerpts.
+    throw new DefinitionLockError(
+      'invalid-source',
+      'Saved definition contains invalid Policy, Recipe, or Reflection data.',
+    );
+  }
+}
 
 /** Validate persisted Reflection data without consulting mutable source files. */
 export function parseLockedReflection(value: JsonValue): ReflectionConfig {

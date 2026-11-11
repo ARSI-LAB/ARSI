@@ -1,4 +1,6 @@
 import { connectionError, setDisconnected } from './connection-state.js';
+import type { JsonValue } from '../../src/contracts/json.js';
+import type { PolicyStructure } from '../../src/contracts/policy-structure.js';
 import type {
   CallTrace,
   CallInstructions,
@@ -312,4 +314,264 @@ export function parseCallTrace(raw: unknown): CallTrace {
 
 export function parseCallInstructions(raw: unknown): CallInstructions {
   return { prompt: preview(record(raw).prompt) };
+}
+
+function choice<T extends string>(value: unknown, values: readonly T[]): T {
+  const result = values.find((candidate) => candidate === value);
+  if (result === undefined) throw new Error('Invalid Policy structure value');
+  return result;
+}
+
+function jsonValue(value: unknown): JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean')
+    return value;
+  if (typeof value === 'number') return number(value);
+  if (Array.isArray(value)) return value.map(jsonValue);
+  return Object.fromEntries(
+    Object.entries(record(value)).map(([key, item]) => [key, jsonValue(item)]),
+  );
+}
+
+/** Validate the single saved-definition response before graph layout or rendering. */
+export function parsePolicyStructure(raw: unknown): PolicyStructure {
+  const value = record(raw);
+  const source = record(value.source);
+  const availability = record(value.availability);
+  const flow = record(value.flow);
+  const data = record(value.data);
+  const states = ['complete', 'partial', 'unavailable'] as const;
+  const endpoint = (raw: unknown): { nodeId: string; portId: string } => {
+    const item = record(raw);
+    return { nodeId: text(item.nodeId), portId: text(item.portId) };
+  };
+  const model: PolicyStructure = {
+    source: {
+      experimentId: text(source.experimentId),
+      policyId: nullable(source.policyId),
+      definitionDigest: nullable(source.definitionDigest),
+      snapshot: choice(source.snapshot, ['initial']),
+    },
+    availability: {
+      overall: choice(availability.overall, states),
+      flow: choice(availability.flow, states),
+      data: choice(availability.data, states),
+      details: choice(availability.details, states),
+    },
+    steps: array(value.steps, (raw) => {
+      const item = record(raw);
+      return {
+        id: text(item.id),
+        localId: text(item.localId),
+        label: text(item.label),
+        type: choice(item.type, [
+          'invoke',
+          'state',
+          'if',
+          'loop',
+          'foreach',
+          'control',
+          'reflection',
+        ]),
+        location: text(item.location),
+        scopeId: text(item.scopeId),
+        childScopeIds: array(item.childScopeIds, text),
+        detailId: text(item.detailId),
+      };
+    }),
+    scopes: array(value.scopes, (raw) => {
+      const item = record(raw);
+      return {
+        id: text(item.id),
+        parentStepId: nullable(item.parentStepId),
+        region: choice(item.region, [
+          'root',
+          'then',
+          'else',
+          'iteration',
+          'item',
+        ]),
+        location: text(item.location),
+        stepIds: array(item.stepIds, text),
+        entryId: text(item.entryId),
+        exitId: text(item.exitId),
+      };
+    }),
+    flow: {
+      nodes: array(flow.nodes, (raw) => {
+        const item = record(raw);
+        return {
+          id: text(item.id),
+          kind: choice(item.kind, ['step', 'entry', 'exit', 'failure']),
+          stepId: nullable(item.stepId),
+          scopeId: text(item.scopeId),
+          label: text(item.label),
+        };
+      }),
+      edges: array(flow.edges, (raw) => {
+        const item = record(raw);
+        return {
+          id: text(item.id),
+          source: text(item.source),
+          target: text(item.target),
+          kind: choice(item.kind, [
+            'sequence',
+            'branch',
+            'repetition',
+            'break',
+            'continue',
+            'fail',
+          ]),
+          label: nullable(item.label),
+          location: text(item.location),
+        };
+      }),
+    },
+    data: {
+      nodes: array(data.nodes, (raw) => {
+        const item = record(raw);
+        return {
+          id: text(item.id),
+          kind: choice(item.kind, [
+            'step',
+            'input',
+            'config',
+            'state',
+            'output',
+            'application',
+            'loop',
+            'item',
+          ]),
+          stepId: nullable(item.stepId),
+          label: text(item.label),
+          scopeId: text(item.scopeId),
+          detailId: text(item.detailId),
+          ports: array(item.ports, (raw) => {
+            const port = record(raw);
+            return {
+              id: text(port.id),
+              label: text(port.label),
+              role: choice(port.role, [
+                'field',
+                'input',
+                'output',
+                'expression',
+              ]),
+              path: array(port.path, text),
+              location: text(port.location),
+            };
+          }),
+        };
+      }),
+      edges: array(data.edges, (raw) => {
+        const item = record(raw);
+        if (typeof item.dynamic !== 'boolean')
+          throw new Error('Invalid Policy dynamic reference');
+        return {
+          id: text(item.id),
+          source: endpoint(item.source),
+          target: endpoint(item.target),
+          kind: choice(item.kind, [
+            'reference',
+            'state-write',
+            'item-binding',
+            'output-mapping',
+          ]),
+          dynamic: item.dynamic,
+          label: nullable(item.label),
+          location: text(item.location),
+        };
+      }),
+    },
+    details: array(value.details, (raw) => {
+      const item = record(raw);
+      return {
+        id: text(item.id),
+        declaration: jsonValue(item.declaration),
+        configuration: jsonValue(item.configuration),
+        bindingId: nullable(item.bindingId),
+      };
+    }),
+    bindings: array(value.bindings, (raw) => {
+      const item = record(raw);
+      return {
+        id: text(item.id),
+        name: text(item.name),
+        contract: nullable(item.contract),
+        plugin: nullable(item.plugin),
+        configuration: jsonValue(item.configuration),
+      };
+    }),
+    diagnostics: array(value.diagnostics, (raw) => {
+      const item = record(raw);
+      return {
+        category: choice(item.category, [
+          'missing-source',
+          'unsupported-source',
+          'invalid-source',
+          'analysis',
+          'oversized',
+        ]),
+        view: choice(item.view, ['all', 'flow', 'data', 'details']),
+        nodeId: nullable(item.nodeId),
+        location: nullable(item.location),
+        message: text(item.message),
+      };
+    }),
+  };
+  validateStructureLinks(model);
+  return model;
+}
+
+function validateStructureLinks(model: PolicyStructure): void {
+  const index = <T extends { id: string }>(items: T[]): Map<string, T> => {
+    const result = new Map(items.map((item) => [item.id, item]));
+    if (result.size !== items.length)
+      throw new Error('Duplicate Policy structure identity');
+    return result;
+  };
+  const steps = index(model.steps),
+    scopes = index(model.scopes),
+    flow = index(model.flow.nodes),
+    data = index(model.data.nodes);
+  const ports = new Map(
+    model.data.nodes.map((node) => [node.id, index(node.ports)]),
+  );
+  index(model.flow.edges);
+  index(model.data.edges);
+  index(model.details);
+  index(model.bindings);
+  const invalid = (): never => {
+    throw new Error('Invalid Policy structure relationship');
+  };
+  for (const step of steps.values()) {
+    if (!scopes.get(step.scopeId)?.stepIds.includes(step.id)) invalid();
+    for (const scopeId of step.childScopeIds)
+      if (scopes.get(scopeId)?.parentStepId !== step.id) invalid();
+    const ancestors = new Set<string>();
+    let parent: string | null = scopes.get(step.scopeId)?.parentStepId ?? null;
+    while (parent !== null) {
+      if (parent === step.id || ancestors.has(parent)) invalid();
+      ancestors.add(parent);
+      const owner = steps.get(parent);
+      if (!owner) throw new Error('Invalid Policy scope owner');
+      parent = scopes.get(owner.scopeId)?.parentStepId ?? null;
+    }
+  }
+  for (const scope of scopes.values()) {
+    if (
+      (scope.parentStepId !== null && !steps.has(scope.parentStepId)) ||
+      scope.stepIds.some((id) => steps.get(id)?.scopeId !== scope.id)
+    )
+      invalid();
+  }
+  for (const edge of model.flow.edges)
+    if (!flow.has(edge.source) || !flow.has(edge.target)) invalid();
+  for (const edge of model.data.edges) {
+    for (const endpoint of [edge.source, edge.target])
+      if (
+        !data.has(endpoint.nodeId) ||
+        !ports.get(endpoint.nodeId)?.has(endpoint.portId)
+      )
+        invalid();
+  }
 }

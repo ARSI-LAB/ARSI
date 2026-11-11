@@ -6,7 +6,7 @@ import {
 } from '../../contracts/plugin-types/proposer-grid.js';
 import { configSchema, type GridProposerConfig } from './schema.js';
 import { createGridProposer } from './service.js';
-import { checkOperationConfiguration } from '../../runtime/doctor/business-checks.js';
+import { checkOperationConfiguration } from '../shared/doctor/checks.js';
 
 export const gridProposerDefinition: OperationDefinition<
   GridProposerInput,

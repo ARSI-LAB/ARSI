@@ -15,11 +15,11 @@ import { createRuntime, type Runtime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { doctorRecipe } from '../../src/runtime/doctor/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
-import { createEvaluatorDoctor } from '../../src/runtime/doctor/evaluator-checks.js';
+import { createAgentbenchDoctor } from '../../src/plugins/evaluator-agentbench/doctor.js';
 import type {
   SdkDoctorOptions,
   SdkDoctorRunner,
-} from '../../src/runtime/doctor/evaluator-sdk.js';
+} from '../../src/plugins/shared/evaluator-adapter/doctor-sdk.js';
 import type { DoctorReport } from '../../src/contracts/index.js';
 import { object } from '../../src/shared/json.js';
 
@@ -79,7 +79,9 @@ async function fixture(
       definition.id === 'evaluator.agentbench'
         ? {
             ...definition,
-            doctor: createEvaluatorDoctor((options) => selectedRunner(options)),
+            doctor: createAgentbenchDoctor((options) =>
+              selectedRunner(options),
+            ),
           }
         : definition,
     );

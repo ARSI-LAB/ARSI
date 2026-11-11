@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import {
   sdkDoctor,
   type SdkDoctorOptions,
-} from '../../src/runtime/doctor/evaluator-sdk.js';
+} from '../../src/plugins/shared/evaluator-adapter/doctor-sdk.js';
 
 async function fixture(
   t: test.TestContext,

@@ -22,7 +22,7 @@ import {Evaluator} from 'ember-evaluator';
 import {RuntimeContext} from './dist/src/contracts/index.js';
 import {FileArtifacts} from './dist/src/runtime/storage/index.js';
 import {createAgentbench} from './dist/src/plugins/evaluator-agentbench/service.js';
-import {sdkDoctor} from './dist/src/runtime/doctor/evaluator-sdk.js';
+import {sdkDoctor} from './dist/src/plugins/shared/evaluator-adapter/doctor-sdk.js';
 if(${JSON.stringify(isolated)}){
  const installed=await realpath(${JSON.stringify(packageDirectory)});
  for(const name of ['agent-bundle-core','ember-evaluator']){

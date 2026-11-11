@@ -15,7 +15,7 @@ import { createRuntime } from '../../src/runtime/context.js';
 import type { Registry } from '../../src/runtime/registry/index.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { Policy } from '../../src/runtime/policy/index.js';
-import { checkOptunaDependencies } from '../../src/runtime/doctor/business-checks.js';
+import { checkOptunaDependencies } from '../../src/plugins/proposer-optuna/doctor.js';
 import type {
   DoctorCheck,
   DoctorContext,

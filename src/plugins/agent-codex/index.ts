@@ -6,7 +6,7 @@ import type {
 import { agentContract } from '../../contracts/plugin-types/index.js';
 import { configSchema, type AgentCodexConfig } from './schema.js';
 import { createAgentCodex } from './service.js';
-import { checkCodexAgent } from '../../runtime/doctor/application-checks.js';
+import { checkCodexAgent } from './doctor.js';
 
 export const codexDefinition: OperationDefinition<
   AgentInput,

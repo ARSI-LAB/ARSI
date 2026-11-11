@@ -22,7 +22,7 @@ import type {
   DoctorReport,
   OperationDoctor,
 } from '../../src/contracts/index.js';
-import { runCommand } from '../../src/runtime/doctor/process.js';
+import { runCommand } from '../../src/plugins/shared/doctor/process.js';
 import { object } from '../../src/shared/json.js';
 
 async function fixture(): Promise<{

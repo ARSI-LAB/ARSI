@@ -6,7 +6,7 @@ import type {
 import { configSchema, type AgentbundleConfig } from './schema.js';
 import { applicationContract } from '../../contracts/plugin-types/index.js';
 import { createApplicationAgentbundle } from './service.js';
-import { checkFileApplication } from '../../runtime/doctor/application-checks.js';
+import { checkAgentbundleApplication } from './doctor.js';
 export const agentbundleDefinition: OperationDefinition<
   ApplicationInput,
   ApplicationOutput,
@@ -18,5 +18,5 @@ export const agentbundleDefinition: OperationDefinition<
   contract: applicationContract,
   configSchema,
   create: createApplicationAgentbundle,
-  doctor: checkFileApplication,
+  doctor: checkAgentbundleApplication,
 };

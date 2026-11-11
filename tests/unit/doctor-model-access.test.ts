@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { RequestListener } from 'node:http';
-import { probeModelAccess } from '../../src/runtime/doctor/model-access.js';
-import type { ModelAccessInput } from '../../src/runtime/doctor/model-access.js';
+import { probeModelAccess } from '../../src/plugins/agent-pi/model-access.js';
+import type { ModelAccessInput } from '../../src/plugins/agent-pi/model-access.js';
 
 async function serve(
   t: test.TestContext,

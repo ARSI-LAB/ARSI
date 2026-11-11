@@ -3,7 +3,7 @@
 This example optimizes the Office discipline prompt with GEPA v2. The
 [Recipe](recipe.yaml) uses the [baseline Office Bundle](baseline/) and its narrow
 [Target](target.yaml). The algorithm source is
-[`src/plugins/search-prompt-evolution/`](../../../src/plugins/search-prompt-evolution/) and its orchestration Policy is
+[`src/plugins/proposer-pareto-evolution/`](../../../src/plugins/proposer-pareto-evolution/) and its orchestration Policy is
 [`src/policies/gepa/policy.yaml`](../../../src/policies/gepa/policy.yaml).
 
 ## Running
@@ -48,22 +48,22 @@ pnpm ember-rsi validate examples/harness/dsh-gepa/recipe.yaml
 pnpm ember-rsi run examples/harness/dsh-gepa/recipe.yaml --id gepa-office
 ```
 
-The built-in startup entrypoint provides `search.prompt-evolution` and `policy.gepa`.
+The built-in startup entrypoint provides `proposer.pareto-evolution` and `policy.gepa`.
 Run facts, candidates, measurements and receipts are stored in `.rsi/`.
 
 The plugin is named for its modular prompt-evolution capability. This Policy
 uses its existing GEPA sampling, comparison and crossover rules; the shared
-`contract.search` also supports the separate Optuna implementation.
+`contract.proposer-iterative` also supports the separate Optuna implementation.
 
 The Policy invokes `evaluator` and `proposer` explicitly. The search plugin owns
 GEPA's selection, comparison, and population bookkeeping; it does not route
 calls to those plugins. Mutation uses `proposer.agent`, which invokes `agent`,
 validates edits, and commits through the Application. The Recipe configures the
-Evaluator and Agent and keeps algorithm parameters in `bindings.search.config`.
+Evaluator and Agent and keeps algorithm parameters in `bindings.evolutionProposer.config`.
 The task split and its Schema belong to the Policy, with the task IDs configured
 in `policy.config.dataset`. The search plugin owns its algorithm configuration
 Schema. Its public
-`contract.search` interface is shared with Optuna. Its `initialize`, `suggest`,
+`contract.proposer-iterative` interface is shared with Optuna. Its `initialize`, `suggest`,
 and `observe` lifecycle exchanges immutable state references, evaluation and
 proposal work requests, and feedback; GEPA's population, lineage, RNG and
 pending-round details stay inside the implementation's state artifacts.

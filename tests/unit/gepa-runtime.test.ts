@@ -59,16 +59,17 @@ test('a custom Policy invokes evaluator and Proposer bindings directly', async (
     assert.equal(run.agentCalls.length, 1);
     assert.equal((run.output.rounds as JsonObject[])[0]!.status, 'admitted');
     const calls = await run.manager.facts.list('calls');
-    const searchCalls = new Set(
+    const evolutionProposerCalls = new Set(
       calls
-        .filter((call) => call.bindingId === 'search')
+        .filter((call) => call.bindingId === 'evolutionProposer')
         .map((call) => call.callId),
     );
+    assert.ok(evolutionProposerCalls.size > 0);
     for (const binding of ['measure', 'mutate']) {
       const externalCalls = calls.filter((call) => call.bindingId === binding);
       assert.equal(externalCalls.length, binding === 'measure' ? 4 : 1);
       for (const call of externalCalls) {
-        assert.equal(searchCalls.has(call.parentCallId), false);
+        assert.equal(evolutionProposerCalls.has(call.parentCallId), false);
         assert.match(String(call.path), /^steps\//);
       }
     }

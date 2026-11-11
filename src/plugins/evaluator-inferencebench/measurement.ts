@@ -34,8 +34,11 @@ import {
   conditionsSchema,
 } from '../shared/evaluator-adapter/schemas/index.js';
 import { conditions } from './conditions.js';
-import { agentxMetrics } from './metrics.js';
-import { agentxProfileSchema } from './measurement-schema.js';
+import { agentxMetrics, aisbenchPoint } from './metrics.js';
+import {
+  aisbenchWorkloadSchema,
+  inferenceProfileSchema,
+} from './measurement-schema.js';
 
 let implementationIdentity: Promise<string> | undefined;
 function adapterIdentity(): Promise<string> {
@@ -64,6 +67,7 @@ export async function normalizeEvaluation(
   context: RuntimeContext,
   failure: JsonObject | null = null,
 ): Promise<string> {
+  const aisbench = object(native.benchmark).name === 'aisbench';
   const result = object(redact(resultValue ?? {}));
   const snapshot = await snapshotOf(result);
   const run = snapshot ? plain(snapshot.run) : {};
@@ -81,7 +85,7 @@ export async function normalizeEvaluation(
     ? await context.artifacts.putJson(snapshot)
     : null;
   const condition = conditions(native, snapshot, execution);
-  const comparisonKey =
+  const conditionsKey =
     condition.known === true ? digest(condition.fixed) : null;
   const records = Array.isArray(snapshot?.records)
     ? snapshot.records.map((v) => object(v))
@@ -93,6 +97,9 @@ export async function normalizeEvaluation(
     : [];
   const items: JsonValue[] = [];
   const allEvidence: JsonValue[] = [];
+  let completedPoints = 0;
+  let comparisonKey = aisbench ? null : conditionsKey;
+  let metrics: JsonObject = {};
   for (const id of taskIds) {
     const record = records.find((v) => plain(v.key).taskId === id) ?? null;
     const key = record ? plain(record.key) : {};
@@ -104,7 +111,7 @@ export async function normalizeEvaluation(
       id,
       record,
       attempts,
-      pointSummary,
+      aisbench ? null : pointSummary,
     );
     const entries = await archiveItemExecution(
       context,
@@ -130,9 +137,41 @@ export async function normalizeEvaluation(
     const evidenceIndexRef = await context.artifacts.putJson(evidence);
     allEvidence.push(...entries);
     let pointMetrics: JsonObject = {};
-    let pointKey = comparisonKey;
+    let pointKey = aisbench ? null : conditionsKey;
+    const pointStatus = nativeStatus(record?.executionStatus, context.signal);
+    let pointCoverage = record ? (aisbench ? 'partial' : 'complete') : 'none';
     let parameters: JsonObject | null = null;
-    if (pointSummary) {
+    if (
+      aisbench &&
+      pointStatus === 'succeeded' &&
+      record?.evaluationKind === 'performance' &&
+      nullableObject(record.verdict)?.passed === null &&
+      nullableObject(record.collection)?.artifacts === 'complete' &&
+      pointSummary
+    ) {
+      const point = await aisbenchPoint(
+        context.artifacts,
+        pointSummary,
+        run,
+        id,
+      );
+      pointMetrics = point.metrics;
+      parameters = await typed(
+        context,
+        'measurement.aisbench-workload/v1',
+        aisbenchWorkloadSchema,
+        point.workload,
+      );
+      pointCoverage = 'complete';
+      pointKey = conditionsKey
+        ? digest({ conditionsKey, workload: point.workload })
+        : null;
+      // AISBench's one point is the run result. Never average multiple points.
+      if (taskIds.length === 1) {
+        comparisonKey = pointKey;
+        metrics = pointMetrics;
+      }
+    } else if (!aisbench && pointSummary) {
       const source = nullableObject(run.source);
       const workload = object(pointSummary.workload, 'AgentX workload');
       if (source && workload.revision !== source.revision)
@@ -155,14 +194,15 @@ export async function normalizeEvaluation(
         agentxWorkloadSchema,
         await context.artifacts.putJson(pointSummary.workload ?? {}),
       );
-      pointKey = comparisonKey
+      pointKey = conditionsKey
         ? digest({
-            comparisonKey,
+            comparisonKey: conditionsKey,
             workload: pointSummary.workload,
             lexicon: pointSummary.lexicon,
           })
         : null;
     }
+    if (pointCoverage === 'complete') completedPoints++;
     items.push({
       id,
       subject: {
@@ -170,8 +210,8 @@ export async function normalizeEvaluation(
         id,
         parameters,
       },
-      status: nativeStatus(record?.executionStatus, context.signal),
-      coverage: record ? 'complete' : 'none',
+      status: pointStatus,
+      coverage: pointCoverage,
       comparisonKey: pointKey,
       metrics: pointMetrics,
       evaluation: null,
@@ -211,8 +251,8 @@ export async function normalizeEvaluation(
     : null;
   const profile = await typed(
     context,
-    'measurement.agentx/v1',
-    agentxProfileSchema,
+    aisbench ? 'measurement.aisbench/v1' : 'measurement.agentx/v1',
+    inferenceProfileSchema,
     {
       run: nativeRun,
       source: run.source ?? null,
@@ -229,9 +269,6 @@ export async function normalizeEvaluation(
     nativeResultRef,
     metricsEnvelope,
   );
-  const found = taskIds.filter((id) =>
-    records.some((record) => plain(record.key).taskId === id),
-  ).length;
   const status = evaluationStatus(result, context, failure !== null);
   const measurement: JsonObject = {
     schemaVersion: 'rsi.measurement/v1',
@@ -250,9 +287,9 @@ export async function normalizeEvaluation(
     finishedAt: typeof run.finishedAt === 'string' ? run.finishedAt : null,
     status,
     coverage:
-      taskIds.length && found === taskIds.length
+      taskIds.length && completedPoints === taskIds.length
         ? 'complete'
-        : found
+        : records.length
           ? 'partial'
           : snapshot
             ? 'none'
@@ -265,7 +302,7 @@ export async function normalizeEvaluation(
       condition,
     ),
     provenance,
-    metrics: {},
+    metrics,
     itemsRef,
     evidenceIndexRef,
     profile,

@@ -1,0 +1,116 @@
+schemaVersion: rsi.policy/v1
+id: policy.parameter-grid
+description: Search a parameter grid and select candidates by measured metrics.
+# policy schema
+input_schema:
+  $ref: ../../../contracts/policies/candidate-input.yaml
+input:
+  candidateRef: ${{ application.initialCandidate }}
+output_schema:
+  $ref: ./schemas/result.yaml
+config_schema:
+  $ref: ./schemas/config.yaml
+
+# setup
+state_schema:
+  $ref: ./setup.yaml#/state_schema
+state:
+  $ref: ./setup.yaml#/state
+require:
+  $ref: ./setup.yaml#/require
+defaults:
+  $ref: ./setup.yaml#/defaults
+
+# policy steps
+steps:
+  - id: baseline
+    type: invoke
+    use: evaluator
+    with:
+      candidateRef: ${{ input.candidateRef }}
+  - id: baseline_feasibility
+    type: invoke
+    use: selector
+    with:
+      incumbentMeasurementRef: ${{ steps.baseline.output.measurementRef }}
+      candidateMeasurementRef: ${{ steps.baseline.output.measurementRef }}
+  - id: seed_best
+    type: state
+    state:
+      bestCandidate: ${{ if(steps.baseline_feasibility.output.candidateFeasible, input.candidateRef, null) }}
+      bestMeasurement: ${{ if(steps.baseline_feasibility.output.candidateFeasible, steps.baseline.output.measurementRef, null) }}
+  - id: search
+    type: loop
+    maxIterations: ${{ config.maxCandidates }}
+    while: ${{ !state.exhausted }}
+    steps:
+      - id: propose
+        type: invoke
+        use: proposer
+        with:
+          parent: ${{ input.candidateRef }}
+          cursor: ${{ state.cursor }}
+      - id: handle_proposal
+        type: if
+        if: ${{ steps.propose.output.status == 'candidate' }}
+        then:
+          steps:
+            - id: evaluate
+              type: if
+              if: ${{ input.candidateRef == steps.propose.output.candidateRef }}
+              then:
+                steps: []
+                output:
+                  measurementRef: ${{ steps.baseline.output.measurementRef }}
+              else:
+                steps:
+                  - id: evaluate_candidate
+                    type: invoke
+                    use: evaluator
+                    with:
+                      candidateRef: ${{ steps.propose.output.candidateRef }}
+                output:
+                  measurementRef: ${{ steps.evaluate_candidate.output.measurementRef }}
+            - id: select
+              type: invoke
+              use: selector
+              with:
+                incumbentMeasurementRef: ${{ if(state.bestMeasurement == null, steps.baseline.output.measurementRef, state.bestMeasurement)}}
+                candidateMeasurementRef: ${{ steps.evaluate.output.measurementRef }}
+            - id: record
+              type: state
+              state:
+                cursor: ${{ steps.propose.output.nextCursor }}
+                exhausted: ${{ steps.propose.output.nextCursor >=
+                  steps.propose.output.totalCandidates }}
+                history: ${{ append(state.history, steps.evaluate.output.measurementRef) }}
+            - id: adopt
+              type: if
+              if:
+                ${{ steps.select.output.candidateFeasible && (state.bestMeasurement == null
+                || steps.select.output.accepted) }}
+              then:
+                steps:
+                  - id: save_best
+                    type: state
+                    state:
+                      bestCandidate: ${{ steps.propose.output.candidateRef }}
+                      bestMeasurement: ${{ steps.evaluate.output.measurementRef }}
+                      bestParameters: ${{ steps.propose.output.parameters }}
+        else:
+          steps:
+            - id: exhausted
+              type: state
+              state:
+                exhausted: true
+
+# output
+output:
+  status: ${{ if(state.bestCandidate == null, 'no-feasible-configuration', 'selected') }}
+  stopReason: ${{ if(state.exhausted, 'search-exhausted', 'max-candidates') }}
+  baselineCandidateRef: ${{ input.candidateRef }}
+  baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
+  candidateRef: ${{ state.bestCandidate }}
+  measurementRef: ${{ state.bestMeasurement }}
+  parameters: ${{ state.bestParameters }}
+  measurementRefs: ${{ state.history }}

@@ -127,6 +127,19 @@ flowchart TD
 
 ### 编写并声明检测函数
 
+从 `ember-rsi/contracts` 或 `ember-rsi` 导入 `OperationDoctor<C>`、`DoctorContext<C>` 和 `DoctorResult`。
+
+- 组件注册和 Recipe 加载负责保留回调，`doctor` 命令才会调用它。
+- 省略 `doctor` 时，框架仍执行通用检查，并将组件专用的 `plugin` 项标为 `unchecked`。
+
+| 类型                 | 用途                                                                                                                                                            |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OperationDoctor<C>` | 给组件的 `doctor` 函数标注类型。它规定函数接收 `DoctorContext<C>`，并异步返回 `DoctorResult`。                                                                  |
+| `DoctorContext<C>`   | 框架传给回调的参数。常用的是 `context.binding.config` 读取生效配置，`context.signal` 响应取消，`context.directory` 存放临时文件。                               |
+| `DoctorResult`       | 组件返回的检查结果。`checks` 里写每项的 ID、状态和可选说明，有缺失资源时可附上 `missingResources`。框架负责加绑定名前缀，并把各组件的结果汇总成最终 JSON 报告。 |
+
+- `C` 是组件配置类型。例如，下面的 `CustomConfig` 定义了 `inputFile: string`，那么 `context.binding.config.inputFile` 就会被推导为 `string`。
+
 示例在已有 `configSchema` 中将字符串 `inputFile` 声明为必填字段，并用 `'x-rsi-path': 'file'` 标记本地文件。通用检查负责验证路径，下面的 `doctor.ts` 检查文件内容。
 
 ```ts
@@ -152,6 +165,97 @@ export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
 };
 ```
 
+- 上面示例的`runDoctorCheck` 是可选工具，为单项探测设置时限并返回检查结果。
+
+<details>
+<summary>runDoctorCheck 的完整实现</summary>
+
+```ts
+import type { DoctorResult, JsonObject } from '../contracts/index.js';
+import { errorText } from './errors.js';
+
+/** Run one probe with its own deadline. The action must release its work on cancellation. */
+export async function runDoctorCheck(
+  id: string,
+  action: (signal: AbortSignal) => Promise<void>,
+  options: {
+    signal: AbortSignal;
+    timeoutMs?: number;
+    reason?: string;
+    details?: JsonObject;
+  },
+): Promise<DoctorResult['checks'][number]> {
+  const { signal, timeoutMs = 60000, reason, details } = options;
+  signal.throwIfAborted();
+  const controller = new AbortController();
+  const bounded = AbortSignal.any([signal, controller.signal]);
+  const timer = setTimeout(
+    () =>
+      controller.abort(
+        new Error(
+          `Probe timed out after ${timeoutMs} ms. Plugin availability is unknown.`,
+        ),
+      ),
+    timeoutMs,
+  );
+  let abort: (() => void) | undefined;
+  const job = Promise.resolve().then(() => {
+    bounded.throwIfAborted();
+    return action(bounded);
+  });
+  const check = { id, ...(details ? { details } : {}) };
+  try {
+    await Promise.race([
+      job,
+      new Promise<never>((_done, reject) => {
+        abort = () => reject(bounded.reason);
+        if (bounded.aborted) abort();
+        else bounded.addEventListener('abort', abort, { once: true });
+      }),
+    ]);
+    bounded.throwIfAborted();
+    return { ...check, status: 'passed', ...(reason ? { reason } : {}) };
+  } catch (error) {
+    let cleanup = '';
+    if (bounded.aborted) {
+      let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+      cleanup = await Promise.race([
+        job.then(
+          () => '',
+          (cause: unknown) =>
+            cause === bounded.reason
+              ? ''
+              : ` Probe completion/cleanup: ${errorText(cause)}`,
+        ),
+        new Promise<string>((done) => {
+          cleanupTimer = setTimeout(
+            () =>
+              done(
+                ' Probe did not settle after cancellation. Cleanup could not be confirmed.',
+              ),
+            15000,
+          );
+        }),
+      ]);
+      clearTimeout(cleanupTimer);
+    }
+    signal.throwIfAborted();
+    return {
+      ...check,
+      status: 'failed',
+      reason: reason
+        ? `${reason}${cleanup}`
+        : `${errorText(error)}${cleanup} Plugin availability is unknown unless established by another check.`,
+    };
+  } finally {
+    clearTimeout(timer);
+    if (abort) bounded.removeEventListener('abort', abort);
+  }
+}
+```
+
+</details>
+
 在组件的 `index.ts` 或 `index.js` 中，将检测函数加入组件定义。
 
 ```js
@@ -174,11 +278,6 @@ export const customDefinition = {
 ```sh
 ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ```
-
-从 `ember-rsi/contracts` 或 `ember-rsi` 导入 `OperationDoctor<C>`、`DoctorContext<C>` 和 `DoctorResult`。
-
-- 组件注册和 Recipe 加载负责保留回调，`doctor` 命令才会调用它。
-- 省略 `doctor` 时，框架仍执行通用检查，并将组件专用的 `plugin` 项标为 `unchecked`。
 
 ## 5. doctor 的时间限制
 

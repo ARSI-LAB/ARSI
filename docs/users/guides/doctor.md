@@ -127,6 +127,19 @@ Define and register your component using the plugin guide. Add an optional `doct
 
 ### Write and declare the diagnostic function
 
+Import `OperationDoctor<C>`, `DoctorContext<C>` and `DoctorResult` from `ember-rsi/contracts` or `ember-rsi`.
+
+- Component registration and Recipe loading retain the callback for the `doctor` command to invoke.
+- When a component omits `doctor`, the framework still runs the common checks and marks the component-specific `plugin` check as `unchecked`.
+
+| Type                 | Purpose                                                                                                                                                                                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OperationDoctor<C>` | The type of the component's `doctor` function. The function receives `DoctorContext<C>` and returns `Promise<DoctorResult>`.                                                                                                                                |
+| `DoctorContext<C>`   | The argument provided by the framework. Use `context.binding.config` for the effective configuration, `context.signal` for cancellation and `context.directory` for temporary files.                                                                        |
+| `DoctorResult`       | The component's results. Each entry in `checks` gives an ID, status and optional explanation. The result can include `missingResources` for missing inputs. The framework prefixes IDs with the binding name and combines the results into the JSON report. |
+
+- `C` is the component configuration type. Below, `CustomConfig` defines `inputFile: string`, so TypeScript infers `context.binding.config.inputFile` as `string`.
+
 In this example, the existing `configSchema` declares a required string named `inputFile` with the annotation `'x-rsi-path': 'file'`. The common check validates the path. The following `doctor.ts` checks the file contents.
 
 ```ts
@@ -152,6 +165,97 @@ export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
 };
 ```
 
+- In the example above, `runDoctorCheck` is an optional helper that sets a deadline for one probe and returns a check result.
+
+<details>
+<summary>Full implementation of runDoctorCheck</summary>
+
+```ts
+import type { DoctorResult, JsonObject } from '../contracts/index.js';
+import { errorText } from './errors.js';
+
+/** Run one probe with its own deadline. The action must release its work on cancellation. */
+export async function runDoctorCheck(
+  id: string,
+  action: (signal: AbortSignal) => Promise<void>,
+  options: {
+    signal: AbortSignal;
+    timeoutMs?: number;
+    reason?: string;
+    details?: JsonObject;
+  },
+): Promise<DoctorResult['checks'][number]> {
+  const { signal, timeoutMs = 60000, reason, details } = options;
+  signal.throwIfAborted();
+  const controller = new AbortController();
+  const bounded = AbortSignal.any([signal, controller.signal]);
+  const timer = setTimeout(
+    () =>
+      controller.abort(
+        new Error(
+          `Probe timed out after ${timeoutMs} ms. Plugin availability is unknown.`,
+        ),
+      ),
+    timeoutMs,
+  );
+  let abort: (() => void) | undefined;
+  const job = Promise.resolve().then(() => {
+    bounded.throwIfAborted();
+    return action(bounded);
+  });
+  const check = { id, ...(details ? { details } : {}) };
+  try {
+    await Promise.race([
+      job,
+      new Promise<never>((_done, reject) => {
+        abort = () => reject(bounded.reason);
+        if (bounded.aborted) abort();
+        else bounded.addEventListener('abort', abort, { once: true });
+      }),
+    ]);
+    bounded.throwIfAborted();
+    return { ...check, status: 'passed', ...(reason ? { reason } : {}) };
+  } catch (error) {
+    let cleanup = '';
+    if (bounded.aborted) {
+      let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+      cleanup = await Promise.race([
+        job.then(
+          () => '',
+          (cause: unknown) =>
+            cause === bounded.reason
+              ? ''
+              : ` Probe completion/cleanup: ${errorText(cause)}`,
+        ),
+        new Promise<string>((done) => {
+          cleanupTimer = setTimeout(
+            () =>
+              done(
+                ' Probe did not settle after cancellation. Cleanup could not be confirmed.',
+              ),
+            15000,
+          );
+        }),
+      ]);
+      clearTimeout(cleanupTimer);
+    }
+    signal.throwIfAborted();
+    return {
+      ...check,
+      status: 'failed',
+      reason: reason
+        ? `${reason}${cleanup}`
+        : `${errorText(error)}${cleanup} Plugin availability is unknown unless established by another check.`,
+    };
+  } finally {
+    clearTimeout(timer);
+    if (abort) bounded.removeEventListener('abort', abort);
+  }
+}
+```
+
+</details>
+
 Add the diagnostic function to the component definition in its `index.ts` or `index.js`.
 
 ```js
@@ -174,11 +278,6 @@ Build the extension, call `registry.registerOperation(customDefinition)` from it
 ```sh
 ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ```
-
-Import `OperationDoctor<C>`, `DoctorContext<C>` and `DoctorResult` from `ember-rsi/contracts` or `ember-rsi`.
-
-- Component registration and Recipe loading retain the callback for the `doctor` command to invoke.
-- When a component omits `doctor`, the framework still runs the common checks and marks the component-specific `plugin` check as `unchecked`.
 
 ## 5. Doctor time limits
 

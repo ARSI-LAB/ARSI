@@ -1,17 +1,21 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../../contracts/json.js';
 import type {
   PolicyStructure,
   StructureDataEdge,
   StructureDataNode,
   StructureDiagnostic,
+  StructureExpressionPreview,
   StructureFlowEdge,
   StructurePort,
   StructureScope,
   StructureStep,
 } from '../../contracts/policy-structure.js';
+import { isStructureRangePreviewBounds } from '../../contracts/policy-structure.js';
 import { object } from '../../shared/json.js';
 import {
   compileExpression,
+  evaluateExpressionAst,
   expressions,
   type ExpressionAst,
 } from '../policy/expression.js';
@@ -41,6 +45,11 @@ export interface PolicyStructureInput {
   policy: JsonObject;
   recipe: JsonObject;
   reflection: JsonValue | null;
+}
+
+interface PreviewSource {
+  config: JsonValue | undefined;
+  isVisible: (value: string, location: string) => boolean;
 }
 
 export function unavailablePolicyStructure(
@@ -114,6 +123,58 @@ function references(ast: ExpressionAst, dynamic = false): Reference[] {
   return [...references(ast.left), ...references(ast.right)];
 }
 
+const previewFunctions = new Set([
+  'get',
+  'length',
+  'size',
+  'some',
+  'if',
+  'concat',
+  'append',
+  'flatten',
+  'compact',
+  'pluck',
+]);
+const maxExpressionPreviewInputBytes = 16_384;
+const maxExpressionPreviewBytes = 4_096;
+const maxComputedPreviewBytes = 256 * 1024;
+
+/** Collection operations are bounded by the input size for each operand occurrence. */
+function canEvaluatePreview(ast: ExpressionAst): boolean {
+  switch (ast.kind) {
+    case 'literal':
+    case 'path':
+      return true;
+    case 'access':
+      return canEvaluatePreview(ast.object) && canEvaluatePreview(ast.key);
+    case 'unary':
+      return canEvaluatePreview(ast.operand);
+    case 'binary':
+      return canEvaluatePreview(ast.left) && canEvaluatePreview(ast.right);
+    case 'call':
+      return (
+        previewFunctions.has(ast.name) && ast.args.every(canEvaluatePreview)
+      );
+  }
+}
+
+function configValue(
+  config: JsonValue | undefined,
+  path: readonly string[],
+): JsonValue | undefined {
+  let value = config;
+  for (const part of path) {
+    if (
+      value === null ||
+      typeof value !== 'object' ||
+      !Object.hasOwn(value, part)
+    )
+      return undefined;
+    value = Array.isArray(value) ? value[Number(part)] : value[part];
+  }
+  return value;
+}
+
 class Projection {
   readonly model: PolicyStructure;
   readonly records = new Map<string, StepRecord>();
@@ -121,11 +182,18 @@ class Projection {
   readonly scopes = new Map<string, StructureScope>();
   readonly sourceGroups = new Map<string, string>();
   readonly edgeKeys = new Set<string>();
+  readonly configPreviewBytes = new Map<string, number>();
+  readonly savedConfig: JsonValue | undefined;
   readonly rootId: string;
   readonly failureId: string;
   units = 0;
+  computedPreviewBytes = 0;
 
-  constructor(readonly input: PolicyStructureInput) {
+  constructor(
+    readonly input: PolicyStructureInput,
+    readonly previewSource: PreviewSource,
+  ) {
+    this.savedConfig = object(input.recipe.policy ?? {}).config;
     this.model = unavailablePolicyStructure(input.experimentId, 'analysis', '');
     this.model.source.policyId =
       typeof input.policy.id === 'string' ? input.policy.id : null;
@@ -443,17 +511,7 @@ class Projection {
   ): void {
     if (!this.records.has(targetId)) return;
     const detail = this.model.details.find((entry) => entry.id === targetId)!;
-    let value: JsonValue | undefined = object(
-      this.input.recipe.policy ?? {},
-    ).config;
-    for (const part of path) {
-      value =
-        value !== null && typeof value === 'object'
-          ? Array.isArray(value)
-            ? value[Number(part)]
-            : value[part]
-          : undefined;
-    }
+    const value = configValue(this.previewSource.config, path);
     const configuration =
       detail.configuration === null ? {} : object(detail.configuration);
     const fields = Array.isArray(configuration.configFields)
@@ -471,6 +529,85 @@ class Projection {
         dynamic,
       });
     detail.configuration = { ...configuration, configFields: fields };
+  }
+
+  previewReferenceBytes({ parts }: Reference): number {
+    if (parts[0] !== 'config') return Infinity;
+    const path = parts.slice(1);
+    const key = JSON.stringify(path);
+    const cached = this.configPreviewBytes.get(key);
+    if (cached !== undefined) return cached;
+    const saved = configValue(this.savedConfig, path);
+    const visible = configValue(this.previewSource.config, path);
+    const bytes =
+      saved === undefined ? Infinity : Buffer.byteLength(JSON.stringify(saved));
+    const availableBytes =
+      bytes <= maxExpressionPreviewInputBytes &&
+      isDeepStrictEqual(saved, visible)
+        ? bytes
+        : Infinity;
+    this.configPreviewBytes.set(key, availableBytes);
+    return availableBytes;
+  }
+
+  expressionPreview(
+    ast: ExpressionAst,
+    refs: Reference[],
+    targetId: string,
+    location: string,
+    sourceText: string,
+  ): StructureExpressionPreview | undefined {
+    const { config, isVisible } = this.previewSource;
+    if (ast.kind === 'path' && ast.parts[0] === 'config') {
+      const path = ast.parts.slice(1);
+      if (
+        this.records.has(targetId) ||
+        (isVisible(sourceText, location) &&
+          path.every((part) => isVisible(part, location)))
+      )
+        return { location, kind: 'config', path };
+      return undefined;
+    }
+    const range = ast.kind === 'call' && ast.name === 'range';
+    if (
+      !(range ? ast.args.every(canEvaluatePreview) : canEvaluatePreview(ast)) ||
+      !isVisible(sourceText, location)
+    )
+      return undefined;
+    let inputBytes = 0;
+    for (const reference of refs) {
+      inputBytes += this.previewReferenceBytes(reference);
+      if (inputBytes > maxExpressionPreviewInputBytes) return undefined;
+    }
+    const environment = { config: config ?? null };
+    try {
+      if (range) {
+        // Evaluate the bounds without building the array.
+        const start = evaluateExpressionAst(ast.args[0]!, environment);
+        const end = evaluateExpressionAst(ast.args[1]!, environment);
+        if (
+          typeof start === 'number' &&
+          typeof end === 'number' &&
+          isStructureRangePreviewBounds(start, end)
+        )
+          return { location, kind: 'range', start, end };
+        return undefined;
+      }
+      const value = evaluateExpressionAst(ast, environment);
+      const serialized = JSON.stringify(value);
+      const bytes = Buffer.byteLength(serialized);
+      if (
+        bytes <= maxExpressionPreviewBytes &&
+        this.computedPreviewBytes + bytes <= maxComputedPreviewBytes &&
+        isVisible(serialized, location)
+      ) {
+        this.computedPreviewBytes += bytes;
+        return { location, kind: 'value', value };
+      }
+    } catch {
+      // An unavailable preview leaves the expression and its dependencies intact.
+    }
+    return undefined;
   }
 
   template(
@@ -503,11 +640,15 @@ class Projection {
       if (kind === 'output-mapping') this.port(targetId, role, path, location);
       return;
     }
+    let ast: ExpressionAst | undefined;
     let refs: Reference[];
     try {
-      refs = expressions(value).flatMap((source) =>
-        references(compileExpression(source, [...context.locals.keys()])),
-      );
+      const [source] = expressions(value);
+      ast =
+        source === undefined
+          ? undefined
+          : compileExpression(source, [...context.locals.keys()]);
+      refs = ast ? references(ast) : [];
     } catch {
       this.diagnostic(
         'data',
@@ -516,6 +657,21 @@ class Projection {
         'This declared expression could not be analyzed.',
       );
       return;
+    }
+    if (ast) {
+      const preview = this.expressionPreview(
+        ast,
+        refs,
+        targetId,
+        location,
+        value,
+      );
+      if (preview) {
+        const detail = this.model.details.find(
+          (entry) => entry.id === targetId,
+        )!;
+        (detail.expressionPreviews ??= []).push(preview);
+      }
     }
     if (refs.length === 0 && kind !== 'output-mapping') return;
     const target = this.port(targetId, role, path, location);
@@ -936,9 +1092,10 @@ class Projection {
   }
 }
 
-/** Projects an authenticated saved lock only; never loads files, invokes plugins or evaluates expressions. */
+/** Projects declarations and bounded previews from an authenticated saved lock. */
 export function projectPolicyStructure(
   input: PolicyStructureInput,
+  previewSource?: PreviewSource,
 ): PolicyStructure {
   const source = {
     policyId: typeof input.policy.id === 'string' ? input.policy.id : null,
@@ -978,7 +1135,13 @@ export function projectPolicyStructure(
         source,
       );
     }
-    return new Projection(input).run(steps);
+    return new Projection(
+      input,
+      previewSource ?? {
+        config: object(input.recipe.policy ?? {}).config,
+        isVisible: () => true,
+      },
+    ).run(steps);
   } catch (error) {
     if (error instanceof OversizedStructure)
       return unavailablePolicyStructure(

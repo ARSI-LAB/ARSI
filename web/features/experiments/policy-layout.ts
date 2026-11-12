@@ -4,6 +4,10 @@ import type {
   StructureDataNode,
   StructureFlowEdge,
 } from '../../../src/contracts/policy-structure.js';
+import {
+  compileExpression,
+  expressions,
+} from '../../../src/runtime/policy/expression-syntax.js';
 
 export interface GraphBox {
   id: string;
@@ -11,13 +15,12 @@ export interface GraphBox {
   y: number;
   width: number;
   height: number;
+  dataNodeId?: string;
 }
 export interface GraphPath {
   id: string;
   path: string;
   label: string;
-  labelX: number;
-  labelY: number;
   sourceId: string;
   targetId: string;
   kind: string;
@@ -32,9 +35,23 @@ export interface PolicyLayout {
 }
 const padding = 32;
 const stepWidth = 264;
+const anchorSize = { width: 20, height: 20 };
+const policyBoundarySize = { width: 190, height: 48 };
 export const dataNodeWidth = 286;
 export const dataHeaderHeight = 64;
 export const dataPortHeight = 28;
+
+function fieldPathsOverlap(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  const [prefix, path] =
+    left.length <= right.length ? [left, right] : [right, left];
+  // Distinct source fields can have the same display path after redaction.
+  return prefix.every(
+    (part, index) => part === path[index] && !part.includes('[REDACTED]'),
+  );
+}
 
 /** Only ancestor containers are revealed, preserving unrelated expansion state. */
 export function revealPolicyStep(
@@ -55,20 +72,286 @@ export function revealPolicyStep(
   return next;
 }
 
-/** A focus includes only incident edges. State readers do not gain indirect writers. */
+/** Keep local dependencies and enough declared paths to orient them between Policy boundaries. */
 export function focusedPolicyData(
   model: PolicyStructure,
-  stepId: string | null,
+  nodeId: string | null,
+  expressionEdges?: ReadonlySet<string>,
 ): { nodes: StructureDataNode[]; edges: StructureDataEdge[] } {
-  if (!stepId) return model.data;
-  const edges = model.data.edges.filter(
-    (edge) => edge.source.nodeId === stepId || edge.target.nodeId === stepId,
+  if (!nodeId) return model.data;
+  const { nodes, edges } = model.data;
+  const input = nodes.find((node) => node.kind === 'input');
+  const output = nodes.find((node) => node.kind === 'output');
+  const ids = new Set([nodeId]);
+  if (input) ids.add(input.id);
+  if (output) ids.add(output.id);
+
+  const stateSteps = new Set(
+    model.steps.filter((step) => step.type === 'state').map((step) => step.id),
   );
-  const ids = new Set([
-    stepId,
-    ...edges.flatMap((edge) => [edge.source.nodeId, edge.target.nodeId]),
+  const fieldPaths = new Map<string, string[]>();
+  for (const node of nodes) {
+    const isPatch = stateSteps.has(node.id);
+    if (node.kind !== 'state' && !isPatch) continue;
+    // Patch expressions and step outputs expose the same fields under different roots.
+    for (const port of node.ports)
+      fieldPaths.set(port.id, isPatch ? port.path.slice(1) : port.path);
+  }
+
+  const outgoing = new Map<
+    string,
+    Map<string | undefined, StructureDataEdge[]>
+  >();
+  const hasIncoming = new Set<string>();
+  for (const edge of edges) {
+    hasIncoming.add(edge.target.nodeId);
+    const { nodeId, portId } = edge.source;
+    let byField = outgoing.get(nodeId);
+    if (!byField) outgoing.set(nodeId, (byField = new Map()));
+    const field = fieldPaths.get(portId)?.[0];
+    const group = byField.get(field);
+    if (group) group.push(edge);
+    else byField.set(field, [edge]);
+  }
+  function matchesField(from: string, to: string): boolean {
+    if (from === to) return true;
+    const incoming = fieldPaths.get(from);
+    const outgoing = fieldPaths.get(to);
+    if (!incoming?.length || !outgoing?.length) return true;
+    // Redacted paths can share display text despite different identities.
+    if (from.startsWith('redacted:') || to.startsWith('redacted:'))
+      return false;
+    return fieldPathsOverlap(incoming, outgoing);
+  }
+  function edgesFrom(nodeId: string, portId?: string): StructureDataEdge[] {
+    const byField = outgoing.get(nodeId);
+    if (!byField) return [];
+    const field =
+      portId === undefined ? undefined : fieldPaths.get(portId)?.[0];
+    if (field === undefined)
+      return byField.size === 1
+        ? byField.values().next().value!
+        : [...byField.values()].flat();
+    return [...(byField.get(field) ?? []), ...(byField.get(undefined) ?? [])];
+  }
+  function shortestPath(
+    from: string | undefined,
+    to: string | undefined,
+  ): StructureDataEdge[] | undefined {
+    if (from === undefined || to === undefined) return undefined;
+    if (from === to) return [];
+    if (!hasIncoming.has(to)) return undefined;
+    const queue: {
+      nodeId: string;
+      via?: StructureDataEdge;
+      previous: number;
+    }[] = [{ nodeId: from, previous: -1 }];
+    const visited = new Set([from]);
+    for (let index = 0; index < queue.length; index++) {
+      const current = queue[index]!;
+      if (current.nodeId === to) {
+        const path: StructureDataEdge[] = [];
+        for (let at = index; at !== 0; at = queue[at]!.previous)
+          path.push(queue[at]!.via!);
+        return path;
+      }
+      const arrival = current.via?.target.portId;
+      for (const edge of edgesFrom(current.nodeId, arrival)) {
+        if (arrival !== undefined && !matchesField(arrival, edge.source.portId))
+          continue;
+        const target = edge.target;
+        const key = fieldPaths.has(target.portId)
+          ? target.portId
+          : target.nodeId;
+        if (visited.has(key)) continue;
+        visited.add(key);
+        queue.push({ nodeId: target.nodeId, via: edge, previous: index });
+      }
+    }
+    return undefined;
+  }
+
+  const upstream = shortestPath(input?.id, nodeId);
+  const downstream = shortestPath(nodeId, output?.id);
+  const context = new Set([
+    ...(upstream ?? []),
+    ...(downstream ?? []),
+    ...(!upstream || !downstream
+      ? (shortestPath(input?.id, output?.id) ?? [])
+      : []),
   ]);
-  return { nodes: model.data.nodes.filter((node) => ids.has(node.id)), edges };
+  const visible = edges.filter((edge) => {
+    if (
+      !context.has(edge) &&
+      !expressionEdges?.has(edge.id) &&
+      edge.source.nodeId !== nodeId &&
+      edge.target.nodeId !== nodeId
+    )
+      return false;
+    ids.add(edge.source.nodeId);
+    ids.add(edge.target.nodeId);
+    return true;
+  });
+  return { nodes: nodes.filter((node) => ids.has(node.id)), edges: visible };
+}
+
+/** Match a declaration location to its incoming data dependencies. */
+export function policyExpressionReferences(
+  model: PolicyStructure,
+): ReadonlyMap<string, readonly StructureDataEdge[]> {
+  const byLocation = new Map<string, StructureDataEdge[]>();
+  if (model.availability.data === 'unavailable') return byLocation;
+  for (const edge of model.data.edges) {
+    if (
+      edge.kind !== 'reference' &&
+      (edge.kind !== 'output-mapping' ||
+        edge.source.nodeId === edge.target.nodeId)
+    )
+      continue;
+    const references = byLocation.get(edge.location);
+    if (references) references.push(edge);
+    else byLocation.set(edge.location, [edge]);
+  }
+  // Redaction can merge display locations even when the endpoints remain distinct.
+  for (const [location, edges] of byLocation) {
+    const target = edges[0]!.target;
+    if (
+      edges.some(
+        (edge) =>
+          edge.target.nodeId !== target.nodeId ||
+          edge.target.portId !== target.portId,
+      )
+    )
+      byLocation.delete(location);
+  }
+  return byLocation;
+}
+
+interface PolicyExpressionFocus {
+  target: StructureDataEdge['target'];
+  edges: ReadonlySet<string>;
+  ports: ReadonlySet<string>;
+  writesState: boolean;
+}
+
+/** Follow declared inputs and readers of the shared state fields an expression uses. */
+export function policyExpressionNavigation(model: PolicyStructure): {
+  references: ReturnType<typeof policyExpressionReferences>;
+  canFocus: (location: string, value: string) => boolean;
+  focus: (location: string) => PolicyExpressionFocus | undefined;
+} {
+  const references = policyExpressionReferences(model);
+  const state =
+    model.availability.data === 'unavailable'
+      ? undefined
+      : model.data.nodes.find((node) => node.kind === 'state');
+  const statePaths = new Map(state?.ports.map((port) => [port.id, port.path]));
+  const writes = new Map<string, StructureDataEdge | null>();
+  const stateInputs: StructureDataEdge[] = [];
+  const stateReads: StructureDataEdge[] = [];
+  if (state) {
+    for (const edge of model.data.edges) {
+      if (
+        edge.target.nodeId === state.id &&
+        (edge.kind === 'state-write' || edge.kind === 'output-mapping')
+      ) {
+        stateInputs.push(edge);
+        if (edge.kind === 'state-write') {
+          // Distinct paths can share a displayed location after redaction.
+          writes.set(edge.location, writes.has(edge.location) ? null : edge);
+        }
+      } else if (
+        edge.source.nodeId === state.id &&
+        (edge.kind === 'reference' || edge.kind === 'output-mapping')
+      ) {
+        stateReads.push(edge);
+      }
+    }
+  }
+  function statePortsOverlap(leftId: string, rightId: string): boolean {
+    if (leftId === rightId) return true;
+    const left = statePaths.get(leftId);
+    const right = statePaths.get(rightId);
+    return (
+      left !== undefined &&
+      right !== undefined &&
+      fieldPathsOverlap(left, right)
+    );
+  }
+  function writeAt(location: string): StructureDataEdge | undefined {
+    // State patches replace top-level fields, including expressions nested within them.
+    for (
+      let path = location;
+      path.startsWith('/');
+      path = path.slice(0, path.lastIndexOf('/'))
+    ) {
+      const write = writes.get(path);
+      if (write !== undefined) return write ?? undefined;
+    }
+    return undefined;
+  }
+  return {
+    references,
+    canFocus(location, value) {
+      if (references.has(location)) return true;
+      if (!writeAt(location)) return false;
+      try {
+        const [source] = expressions(value);
+        if (source === undefined) return false;
+        compileExpression(source);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    focus(location) {
+      const incoming = references.get(location) ?? [];
+      const incomingTarget = incoming[0]?.target;
+      const write = writeAt(location);
+      const matchingWrite =
+        write &&
+        (!incomingTarget || incomingTarget.nodeId === write.source.nodeId)
+          ? write
+          : undefined;
+      const target = incomingTarget ?? matchingWrite?.source;
+      if (!target) return undefined;
+      const edges = [...incoming];
+      const readPorts = incoming
+        .filter((edge) => edge.source.nodeId === state?.id)
+        .map((edge) => edge.source.portId);
+      if (readPorts.length) {
+        for (const edge of stateInputs) {
+          // A state step reads the state before applying its own patch.
+          if (edge.source.nodeId === target.nodeId) continue;
+          if (
+            readPorts.some((port) =>
+              statePortsOverlap(edge.target.portId, port),
+            )
+          )
+            edges.push(edge);
+        }
+      }
+      if (matchingWrite) {
+        edges.push(matchingWrite);
+        for (const edge of stateReads) {
+          // The writer's own expressions read the state before its patch.
+          if (edge.target.nodeId === target.nodeId) continue;
+          if (
+            statePortsOverlap(matchingWrite.target.portId, edge.source.portId)
+          )
+            edges.push(edge);
+        }
+      }
+      return {
+        target,
+        edges: new Set(edges.map((edge) => edge.id)),
+        ports: new Set(
+          edges.flatMap((edge) => [edge.source.portId, edge.target.portId]),
+        ),
+        writesState: matchingWrite !== undefined,
+      };
+    },
+  };
 }
 
 /** Hierarchy owns positions; edges are routed from the semantic model without inferring execution. */
@@ -79,6 +362,18 @@ export function layoutPolicyFlow(
   const steps = new Map(model.steps.map((step) => [step.id, step]));
   const scopes = new Map(model.scopes.map((scope) => [scope.id, scope]));
   const flowNodes = new Map(model.flow.nodes.map((node) => [node.id, node]));
+  const boundaries = new Map<
+    string,
+    Pick<GraphBox, 'width' | 'height' | 'dataNodeId'>
+  >();
+  for (const node of model.data.nodes) {
+    if (node.kind !== 'input' && node.kind !== 'output') continue;
+    const scope = scopes.get(node.scopeId);
+    if (scope?.parentStepId === null) {
+      const id = node.kind === 'input' ? scope.entryId : scope.exitId;
+      boundaries.set(id, { ...policyBoundarySize, dataNodeId: node.id });
+    }
+  }
   const sizes = new Map<string, { width: number; height: number }>();
   function measureStep(id: string): { width: number; height: number } {
     const known = sizes.get(id);
@@ -103,14 +398,18 @@ export function layoutPolicyFlow(
   function measureScope(id: string): { width: number; height: number } {
     const scope = scopes.get(id)!;
     const children = scope.stepIds.map(measureStep);
+    const entry = boundaries.get(scope.entryId) ?? anchorSize;
+    const exit = boundaries.get(scope.exitId) ?? anchorSize;
     const size = {
       width: Math.max(stepWidth, ...children.map((child) => child.width)) + 48,
-      height: Math.max(
-        132,
-        children.reduce((sum, child) => sum + child.height, 0) +
-          Math.max(0, children.length - 1) * 72 +
-          112,
-      ),
+      height:
+        Math.max(
+          132,
+          children.reduce((sum, child) => sum + child.height, 0) +
+            Math.max(0, children.length - 1) * 72 +
+            112,
+        ) +
+        (entry.height + exit.height - 2 * anchorSize.height),
     };
     sizes.set(id, size);
     return size;
@@ -134,14 +433,16 @@ export function layoutPolicyFlow(
               : scope.region,
         empty: scope.stepIds.length === 0,
       });
+    const centerX = x + size.width / 2;
+    const entry = boundaries.get(scope.entryId) ?? anchorSize;
+    const exit = boundaries.get(scope.exitId) ?? anchorSize;
     nodes.push({
       id: scope.entryId,
-      x: x + size.width / 2 - 10,
+      x: centerX - entry.width / 2,
       y: y + 24,
-      width: 20,
-      height: 20,
+      ...entry,
     });
-    let childY = y + 62;
+    let childY = y + 24 + entry.height + 18;
     for (const childId of scope.stepIds) {
       const childSize = sizes.get(childId)!;
       const childX = x + (size.width - childSize.width) / 2;
@@ -158,10 +459,9 @@ export function layoutPolicyFlow(
     }
     nodes.push({
       id: scope.exitId,
-      x: x + size.width / 2 - 10,
-      y: y + size.height - 30,
-      width: 20,
-      height: 20,
+      x: centerX - exit.width / 2,
+      y: y + size.height - 10 - exit.height,
+      ...exit,
     });
   }
   let graphWidth = 0,
@@ -283,8 +583,6 @@ function flowPath(
     id: edge.id,
     path,
     label: edge.label ?? (edge.kind === 'sequence' ? '' : edge.kind),
-    labelX: backwards ? lane : (fromX + toX) / 2 + 8,
-    labelY: (fromY + toY) / 2 - 5,
     sourceId: source.id,
     targetId: target.id,
     kind: edge.kind,
@@ -293,10 +591,10 @@ function flowPath(
 }
 
 /** Condense strongly connected components for columns; retain every original directed edge. */
-export function layoutPolicyData(data: {
-  nodes: StructureDataNode[];
-  edges: StructureDataEdge[];
-}): PolicyLayout {
+export function layoutPolicyData(
+  data: { nodes: StructureDataNode[]; edges: StructureDataEdge[] },
+  focusId: string | null = null,
+): PolicyLayout {
   const adjacency = new Map(
     data.nodes.map((node) => [node.id, new Set<string>()]),
   );
@@ -359,9 +657,32 @@ export function layoutPolicyData(data: {
       if (incoming[to] === 0) queue.push(to);
     }
   }
+  const rankOf = (id: string): number => rank[componentOf.get(id)!]!;
+  const input = focusId && data.nodes.find((node) => node.kind === 'input');
+  const output = focusId && data.nodes.find((node) => node.kind === 'output');
+  // Keep the boundaries around the focus when a declared path is missing.
+  const offset =
+    input &&
+    input.id !== focusId &&
+    rankOf(input.id) === 0 &&
+    rankOf(focusId) === 0
+      ? 1
+      : 0;
+  const columnOf = (id: string): number =>
+    rankOf(id) + (input && id === input.id ? 0 : offset);
+  const outputColumn = output
+    ? data.nodes.reduce(
+        (column, node) =>
+          node.id === output.id
+            ? column
+            : Math.max(column, columnOf(node.id) + 1),
+        columnOf(output.id),
+      )
+    : 0;
   const columnHeights = new Map<number, number>();
   const nodes = data.nodes.map((node): GraphBox => {
-    const column = rank[componentOf.get(node.id)!]!;
+    const column =
+      output && node.id === output.id ? outputColumn : columnOf(node.id);
     const y = columnHeights.get(column) ?? padding + 24;
     const height =
       dataHeaderHeight + Math.max(1, node.ports.length) * dataPortHeight + 12;
@@ -412,8 +733,6 @@ export function layoutPolicyData(data: {
       ]
         .filter(Boolean)
         .join(' · '),
-      labelX: (fromX + toX) / 2,
-      labelY: backwards ? lane - 4 : (fromY + toY) / 2 - 6,
       kind: edge.kind,
       dynamic: edge.dynamic,
     };

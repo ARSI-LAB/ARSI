@@ -363,3 +363,83 @@ test('Policy structure redaction keeps distinct identities when source names are
   assert.ok(model.data.edges.some((entry) => entry.source.nodeId === input.id));
   assert.ok(model.data.edges.some((entry) => entry.source.nodeId === state.id));
 });
+
+test('Policy structure HTTP redacts preview paths and excludes sensitive computed values', async (t) => {
+  const { directory, facts, server } = await fixture(t);
+  const lock = savedDefinition(directory);
+  const recipe = object(lock.recipe);
+  const binding = object(object(recipe.bindings).worker);
+  const numericSecret = '73185924';
+  object(binding.config).password = numericSecret;
+  const privateConfig = 876543210;
+  object(recipe.policy).config = {
+    count: 3,
+    apiKey: privateConfig,
+    [privateValue]: 'private-config-string',
+  };
+  const policy = object(lock.policy);
+  policy.steps = [
+    {
+      id: 'batch',
+      type: 'foreach',
+      foreach: '${{ range(0, 2 * config.count) }}',
+      as: 'item',
+      key: '${{ item }}',
+      steps: [],
+      output: {
+        [privateValue]: `\${{ config['${privateValue}'] }}`,
+        countIsThree: '${{ config.count == 3 }}',
+        hiddenInput: '${{ config.apiKey != null }}',
+        hiddenResult: '${{ config.count + 73185921 }}',
+        hiddenBound: '${{ range(0, 2 * config.apiKey) }}',
+        hiddenLiteral: `\${{ range(0, 2 * ${numericSecret}) }}`,
+        token: '${{ range(0, 4) }}',
+      },
+    },
+  ];
+  policy.output = '${{ steps.batch.output }}';
+  await facts.write('definitions', experimentId, relock(lock));
+
+  const response = await server.inject(endpoint);
+  assert.equal(response.statusCode, 200, response.body);
+  assert.ok(!response.body.includes(privateValue));
+  assert.ok(!response.body.includes(numericSecret));
+  assert.ok(!response.body.includes(String(privateConfig)));
+  const model = parsePolicyStructure(response.json());
+  const detail = model.details.find(
+    (entry) => entry.id === model.steps[0]?.detailId,
+  )!;
+  assert.deepEqual(detail.expressionPreviews, [
+    { location: '/steps/0/foreach', kind: 'range', start: 0, end: 6 },
+    {
+      location: '/steps/0/output/countIsThree',
+      kind: 'value',
+      value: true,
+    },
+    {
+      location: '/steps/0/output/[REDACTED]',
+      kind: 'config',
+      path: ['[REDACTED]'],
+    },
+  ]);
+  assert.throws(
+    () =>
+      parsePolicyStructure({
+        ...model,
+        details: [
+          {
+            ...detail,
+            expressionPreviews: [
+              {
+                location: '/steps/0/foreach',
+                kind: 'range',
+                start: 0,
+                end: 1.5,
+              },
+            ],
+          },
+        ],
+      }),
+    /Invalid Policy range preview bounds/,
+  );
+});

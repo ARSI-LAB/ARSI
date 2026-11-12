@@ -199,6 +199,21 @@ function redactStructureStrings(
       ...detail,
       id: identity(detail.id),
       bindingId: optionalIdentity(detail.bindingId),
+      expressionPreviews: detail.expressionPreviews
+        ?.filter(
+          (preview) =>
+            preview.kind !== 'range' ||
+            [preview.start, preview.end].every(
+              (bound) => text(String(bound)) === String(bound),
+            ),
+        )
+        .map((preview) => ({
+          ...preview,
+          location: text(preview.location),
+          ...(preview.kind === 'config'
+            ? { path: preview.path.map(text) }
+            : {}),
+        })),
     })),
     bindings: model.bindings.map((binding) => ({
       ...binding,
@@ -274,10 +289,25 @@ export class ObservationQueries {
         return unavailablePolicyStructure(id, error.category, error.message);
       throw error;
     }
-    const model = projectPolicyStructure({ experimentId: id, ...source });
+    const config = object(source.recipe.policy).config;
+    const model = projectPolicyStructure(
+      { experimentId: id, ...source },
+      {
+        config: config === undefined ? undefined : this.clean(config, secrets),
+        isVisible: (value, location) =>
+          redactText(value, secrets) === value &&
+          redactText(location, secrets) === location &&
+          !location.split('/').some((segment) => secretField.test(segment)),
+      },
+    );
     for (const detail of model.details) {
       detail.declaration = this.clean(detail.declaration, secrets, true);
       detail.configuration = this.clean(detail.configuration, secrets, true);
+      detail.expressionPreviews = detail.expressionPreviews?.map((preview) =>
+        preview.kind === 'value'
+          ? { ...preview, value: this.clean(preview.value, secrets, true) }
+          : preview,
+      );
     }
     for (const binding of model.bindings)
       binding.configuration = this.clean(binding.configuration, secrets, true);

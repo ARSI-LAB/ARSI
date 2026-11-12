@@ -9,6 +9,7 @@ import {
   policyStructureLimits,
   projectPolicyStructure,
 } from '../../src/runtime/compiler/policy-structure.js';
+import { object } from '../../src/shared/json.js';
 
 function project(
   steps: JsonValue[],
@@ -512,6 +513,170 @@ test('details separate referenced saved configuration and omit unused literal in
         (port) => port.role === 'output' && port.path.join('.') === 'output',
       ),
   );
+});
+
+test('foreach previews describe saved config references and static ranges without interpreting runtime expressions', () => {
+  const foreach = '${{ range(-config.count, 2 * config.count) }}';
+  const model = project([
+    {
+      id: 'batch',
+      type: 'foreach',
+      foreach,
+      as: 'item',
+      key: '${{ item }}',
+      concurrency: '${{ config.count }}',
+      steps: [],
+      output: {
+        'flag/path': '${{ config.flag }}',
+        nested: [
+          '${{ range(0, config.count + item) }}',
+          '${{ range(0, config.missing) }}',
+          '${{ range(0, config.flag) }}',
+          '${{ range(0, 1 / 0) }}',
+          '${{ range(5, 4) }}',
+          '${{ range(0, 4294967296) }}',
+          '${{ config.count * 2 }}',
+          '${{ range(1, config.count) }}',
+        ],
+      },
+    },
+    invoke('other', { count: '${{ config.count }}' }),
+  ]);
+  const [batch, other] = model.steps;
+  const detail = model.details.find((entry) => entry.id === batch!.detailId)!;
+  assert.deepEqual(detail.expressionPreviews, [
+    { location: '/steps/0/foreach', kind: 'range', start: -3, end: 6 },
+    { location: '/steps/0/concurrency', kind: 'config', path: ['count'] },
+    { location: '/steps/0/output/flag~1path', kind: 'config', path: ['flag'] },
+    { location: '/steps/0/output/nested/6', kind: 'value', value: 6 },
+    { location: '/steps/0/output/nested/7', kind: 'range', start: 1, end: 3 },
+  ]);
+  assert.equal(object(detail.declaration).foreach, foreach);
+  assert.deepEqual(
+    model.details.find((entry) => entry.id === other!.detailId)
+      ?.expressionPreviews,
+    [{ location: '/steps/1/with/count', kind: 'config', path: ['count'] }],
+  );
+});
+
+test('static previews follow root declarations, saved Recipe input, and branch expression locations', () => {
+  const model = projectPolicyStructure({
+    experimentId: 'preview-roots',
+    definitionDigest: 'saved-digest',
+    reflection: null,
+    policy: {
+      schemaVersion: 'rsi.policy/v1',
+      id: 'preview-roots',
+      input: {
+        seed: '${{ config.count }}',
+        sample: '${{ application.sample }}',
+      },
+      state: { limit: '${{ config.count }}', next: '${{ input.seed }}' },
+      steps: [
+        {
+          id: 'branch',
+          type: 'if',
+          if: '${{ config.flag }}',
+          then: { steps: [], output: '${{ range(0, config.count) }}' },
+          else: { steps: [], output: '${{ input.seed }}' },
+        },
+      ],
+      output: '${{ range(1, 2 * config.count) }}',
+    },
+    recipe: {
+      policy: {
+        config: { count: 3, flag: true },
+        input: { batches: '${{ range(0, config.count) }}' },
+      },
+    },
+  });
+  assert.equal(model.availability.overall, 'complete');
+  const detailFor = (kind: StructureDataNode['kind']) =>
+    model.details.find((entry) => entry.id === node(model, kind).detailId)!;
+  assert.deepEqual(detailFor('input').expressionPreviews, [
+    { location: '/input/seed', kind: 'config', path: ['count'] },
+    {
+      location: '/recipe/policy/input/batches',
+      kind: 'range',
+      start: 0,
+      end: 3,
+    },
+  ]);
+  assert.deepEqual(detailFor('input').configuration, {
+    batches: '${{ range(0, config.count) }}',
+  });
+  assert.deepEqual(detailFor('state').expressionPreviews, [
+    { location: '/state/limit', kind: 'config', path: ['count'] },
+  ]);
+  assert.deepEqual(detailFor('step').expressionPreviews, [
+    { location: '/steps/0/if', kind: 'config', path: ['flag'] },
+    { location: '/steps/0/then/output', kind: 'range', start: 0, end: 3 },
+  ]);
+  assert.deepEqual(detailFor('output').expressionPreviews, [
+    { location: '/output', kind: 'range', start: 1, end: 6 },
+  ]);
+});
+
+test('computed previews use safe saved values and bound collection work', () => {
+  const config = {
+    stopAtScore: null,
+    hidden: 'private',
+    large: ['x'.repeat(9_000)],
+    dataset: {
+      trainTaskIds: ['train'],
+      validationTaskIds: ['validation'],
+      testTaskIds: ['test'],
+    },
+  };
+  const model = projectPolicyStructure(
+    {
+      experimentId: 'computed-previews',
+      definitionDigest: 'saved-digest',
+      reflection: null,
+      policy: {
+        schemaVersion: 'rsi.policy/v1',
+        id: 'computed-previews',
+        steps: [],
+        output: {
+          size: '${{ size(config.dataset.testTaskIds) }}',
+          scoreSet: '${{ config.stopAtScore != null }}',
+          hasTests: '${{ size(config.dataset.testTaskIds) > 0 }}',
+          tasks:
+            '${{ concat(concat(config.dataset.trainTaskIds, config.dataset.validationTaskIds), config.dataset.testTaskIds) }}',
+          range: '${{ range(0, size(config.dataset.testTaskIds)) }}',
+          constant: '${{ 4 + 5 }}',
+          runtime: '${{ size(config.dataset.testTaskIds) + input.offset }}',
+          nestedRange: '${{ size(range(0, 1000)) }}',
+          tooMuchInput: '${{ size(concat(config.large, config.large)) }}',
+          tooMuchOutput: '${{ if(true, config.large, null) }}',
+          hidden: '${{ config.hidden != null }}',
+          invisible: '${{ 3 + 4 }}',
+          invisibleConfig: '${{ config.hidden }}',
+        },
+      },
+      recipe: { policy: { config } },
+    },
+    {
+      config: { ...config, hidden: null },
+      isVisible: (value, location) =>
+        value !== '7' && location !== '/output/invisibleConfig',
+    },
+  );
+  const output = model.details.find(
+    (entry) => entry.id === node(model, 'output').detailId,
+  );
+  assert.deepEqual(output?.expressionPreviews, [
+    { location: '/output/size', kind: 'value', value: 1 },
+    { location: '/output/scoreSet', kind: 'value', value: false },
+    { location: '/output/hasTests', kind: 'value', value: true },
+    {
+      location: '/output/tasks',
+      kind: 'value',
+      value: ['train', 'validation', 'test'],
+    },
+    { location: '/output/range', kind: 'range', start: 0, end: 1 },
+    { location: '/output/constant', kind: 'value', value: 9 },
+  ]);
 });
 
 test('foreach item contexts stay scoped and literal collection access uses the collection endpoint', () => {

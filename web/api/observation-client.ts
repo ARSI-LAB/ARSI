@@ -1,6 +1,10 @@
 import { connectionError, setDisconnected } from './connection-state.js';
 import type { JsonValue } from '../../src/contracts/json.js';
-import type { PolicyStructure } from '../../src/contracts/policy-structure.js';
+import {
+  isStructureRangePreviewBounds,
+  type PolicyStructure,
+  type StructureExpressionPreview,
+} from '../../src/contracts/policy-structure.js';
 import type {
   CallTrace,
   CallInstructions,
@@ -332,6 +336,22 @@ function jsonValue(value: unknown): JsonValue {
   );
 }
 
+function parseStructureExpressionPreview(
+  raw: unknown,
+): StructureExpressionPreview {
+  const item = record(raw);
+  const location = text(item.location);
+  const kind = choice(item.kind, ['config', 'value', 'range']);
+  if (kind === 'config')
+    return { location, kind, path: array(item.path, text) };
+  if (kind === 'value') return { location, kind, value: jsonValue(item.value) };
+  const start = number(item.start);
+  const end = number(item.end);
+  if (!isStructureRangePreviewBounds(start, end))
+    throw new Error('Invalid Policy range preview bounds');
+  return { location, kind, start, end };
+}
+
 /** Validate the single saved-definition response before graph layout or rendering. */
 export function parsePolicyStructure(raw: unknown): PolicyStructure {
   const value = record(raw);
@@ -489,6 +509,14 @@ export function parsePolicyStructure(raw: unknown): PolicyStructure {
         declaration: jsonValue(item.declaration),
         configuration: jsonValue(item.configuration),
         bindingId: nullable(item.bindingId),
+        ...(item.expressionPreviews === undefined
+          ? {}
+          : {
+              expressionPreviews: array(
+                item.expressionPreviews,
+                parseStructureExpressionPreview,
+              ),
+            }),
       };
     }),
     bindings: array(value.bindings, (raw) => {

@@ -16,15 +16,15 @@ Built-in registrations are defined in the [built-in registry](../../../src/runti
 
 Choose a built-in Policy for your optimization needs; see its README for configuration and run instructions:
 
-| Policy                                                         | Typical use                                                                                                     | Usage guide                                                               |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `policy.harness2` ([paper](https://arxiv.org/abs/2610.14224))  | Try different Agent improvements and select results by final deliverable quality.                               | [README](../../../examples/harness/dsh-harness2/README.md)                |
-| `policy.wikiskill` ([paper](https://arxiv.org/abs/2608.27454)) | Improve Agent skills using experience from training tasks.                                                      | [README](../../../examples/harness/dsh-wikiskill/README.md)               |
-| `policy.gepa`                                                  | Optimize modular prompts through reflective proposals and population search.                                    | [README](../../../examples/harness/dsh-gepa/README.md)                    |
-| `parameter.agent`                                              | Establish a measurable baseline and tune inference-engine parameters with Agent proposals.                      | [README](../../../examples/artifacts/inference/parameter-agent/README.md) |
-| `policy.parameter-grid`                                        | Try predefined parameter combinations one by one to select a better inference service configuration.            | [README](../../../examples/artifacts/inference/parameter-grid/README.md)  |
-| `policy.parameter-optuna`                                      | Use evaluation feedback to search parameters and improve inference service performance within a limited budget. | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)   |
-| `policy.operator-search`                                       | Optimize Triton-Ascend kernels using correctness checks and performance feedback.                               | [README](../../../examples/artifacts/kernel/transpose-copy/README.md)     |
+| Policy                                                         | Typical use                                                                                                     | Usage guide                                                              |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `policy.harness2` ([paper](https://arxiv.org/abs/2610.14224))  | Try different Agent improvements and select results by final deliverable quality.                               | [README](../../../examples/harness/dsh-harness2/README.md)               |
+| `policy.wikiskill` ([paper](https://arxiv.org/abs/2608.27454)) | Improve Agent skills using experience from training tasks.                                                      | [README](../../../examples/harness/dsh-wikiskill/README.md)              |
+| `policy.gepa` | Optimize modular prompts through reflective proposals and population search. | [README](../../../examples/harness/dsh-gepa/README.md) |
+| `parameter.agent` | Establish a measurable baseline and tune inference-engine parameters with Agent proposals. | [README](../../../examples/artifacts/inference/parameter-agent/README.md) |
+| `policy.parameter-grid`                                        | Try predefined parameter combinations one by one to select a better inference service configuration.            | [README](../../../examples/artifacts/inference/parameter-grid/README.md) |
+| `policy.parameter-optuna`                                      | Use evaluation feedback to search parameters and improve inference service performance within a limited budget. | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)  |
+| `policy.operator-search`                                       | Optimize Triton-Ascend kernels using correctness checks and performance feedback.                               | [README](../../../examples/artifacts/kernel/transpose-copy/README.md)    |
 
 Agent, Grid, and Optuna each evaluate the initial configuration once before search. Supply a configuration that can start the service and reserve one evaluation run for the baseline. A baseline evaluation failure stops the experiment.
 
@@ -39,10 +39,9 @@ Agent, Grid, and Optuna each evaluate the initial configuration once before sear
 | Application   | [`application.kernel`](#application)            | Manage Triton-Ascend source versions and evaluation workspaces.                                                          | Optimize NPU kernel code.                                                               |
 | Proposer      | `proposer.agent`                                | Use a model to edit files based on optimization goals and execution evidence.                                            | Improve prompts, skills, or code.                                                       |
 | Proposer      | `proposer.operator`                             | Generate and repair kernel candidates using source analysis, evaluation, or profiling results.                           | Improve kernel implementations iteratively.                                             |
-| Summarizer    | `summarizer.operator`                           | Record a completed attempt using its actions, measurements, and selection decision.                                      | Provide history for later operator proposals.                                           |
 | Proposer      | `proposer.grid`                                 | Generate parameter combinations from predefined values.                                                                  | Search a small parameter space with a finite set of choices.                            |
 | Proposer      | `proposer.optuna`                               | Propose parameter combinations through Optuna and receive evaluation feedback.                                           | Tune parameters iteratively within a limited budget.                                    |
-| Proposer      | `proposer.pareto-evolution`                     | Evolve prompt modules through reflective proposals, Pareto sampling, and ancestry-aware crossover.                       | Optimize prompts using feedback and selection tasks.                                    |
+| Proposer | `proposer.pareto-evolution` | Evolve prompt modules through reflective proposals, Pareto sampling, and ancestry-aware crossover. | Optimize prompts using feedback and selection tasks. |
 | Evaluator     | `evaluator.agentbench`                          | Run Agent benchmark tasks and save scores and execution evidence.                                                        | Assess changes to prompts, skills, or code.                                             |
 | Evaluator     | `evaluator.inferencebench`                      | Benchmark inference services and measure throughput, latency, and other metrics.                                         | Compare the performance of service configurations.                                      |
 | Evaluator     | `evaluator.operatorbench`                       | Use the Evaluator SDK to check correctness, measure latency, and optionally collect profiling data.                      | Check whether kernel changes are correct and faster.                                    |
@@ -58,22 +57,7 @@ Agent, Grid, and Optuna each evaluate the initial configuration once before sear
 
 ## Application
 
-An Application initializes candidate versions, validates and commits changes, and acquires and releases instances for evaluation. `application.agentbundle` manages Agent Bundles; `application.inference` manages inference service configurations and instances; `application.kernel` manages Triton-Ascend source code and evaluation workspaces. For kernel optimization, `baseline` contains the complete initial implementation, including its entry, local helpers and package initializers. Every file in each candidate snapshot is included in evaluation and profiling. `entryFile` selects the entry module relative to that snapshot; it exports a callable `kernel_function`. Set `entryFile` for both single-file and multi-file candidates. The Target selects which files may be modified, so the entry may be read-only. Source files cannot be added or removed during an experiment. See the [operator optimization example](../../../examples/artifacts/kernel/transpose-copy/README.md) for setup and configuration.
-
-For a package with a read-only entry, select its entry explicitly:
-
-```yaml
-application:
-  plugin: application.kernel
-  config:
-    baseline: { directory: ./baseline }
-    target: { schema: ./target.yaml }
-    entryFile: kernels/kernel.py
-```
-
-Place `kernels/kernel.py`, `kernels/__init__.py` and `kernels/tiling.py` under `baseline/`. Keep evaluation tasks in their configured task directory. The Target may authorize only `modify` on `kernels/tiling.py`. The Proposer reads all candidate files under `context/sources/` and returns one complete replacement per changed file using `editablePaths` from its stage input. Evaluation and profiling preserve the package tree and verify every candidate member. The execution descriptor carries the entry path and a SHA-256 hash per file. The evaluator derives `sourceDigest` for the entry and `sourceBundleDigest` for the complete inventory when recording measurements. Comparison conditions retain read-only file hashes and exclude editable source contents. Multi-file evaluation requires an Evaluator build supporting the kernel manifest's `candidateRoot` field.
-
-Target authorization also applies to a declared one-file inventory: a read-only entry contributes its bytes and declared path to comparison identity, while an editable entry may change content. All SDK manifests preserve the candidate-relative entry path under `candidate/`. Source inventories use deterministic path ordering for bundle hashes and evidence comparisons, including byte-distinct Unicode filenames.
+An Application initializes candidate versions, validates and commits changes, and acquires and releases instances for evaluation. `application.agentbundle` manages Agent Bundles; `application.inference` manages inference service configurations and instances; `application.kernel` manages Triton-Ascend source code and evaluation workspaces. The kernel entry file specified by `entryFile` in the baseline must export a callable `kernel_function`. See the [operator optimization example](../../../examples/artifacts/kernel/transpose-copy/README.md) for setup and configuration.
 
 ### Change scope (Target)
 

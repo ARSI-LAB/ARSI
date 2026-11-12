@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const args = process.argv.slice(2);
 const patch = JSON.parse(
@@ -11,6 +12,13 @@ if (
   !patch.some((row) => row.id === 'agent-instructions')
 )
   process.exit(2);
+// Model/provider and credentials must remain owned by the native profile.
+assert.equal(args[args.indexOf('--profile') + 1], 'headless');
+assert(
+  !patch.some((row) => ['agent-default-model', 'llm-pi-ai'].includes(row.id)),
+);
+for (const id of ['credentials', 'authorization', 'deepseek-account'])
+  assert(patch.some((row) => row.id === id && row.disabled === false));
 let input = '';
 process.stdin.on('data', (chunk) => {
   input += chunk;

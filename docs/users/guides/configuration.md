@@ -121,20 +121,17 @@ bindings:
 
 ### Native CLI backends: Codex, Claude Code and DSH
 
-Install and configure your chosen CLI on the computer running RSI. Confirm it can answer a message before connecting it to RSI. Manage accounts, model services and credentials through the CLI; do not duplicate them in the Recipe.
+All three follow the same setup: **install the CLI → configure and verify model access in the CLI → select the backend in your Recipe**. RSI reuses native model and authentication settings; no separate API address or key is needed in the Recipe.
 
-#### Codex
+| Backend | Installation and configuration | Start the CLI | Recipe `plugin` |
+| --- | --- | --- | --- |
+| Codex | [Official guide](https://developers.openai.com/codex/cli/) | `codex` | `agent.codex` |
+| Claude Code | [Official guide](https://code.claude.com/docs/en/setup) | `claude` | `agent.claudecode` |
+| DSH | [Official guide](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | `dsh --profile headless "Reply with OK."` | `agent.dsh` |
 
-Install and start:
+Sign in or configure model access through your chosen CLI on the computer running RSI, then confirm it can answer a message. Reuse an existing configuration if available. DSH uses the **headless** profile: verify that profile, not just the Web UI.
 
-```sh
-npm install -g @openai/codex
-codex
-```
-
-Follow the CLI prompts to sign in and select a model, then send a message to verify access. Reuse an existing configuration if available. For custom model services, follow the [official Codex configuration guide](https://developers.openai.com/codex/config-advanced/).
-
-In your Recipe:
+Then update the Agent binding in your Recipe, replacing `plugin` with your chosen backend from the table:
 
 ```yaml
 bindings:
@@ -143,53 +140,16 @@ bindings:
     config: {}
 ```
 
-Optionally set `model` and `thinkingLevel` under `config` to override the model and reasoning effort for this experiment.
+`config: {}` uses the native default model. Optional overrides for an experiment are:
 
-#### Claude Code
+| Backend | Optional settings |
+| --- | --- |
+| All | `executable`: full CLI path; `timeoutMs`: deadline in milliseconds for one Agent task |
+| Codex | `model`, `thinkingLevel` |
+| Claude Code | `model`, `effort` |
+| DSH | Configure the model in the native headless profile |
 
-Follow the [official installation instructions](https://code.claude.com/docs/en/setup), then start the CLI:
-
-```sh
-claude
-```
-
-Follow the sign-in prompts and send a message to verify access. In your Recipe:
-
-```yaml
-bindings:
-  agent:
-    plugin: agent.claudecode
-    config: {}
-```
-
-Optionally set `model` and `effort` under `config` to override the model and reasoning effort for this experiment.
-
-RSI reuses native sign-in but starts Claude Code in restricted mode, without user/project settings, ordinary Hooks or MCP. Custom API settings saved only in `.claude/settings.json` are therefore not inherited.
-
-#### DSH
-
-Install the CLI:
-
-```sh
-npm install -g @deepseek-ai/dsh
-```
-
-Configure model access and authentication using the [official DSH CLI documentation](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli). RSI uses the **headless** profile; configuring only the Web UI is not enough. Verify that profile through the CLI:
-
-```sh
-dsh --profile headless "Reply with OK."
-```
-
-After receiving a normal response, configure your Recipe:
-
-```yaml
-bindings:
-  agent:
-    plugin: agent.dsh
-    config: {}
-```
-
-DSH model settings belong to its headless CLI profile. The Recipe does not accept `model`, `base_url` or `api_key`.
+RSI keeps native model and authentication settings while limiting tasks to read-only proposals with no interactive approvals. Claude Code Hooks and MCP are disabled for RSI calls. RSI validates and applies proposed edits.
 
 ### Check and start
 

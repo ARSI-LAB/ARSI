@@ -121,20 +121,17 @@ bindings:
 
 ### 原生 CLI 后端：Codex、Claude Code 和 DSH
 
-先在运行 RSI 的电脑上安装并配置所选 CLI，确认它能正常回答问题，再接入 RSI。账号、模型服务和凭据由 CLI 管理；无需在 Recipe 中重复配置。
+三种后端的接入方式相同：**安装 CLI → 在 CLI 中配置并验证模型 → 在 Recipe 中选择后端**。RSI 沿用原生模型和认证配置，不需要另外填写 API 地址或密钥。
 
-#### Codex
+| 后端 | 安装与配置说明 | 启动 CLI | Recipe 的 `plugin` |
+| --- | --- | --- | --- |
+| Codex | [官方文档](https://developers.openai.com/codex/cli/) | `codex` | `agent.codex` |
+| Claude Code | [官方文档](https://code.claude.com/docs/en/setup) | `claude` | `agent.claudecode` |
+| DSH | [官方文档](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | `dsh --profile headless "Reply with OK."` | `agent.dsh` |
 
-安装并启动：
+先在运行 RSI 的电脑上完成所选 CLI 的登录或模型服务配置，确认能正常回答问题。已有配置可直接复用。DSH 使用 **headless** profile，请验证这一 profile；只配置 Web 界面不够。
 
-```sh
-npm install -g @openai/codex
-codex
-```
-
-按 CLI 提示完成登录和模型选择，发送一条消息确认可用。已有配置可直接沿用；自定义模型服务按 [Codex 官方配置说明](https://developers.openai.com/codex/config-advanced/)设置。
-
-在 Recipe 中填写：
+然后修改 Recipe 中的 Agent 绑定，`plugin` 换成表中所选后端：
 
 ```yaml
 bindings:
@@ -143,53 +140,16 @@ bindings:
     config: {}
 ```
 
-可在 `config` 中用 `model` 和 `thinkingLevel` 覆盖本次实验的模型与推理强度。
+`config: {}` 使用原生默认模型。需要为本次实验调整时，可使用以下可选项：
 
-#### Claude Code
+| 后端 | 可选设置 |
+| --- | --- |
+| 全部 | `executable`：CLI 完整路径；`timeoutMs`：单次 Agent 任务的毫秒期限 |
+| Codex | `model`、`thinkingLevel` |
+| Claude Code | `model`、`effort` |
+| DSH | 模型在原生 headless profile 中配置 |
 
-按[官方安装说明](https://code.claude.com/docs/en/setup)安装，随后启动 CLI：
-
-```sh
-claude
-```
-
-按提示完成登录，发送一条消息确认可用。在 Recipe 中填写：
-
-```yaml
-bindings:
-  agent:
-    plugin: agent.claudecode
-    config: {}
-```
-
-可在 `config` 中用 `model` 和 `effort` 覆盖本次实验的模型与推理强度。
-
-RSI 复用原生登录，但以受限模式启动 Claude Code，不加载用户/项目设置、普通 Hooks 和 MCP。因此，仅保存在 `.claude/settings.json` 中的自定义 API 配置不会被沿用。
-
-#### DSH
-
-安装 CLI：
-
-```sh
-npm install -g @deepseek-ai/dsh
-```
-
-按照 [DSH 官方 CLI 文档](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli)完成模型和认证配置。RSI 使用 **headless** profile，请确认该 profile 可用；只配置 Web 界面不够。通过 CLI 验证：
-
-```sh
-dsh --profile headless "Reply with OK."
-```
-
-收到正常回复后，在 Recipe 中填写：
-
-```yaml
-bindings:
-  agent:
-    plugin: agent.dsh
-    config: {}
-```
-
-DSH 的模型设置由 CLI 的 headless profile 管理，Recipe 不接受 `model`、`base_url` 或 `api_key`。
+RSI 保留原生模型和认证配置，但限制任务为只读提案，不接受交互式审批。Claude Code 的 Hooks 和 MCP 在 RSI 调用中禁用。修改建议由 RSI 检查并应用。
 
 ### 检查并启动
 

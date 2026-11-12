@@ -15,13 +15,13 @@ export async function runSession(options: {
   const { config, request, signal, record } = options;
   let result: JsonObject | undefined;
   let completed = false;
+  // Keep native model/auth settings; constrain task tools independently.
   const args = [
     '-p',
     '--output-format',
     'stream-json',
     '--verbose',
     '--no-session-persistence',
-    '--restricted',
     '--permission-mode',
     'dontAsk',
     '--permission-prompts',

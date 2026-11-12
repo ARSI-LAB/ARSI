@@ -83,12 +83,14 @@ test('Claude Code returns validated native output and records only supplied usag
   );
   const args = audit.args;
   assert(Array.isArray(args));
-  for (const flag of [
-    '--no-session-persistence',
-    '--restricted',
-    '--strict-mcp-config',
-  ])
+  for (const flag of ['--no-session-persistence', '--strict-mcp-config'])
     assert(args.includes(flag));
+  assert(!args.includes('--restricted'));
+  assert(!args.includes('--setting-sources'));
+  assert.equal(
+    args[args.indexOf('--disallowedTools') + 1],
+    'Write,Edit,NotebookEdit,Bash,PowerShell,mcp__*',
+  );
   assert.equal(args[args.indexOf('--tools') + 1], 'Read,Glob,Grep,Skill,Agent');
   assert.equal(args[args.indexOf('--permission-mode') + 1], 'dontAsk');
   assert.equal(args[args.indexOf('--model') + 1], 'test-model');

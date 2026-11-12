@@ -9,7 +9,7 @@ import { dshDefinition } from '../../src/plugins/agent-dsh/index.js';
 import { claudeCodeDefinition } from '../../src/plugins/agent-claudecode/index.js';
 
 const flags =
-  '--json --permission-mode --approval-policy --print --output-format --json-schema --tools --restricted --permission-prompts --strict-mcp-config --verbose --no-session-persistence --disallowedTools --mcp-config --settings';
+  '--json --permission-mode --approval-policy --print --output-format --json-schema --tools --permission-prompts --strict-mcp-config --verbose --no-session-persistence --disallowedTools --mcp-config --settings';
 
 for (const definition of [dshDefinition, claudeCodeDefinition]) {
   test(`${definition.id} doctor checks the CLI without claiming model access`, async (t) => {
@@ -51,7 +51,7 @@ for (const definition of [dshDefinition, claudeCodeDefinition]) {
       `const assert = require('node:assert/strict');
 const args = process.argv.slice(2);
 if (args.includes('--dump-config')) console.log('- id: fixture');
-else if (args.includes('auth')) console.log(args.includes('--help') ? '--json' : JSON.stringify({loggedIn:true}));
+else if (args.includes('auth')) { assert.deepEqual(args, ['auth', 'status', args.includes('--help') ? '--help' : '--json']); console.log(args.includes('--help') ? '--json' : JSON.stringify({loggedIn:true})); }
 else { assert.deepEqual(args, ${JSON.stringify(args)}); console.log(${JSON.stringify(flags)}); }`,
     );
     assert.ok(definition.doctor);

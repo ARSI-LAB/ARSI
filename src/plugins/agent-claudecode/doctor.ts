@@ -19,7 +19,6 @@ export async function checkClaudeCodeAgent(
       '--json-schema',
       '--permission-mode',
       '--tools',
-      '--restricted',
       '--permission-prompts',
       '--verbose',
       '--no-session-persistence',
@@ -45,7 +44,7 @@ export async function checkClaudeCodeAgent(
         const help = await runNativeAgentCommand(
           context,
           'claude',
-          ['--restricted', 'auth', 'status', '--help'],
+          ['auth', 'status', '--help'],
           signal,
         );
         if (!/(?:^|\s)--json(?:\s|$)/m.test(help))
@@ -55,7 +54,7 @@ export async function checkClaudeCodeAgent(
         const stdout = await runNativeAgentCommand(
           context,
           'claude',
-          ['--restricted', 'auth', 'status', '--json'],
+          ['auth', 'status', '--json'],
           signal,
           [0, 1],
         );
@@ -73,7 +72,7 @@ export async function checkClaudeCodeAgent(
           );
         if (!loggedIn)
           throw new Error(
-            'Claude Code has no active authentication; sign in or configure the native provider environment.',
+            'Claude Code has no active authentication; configure authentication in the native CLI.',
           );
       },
       { signal: context.signal },

@@ -78,9 +78,9 @@ OperatorBench 使用 SDK 的 `kernel` benchmark 和 RSI 的 `task.directory`。�
 
 以下 YAML 都是**已有 Recipe 的局部配置**：替换 `bindings.agent`，保留 Application、Policy 和其他绑定。自定义 Policy 如果使用其他 Agent 绑定名，请使用对应名称。Agent 配置不会替你配置 Evaluator 的模型。
 
-示例中的 `your-model`、服务地址和密钥都要换成你自己的值。环境变量须在**启动 RSI 的同一个终端**设置；RSI 不会自动读取 `.env`。下方 `export NAME='value'` 是 Bash/Zsh 写法，Windows PowerShell 改写为 `$env:NAME = 'value'`。
-
 ### Pi 后端
+
+示例中的 `your-model`、服务地址和密钥都要换成你自己的值。环境变量须在**启动 RSI 的同一个终端**设置；RSI 不会自动读取 `.env`。下方 `export NAME='value'` 是 Bash/Zsh 写法，Windows PowerShell 改写为 `$env:NAME = 'value'`。
 
 无需单独安装 Pi CLI。准备支持 OpenAI Chat Completions 的模型服务，在终端设置：
 
@@ -121,31 +121,18 @@ bindings:
 
 ### 原生 CLI 后端：Codex、Claude Code 和 DSH
 
+先在运行 RSI 的电脑上安装并配置所选 CLI，确认它能正常回答问题，再接入 RSI。账号、模型服务和凭据由 CLI 管理；无需在 Recipe 中重复配置。
+
 #### Codex
 
-安装 CLI（需要 Node.js 和 npm）：
+安装并启动：
 
 ```sh
 npm install -g @openai/codex
-codex --version
+codex
 ```
 
-**使用账号登录**：执行 `codex login`，按提示完成登录。已配置好 Codex 的用户可直接复用现有配置。
-
-**使用自定义模型 API**：在 `~/.codex/config.toml`（Windows 为 `$HOME\.codex\config.toml`）中配置服务。已有文件时修改对应项，不要覆盖其他设置：
-
-```toml
-model = "your-model"
-model_provider = "custom"
-
-[model_providers.custom]
-name = "My model API"
-base_url = "https://api.example.com/v1"
-env_key = "MODEL_API_KEY"
-wire_api = "responses"
-```
-
-在启动 RSI 的终端设置 `export MODEL_API_KEY='your-api-key'`。此示例要求服务支持 Responses API；只有 Chat Completions 接口的服务不能直接使用这份配置。更多选项见 [Codex 官方配置说明](https://developers.openai.com/codex/config-advanced/)。
+按 CLI 提示完成登录和模型选择，发送一条消息确认可用。已有配置可直接沿用；自定义模型服务按 [Codex 官方配置说明](https://developers.openai.com/codex/config-advanced/)设置。
 
 在 Recipe 中填写：
 
@@ -156,37 +143,17 @@ bindings:
     config: {}
 ```
 
-模型沿用 Codex 的配置。需要为本次实验覆盖时，在 `config` 中添加 `model: your-model` 和可选的 `thinkingLevel: low`；API 地址和密钥仍放在 Codex 配置及环境变量中。
+可在 `config` 中用 `model` 和 `thinkingLevel` 覆盖本次实验的模型与推理强度。
 
 #### Claude Code
 
-按[官方安装说明](https://code.claude.com/docs/en/setup)安装 CLI。Bash/Zsh：
+按[官方安装说明](https://code.claude.com/docs/en/setup)安装，随后启动 CLI：
 
 ```sh
-curl -fsSL https://claude.ai/install.sh | bash
+claude
 ```
 
-Windows PowerShell：
-
-```powershell
-irm https://claude.ai/install.ps1 | iex
-```
-
-重新打开终端，运行 `claude --version` 确认可以找到命令，再选择一种认证方式：
-
-- **账号登录**：执行 `claude auth login`，按提示完成登录。
-- **Anthropic API key**：设置 `export ANTHROPIC_API_KEY='your-api-key'`。
-- **API 网关**：按下面的示例设置地址、凭据和网关提供的模型名称。
-
-```sh
-export ANTHROPIC_BASE_URL='https://gateway.example.com'
-export ANTHROPIC_AUTH_TOKEN='your-gateway-token'
-export ANTHROPIC_MODEL='your-model'
-```
-
-此示例使用 Anthropic Messages 接口；地址通常不带 `/v1`，以网关说明为准。网关如果要求 `x-api-key`，将 `ANTHROPIC_AUTH_TOKEN` 换成 `ANTHROPIC_API_KEY`，不要同时设置两者。参见[官方网关说明](https://code.claude.com/docs/en/llm-gateway-connect)。
-
-在 Recipe 中填写：
+按提示完成登录，发送一条消息确认可用。在 Recipe 中填写：
 
 ```yaml
 bindings:
@@ -195,46 +162,25 @@ bindings:
     config: {}
 ```
 
-可在 `config` 中添加 `model: your-model` 覆盖默认模型，以及 `effort: low` 调整推理强度。RSI 启动 Claude Code 时禁用用户/项目设置、普通 Hooks 和 MCP，**仅写在 `.claude/settings.json` 的 `env` 中的 API 配置不会生效**；请使用上述终端环境变量或原生登录。
+可在 `config` 中用 `model` 和 `effort` 覆盖本次实验的模型与推理强度。
+
+RSI 复用原生登录，但以受限模式启动 Claude Code，不加载用户/项目设置、普通 Hooks 和 MCP。因此，仅保存在 `.claude/settings.json` 中的自定义 API 配置不会被沿用。
 
 #### DSH
 
-安装 CLI（需要 Node.js 和 npm）：
+安装 CLI：
 
 ```sh
 npm install -g @deepseek-ai/dsh
-dsh --version
 ```
 
-创建 `~/.dsh/profiles/headless/cordis.patch.yml`，不存在的目录也需创建。Windows 对应 `$HOME\.dsh\profiles\headless\cordis.patch.yml`；设置过 `DSH_HOME` 时，使用该目录下的 `profiles/headless/cordis.patch.yml`。
-
-下面使用 OpenAI Chat Completions 服务。将**两处** `your-model` 改成同一个模型名称，`baseURL` 改为服务地址；已有配置时合并对应项：
-
-```yaml
-- id: agent-default-model
-  config:
-    provider: custom
-    model: your-model
-- id: llm-pi-ai
-  config:
-    providers:
-      custom:
-        api: openai-completions
-        baseURL: https://api.example.com/v1
-        apiKeyEnv: MODEL_API_KEY
-        models:
-          - id: your-model
-            contextWindow: 131072
-            maxTokens: 4096
-```
-
-`contextWindow` 和 `maxTokens` 分别是模型上下文容量和单次输出上限，请按所用模型调整。在启动 RSI 的终端设置：
+按照 [DSH 官方 CLI 文档](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli)完成模型和认证配置。RSI 使用 **headless** profile，请确认该 profile 可用；只配置 Web 界面不够。通过 CLI 验证：
 
 ```sh
-export MODEL_API_KEY='your-api-key'
+dsh --profile headless "Reply with OK."
 ```
 
-在 Recipe 中填写：
+收到正常回复后，在 Recipe 中填写：
 
 ```yaml
 bindings:
@@ -243,7 +189,7 @@ bindings:
     config: {}
 ```
 
-RSI 固定使用 DSH 的 **headless** profile；只配置 Web 界面不够。Recipe 不接受 DSH 的 `model`、`base_url` 或 `api_key`，请在上面的 profile 和环境变量中配置。
+DSH 的模型设置由 CLI 的 headless profile 管理，Recipe 不接受 `model`、`base_url` 或 `api_key`。
 
 ### 检查并启动
 

@@ -78,9 +78,9 @@ Configure just one of the four backends below. Pi uses the model settings in you
 
 The YAML examples are **fragments of an existing Recipe**: replace `bindings.agent`, keeping your Application, Policy and other bindings. If a custom Policy uses a different Agent binding name, use that name instead. Agent settings do not configure the Evaluator's model.
 
-Replace `your-model`, endpoint URLs and keys with your own values. Set environment variables in **the same terminal that starts RSI**; RSI does not load `.env` automatically. The `export NAME='value'` examples use Bash/Zsh; in Windows PowerShell, write `$env:NAME = 'value'` instead.
-
 ### Pi backend
+
+Replace `your-model`, endpoint URLs and keys with your own values. Set environment variables in **the same terminal that starts RSI**; RSI does not load `.env` automatically. The `export NAME='value'` examples use Bash/Zsh; in Windows PowerShell, write `$env:NAME = 'value'` instead.
 
 No separate Pi CLI installation is needed. With an OpenAI Chat Completions endpoint available, set:
 
@@ -121,31 +121,18 @@ bindings:
 
 ### Native CLI backends: Codex, Claude Code and DSH
 
+Install and configure your chosen CLI on the computer running RSI. Confirm it can answer a message before connecting it to RSI. Manage accounts, model services and credentials through the CLI; do not duplicate them in the Recipe.
+
 #### Codex
 
-Install the CLI (requires Node.js and npm):
+Install and start:
 
 ```sh
 npm install -g @openai/codex
-codex --version
+codex
 ```
 
-**Account sign-in**: run `codex login` and follow the prompts. If Codex is already configured, reuse that configuration.
-
-**Custom model API**: configure the service in `~/.codex/config.toml` (`$HOME\.codex\config.toml` on Windows). Update the relevant entries without overwriting other settings:
-
-```toml
-model = "your-model"
-model_provider = "custom"
-
-[model_providers.custom]
-name = "My model API"
-base_url = "https://api.example.com/v1"
-env_key = "MODEL_API_KEY"
-wire_api = "responses"
-```
-
-Set `export MODEL_API_KEY='your-api-key'` in the terminal that starts RSI. This example requires a Responses API endpoint; a Chat Completions-only endpoint cannot use this configuration directly. See the [official Codex configuration guide](https://developers.openai.com/codex/config-advanced/) for more options.
+Follow the CLI prompts to sign in and select a model, then send a message to verify access. Reuse an existing configuration if available. For custom model services, follow the [official Codex configuration guide](https://developers.openai.com/codex/config-advanced/).
 
 In your Recipe:
 
@@ -156,37 +143,17 @@ bindings:
     config: {}
 ```
 
-The model comes from your Codex configuration. To override it for this experiment, add `model: your-model` and optionally `thinkingLevel: low` under `config`. Keep the API address and credentials in Codex configuration and environment variables.
+Optionally set `model` and `thinkingLevel` under `config` to override the model and reasoning effort for this experiment.
 
 #### Claude Code
 
-Install the CLI using the [official instructions](https://code.claude.com/docs/en/setup). Bash/Zsh:
+Follow the [official installation instructions](https://code.claude.com/docs/en/setup), then start the CLI:
 
 ```sh
-curl -fsSL https://claude.ai/install.sh | bash
+claude
 ```
 
-Windows PowerShell:
-
-```powershell
-irm https://claude.ai/install.ps1 | iex
-```
-
-Open a new terminal and run `claude --version` to verify the command is available, then choose one authentication method:
-
-- **Account sign-in**: run `claude auth login` and follow the prompts.
-- **Anthropic API key**: set `export ANTHROPIC_API_KEY='your-api-key'`.
-- **API gateway**: set its address, credential and model name as shown below.
-
-```sh
-export ANTHROPIC_BASE_URL='https://gateway.example.com'
-export ANTHROPIC_AUTH_TOKEN='your-gateway-token'
-export ANTHROPIC_MODEL='your-model'
-```
-
-This example uses the Anthropic Messages API. The base URL usually omits `/v1`; follow your gateway's instructions. If it requires `x-api-key`, replace `ANTHROPIC_AUTH_TOKEN` with `ANTHROPIC_API_KEY` rather than setting both. See the [official gateway guide](https://code.claude.com/docs/en/llm-gateway-connect).
-
-In your Recipe:
+Follow the sign-in prompts and send a message to verify access. In your Recipe:
 
 ```yaml
 bindings:
@@ -195,46 +162,25 @@ bindings:
     config: {}
 ```
 
-You can add `model: your-model` under `config` to override the default model, and `effort: low` to adjust reasoning effort. RSI disables user/project settings, ordinary Hooks and MCP when starting Claude Code. **API settings stored only in the `env` block of `.claude/settings.json` do not apply**; use the shell environment above or native sign-in.
+Optionally set `model` and `effort` under `config` to override the model and reasoning effort for this experiment.
+
+RSI reuses native sign-in but starts Claude Code in restricted mode, without user/project settings, ordinary Hooks or MCP. Custom API settings saved only in `.claude/settings.json` are therefore not inherited.
 
 #### DSH
 
-Install the CLI (requires Node.js and npm):
+Install the CLI:
 
 ```sh
 npm install -g @deepseek-ai/dsh
-dsh --version
 ```
 
-Create `~/.dsh/profiles/headless/cordis.patch.yml`, including any missing directories. On Windows, use `$HOME\.dsh\profiles\headless\cordis.patch.yml`. If you set `DSH_HOME`, use `profiles/headless/cordis.patch.yml` under that directory instead.
-
-This example uses an OpenAI Chat Completions endpoint. Replace **both** occurrences of `your-model` with the same model name and set `baseURL` to your endpoint. Merge the relevant entries if you already have a configuration:
-
-```yaml
-- id: agent-default-model
-  config:
-    provider: custom
-    model: your-model
-- id: llm-pi-ai
-  config:
-    providers:
-      custom:
-        api: openai-completions
-        baseURL: https://api.example.com/v1
-        apiKeyEnv: MODEL_API_KEY
-        models:
-          - id: your-model
-            contextWindow: 131072
-            maxTokens: 4096
-```
-
-`contextWindow` is the model's context capacity; `maxTokens` is the output limit per request. Adjust both for your model. In the terminal that starts RSI, set:
+Configure model access and authentication using the [official DSH CLI documentation](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli). RSI uses the **headless** profile; configuring only the Web UI is not enough. Verify that profile through the CLI:
 
 ```sh
-export MODEL_API_KEY='your-api-key'
+dsh --profile headless "Reply with OK."
 ```
 
-In your Recipe:
+After receiving a normal response, configure your Recipe:
 
 ```yaml
 bindings:
@@ -243,7 +189,7 @@ bindings:
     config: {}
 ```
 
-RSI always uses DSH's **headless** profile; configuring only the Web UI is not enough. The Recipe does not accept DSH `model`, `base_url` or `api_key` fields. Use the profile and environment variables above.
+DSH model settings belong to its headless CLI profile. The Recipe does not accept `model`, `base_url` or `api_key`.
 
 ### Check and start
 

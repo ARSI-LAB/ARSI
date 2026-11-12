@@ -39,7 +39,6 @@ export async function prepareOperatorCase({
   const data = dirname(manifest);
   const contract = parseKernelContract({
     ...object(task.definition.contract),
-    schemaVersion: 1,
     caseId: selected.id,
   });
   const root = await realpath(execution.directory);
@@ -61,7 +60,6 @@ export async function prepareOperatorCase({
   await writeFile(
     manifest,
     JSON.stringify({
-      schemaVersion: 1,
       tasks: [
         {
           id: selected.id,

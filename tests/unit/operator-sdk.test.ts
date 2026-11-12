@@ -275,7 +275,6 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
         capture: 'after-warmup-mstx-range',
       },
       profiling: {
-        schemaVersion: 1,
         status: 'completed',
         error: '',
         metadata: {
@@ -357,7 +356,6 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(adaptSdkResult(cancelled, prepared).status, 'cancelled');
   const profiled = JSON.parse(JSON.stringify(result));
   profiled.snapshot.records[0].verdict.details.profiling = {
-    schemaVersion: 1,
     status: 'failed',
     error: 'Fixture profiling failed',
     kernels: [],

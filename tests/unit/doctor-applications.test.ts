@@ -92,7 +92,10 @@ async function fixture(t: TestContext) {
     {
       schemaVersion: 'rsi.recipe/v1',
       id: 'doctor-fixture',
-      application: { plugin: 'application.kernel', config },
+      application: {
+        plugin: 'application.kernel',
+        config: { ...config, entryFile: 'input.py' },
+      },
       policy: { id: policy.id },
     },
     registry,
@@ -117,29 +120,57 @@ async function fixture(t: TestContext) {
   return { root, baseline, config, runtime, controller, run };
 }
 
-test('doctor verifies kernel source, releases instances, and rejects a missing structural entry', async (t) => {
+test('doctor verifies a configured kernel entry with an editable helper and reports a missing entry', async (t) => {
   const { baseline, config, runtime, run } = await fixture(t);
-  const working = await run('application.kernel', config);
-  assert.ok(working.checks.every((check) => check.status === 'passed'));
-  assert.equal(
-    working.checks.find((check) => check.id === 'acquire-instance')?.status,
-    'passed',
+  await mkdir(join(baseline, 'pkg'));
+  await writeFile(
+    join(baseline, 'pkg/entry.py'),
+    'from helper import kernel_function\n',
+  );
+  await writeFile(
+    join(baseline, 'helper.py'),
+    'def kernel_function(x): return x\n',
+  );
+  await rm(join(baseline, 'input.py'));
+  const settings = {
+    ...config,
+    entryFile: 'pkg/entry.py',
+    target: { schema: target('helper.py') },
+  };
+  const working = await run('application.kernel', settings);
+  assert.deepEqual(
+    working.checks.map(({ id, status }) => ({ id, status })),
+    [
+      { id: 'baseline', status: 'passed' },
+      { id: 'verify-source', status: 'passed' },
+      { id: 'acquire-instance', status: 'passed' },
+      { id: 'cleanup', status: 'passed' },
+    ],
   );
   assert.deepEqual(await readdir(runtime.workspaces.directory), []);
   assert.deepEqual(await runtime.facts.list('experiments'), []);
   assert.deepEqual(await runtime.facts.list('measurements'), []);
-  await writeFile(
-    join(baseline, 'input.py'),
-    'def wrong_entry(x):\n    return x\n',
-  );
-  const broken = await run('application.kernel', config);
+  await rm(join(baseline, 'pkg/entry.py'));
+  const broken = await run('application.kernel', settings);
   assert.match(
-    broken.checks.find((check) => check.id === 'verify-source')?.reason ?? '',
-    /kernel_function/,
+    broken.checks.find((check) => check.id === 'baseline')?.reason ?? '',
+    /pkg[/\\]entry.py/,
   );
   assert.equal(
     broken.checks.find((check) => check.id === 'acquire-instance')?.status,
     'unchecked',
+  );
+  assert.deepEqual(
+    broken.missingResources?.map(({ field, reference }) => ({
+      field,
+      reference,
+    })),
+    [
+      {
+        field: 'baseline.pkg/entry.py',
+        reference: join(baseline, 'pkg/entry.py'),
+      },
+    ],
   );
   assert.deepEqual(await readdir(runtime.workspaces.directory), []);
 });
@@ -544,7 +575,7 @@ test('doctor disposes a cancelled application acquisition and leaves no workspac
     return result;
   };
   await assert.rejects(
-    run('application.kernel', config),
+    run('application.kernel', { ...config, entryFile: 'input.py' }),
     /cancelled after materialization/,
   );
   assert.deepEqual(await readdir(runtime.workspaces.directory), []);
@@ -565,7 +596,10 @@ test('doctor releases an application lease after its probe deadline while the co
     return result;
   };
   shortenDoctorDeadline(t, 100);
-  const result = await run('application.kernel', config);
+  const result = await run('application.kernel', {
+    ...config,
+    entryFile: 'input.py',
+  });
   assert.match(
     result.checks.find((check) => check.id === 'acquire-instance')?.reason ??
       '',

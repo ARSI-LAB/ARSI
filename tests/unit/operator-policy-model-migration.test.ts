@@ -7,6 +7,7 @@ import {
   agentContract,
   operatorbenchContract,
   operatorProposerContract,
+  operatorSummarizerContract,
   metricSelectorContract,
 } from '../../src/contracts/index.js';
 
@@ -16,6 +17,7 @@ test('the operator Policy loads and round-trip through the unified model', async
     agentContract,
     operatorbenchContract,
     operatorProposerContract,
+    operatorSummarizerContract,
     metricSelectorContract,
   ])
     registry.registerContract(contract);

@@ -9,6 +9,7 @@ import { dshDefinition } from '../plugins/agent-dsh/index.js';
 import { codexDefinition } from '../plugins/agent-codex/index.js';
 import { proposerDefinition } from '../plugins/proposer-agent/index.js';
 import { operatorProposerDefinition } from '../plugins/proposer-operator/index.js';
+import { operatorSummarizerDefinition } from '../plugins/summarizer-operator/index.js';
 import { gridProposerDefinition } from '../plugins/proposer-grid/index.js';
 import { optunaProposerDefinition } from '../plugins/proposer-optuna/index.js';
 import { paretoEvolutionProposerDefinition } from '../plugins/proposer-pareto-evolution/index.js';
@@ -33,6 +34,7 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     dshDefinition,
     proposerDefinition,
     operatorProposerDefinition,
+    operatorSummarizerDefinition,
     gridProposerDefinition,
     optunaProposerDefinition,
     paretoEvolutionProposerDefinition,

@@ -9,8 +9,14 @@ import type {
   Operation,
 } from '../../../contracts/index.js';
 import { object, string } from '../../../shared/json.js';
+import {
+  checkTarget,
+  parseTarget,
+  scanTree,
+  type ChangedFile,
+  type Target,
+} from './target.js';
 import { errorText, InferenceStartupError } from '../../../shared/errors.js';
-import { checkTarget, parseTarget, scanTree, type Target } from './target.js';
 
 const ref = { type: 'string', minLength: 1 };
 export type FileApplicationConfig = {
@@ -41,6 +47,7 @@ export const fileConfigProperties: JsonObject = {
 };
 export interface ApplicationBackend {
   capability: string;
+  validateChanges?(changes: ChangedFile[]): void;
   describeTarget?(context: RuntimeContext): Promise<JsonObject>;
   verify(directory: string, context: RuntimeContext): Promise<JsonObject>;
   acquire(
@@ -179,6 +186,7 @@ export async function createFileApplication(
                 ? {}
                 : object(input.editConstraints),
             );
+            backend.validateChanges?.(changes);
             if (!changes.length)
               return {
                 action: 'commit',

@@ -5,32 +5,39 @@
 本例使用 `policy.operator-search` 评测已封存的 Triton-Ascend 基线，生成并修复候选，
 选择改进结果，再独立复测选中的源码。可选的硬件诊断用于驱动后续搜索轮次。
 `application.kernel` 管理源码工作区，`proposer.operator` 提出修改，
-`evaluator.operatorbench` 调用完整 Evaluator SDK。
+`summarizer.operator` 记录每次尝试的结果，
+Recipe 将评测绑定到 RSI 插件 `evaluator.operatorbench`。该插件处理 `evaluate` 和 `profile`
+时，都通过 Evaluator SDK 调用 `kernel` benchmark 和 `kernel-replay` solver，并将结果记录为 RSI Measurement。
 
 任务接收形状为 `[381, 51200]` 的 FP16 张量，返回形状为 `[381, 80, 80, 8]`、
 内存连续且独立存储的 FP16 张量，并保持输入不变。计算过程先调整形状，再交换两个
 空间轴，最后将转置视图复制为连续内存。
 固定用例使用种子 42，数值容差为零。入口为 `kernel_function`，
-冻结参考与契约见 [task](./task/task.json)。
+冻结参考与契约见 [task](./task/task.json)。任务契约支持 FP16、BF16、FP32 和标量，输入可显式声明 `contiguous: false`；省略时保持连续输入。
 
 ## 配置与运行
+
+本例通过 Recipe 的 `application.config.entryFile` 指定 `input.py`。改名时，移动基线文件，同步更新入口路径和对应的 Target 编辑规则。Agent 从 `context/sources/<sourcePath>` 读取只读副本，返回的编辑路径必须在阶段输入的 `editablePaths` 中。
 
 使用装有 CANN、torch、torch_npu、triton-ascend，以及锁定版本 Evaluator SDK
 所需 profiling 依赖的 Linux NPU 主机。在私有环境配置中设置 `MODEL_NAME`、
 `MODEL_ENDPOINT` 和 `MODEL_API_KEY`。
+本地 Evaluator 以评测账户的文件和进程权限运行候选 Python。
+只在此模式下运行可信候选，并将其他凭据和私有文件放在评测账户的访问范围之外。
+
+设置 `benchmark.config.profiling.enabled` 可在普通评测时采集性能数据。Policy 的显式 profile 仍会采集新证据。kernel 入口由评测导入并验证，可通过函数定义或别名提供。
 
 运行 [Recipe](./recipe.search.yaml) 前，替换其中 SDK Python 路径、embedding Python
 路径、模型目录、身份文件、外部知识包和外部检索脚本的占位值。
 [hardware-context.md](./hardware-context.md) 中的硬件描述应与所选设备一致。
 
-Policy 包为六个阶段提供通用提示词，并通过默认 Proposer 绑定配置 `promptsDirectory`。
-本 Recipe 使用 `bindings.proposer.config.promptsDirectory: ./prompts` 显式选择本地
-[prompts 目录](./prompts)，采用本例的六份 Triton-Ascend 模板。
+Policy 通过 `bindings.proposer.config.promptsDirectory` 提供五份默认提案提示词，
+通过 `bindings.summarizer.config.promptFile` 提供独立的总结提示词。
+本 Recipe 选择本地 [prompts 目录](./prompts)和[总结提示词](./prompts/summarize.md)。
 相对路径以 Recipe 所在目录为基准解析。
 
-自定义提示词目录必须包含完整的六个文件：`diagnose.md`、`diagnose-metrics.md`、
-`generate.md`、`generate-metrics.md`、`repair.md` 和 `summarize.md`。
-独立使用 `proposer.operator` 时也必须配置完整目录。复制或部署本例时，
+自定义提案提示词目录必须包含 `diagnose.md`、`diagnose-metrics.md`、
+`generate.md`、`generate-metrics.md` 和 `repair.md`。复制或部署本例时，
 将 `prompts/` 与 Recipe 一同保留。已安装的 RSI 包提供自己的默认提示词，
 不依赖仓库中的 `examples/` 目录。
 
@@ -60,15 +67,17 @@ Worker 命令为 `<embedding.python> <embedding.retrievalScript> --request
 Embedding 身份文件使用 `rsi.operator-embedding-identity/v1`，包含带 `id`
 和不可变 `revision` 的 `model` 对象；`encoding` 对象包含
 `queryPromptName: query`、`normalizeEmbeddings: true`、`device: cpu` 和
-`batchSize: 32`；`files` 清单记录相对路径与 SHA-256 摘要。
+正整数 `batchSize`（例如 `32`）；`files` 清单记录相对路径与 SHA-256 摘要。
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm build
 pnpm ember-rsi doctor examples/artifacts/kernel/transpose-copy/recipe.search.yaml
-pnpm ember-rsi run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
+node --import ./examples/artifacts/kernel/transpose-copy/http-timeout.mjs dist/src/entries/cli/main.js run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
 pnpm ember-rsi show transpose-copy-search-001
 ```
+
+运行命令预加载 [HTTP 超时配置](./http-timeout.mjs)，使客户端等待响应头及响应体数据的超时与 Recipe 的单次模型请求时限一致。如果模型端点经过缓冲代理，还需按部署情况调整代理超时，以允许该等待时间。设备编号由 `benchmark.config.device` 指定。
 
 续跑时使用相同 Recipe 和 ID 再次执行 `run`，并添加 `--resume`。
 输入、构建和外部资源必须保持一致。已完成实验的续跑会复用已记录结果。
@@ -95,24 +104,38 @@ Manager 执行 Recipe 的操作数、模型调用数、评测次数和时间预�
 指标阶段采集当前最佳候选的 profile，分析实测瓶颈、检索指导，
 并基于该候选生成新实现。每次接受改进后，在下一轮之前重新采集 profile；
 没有接受改进时，复用未改变候选的诊断证据。
-Profiling 不可用时停止指标阶段。两种模式都在结束时独立复测选中的源码。
+Profiling 不可用时停止指标阶段。诊断可返回 `no-new-hypothesis`，跳过检索和生成后停止搜索。
+默认连续 3 轮指标提案为空时也停止；产生候选即重置这项独立计数。
+两种模式都在结束时独立复测选中的源码。
 
-| Recipe 设置                                                    | 示例值     | 含义                                                    |
-| -------------------------------------------------------------- | ---------- | ------------------------------------------------------- |
-| `policy.config.maxAttempts`                                    | `3`        | 静态尝试次数；Schema 允许 1–3。                         |
-| `policy.config.repairLimit`                                    | `3`        | 每条无效候选链的修复次数；Schema 允许 0–3。             |
-| `policy.config.maxRounds`                                      | `10`       | 指标阶段轮数；Schema 允许 1–10。                        |
-| `policy.config.maxNoImprovement`                               | `5`        | 上次接受改进后，未被接受的有效候选数；Schema 允许 1–5。 |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`   | 一个完整模型阶段的时间上限，单位 ms。                   |
-| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`      | 检索匹配分数下限。                                      |
-| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20` | 评测预热次数与计时重复次数。                            |
-| `bindings.selector.config.minRelativeImprovement`              | `0.02`     | 合格候选平均延迟所需的相对降低比例。                    |
+生成阶段提交合理、可测的候选，不要求提前证明提速，由正式评估和选择决定结果。
+历史经验逐项包含 `text`、`basis`（`evaluation`、`agent-report`、`hypothesis`），
+分别表示正式评估观察、Agent 自述和推断。本地探测与静态解释仅供参考，
+不能作为正式测量或整类实验的禁令。空编辑轮次没有候选计时证据。
 
-本例 Manager 上限为 1,024 次操作、65 次评测、152 次模型调用、
-7,200,000 ms 总时长，以及 60,000 ms 清理预留时间。
-评测次数同时包含 `evaluate` 和 `profile`；模型调用同时包含工具后续调用与委派。
-单个 Agent 请求和执行范围还可以施加更低上限。提高总预算不会绕过这些限制
-或 Policy Schema 的最大值，也不保证所有配置的轮次都能执行。
+| Recipe 设置                                                    | 示例值     | 含义                                                                                 |
+| -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------ |
+| `policy.config.maxAttempts`                                    | `3`        | 静态尝试次数上限，取正整数。                                                         |
+| `policy.config.repairLimit`                                    | `3`        | 每条无效候选链的修复次数上限，取非负整数。                                           |
+| `policy.config.maxRounds`                                      | `10`       | 指标阶段轮数上限，取正整数。                                                         |
+| `policy.config.maxNoImprovement`                               | `5`        | 上次接受改进后，未被接受的有效候选数上限，取正整数。                                 |
+| `policy.config.maxConsecutiveNoChange`                         | `3`        | 连续空指标提案数上限，取正整数；产生候选后重置计数。                                 |
+| `bindings.proposer.config.historyWindow`                       | `5`        | 提供给诊断与生成阶段的最近总结数量，默认 5；`0` 关闭近期历史注入，完整历史仍被保存。 |
+| `bindings.agent.config.timeoutMs`                              | `1800000`  | 单次模型请求的上限（30 分钟）。                                                      |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `0`        | 关闭提案阶段的时限，一个阶段可包含多次模型请求。                                     |
+| `bindings.summarizer.config.modelRequestTimeoutMs`             | `0`        | 关闭总结阶段的时限。                                                                 |
+| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`   | 检索 worker 的时间上限，单位 ms；`0` 关闭此期限。                                    |
+| `bindings.proposer.config.embedding.maxPayloadBytes`           | 省略       | 可选的单份外部检索 JSON 数据字节上限。                                               |
+| `bindings.proposer.config.embedding.maxLogBytes`               | 省略       | 可选的检索 worker 单个输出流的字节上限。                                             |
+| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`      | 检索匹配分数下限。                                                                   |
+| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20` | 评测预热次数与计时重复次数。                                                         |
+| `bindings.selector.config.minRelativeImprovement`              | `0.02`     | 合格候选平均延迟所需的相对降低比例。                                                 |
+
+Manager 的预算为 4,096 次操作、65 次评测、2,048 次模型调用、12 小时总时长，另设 60 秒清理预留。评测次数包含 `evaluate` 和 `profile`，模型调用数包含工具调用后的后续请求和委派请求。可按设备可用时间和模型配额调整这些上限。
+
+Proposer 的阶段和检索超时均接受 0 到 2147483647 的整数毫秒数。省略检索字节上限时，不限制对应维度。
+Application 的 [Target](./target.yaml) 控制源码大小与修改字节数上限；
+本例将两者显式设为 32,768 字节。授权更大源码时，提高或省略这些 Target 限制。
 
 ## Ascend 性能采集配置
 
@@ -142,6 +165,8 @@ Policy 的显式 `profile` 操作仍会启用采集，并强制关闭磁盘缓�
 `finalMeasurementRef`、`finalValidity`、`finalTimingStable` 和 `stopReason`。
 `attempts`、`metricsRounds`、`diagnosticRefs` 及历史引用保留搜索决策与证据。
 没有候选优于基线时，已完成实验可以保留基线。
+
+Selector 优先检查标记为 `prerequisite: true` 的约束，与 Recipe 中的排列顺序无关。测得 `candidateValid: 0` 时跳过耗时比较，Policy 可进入修复流程。普通约束未通过时，决策仍保留实测目标值供后续反馈使用。
 
 `candidateValid` 表示正确性，`latencyMeanMs` 是候选的平均设备延迟，
 `speedupVsReference` 比较候选与数学 PyTorch 参考。

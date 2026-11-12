@@ -70,7 +70,7 @@ AgentBench 将候选 Bundle 绑定到 `agentbundle` solver，并用 Policy 指�
 
 InferenceBench 在本地通过 SDK 运行 AgentX 或 AISBench。AISBench solver 通过 SSH 连接负载生成器。省略 `services` 时，候选实例绑定到默认服务。如果通过 `benchmark.solver.service` 指定了其他服务名，Recipe 需要声明对应的服务条目。该条目可以配置 `retry`、`contextWindow` 等 SDK 选项。显式填写 `model`、`base_url` 或 `api_key` 都会报错。凭据引用在 Application 的 `credentials.apiKeyEnv` 中配置。其余服务条目按 SDK 要求填写。
 
-OperatorBench 使用 SDK 的 `kernel` benchmark 和 RSI 的 `task.directory`。选定 case 后，RSI 会在获取候选实例前生成并校验本次评测的完整 SDK 配置。kernel replay 所需的服务由 RSI 提供。Recipe 必须省略整个 `services` 字段，填写空对象也会报错。`repeat`、`python`、`profiling` 等算子参数直接写在 `benchmark.config` 下。RSI 用候选源码和参考实现生成清单，绑定选定的 case 和 seed，并在调用目录内保存索引和结果。执行 `profile` 时会开启采集并禁用缓存。迁移已有 Recipe 时，将 `protocol` 和 `sdk` 中的算子参数移到 `benchmark.config`，删除 `mode` 和 `protocol.timingScope`。要保留原有运行设置，请配置 `run.onError: abort`，并将 `run.timeoutSeconds` 设为原算子超时加 30 秒。参见[算子 Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml)。
+OperatorBench 使用 SDK 的 `kernel` benchmark 和 RSI 的 `task.directory`。选定 case 后，RSI 会在获取候选实例前生成并校验本次评测的完整 SDK 配置。kernel replay 所需的服务由 RSI 提供。Recipe 必须省略整个 `services` 字段，填写空对象也会报错。`repeat`、`python`、`profiling` 等算子参数直接写在 `benchmark.config` 下。RSI 用候选源码和参考实现生成清单，绑定选定的 case 和 seed，并在调用目录内保存索引和结果。执行 `profile` 时会开启采集并禁用缓存。要保留原有运行设置，请配置 `run.onError: abort`，并将 `run.timeoutSeconds` 设为原算子超时加 30 秒。参见[算子 Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml)。
 
 ### Pi 后端
 
@@ -94,6 +94,8 @@ bindings:
 [Pi Schema](../../../src/plugins/agent-pi/schema.ts) 的默认值为 `thinkingLevel: low`、`contextWindow: 262144`、`retries: 0`。通过 `maxTokens` 设置单次请求的输出上限，取值须适配 `contextWindow` 和端点能力。
 
 - `api_key` 必须是环境变量引用，不能直接填写密钥。
+
+`bashMode` 默认为 `sandbox`，在 Linux 上使用 bubblewrap，在 macOS 上使用 sandbox-exec。显式设置 `bashMode: direct` 后，bash 在项目目录中以宿主账户的文件和进程权限执行，适用于无法创建沙箱 namespace 的环境。read、edit 和 write 工具继续校验各自的路径。
 
 - `timeoutMs` 限制每次模型请求，省略 `timeoutMs` 时底层 HTTP 客户端使用十分钟请求超时。两个字段都接受 1 到 2,147,483,647 的整数毫秒。
 - `executionTimeoutMs` 限制整个 Agent 调用，包括模型请求、工具、输出纠正、上下文压缩、重试等待和等待中的子 Agent，不会在每次请求后重置。
@@ -148,7 +150,7 @@ ember-rsi run path/to/recipe.yaml
 
 对于 `parameter.agent`，`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 按顺序直接调用 `evaluator.inferencebench`，再用更新后的当前最优版本生成下一批。`maxTrials` 限制所有批次的候选尝试总数。已确认且完成清理的启动失败记为失败 Measurement，并拒绝该候选；SDK 评测失败、取消、收集不完整或清理状态不明会停止实验。失败基线不能启动搜索。
 
-默认的 `selector.inference` 用 `metric` 和 `direction` 定义主优化指标，用 `constraints` 定义性能目标，并可通过 `eligibility` 指定硬性要求。它允许在全部达标前接受约束违反程度减小的候选，同时防止已满足的约束退步。选择规则见[内置组件](built-in-components_zh.md#loop-组件)。Policy 保留当前最优版本，并用 `candidateFeasible` 单独报告是否达标，不将其等同于候选是否被接受。
+默认的 `selector.inference` 用 `metric` 和 `direction` 定义主优化指标，用 `constraints` 定义性能目标，并通过 `prerequisite: true` 标记在目标值比较前执行的硬性要求。它允许在全部达标前接受约束违反程度减小的候选，同时防止已满足的约束退步。选择规则见[内置组件](built-in-components_zh.md#loop-组件)。Policy 保留当前最优版本，并用 `candidateFeasible` 单独报告是否达标，不将其等同于候选是否被接受。
 
 设置 `application.inference.config.remote.discoverParameters: true` 后，启动器会在初始化时报告当前安装版本的参数目录。Agent 可在 `context/input.json` 的 `target.parameterCatalog` 中读取。vLLM Ascend 示例已启用此功能，并将目录限制为明确列出的性能参数；精度、量化、投机解码和结构化配置均不开放。
 
@@ -166,36 +168,58 @@ ember-rsi run path/to/recipe.yaml
 
 Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺省时”指对应配置最终仍未设置该项的情况；其他层的限制仍可能生效。
 
-| 位置                                                  | 配置项                                            | 含义                                                                                                      | 缺省时                                                                            |
-| ----------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Recipe                                                | `budget.operations`                               | Runtime 操作调用总数上限，包含嵌套调用。                                                                  | 无实验级次数上限。                                                                |
-| Recipe                                                | `budget.evaluationRuns`                           | 评测调用总数上限；一次调用可包含多个任务，OperatorBench 的评测和性能分析调用均计入。                      | 无实验级评测次数上限。                                                            |
-| Recipe                                                | `budget.modelCalls`                               | 支持计量的后端实际模型请求总数上限，包含重试、输出纠正和子 Agent；不限制基准 Solver 或原生 Codex、Claude Code 或 DSH 请求。   | 无实验级模型调用次数上限。                                                        |
-| Recipe                                                | `budget.elapsedWallMs`                            | 整个实验的经过时间上限，单位毫秒；恢复时包含中断期间，不会重新计时。                                      | 无实验级运行时长上限。                                                            |
-| Recipe                                                | `budget.cleanupReserveMs`                         | 释放实例、关闭插件等清理工作的时长上限，单位毫秒，单独计时。                                              | 无 Runtime 清理期限。                                                             |
-| Pi                                                    | `maxTokens`                                       | 单次模型请求的最大输出 Token 数。                                                                         | 不发送输出 Token 上限，由模型服务决定。                                           |
-| Pi                                                    | `contextWindow`                                   | Pi 用于上下文管理的窗口大小，单位 Token，应与模型能力匹配。                                               | 262144 Token。                                                                    |
-| Pi                                                    | `timeoutMs`                                       | 单次模型请求的时长上限，单位毫秒。                                                                        | 底层 HTTP 客户端使用 600000 毫秒（10 分钟）。                                     |
-| Pi                                                    | `executionTimeoutMs`                              | 完整 Agent 调用的时长上限，单位毫秒，包含请求、工具、压缩、重试等待和子 Agent。                           | 无整次调用的独立时长上限。                                                        |
-| Codex / Claude Code / DSH                             | `timeoutMs`                                       | 完整 Agent 调用的时长上限，单位毫秒。                                                                     | RSI 不为该调用设置独立超时。                                                      |
-| Operator Proposer                                     | `modelRequestTimeoutMs`                           | 一个完整模型阶段的共享时长上限，单位毫秒，包含工具续调与子 Agent。                                        | 120000 毫秒（2 分钟）。                                                           |
-| AgentBench Evaluator                                  | `services.<service>.maxTokens`                    | 被测 Agent 所用模型服务的每轮输出 Token 上限。                                                            | 由 Solver 或模型服务的默认设置决定。                                              |
-| AgentBench / InferenceBench Evaluator                 | `run.timeoutSeconds`                              | 单个基准任务一次执行的时长上限，单位秒。                                                                  | 使用 SDK 基准 profile 的值；profile 未指定时为 7200 秒（2 小时）。                |
-| OperatorBench Evaluator                               | `benchmark.config.timeoutSeconds`                 | 单次算子评测或性能分析的时长上限，单位秒。                                                                | 默认 300 秒。启用性能分析时为 `maxAttempts × attemptTimeoutSeconds + 300` 秒。    |
-| OperatorBench Evaluator                               | `benchmark.config.profiling.attemptTimeoutSeconds` | 一次性能分析尝试的时长上限，单位秒。                                                                      | SDK 默认 300 秒（5 分钟）。                                                       |
-| Inference Application                                 | `remote.timeoutMs`                                | 一次远端脚本调用的时长上限，单位毫秒。                                                                    | 无远端调用的独立时长上限。                                                        |
-| Inference Application                                 | `healthcheck.timeoutMs`                           | 等待推理服务就绪的时长上限，单位毫秒。                                                                    | 远端模式继承 `remote.timeoutMs`；该值也未设置或使用本地模式时，不设就绪等待上限。 |
-| Pareto 演化提案器 | `maxRounds` | 逻辑尝试轮数上限，包含无修改和被拒绝的尝试。 | 必填，无默认值。 |
-| Pareto 演化提案器 | `maxRollouts` | 初始评分、父候选与提案比较、种群选择消耗的任务 rollout 总额度，与评测调用次数预算分别计算。 | 必填，无默认值。 |
-| Optuna Proposer                                       | `python.timeoutMs`                                | 单次 Python worker 调用的时长上限，单位毫秒。                                                             | 无单次 worker 调用的独立时长上限。                                                |
-| Optuna Proposer                                       | `maxSamplingAttempts`                             | 整个搜索的采样尝试次数上限，包含不进入评测的重复参数组合；评测次数另由 `policy.config.maxTrials` 限制。   | 不额外限制采样尝试次数。                                                          |
-| Reflection 文件                                       | `budget.modelCalls`                               | 单次 Reflection 的模型请求数上限；设为 0 时不启动内置生成器，正数上限需要后端支持计量。                   | 无单次 Reflection 的模型调用次数上限。                                            |
-| Reflection 文件                                       | `budget.timeoutSeconds`                           | 单次 Reflection 的时长上限，单位秒。                                                                      | 无单次 Reflection 的独立时长上限。                                                |
-| Target                                                | `entries[].content.maxBytes`                      | Target 条目内单个文件的内容大小上限，单位字节。                                                           | Target 不设置单文件大小上限。                                                     |
-| Target                                                | `constraints.maxChangedFiles`                     | 一次候选提交最多允许修改的文件数。                                                                        | Target 不限制变更文件数。                                                         |
-| Target                                                | `constraints.maxChangedBytes`                     | 一次候选提交中，变更文件的内容总大小上限，单位字节。                                                      | Target 不限制变更文件的内容总大小。                                               |
-| Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedFiles`    | 契约支持时，限制这次编辑最多修改多少个文件。                                                              | 不增加这次编辑的文件数上限；Target 等已有约束仍生效。                             |
-| Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedBytes`    | 契约支持时，限制这次编辑的变更文件内容总大小，单位字节。                                                  | 不增加这次编辑的字节数上限；Target 等已有约束仍生效。                             |
-| Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedSubtrees` | 候选编辑最多涉及多少个 Target 条目对应的文件或目录范围。                                                  | 不限制这次编辑涉及的 Target 条目数量。                                            |
+| 位置                                  | 配置项                                             | 含义                                                                                                    | 缺省时                                                                            |
+| ------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Recipe                                | `budget.operations`                                | Runtime 操作调用总数上限，包含嵌套调用。                                                                | 无实验级次数上限。                                                                |
+| Recipe                                | `budget.evaluationRuns`                            | 评测调用总数上限；一次调用可包含多个任务，OperatorBench 的评测和性能分析调用均计入。                    | 无实验级评测次数上限。                                                            |
+| Recipe                                | `budget.modelCalls`                                | 支持计量的后端实际模型请求总数上限，包含重试、输出纠正和子 Agent；不限制基准 Solver 或原生 Codex、Claude Code 或 DSH 请求。 | 无实验级模型调用次数上限。                                                        |
+| Recipe                                | `budget.elapsedWallMs`                             | 整个实验的经过时间上限，单位毫秒；恢复时包含中断期间，不会重新计时。                                    | 无实验级运行时长上限。                                                            |
+| Recipe                                | `budget.cleanupReserveMs`                          | 释放实例、关闭插件等清理工作的时长上限，单位毫秒，单独计时。                                            | 无 Runtime 清理期限。                                                             |
+| Pi                                    | `maxTokens`                                        | 单次模型请求的最大输出 Token 数。                                                                       | 不发送输出 Token 上限，由模型服务决定。                                           |
+| Pi                                    | `contextWindow`                                    | Pi 用于上下文管理的窗口大小，单位 Token，应与模型能力匹配。                                             | 262144 Token。                                                                    |
+| Pi                                    | `timeoutMs`                                        | 单次模型请求的时长上限，单位毫秒。                                                                      | 底层 HTTP 客户端使用 600000 毫秒（10 分钟）。                                     |
+| Pi                                    | `executionTimeoutMs`                               | 完整 Agent 调用的时长上限，单位毫秒，包含请求、工具、压缩、重试等待和子 Agent。                         | 无整次调用的独立时长上限。                                                        |
+| Codex / Claude Code / DSH | `timeoutMs`                                        | 完整 Agent 调用的时长上限，单位毫秒。                                                                   | RSI 不为该调用设置独立超时。                                                      |
+| Operator Proposer                     | `modelRequestTimeoutMs`                            | 一个完整模型阶段的共享时长上限，单位毫秒，包含工具续调与子 Agent。                                      | 120000 毫秒（2 分钟）。                                                           |
+| AgentBench Evaluator                  | `services.<service>.maxTokens`                     | 被测 Agent 所用模型服务的每轮输出 Token 上限。                                                          | 由 Solver 或模型服务的默认设置决定。                                              |
+| AgentBench / InferenceBench Evaluator | `run.timeoutSeconds`                               | 单个基准任务一次执行的时长上限，单位秒。                                                                | 使用 SDK 基准 profile 的值；profile 未指定时为 7200 秒（2 小时）。                |
+| OperatorBench Evaluator               | `benchmark.config.timeoutSeconds`                  | 单次算子评测或性能分析的时长上限，单位秒。                                                              | 默认 300 秒。启用性能分析时为 `maxAttempts × attemptTimeoutSeconds + 300` 秒。    |
+| OperatorBench Evaluator               | `benchmark.config.profiling.attemptTimeoutSeconds` | 一次性能分析尝试的时长上限，单位秒。                                                                    | SDK 默认 300 秒（5 分钟）。                                                       |
+| Inference Application                 | `remote.timeoutMs`                                 | 一次远端脚本调用的时长上限，单位毫秒。                                                                  | 无远端调用的独立时长上限。                                                        |
+| Inference Application                 | `healthcheck.timeoutMs`                            | 等待推理服务就绪的时长上限，单位毫秒。                                                                  | 远端模式继承 `remote.timeoutMs`；该值也未设置或使用本地模式时，不设就绪等待上限。 |
+| Pareto 演化提案器                     | `maxRounds`                                        | 逻辑尝试轮数上限，包含无修改和被拒绝的尝试。                                                            | 必填，无默认值。                                                                  |
+| Pareto 演化提案器                     | `maxRollouts`                                      | 初始评分、父候选与提案比较、种群选择消耗的任务 rollout 总额度，与评测调用次数预算分别计算。             | 必填，无默认值。                                                                  |
+| Optuna Proposer                       | `python.timeoutMs`                                 | 单次 Python worker 调用的时长上限，单位毫秒。                                                           | 无单次 worker 调用的独立时长上限。                                                |
+| Optuna Proposer                       | `maxSamplingAttempts`                              | 整个搜索的采样尝试次数上限，包含不进入评测的重复参数组合；评测次数另由 `policy.config.maxTrials` 限制。 | 不额外限制采样尝试次数。                                                          |
+| Reflection 文件                       | `budget.modelCalls`                                | 单次 Reflection 的模型请求数上限；设为 0 时不启动内置生成器，正数上限需要后端支持计量。                 | 无单次 Reflection 的模型调用次数上限。                                            |
+| Reflection 文件                       | `budget.timeoutSeconds`                            | 单次 Reflection 的时长上限，单位秒。                                                                    | 无单次 Reflection 的独立时长上限。                                                |
+| Target                                | `entries[].content.maxBytes`                       | Target 条目内单个文件的内容大小上限，单位字节。                                                         | Target 不设置单文件大小上限。                                                     |
+| Target                                | `constraints.maxChangedFiles`                      | 一次候选提交最多允许修改的文件数。                                                                      | Target 不限制变更文件数。                                                         |
+| Target                                | `constraints.maxChangedBytes`                      | 一次候选提交中，变更文件的内容总大小上限，单位字节。                                                    | Target 不限制变更文件的内容总大小。                                               |
+| Policy 调用步骤                       | `steps[].with.editConstraints.maxChangedFiles`     | 契约支持时，限制这次编辑最多修改多少个文件。                                                            | 不增加这次编辑的文件数上限；Target 等已有约束仍生效。                             |
+| Policy 调用步骤                       | `steps[].with.editConstraints.maxChangedBytes`     | 契约支持时，限制这次编辑的变更文件内容总大小，单位字节。                                                | 不增加这次编辑的字节数上限；Target 等已有约束仍生效。                             |
+| Policy 调用步骤                       | `steps[].with.editConstraints.maxChangedSubtrees`  | 候选编辑最多涉及多少个 Target 条目对应的文件或目录范围。                                                | 不限制这次编辑涉及的 Target 条目数量。                                            |
+
+### 算子执行控制
+
+算子 Policy 默认执行 3 次静态尝试、每个候选最多修复 3 次、10 轮指标优化，在 5 个有效候选未被采纳或连续 3 轮指标提案为空时停止。通过 `policy.config` 中的 `maxAttempts`、`repairLimit`、`maxRounds`、`maxNoImprovement`、`maxConsecutiveNoChange` 调整；这些默认值不是 Schema 上限。产生候选后，即使没有被采纳，也会重置连续空编辑计数。指标诊断返回 `status: no-new-hypothesis` 时，跳过检索和生成，记录本轮总结后立即停止指标搜索。两种停止原因分别为 `no-new-hypothesis`、`consecutive-no-change`，都会保留当前最佳候选并独立执行最终评估。结果通过 `consecutiveNoChangeCount`、`noImprovementCount` 分别记录两类计数。Proposer 不额外设置阶段模型调用上限，显式 Recipe 模型调用预算仍统计委派请求和工具续接。
+
+指标诊断返回两种结果之一：`status: hypothesis` 及 `category`、`summary`、`reasoning`、`rootCause`、`recommendedFix` 和准确引用 profile 的 `evidence`；或 `status: no-new-hypothesis` 及 `reason`。生成阶段提交合理且遵守契约的候选，由正式评估验证，不要求事先证明提速，也不通过本地计时扫描提前筛选。持久化历史将程序拥有的事实与模型建议分开。`lessons`、`avoidPatterns`、`tryPatterns` 中的每项都包含 `text`、`basis`：`evaluation` 表示本轮正式测量支持的观察，`agent-report` 表示尚未核实的 Agent 自述，`hypothesis` 表示推断或后续实验。没有候选测量的轮次不能声称经验来自正式评估；无效总结会被记录为不可用。自述和推断不能扩展为整类技术的禁令或所有提案的新前置条件。
+
+| 配置                                                                            | 含义                                                                                              |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `bindings.proposer.config.modelRequestTimeoutMs`                                | 完整 Proposer Agent 阶段超时，单位毫秒；默认 `120000`，`0` 关闭该局部截止时间，父级取消仍会传播。 |
+| `bindings.proposer.config.embedding.timeoutMs`                                  | 检索 worker 超时，单位毫秒；默认 `300000`，`0` 关闭该局部截止时间。CPU 线程设置继承环境。         |
+| `bindings.proposer.config.embedding.maxPayloadBytes`                            | 可选的单个检索请求、响应、身份或知识 JSON 文件字节上限。省略时 Proposer 不设字节上限。            |
+| `bindings.proposer.config.embedding.maxLogBytes`                                | 可选的每条检索 stdout/stderr 流字节上限。省略时 Proposer 不设日志上限。                           |
+| `bindings.proposer.config.historyWindow`                                        | 向生成阶段交付的最近摘要数，默认 `5`，不再受原有 10 条上限约束。                                  |
+| `bindings.evaluator.config.benchmark.config.warmup`、`repeat`                   | 正整数迭代次数，不再受原有 10,000/4,096 上限约束。                                                |
+| `bindings.evaluator.config.run.timeoutSeconds`                                  | 可选的 SDK 外层运行超时；内部 worker 超时通过 `benchmark.config.timeoutSeconds` 独立配置。        |
+| `bindings.evaluator.config.benchmark.config.outputLimitBytes`                   | 可选的完整 kernel 进程输出上限；省略时不限制协议输出，超出显式上限时运行失败。                    |
+| `bindings.evaluator.config.benchmark.config.cleanupGraceMs`、`cleanupTimeoutMs` | 可选的进程停止宽限和清理确认时间，单位毫秒，均为正整数；仍必须确认清理完成。                      |
+| `bindings.evaluator.config.benchmark.config.profiling.cacheMaxEntries`          | 可选的 profile 缓存容量；省略时不按条目数量淘汰。                                                 |
+| `bindings.evaluator.config.benchmark.config.profiling.retryDelayMs`             | 可选的 profiling 重试间隔，单位毫秒；`0` 表示不等待，省略时保留指数退避。                         |
+
+以上 SDK 配置需要匹配的 kernel Evaluator 实现。直接创建 Node 计时器的超时和清理参数必须在其可表示的范围内（`2147483647` 毫秒）；profiling 重试等待由 SDK 分段执行。这些是平台语义，不是优化预算。文件和编辑字节限制由 Target 拥有，Proposer 不再额外施加 32 KiB 源码上限。JSON 证据读取默认返回 60,000 字节的摘要，调用方可提供更大的 `maxBytes`，同时遵守显式作用域限制。文件投影在没有显式字节限制时保留完整授权来源；摘要仍属于派生视图。类型、路径、归属、评分区间和单 case 协议校验继续生效。
 
 搜索行为沿用 Codex 原生配置。含专家角色的调用保留父 rollout，供完整上下文的原生委派使用；无角色调用仍使用临时线程。已确认且清理完成的起服失败可被拒绝后继续；SDK 评测失败、取消或清理不明会停止实验。

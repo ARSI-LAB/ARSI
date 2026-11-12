@@ -14,10 +14,7 @@ import type {
 } from '../../contracts/index.js';
 import { object } from '../../shared/json.js';
 import { safeId } from '../storage/index.js';
-import {
-  configPathFields,
-  type ConfigPathField,
-} from '../../shared/config-paths.js';
+import { configPathFields, type ConfigPathField } from '../../shared/paths.js';
 /** Match a selected field and the configured Schema paths beneath collections. */
 export function selectedResourceFields(
   schema: JsonSchema,

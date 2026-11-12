@@ -6,36 +6,43 @@ This example uses `policy.operator-search` to evaluate a sealed Triton-Ascend
 baseline, generate and repair candidates, select improvements, and independently
 reassess the selected source. Optional hardware diagnostics drive further search
 rounds. `application.kernel` owns source workspaces, `proposer.operator` proposes
-edits, and `evaluator.operatorbench` invokes the full Evaluator SDK.
+edits, `summarizer.operator` records each completed attempt, and the Recipe binds `evaluator.operatorbench` for evaluation.
+For both `evaluate` and `profile`, this RSI plugin calls the Evaluator SDK with
+benchmark `kernel` and solver `kernel-replay`, then records the result as an RSI Measurement.
 
 The task takes an FP16 tensor of shape `[381, 51200]` and returns a contiguous,
 independently stored FP16 tensor of shape `[381, 80, 80, 8]`, preserving the input.
 It reshapes the input, swaps the two spatial axes, and materializes a contiguous
 copy of the transposed view.
 The fixed case uses seed 42 and zero numerical tolerance. The entry point is
-`kernel_function`. The frozen reference and contract are in [task](./task/task.json).
+`kernel_function`. The frozen reference and contract are in [task](./task/task.json). Task contracts support FP16, BF16, FP32 and scalar tensors. Inputs may declare `contiguous: false`; omission keeps the contiguous-input default.
 
 ## Configuration and execution
+
+The Recipe selects `input.py` with `application.config.entryFile`. To rename it, move the baseline file and update the entry path and its edit rule in the Target. The Agent reads a snapshot at `context/sources/<sourcePath>` and returns edits for paths in `editablePaths` in its stage input.
 
 Use a Linux NPU host with CANN, torch, torch_npu, triton-ascend, and the profiling
 dependencies required by the pinned Evaluator SDK. Set `MODEL_NAME`,
 `MODEL_ENDPOINT`, and `MODEL_API_KEY` in private environment configuration.
+The local Evaluator runs candidate Python with the evaluation account's file and
+process permissions. Use this Recipe only for candidates trusted with that access.
+Keep unrelated credentials and private files outside the evaluation account.
+
+Set `benchmark.config.profiling.enabled` to collect profiling during ordinary evaluation. An explicit Policy profile action still collects fresh evidence. Evaluation imports the kernel entry and verifies it is callable, including aliases.
 
 Before running [the Recipe](./recipe.search.yaml), replace its SDK Python path,
 embedding Python path, model directory, identity file, external knowledge bundle,
 and external retrieval script placeholders. Keep the hardware description in
 [hardware-context.md](./hardware-context.md) consistent with the selected device.
 
-The Policy package includes generic prompts for all six stages and supplies
-`promptsDirectory` through its default Proposer binding. This Recipe explicitly
-selects the local [prompts directory](./prompts) with
-`bindings.proposer.config.promptsDirectory: ./prompts` to use the six Triton-Ascend
-templates for this example. Relative paths resolve from the Recipe directory.
+The Policy supplies five generic proposer prompts through
+`bindings.proposer.config.promptsDirectory` and a separate summary prompt
+through `bindings.summarizer.config.promptFile`. The Recipe selects the local
+[prompts directory](./prompts) and its [summary prompt](./prompts/summarize.md).
+Relative paths resolve from the Recipe directory.
 
-A custom prompts directory must contain the complete set: `diagnose.md`,
-`diagnose-metrics.md`, `generate.md`, `generate-metrics.md`, `repair.md`, and
-`summarize.md`. Independent uses of `proposer.operator` must also configure a
-complete directory. Keep `prompts/` alongside the Recipe when copying or
+A custom proposer directory must contain `diagnose.md`, `diagnose-metrics.md`,
+`generate.md`, `generate-metrics.md`, and `repair.md`. Keep `prompts/` alongside the Recipe when copying or
 deploying this example. The installed RSI package supplies its own defaults and
 does not depend on the repository's `examples/` directory.
 
@@ -72,15 +79,17 @@ The plugin validates this boundary and records the worker's own digest.
 The embedding identity file uses `rsi.operator-embedding-identity/v1`, a `model`
 object with `id` and immutable `revision`, an `encoding` object with
 `queryPromptName: query`, `normalizeEmbeddings: true`, `device: cpu`, and
-`batchSize: 32`, and a `files` inventory of relative paths and SHA-256 digests.
+a positive `batchSize` (for example `32`), and a `files` inventory of relative paths and SHA-256 digests.
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm build
 pnpm ember-rsi doctor examples/artifacts/kernel/transpose-copy/recipe.search.yaml
-pnpm ember-rsi run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
+node --import ./examples/artifacts/kernel/transpose-copy/http-timeout.mjs dist/src/entries/cli/main.js run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
 pnpm ember-rsi show transpose-copy-search-001
 ```
+
+The run command preloads the [HTTP timeout configuration](./http-timeout.mjs) so the client uses the Recipe’s per-request timeout when waiting for response headers or body data. If the model endpoint uses a buffering proxy, configure its timeout to allow that wait as well. Set `benchmark.config.device` to the device allocated for the run.
 
 To resume, repeat `run` with the same Recipe and ID and add `--resume`. Keep the
 inputs, build, and external resources identical. Completed resumes reuse recorded
@@ -111,26 +120,41 @@ The metrics stage profiles the current best candidate, analyzes its measured
 bottlenecks, retrieves guidance, and generates a candidate from that incumbent.
 It profiles each accepted improvement before the next round; without promotion,
 the unchanged incumbent's diagnostic evidence is reused. Unavailable profiling
-stops the metrics stage. Both modes independently reassess the selected source
+stops the metrics stage. Diagnosis may return `no-new-hypothesis` to stop without
+retrieval or generation. Three consecutive empty metric proposals also stop by
+default; any candidate resets that separate count. Both modes independently reassess the selected source
 at the end.
 
-| Recipe setting                                                 | Example value | Meaning                                                                         |
-| -------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------- |
-| `policy.config.maxAttempts`                                    | `3`           | Static attempts; Schema allows 1–3.                                             |
-| `policy.config.repairLimit`                                    | `3`           | Repairs per invalid candidate chain; Schema allows 0–3.                         |
-| `policy.config.maxRounds`                                      | `10`          | Metrics rounds; Schema allows 1–10.                                             |
-| `policy.config.maxNoImprovement`                               | `5`           | Valid candidates without promotion since the last promotion; Schema allows 1–5. |
-| `bindings.proposer.config.modelRequestTimeoutMs`               | `120000`      | One complete model stage's time limit, in ms.                                   |
-| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`         | Minimum retrieval match score.                                                  |
-| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                        |
-| `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                 |
+Generation submits a plausible testable candidate without first proving a speedup;
+formal evaluation and selection decide its outcome. History guidance items contain
+`text` and `basis` (`evaluation`, `agent-report`, or `hypothesis`). Local probe
+reports and static explanations are advisory, not formal measurements or blanket
+bans on future experiments. A no-change round has no candidate timing evidence.
 
-This example's Manager limits are 1,024 operations, 65 evaluation runs, 152 model
-calls, 7,200,000 ms elapsed time, and a 60,000 ms cleanup reserve. Evaluation runs
-include both `evaluate` and `profile`; model calls include tool continuations and
-delegates. Individual Agent requests and execution scopes can impose lower
-limits. Raising the overall budget does not bypass those limits or the Policy
-Schema maxima, and does not guarantee that every configured round will run.
+| Recipe setting                                                 | Example value | Meaning                                                                                                                                                    |
+| -------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `policy.config.maxAttempts`                                    | `3`           | Positive static attempt limit.                                                                                                                             |
+| `policy.config.repairLimit`                                    | `3`           | Nonnegative repair limit per invalid candidate chain.                                                                                                      |
+| `policy.config.maxRounds`                                      | `10`          | Positive metrics round limit.                                                                                                                              |
+| `policy.config.maxNoImprovement`                               | `5`           | Positive limit of valid candidates without promotion since the last promotion.                                                                             |
+| `policy.config.maxConsecutiveNoChange`                         | `3`           | Positive limit of consecutive empty metric proposals; a candidate resets the count.                                                                        |
+| `bindings.proposer.config.historyWindow`                       | `5`           | Number of recent summaries delivered to diagnosis and generation; defaults to 5. Set `0` to omit recent summaries while retaining complete stored history. |
+| `bindings.agent.config.timeoutMs`                              | `1800000`     | Deadline for one model request (30 minutes).                                                                                                               |
+| `bindings.proposer.config.modelRequestTimeoutMs`               | `0`           | Disable the proposer stage deadline. A stage can make multiple model requests.                                                                             |
+| `bindings.summarizer.config.modelRequestTimeoutMs`             | `0`           | Disable the summary stage deadline.                                                                                                                        |
+| `bindings.proposer.config.embedding.timeoutMs`                 | `300000`      | Retrieval worker deadline, in ms; `0` disables it.                                                                                                         |
+| `bindings.proposer.config.embedding.maxPayloadBytes`           | Omitted       | Optional byte limit for each external retrieval JSON payload.                                                                                              |
+| `bindings.proposer.config.embedding.maxLogBytes`               | Omitted       | Optional byte limit for each retrieval worker output stream.                                                                                               |
+| `bindings.proposer.config.embedding.similarityThreshold`       | `0.6`         | Minimum retrieval match score.                                                                                                                             |
+| `bindings.evaluator.config.benchmark.config.warmup` / `repeat` | `5` / `20`    | Evaluation warmup and timed repetitions.                                                                                                                   |
+| `bindings.selector.config.minRelativeImprovement`              | `0.02`        | Required relative reduction in eligible candidate mean latency.                                                                                            |
+
+The Manager budget allows 4,096 operations, 65 evaluations, 2,048 model calls and 12 hours of elapsed time, with a 60-second cleanup reserve. Evaluations include both `evaluate` and `profile`. Model calls include requests following tool calls and requests by delegated agents. Adjust these limits to the available device time and model quota.
+
+The proposer stage and retrieval timeouts accept integer milliseconds from 0 to 2147483647. Omitted retrieval byte limits leave those dimensions unrestricted.
+The Application [Target](./target.yaml) controls source and changed-byte limits;
+this example explicitly sets both to 32,768 bytes. Raise or omit those Target
+limits when authorizing larger sources.
 
 ## Ascend profiling setup
 
@@ -166,6 +190,8 @@ Inspect `bestCandidateRef`, `bestMeasurementRef`, `finalMeasurementRef`,
 `attempts`, `metricsRounds`, `diagnosticRefs`, and history references retain the
 search decisions and their evidence. A completed experiment can retain the
 baseline when no candidate improves it.
+
+The selector checks constraints marked `prerequisite: true` first, regardless of their order in the Recipe. A measured `candidateValid: 0` skips the latency comparison and allows the Policy to attempt repair. A failed ordinary constraint retains the measured objective for feedback.
 
 `candidateValid` describes correctness, `latencyMeanMs` is candidate mean device
 latency, and `speedupVsReference` compares that candidate with the mathematical

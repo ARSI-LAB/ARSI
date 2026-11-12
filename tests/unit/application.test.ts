@@ -23,7 +23,7 @@ import {
 test('Target validates baseline changes and rejects protected paths and symlinks', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-target-'));
   try {
-    await writeFile(join(root, 'prompt.md'), 'before');
+    await writeFile(join(root, '__proto__'), 'before');
     await writeFile(join(root, 'agent.yaml'), '{}');
     const before = await scanTree(root);
     const target = parseTarget({
@@ -31,7 +31,7 @@ test('Target validates baseline changes and rejects protected paths and symlinks
       id: 'test',
       entries: [
         {
-          path: 'prompt.md',
+          path: '__proto__',
           kind: 'file',
           description: 'instructions',
           changes: ['modify'],
@@ -41,7 +41,7 @@ test('Target validates baseline changes and rejects protected paths and symlinks
       protected: ['agent.yaml'],
       constraints: { maxChangedFiles: 1, maxChangedBytes: 100 },
     });
-    await writeFile(join(root, 'prompt.md'), 'after');
+    await writeFile(join(root, '__proto__'), 'after');
     assert.equal(checkTarget(before, await scanTree(root), target).length, 1);
     await writeFile(join(root, 'agent.yaml'), 'changed');
     assert.throws(

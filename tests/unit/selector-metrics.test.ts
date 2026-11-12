@@ -177,18 +177,23 @@ async function selectionFixture() {
   };
 }
 
-const eligibility: JsonObject = {
-  eligibility: [{ metric: 'candidateValid', min: 1 }],
+const correctness = {
+  constraints: [{ metric: 'candidateValid', prerequisite: true, min: 1 }],
 };
 
-test('metric eligibility rejects assessed invalid candidates before requiring performance data', async () => {
+test('metric prerequisites reject assessed invalid candidates before requiring performance data', async () => {
   const fixture = await selectionFixture();
   for (const value of [null, undefined]) {
     fixture.measured('after', value, 0, {
       coverage: 'partial',
       comparisonKey: null,
     });
-    const result = await fixture.select(eligibility);
+    const result = await fixture.select({
+      constraints: [
+        { metric: 'unavailablePerformance', max: 10 },
+        ...correctness.constraints,
+      ],
+    });
     assert.equal(result.accepted, false);
     assert.equal(result.candidateFeasible, false);
     assert.equal(result.candidateValue, null);
@@ -196,21 +201,23 @@ test('metric eligibility rejects assessed invalid candidates before requiring pe
     assert.equal(result.selectedValue, 10);
     assert.equal(result.selectedCandidateRef, 'candidate-before');
     assert.equal(result.measurementRef, 'before');
-    assert.match(result.reason, /eligibility/i);
+    assert.match(result.reason, /prerequisite/i);
     const decision = object(await fixture.read(result.decisionRef));
     assert.equal(decision.candidateValue, null);
     assert.equal(decision.incumbentValue, 10);
     assert.deepEqual(decision.measurementRefs, ['before', 'after']);
     assert.equal(decision.definitionRef, fixture.latency(10).definitionRef);
-    assert.ok(Array.isArray(decision.eligibility));
+    assert.ok(Array.isArray(decision.constraints));
+    assert.equal(decision.constraints.length, 1);
+    assert.equal(object(decision.constraints[0]).prerequisite, true);
     assert.equal(
-      object(decision.eligibility[0]).definitionRef,
+      object(decision.constraints[0]).definitionRef,
       fixture.validity(0).definitionRef,
     );
   }
 });
 
-test('metric eligibility preserves scoped assessment status and all eligibility checks', async () => {
+test('metric prerequisites preserve scoped assessment status and all prerequisite checks', async () => {
   const fixture = await selectionFixture();
   async function pointMeasurement(
     ref: string,
@@ -248,7 +255,7 @@ test('metric eligibility preserves scoped assessment status and all eligibility 
   }
   await pointMeasurement('before', 1);
   await pointMeasurement('after', 0);
-  const config = { ...eligibility, itemId: 'case-1' };
+  const config = { ...correctness, itemId: 'case-1' };
   assert.equal((await fixture.select(config)).candidateValue, null);
   await pointMeasurement('after', 0, { status: 'unknown' });
   await assert.rejects(fixture.select(config), /succeeded.*assessment/i);
@@ -264,16 +271,16 @@ test('metric eligibility preserves scoped assessment status and all eligibility 
   await assert.rejects(
     fixture.select({
       ...config,
-      eligibility: [
-        { metric: 'candidateValid', min: 1 },
-        { metric: 'missingEligibility', max: 0 },
+      constraints: [
+        { metric: 'candidateValid', prerequisite: true, min: 1 },
+        { metric: 'missingPrerequisite', prerequisite: true, max: 0 },
       ],
     }),
-    /missingEligibility.*unavailable/i,
+    /missingPrerequisite.*unavailable/i,
   );
 });
 
-test('metric eligibility requires owned, completed assessments and compatible eligibility definitions', async () => {
+test('metric prerequisites require owned, completed assessments and compatible prerequisite definitions', async () => {
   const fixture = await selectionFixture();
   const cases: {
     overrides: JsonObject;
@@ -323,24 +330,24 @@ test('metric eligibility requires owned, completed assessments and compatible el
   for (const entry of cases) {
     const measurement = fixture.measured('after', null, entry.valid);
     Object.assign(measurement, entry.overrides);
-    await assert.rejects(fixture.select(eligibility), entry.error);
+    await assert.rejects(fixture.select(correctness), entry.error);
   }
 });
 
-test('metric eligibility requires a valid incumbent and fully comparable eligible performance', async () => {
+test('metric prerequisites require a valid incumbent and fully comparable eligible performance', async () => {
   const fixture = await selectionFixture();
   fixture.measured('before', null, 0);
   fixture.measured('after', null, 0);
-  await assert.rejects(fixture.select(eligibility), /incumbent.*eligib/i);
+  await assert.rejects(fixture.select(correctness), /incumbent.*prerequisite/i);
   fixture.measured('before', 10, 1, { coverage: 'partial' });
-  await assert.rejects(fixture.select(eligibility), /complete.*comparable/i);
+  await assert.rejects(fixture.select(correctness), /complete.*comparable/i);
   fixture.measured('before', null);
-  await assert.rejects(fixture.select(eligibility), /definition|unavailable/i);
+  await assert.rejects(fixture.select(correctness), /definition|unavailable/i);
   fixture.measured('before', 10);
   fixture.measured('after', null);
-  await assert.rejects(fixture.select(eligibility), /definition|unavailable/i);
+  await assert.rejects(fixture.select(correctness), /definition|unavailable/i);
   fixture.measured('after', undefined);
-  await assert.rejects(fixture.select(eligibility), /latencyMs.*unavailable/i);
+  await assert.rejects(fixture.select(correctness), /latencyMs.*unavailable/i);
   fixture.measured('after', 8, 1, {
     metrics: {
       candidateValid: fixture.validity(1),
@@ -350,11 +357,11 @@ test('metric eligibility requires a valid incumbent and fully comparable eligibl
       },
     },
   });
-  await assert.rejects(fixture.select(eligibility), /definition/i);
+  await assert.rejects(fixture.select(correctness), /definition/i);
   fixture.measured('after', 8, 1, { comparisonKey: null });
-  await assert.rejects(fixture.select(eligibility), /comparable/i);
+  await assert.rejects(fixture.select(correctness), /comparable/i);
   fixture.measured('after', 8, 1, { coverage: 'partial' });
-  await assert.rejects(fixture.select(eligibility), /complete.*comparable/i);
+  await assert.rejects(fixture.select(correctness), /complete.*comparable/i);
 });
 
 test('metric selector requires improvement strictly beyond the configured relative threshold', async () => {
@@ -449,12 +456,16 @@ test('relative thresholds reject unsupported config and nonpositive incumbents w
       /metric selector config/,
     );
   await assert.rejects(
-    fixture.select({ eligibility: [{ metric: 'candidateValid' }] }),
+    fixture.select({
+      constraints: [{ metric: 'candidateValid', prerequisite: true }],
+    }),
     /metric selector config/,
   );
   await assert.rejects(
     fixture.select({
-      eligibility: [{ metric: 'candidateValid', min: 1, max: 0 }],
+      constraints: [
+        { metric: 'candidateValid', prerequisite: true, min: 1, max: 0 },
+      ],
     }),
     /min exceeds max/,
   );
@@ -747,13 +758,17 @@ test('metric selector compares only the requested AgentX point, checks definitio
   );
 });
 
-test('metric decision feedback validates eligibility alongside performance constraints', async () => {
+test('metric decision feedback validates prerequisites alongside performance constraints', async () => {
   const fixture = await selectionFixture();
   const result = await fixture.select({
-    ...eligibility,
-    constraints: [{ metric: 'latencyMs', statistic: 'p50', max: 9 }],
+    constraints: [
+      { metric: 'latencyMs', statistic: 'p50', max: 7 },
+      ...correctness.constraints,
+    ],
     minRelativeImprovement: 0.02,
   });
+  assert.equal(result.candidateFeasible, false);
+  assert.equal(result.candidateValue, 8);
   const feedback = await readDecisionFeedback(
     'after',
     result.decisionRef,
@@ -761,11 +776,12 @@ test('metric decision feedback validates eligibility alongside performance const
     fixture.services,
   );
   assert.equal(feedback.loss, 8);
-  assert.deepEqual(feedback.constraints, [0, -1]);
+  assert.deepEqual(feedback.constraints, [0, 1]);
   assert.deepEqual(feedback.identity.constraints, [
     {
       metric: 'candidateValid',
       statistic: null,
+      prerequisite: true,
       definitionRef: fixture.validity(1).definitionRef,
       min: 1,
       max: null,
@@ -773,9 +789,10 @@ test('metric decision feedback validates eligibility alongside performance const
     {
       metric: 'latencyMs',
       statistic: 'p50',
+      prerequisite: false,
       definitionRef: fixture.latency(8).definitionRef,
       min: null,
-      max: 9,
+      max: 7,
     },
   ]);
   fixture.measured('after', 8, 0);
@@ -793,7 +810,7 @@ test('metric decision feedback validates eligibility alongside performance const
 test('metric decision feedback rejects an ineligible candidate without an objective', async () => {
   const fixture = await selectionFixture();
   fixture.measured('after', null, 0);
-  const result = await fixture.select(eligibility);
+  const result = await fixture.select(correctness);
   await assert.rejects(
     readDecisionFeedback(
       'after',

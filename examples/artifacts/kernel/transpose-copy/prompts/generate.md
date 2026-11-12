@@ -29,7 +29,7 @@ Preserve the current public kernel_function signature, output count, shapes,
 dtypes, device, layout/strides, aliasing and input-mutation contract. Preserve
 allocation ownership, required wrapper operations and runtime initialization.
 The current task contract and authorized Target take precedence over examples
-and generic programming references. Edit only input.py; all task files,
+and generic programming references. Use only exact paths from `editablePaths` in `context/input.json` for edits; all task files,
 comparison sources and prior summaries are read-only.
 
 Classify the operator before changing it: elementwise, reduction, transpose/copy,
@@ -132,7 +132,7 @@ Return exactly the JSON edit object required by outputSchema:
 {
   "edits": [
     {
-      "path": "input.py",
+      "path": "<one exact path from editablePaths in context/input.json>",
       "content": "The complete valid Python source, JSON-escaped"
     }
   ],
@@ -143,7 +143,7 @@ Return exactly the JSON edit object required by outputSchema:
 The edited file must be complete and define kernel_function with the preserved
 public signature. Include only imports, constants, helpers, kernels and wrapper
 code required for that implementation; no tests, timing code or external writes.
-Use one edit for input.py. Do not edit read-only comparison or task files.
+Return one complete replacement per changed file from `editablePaths`. Do not edit read-only comparison or task files.
 When no supported modification remains, return {"edits":[],"reason":"Explain why no supported change remains"}.
 
 Return JSON only, without a Markdown fence or prose. Do not return a Python code
@@ -151,3 +151,33 @@ block. Do not emit placeholders, stubs or input/zero-tensor shortcuts. Before th
 final answer, check tail coverage, masks, current wrapper semantics, launch kwargs
 and preservation of the fixed output contract. State the hypothesis without
 claiming an improvement before a real SDK measurement exists.
+
+## Use history without turning uncertainty into a ban
+
+Program-owned `facts` and `measurementRefs` record formal Evaluator results. Each
+lesson, avoid pattern and try pattern has `text` and `basis`:
+
+- `evaluation`: an observation backed by this attempt's formal measurements.
+- `agent-report`: an Agent's account of local probes or other unverified observations.
+- `hypothesis`: a static inference or an untested explanation or next experiment.
+
+Only formal results establish measured candidate outcomes. Agent reports and
+hypotheses remain advisory. Do not turn a failed concrete candidate into a ban on
+an entire technique, require proven speedup before proposing, or accumulate
+prerequisites that block every next experiment. Avoid repeating the same measured
+losing transformation unless a changed assumption or mechanism makes the new
+experiment distinct; explain that difference.
+
+## Submit an experiment, not a preselected winner
+
+A candidate needs a concrete, plausible mechanism and a contract-preserving edit;
+it does not need a demonstrated speedup. State the hypothesis and what formal
+evaluation would falsify. Uncertainty about performance alone is not a reason
+for empty edits. Do not run timing sweeps or use ad hoc local timings to decide
+which candidate the Policy should see. Evaluator measures candidates and Selector
+decides promotion. Cheap static checks of bounds and coverage are appropriate.
+
+If the recommended implementation violates an invariant, correct the implementation
+while preserving the hypothesis when possible. Return empty edits only when no
+reasonable, distinct, testable edit can be formed within the authorized scope;
+explain the concrete obstacle. Do not claim that this proves global optimality.

@@ -11,7 +11,7 @@ import {
   parseStaticDiagnosis,
   readAnalysis,
   readHistory,
-} from '../../src/plugins/proposer-operator/service.js';
+} from '../../src/plugins/shared/operator-attempt/service.js';
 import {
   configSchema,
   type OperatorProposerConfig,
@@ -74,7 +74,44 @@ test('operator config requires explicit retrieval resources and permits only CPU
   assert.throws(() => validate(configSchema, missingPrompts));
 });
 
+test('operator config accepts disabled or extended deadlines and explicit retrieval byte limits', () => {
+  const raw = {
+    promptsDirectory: '/prompts',
+    task: { directory: '/task' },
+    historyWindow: 11,
+    modelRequestTimeoutMs: 0,
+    embedding: {
+      python: '/venv/bin/python',
+      resourcesDirectory: '/resources',
+      retrievalScript: '/resources/retrieve.py',
+      modelDirectory: '/models/embedding',
+      identityFile: '/models/identity.json',
+      timeoutMs: 0,
+      maxPayloadBytes: 4194304,
+      maxLogBytes: 131072,
+    },
+  };
+  validate(configSchema, raw);
+  validate(configSchema, {
+    ...raw,
+    modelRequestTimeoutMs: 2147483647,
+    embedding: { ...raw.embedding, timeoutMs: 2147483647 },
+  });
+  for (const timeout of [-1, 0.5, 2147483648])
+    assert.throws(() =>
+      validate(configSchema, { ...raw, modelRequestTimeoutMs: timeout }),
+    );
+  for (const bytes of [0, 0.5, 9007199254740992])
+    assert.throws(() =>
+      validate(configSchema, {
+        ...raw,
+        embedding: { ...raw.embedding, maxPayloadBytes: bytes },
+      }),
+    );
+});
+
 async function fixture() {
+  const sourcePath = 'kernels/transpose[0].py';
   const directory = await mkdtemp(join(tmpdir(), 'operator-context-'));
   const artifacts = new FileArtifacts(join(directory, 'artifacts'));
   const facts = new FileFacts(join(directory, 'facts'));
@@ -84,6 +121,11 @@ async function fixture() {
     adapterDigest: '2'.repeat(64),
     sdkBuildDigest: '3'.repeat(64),
     evaluation: {
+      candidateLayout: {
+        entryFile: sourcePath,
+        files: [sourcePath],
+        mutablePaths: [sourcePath],
+      },
       contract: { caseId: 'fixed' },
       environment: { device: 'TEST-FIXTURE' },
       protocol: { warmup: 5, repeat: 20 },
@@ -95,7 +137,7 @@ async function fixture() {
     kind: 'file-tree',
     files: [
       {
-        path: 'input.py',
+        path: sourcePath,
         mode: 420,
         base64: Buffer.from(source).toString('base64'),
       },
@@ -112,7 +154,7 @@ async function fixture() {
     kind: 'file-tree',
     files: [
       {
-        path: 'input.py',
+        path: sourcePath,
         mode: 420,
         base64: Buffer.from(changedSource).toString('base64'),
       },
@@ -124,9 +166,19 @@ async function fixture() {
     parentRef: 'entry',
     artifactRef: candidateTree,
   });
+  const sourceIdentity = (content: string) => {
+    const sourceDigest = createHash('sha256').update(content).digest('hex');
+    return {
+      sourceDigest,
+      sourceBundleDigest: digest({
+        entryFile: sourcePath,
+        files: [{ path: sourcePath, sha256: sourceDigest }],
+      }),
+    };
+  };
   const provenance = await artifacts.putJson({
     mode: 'sdk',
-    sourceDigest: createHash('sha256').update(source).digest('hex'),
+    ...sourceIdentity(source),
     artifactRef: tree,
     runId: 'run',
     attemptId: 'attempt',
@@ -135,7 +187,7 @@ async function fixture() {
   });
   const candidateProvenance = await artifacts.putJson({
     mode: 'sdk',
-    sourceDigest: createHash('sha256').update(changedSource).digest('hex'),
+    ...sourceIdentity(changedSource),
     artifactRef: candidateTree,
     runId: 'candidate-run',
     attemptId: 'candidate-attempt',
@@ -206,6 +258,22 @@ async function fixture() {
     signal: new AbortController().signal,
     artifacts,
     facts,
+    async applicationMetadata() {
+      return {
+        target: {
+          schemaVersion: 'rsi.target/v1',
+          id: 'test',
+          entries: [
+            {
+              path: sourcePath,
+              kind: 'file',
+              changes: ['modify'],
+              description: 'Kernel',
+            },
+          ],
+        },
+      };
+    },
     async readCandidate(ref: string) {
       const fact = await facts.read('candidates', ref);
       return {
@@ -222,7 +290,7 @@ async function fixture() {
   const identity = {
     entryCandidateRef: 'entry',
     baselineMeasurementRef: 'baseline',
-    sourceDigest: createHash('sha256').update(source).digest('hex'),
+    ...sourceIdentity(source),
     comparisonKey,
     taskDigest: conditions.taskDigest,
     contractDigest: digest(conditions.evaluation.contract),
@@ -234,6 +302,7 @@ async function fixture() {
   };
   const analysis = {
     schemaVersion: 'rsi.operator-analysis/v1',
+    diagnosisComplete: true,
     experimentId: 'experiment',
     identity,
     baselineMs: 10,
@@ -254,13 +323,13 @@ async function fixture() {
     definitionRef: 'latency-definition',
     incumbentValue: 10,
     candidateValue: 12,
-    eligibility: [],
     constraints: [],
     accepted: false,
     reason: 'slower',
   });
   const summary = {
     schemaVersion: 'rsi.operator-summary/v1',
+    summaryStatus: 'available',
     experimentId: 'experiment',
     analysisRef,
     attempt: 1,
@@ -277,8 +346,8 @@ async function fixture() {
       accepted: false,
     },
     explanation: 'Measured slowdown; cause remains a hypothesis',
-    lessons: ['Keep the original entry source'],
-    avoidPatterns: ['This change'],
+    lessons: [{ text: 'Keep the original entry source', basis: 'hypothesis' }],
+    avoidPatterns: [{ text: 'This change', basis: 'hypothesis' }],
     tryPatterns: [],
   };
   return {
@@ -302,6 +371,7 @@ test('analysis binds the explicit baseline measurement to its owned entry and ef
   );
   for (const key of [
     'sourceDigest',
+    'sourceBundleDigest',
     'comparisonKey',
     'taskDigest',
     'contractDigest',
@@ -336,6 +406,106 @@ test('analysis binds the explicit baseline measurement to its owned entry and ef
   await assert.rejects(
     readAnalysis(f.analysisRef, f.identity, f.context),
     /experiment|ownership/i,
+  );
+});
+
+test('single-file assessments require bundle provenance', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const measurement = await f.facts.read('measurements', 'baseline');
+  const provenance = object(measurement.provenance);
+  const stored = object(
+    await f.artifacts.readJson(string(provenance.artifactRef)),
+  );
+  delete stored.sourceBundleDigest;
+  provenance.artifactRef = await f.artifacts.putJson(stored);
+  await f.facts.write('measurements', 'baseline', measurement);
+  await assert.rejects(
+    readAnalysis(f.analysisRef, f.identity, f.context),
+    /source/i,
+  );
+});
+
+test('persisted analysis and summary require their recorded status', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const { diagnosisComplete, ...incomplete } = f.analysis;
+  await assert.rejects(
+    readAnalysis(await f.artifacts.putJson(incomplete), f.identity, f.context),
+    /diagnosisComplete/,
+  );
+  const { summaryStatus, ...summary } = f.summary;
+  const history = await f.artifacts.putJson({
+    schemaVersion: 'rsi.operator-history/v1',
+    experimentId: 'experiment',
+    analysisRef: f.analysisRef,
+    summaryRefs: [await f.artifacts.putJson(summary)],
+  });
+  await assert.rejects(readHistory(history, f.context), /summaryStatus/);
+});
+
+test('multi-file analysis rejects an assessment that certifies only unchanged entry bytes', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const candidate = await f.context.readCandidate('entry');
+  const tree = object(await f.artifacts.readJson(candidate.artifactRef));
+  assert.ok(Array.isArray(tree.files));
+  const artifactRef = await f.artifacts.putJson({
+    ...tree,
+    files: [
+      ...tree.files,
+      {
+        path: 'helper.py',
+        mode: 420,
+        base64: Buffer.from('BLOCK = 64\n').toString('base64'),
+      },
+    ],
+  });
+  await f.facts.write('candidates', 'entry', { ...candidate, artifactRef });
+  const measurement = await f.facts.read('measurements', 'baseline');
+  const provenance = object(
+    await f.artifacts.readJson(
+      string(object(measurement.provenance).artifactRef),
+    ),
+  );
+  const provenanceRef = await f.artifacts.putJson({
+    ...provenance,
+    artifactRef,
+  });
+  await f.facts.write('measurements', 'baseline', {
+    ...measurement,
+    provenance: {
+      ...object(measurement.provenance),
+      artifactRef: provenanceRef,
+    },
+  });
+  await assert.rejects(
+    readAnalysis(f.analysisRef, f.identity, f.context),
+    /source or cleanup mismatch/,
+  );
+});
+
+test('analysis rereads complete knowledge context beyond the former text limit', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.directory, { recursive: true, force: true }));
+  const knowledgeContext = 'External knowledge\n'.repeat(1500);
+  const analysisRef = await f.artifacts.putJson({
+    ...f.analysis,
+    knowledgeContext,
+    matches: [
+      {
+        techniqueId: 'loop_invariant_hoisting',
+        score: 0.8,
+        issueIndexes: [0],
+        sourceReference: 'knowledge/hoisting.md',
+        documentDigest: 'a'.repeat(64),
+        exampleDigest: 'b'.repeat(64),
+      },
+    ],
+  });
+  assert.equal(
+    (await readAnalysis(analysisRef, f.identity, f.context)).knowledgeContext,
+    knowledgeContext,
   );
 });
 
@@ -503,6 +673,7 @@ test('analysis checks actual conditions even if the caller repeats a forged stor
   t.after(() => rm(f.directory, { recursive: true, force: true }));
   for (const key of [
     'sourceDigest',
+    'sourceBundleDigest',
     'comparisonKey',
     'taskDigest',
     'contractDigest',
@@ -714,10 +885,18 @@ test('failed candidate history retains observable task and build identity checks
     analysisRef: f.analysisRef,
     summaryRefs: [await f.artifacts.putJson(failed)],
   });
+  object(m.conditions).artifactRef = await f.artifacts.putJson({
+    ...conditions,
+    evaluation: {},
+  });
+  await f.facts.write('measurements', 'candidate-measurement', m);
+  await assert.rejects(readHistory(historyRef, f.context), /candidateLayout/);
   for (const field of ['taskDigest', 'adapterDigest', 'sdkBuildDigest']) {
     object(m.conditions).artifactRef = await f.artifacts.putJson({
       ...conditions,
-      evaluation: null,
+      evaluation: {
+        candidateLayout: object(conditions.evaluation).candidateLayout,
+      },
       [field]: 'e'.repeat(64),
     });
     await f.facts.write('measurements', 'candidate-measurement', m);
@@ -728,7 +907,9 @@ test('failed candidate history retains observable task and build identity checks
   }
   object(m.conditions).artifactRef = await f.artifacts.putJson({
     ...conditions,
-    evaluation: null,
+    evaluation: {
+      candidateLayout: object(conditions.evaluation).candidateLayout,
+    },
   });
   await f.facts.write('measurements', 'candidate-measurement', m);
   assert.equal(

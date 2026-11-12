@@ -1,6 +1,7 @@
 import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   readFile,
   writeFile,
@@ -26,11 +27,15 @@ import {
   type OperatorProposerInput,
 } from '../../src/contracts/index.js';
 import { object, string } from '../../src/shared/json.js';
-import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
+import { parseKernelExecution } from '../../src/plugins/application-kernel/schema.js';
+import { loadOperatorTask } from '../../src/plugins/shared/operator-task.js';
+import { prepareOperatorCase } from '../../src/plugins/evaluator-operatorbench/kernel-input.js';
+import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';
+import { createOperatorProposer } from '../../src/plugins/proposer-operator/service.js';
 import {
-  createOperatorProposer,
   readHistory,
-} from '../../src/plugins/proposer-operator/service.js';
+  priorHistory,
+} from '../../src/plugins/shared/operator-attempt/service.js';
 import {
   configSchema,
   type OperatorProposerConfig,
@@ -60,19 +65,49 @@ async function setup(
     failSummary?: boolean;
     initialValid?: boolean;
     noChange?: boolean;
+    sourcePath?: string;
+    bundle?: boolean;
+    outputSource?: string;
+    outputReason?: string;
     metrics?: boolean;
     hardwareText?: string;
     invalidMetrics?: boolean;
+    noMetricsHypothesis?: boolean;
+    summaryBasis?: 'evaluation' | 'agent-report' | 'hypothesis';
+    historyWindow?: number;
     invalidSummary?: boolean;
     promptsDirectory?: string;
     editRejection?: { stage: 'generate' | 'repair'; error: Error };
     invalidEdits?: 'generate' | 'repair';
   } = {},
 ) {
-  const fixture = await prepareOperatorProposerFixture();
+  const fixture = await prepareOperatorProposerFixture(options.sourcePath);
+  if (options.bundle) {
+    await writeFile(
+      join(fixture.root, 'example/baseline/tiling.py'),
+      'BLOCK = 32\n',
+    );
+    await writeFile(
+      join(fixture.root, 'example/baseline/settings.json'),
+      '{}\n',
+    );
+    await writeFile(
+      join(fixture.root, 'example/target.yaml'),
+      stringify({
+        schemaVersion: 'rsi.target/v1',
+        id: 'bundle',
+        entries: [
+          {
+            path: 'tiling.py',
+            kind: 'file',
+            description: 'tiling',
+            changes: ['modify'],
+          },
+        ],
+      }),
+    );
+  }
   const runtime = await createRuntime({ rootDirectory: fixture.root });
-  if (!runtime.registry.catalog().plugins.includes('proposer.operator'))
-    runtime.registry.registerOperation(operatorProposerDefinition);
   const requests: OperatorProject[] = [];
   let generation = 0;
   const agent: OperationDefinition<AgentInput, AgentOutput, JsonObject> = {
@@ -89,7 +124,10 @@ async function setup(
           );
           requests.push({
             input,
-            source: await readFile(join(request.cwd, 'input.py'), 'utf8'),
+            source: await readFile(
+              join(request.cwd, 'context/sources', string(input.sourcePath)),
+              'utf8',
+            ),
             instructions: await readFile(
               join(request.cwd, 'AGENTS.md'),
               'utf8',
@@ -98,18 +136,27 @@ async function setup(
           await context.charge('modelCalls', 1);
           const stage = input.stage;
           if (stage === 'diagnose-metrics')
-            return options.invalidMetrics
-              ? { invalid: true }
-              : {
-                  category: 'vector',
-                  summary: 'Measured vector activity',
-                  reasoning: 'Use the visible scalar work as one hypothesis',
-                  rootCause: 'Scalar overhead is a hypothesis',
-                  recommendedFix: 'Hoist invariant scalar work',
-                  evidence: [
-                    { path: '/kernels/0/metrics/0/aiv_vec_ratio', value: 0.7 },
-                  ],
-                };
+            return options.noMetricsHypothesis
+              ? {
+                  status: 'no-new-hypothesis',
+                  reason: 'No distinct testable transformation remains',
+                }
+              : options.invalidMetrics
+                ? { invalid: true }
+                : {
+                    status: 'hypothesis',
+                    category: 'vector',
+                    summary: 'Measured vector activity',
+                    reasoning: 'Use the visible scalar work as one hypothesis',
+                    rootCause: 'Scalar overhead is a hypothesis',
+                    recommendedFix: 'Hoist invariant scalar work',
+                    evidence: [
+                      {
+                        path: '/kernels/0/metrics/0/aiv_vec_ratio',
+                        value: 0.7,
+                      },
+                    ],
+                  };
           if (stage === 'diagnose')
             return {
               issues: noIssues
@@ -130,9 +177,21 @@ async function setup(
           if (stage === 'summarize')
             return {
               explanation: 'Observed attempt facts; cause remains a hypothesis',
-              lessons: ['Use one hypothesis'],
-              avoidPatterns: ['Previously measured change'],
-              tryPatterns: ['Try another source-backed change'],
+              lessons: [
+                {
+                  text: 'Use one hypothesis',
+                  basis: options.summaryBasis ?? 'hypothesis',
+                },
+              ],
+              avoidPatterns: [
+                { text: 'Previously reported change', basis: 'agent-report' },
+              ],
+              tryPatterns: [
+                {
+                  text: 'Try another source-backed change',
+                  basis: 'hypothesis',
+                },
+              ],
             };
           if (stage === options.editRejection?.stage) {
             await Promise.resolve();
@@ -142,8 +201,7 @@ async function setup(
             await Promise.resolve();
             return {
               edits: [
-                { path: 'input.py', content: 'first' },
-                { path: 'other.py', content: 'second' },
+                { path: 'input.py', content: 'unauthorized replacement' },
               ],
               reason: 'Invalid response',
             };
@@ -159,8 +217,19 @@ async function setup(
           return {
             edits: options.noChange
               ? []
-              : [{ path: 'input.py', content: operatorFixtureSource(marker) }],
-            reason: `Changed ${marker}`,
+              : [
+                  {
+                    path: options.bundle
+                      ? 'tiling.py'
+                      : string(input.sourcePath),
+                    content:
+                      options.outputSource ??
+                      (options.bundle
+                        ? 'BLOCK = 64\n'
+                        : operatorFixtureSource(marker)),
+                  },
+                ],
+            reason: options.outputReason ?? `Changed ${marker}`,
           };
         },
         async dispose() {},
@@ -199,6 +268,7 @@ async function setup(
         evaluator: { contract: 'contract.operatorbench' },
         selector: { contract: 'contract.selector-metrics' },
         proposer: { contract: 'contract.proposer-operator' },
+        summarizer: { contract: 'contract.summarizer-operator' },
         agent: { contract: 'contract.agent' },
       },
       state_schema: { type: 'object', additionalProperties: false },
@@ -213,6 +283,18 @@ async function setup(
   const bindings = object(recipe.bindings);
   bindings.driver = { plugin: 'operator.driver', config: {} };
   bindings.agent = { plugin: agent.id, config: {} };
+  bindings.summarizer = {
+    plugin: 'summarizer.operator',
+    config: {
+      agentRef: 'agent',
+      promptFile: fileURLToPath(
+        new URL(
+          '../../src/policies/operator-search/prompts/summarize.md',
+          import.meta.url,
+        ),
+      ),
+    },
+  };
   bindings.proposer = {
     plugin: 'proposer.operator',
     config: {
@@ -235,6 +317,9 @@ async function setup(
       },
     },
   };
+  if (options.historyWindow !== undefined)
+    object(object(bindings.proposer).config).historyWindow =
+      options.historyWindow;
   if (options.metrics) {
     const msprof = join(fixture.root, 'msprof.mjs');
     await copyFile(
@@ -289,6 +374,274 @@ async function baseline(context: RuntimeContext) {
   );
   return { entry, baselineRef: string(evaluated.measurementRef) };
 }
+
+test('operator reads the declared bundle and edits a helper while the entry stays read-only', async (t) => {
+  const fixture = await setup(
+    async (context, requests) => {
+      const { entry, baselineRef } = await baseline(context);
+      const proposal = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 1,
+          goal: 'Optimize tiling',
+          analysisRef: null,
+          historyRef: null,
+        }),
+      );
+      assert.equal(proposal.status, 'created');
+      assert.deepEqual(requests.at(-1)?.input.editablePaths, ['tiling.py']);
+      assert.deepEqual(requests.at(-1)?.input.sourceFiles, [
+        'input.py',
+        'settings.json',
+        'tiling.py',
+      ]);
+      const candidate = await context.readCandidate(
+        string(proposal.candidateRef),
+      );
+      const space = await context.workspaces.create(candidate.artifactRef);
+      try {
+        assert.equal(
+          await readFile(join(space.directory, 'input.py'), 'utf8'),
+          fixture.entrySource,
+        );
+        assert.equal(
+          await readFile(join(space.directory, 'tiling.py'), 'utf8'),
+          'BLOCK = 64\n',
+        );
+      } finally {
+        await context.workspaces.release(space.ref);
+      }
+      return proposal;
+    },
+    false,
+    { bundle: true, initialValid: true },
+  );
+  t.after(() => fixture.dispose());
+  const result = await fixture.runtime.manager.run(fixture.recipePath, {
+    id: 'operator-bundle',
+  });
+  assert.equal(result.status, 'succeeded', JSON.stringify(result));
+});
+
+test('helper-only candidates retain comparison conditions and profile the matching bundle', async (t) => {
+  const fixture = await setup(
+    async (context) => {
+      const { entry, baselineRef } = await baseline(context);
+      const proposal = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 1,
+          goal: 'Tune helper',
+          analysisRef: null,
+          historyRef: null,
+        }),
+      );
+      const candidateRef = string(proposal.candidateRef);
+      const evaluated = object(
+        await context.invoke('evaluator', {
+          action: 'evaluate',
+          candidateRef,
+          caseIds: ['fixed'],
+        }),
+      );
+      const before = await context.readMeasurement(baselineRef);
+      const after = await context.readMeasurement(
+        string(evaluated.measurementRef),
+      );
+      assert.equal(before.comparisonKey, after.comparisonKey);
+      const provenance = async (measurement: JsonObject) =>
+        object(
+          await context.artifacts.readJson(
+            string(object(measurement.provenance).artifactRef),
+          ),
+        );
+      const original = await provenance(before);
+      const changed = await provenance(after);
+      assert.equal(original.sourceDigest, changed.sourceDigest);
+      assert.notEqual(original.sourceBundleDigest, changed.sourceBundleDigest);
+      const native = object(
+        await context.artifacts.readJson(string(after.diagnosticsRef)),
+      );
+      await context.withInstance(candidateRef, 'kernel-source', async (raw) => {
+        const prepared = await prepareOperatorCase({
+          task: await loadOperatorTask(join(fixture.root, 'example/task')),
+          selected: { id: 'fixed', seed: 42 },
+          execution: parseKernelExecution(raw),
+          manifest: join(context.directory, 'lock-check/manifest.json'),
+          operation: 'evaluate',
+          editablePaths: ['tiling.py'],
+        });
+        const altered = structuredClone(native);
+        const files = object(object(object(altered.snapshot).run).source).files;
+        assert.ok(Array.isArray(files));
+        const helper = files
+          .map((value) => object(value))
+          .find((file) => file.path === 'data/candidate/tiling.py');
+        assert.ok(helper);
+        helper.sha256 = '0'.repeat(64);
+        assert.throws(
+          () => adaptSdkResult(altered, prepared),
+          /source inventory identity mismatch/,
+        );
+      });
+      const profiled = object(
+        await context.invoke('evaluator', {
+          action: 'profile',
+          candidateRef,
+          caseIds: ['fixed'],
+          assessmentMeasurementRef: after.ref,
+        }),
+      );
+      assert.equal(profiled.collectionStatus, 'completed');
+      const measurement = await context.readMeasurement(
+        string(profiled.measurementRef),
+      );
+      const details = object(
+        await context.artifacts.readJson(
+          string(object(measurement.profile).artifactRef),
+        ),
+      );
+      assert.equal(details.sourceBundleDigest, changed.sourceBundleDigest);
+      const members = object(
+        object(object(details.profile).metadata).sources,
+      ).candidateFiles;
+      assert.ok(Array.isArray(members));
+      assert.deepEqual(
+        members.map((value) => object(value).path),
+        ['input.py', 'settings.json', 'tiling.py'],
+      );
+      assert.equal(
+        object(members[2]).sha256,
+        createHash('sha256').update('BLOCK = 64\n').digest('hex'),
+      );
+      return proposal;
+    },
+    false,
+    { bundle: true, initialValid: true, metrics: true },
+  );
+  t.after(() => fixture.dispose());
+  const result = await fixture.runtime.manager.run(fixture.recipePath, {
+    id: 'bundle-profile',
+  });
+  assert.equal(result.status, 'succeeded');
+});
+
+test('standalone summaries preserve the complete rationale after proposal resources become unavailable', async (t) => {
+  const promptsDirectory = await mkdtemp(
+    join(tmpdir(), 'summary-without-proposer-'),
+  );
+  t.after(() => rm(promptsDirectory, { recursive: true, force: true }));
+  await cp(
+    new URL('../../src/policies/operator-search/prompts/', import.meta.url),
+    promptsDirectory,
+    { recursive: true },
+  );
+  const rationale =
+    'Detailed invariant evidence. '.repeat(200) + 'Final rationale detail.';
+  const fixture = await setup(
+    async (context, requests) => {
+      const { entry, baselineRef } = await baseline(context);
+      const proposal = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 1,
+          goal: 'Preserve all supported rationale',
+          analysisRef: null,
+          historyRef: null,
+        }),
+      );
+      assert.equal(proposal.status, 'no-change');
+      await rm(join(promptsDirectory, 'generate.md'));
+      await rm(fixture.resourcesDirectory, { recursive: true });
+      const summary = object(
+        await context.invoke('summarizer', {
+          action: 'summarize',
+          actions: [proposal],
+          phase: 'static',
+          entryCandidateRef: entry,
+          analysisRef: proposal.analysisRef,
+          historyRef: null,
+          attempt: 1,
+          candidateRefs: [entry],
+          measurementRefs: [],
+          decisionRef: null,
+          outcome: 'no-change',
+        }),
+      );
+      const history = await readHistory(string(summary.historyRef), context);
+      assert.equal(history.summaries[0]!.actionSummary, rationale);
+      const summaryRequest = requests.find(
+        (request) => object(request.input).stage === 'summarize',
+      )!;
+      assert.equal(object(summaryRequest.input).actionSummary, rationale);
+      return summary;
+    },
+    false,
+    { noChange: true, outputReason: rationale, promptsDirectory },
+  );
+  t.after(() => fixture.dispose());
+  assert.equal(
+    (
+      await fixture.runtime.manager.run(fixture.recipePath, {
+        id: 'complete-static-rationale',
+      })
+    ).status,
+    'succeeded',
+  );
+});
+
+test('the summarizer rejects a measurement belonging to the parent instead of the proposed candidate', async (t) => {
+  const fixture = await setup(async (context) => {
+    const { entry, baselineRef } = await baseline(context);
+    const proposal = object(
+      await context.invoke('proposer', {
+        action: 'propose',
+        phase: 'static',
+        entryCandidateRef: entry,
+        baselineMeasurementRef: baselineRef,
+        analysisRef: null,
+        historyRef: null,
+        attempt: 1,
+        goal: 'Optimize',
+      }),
+    );
+    assert.equal(proposal.status, 'created');
+    return object(
+      await context.invoke('summarizer', {
+        action: 'summarize',
+        actions: [proposal],
+        phase: 'static',
+        entryCandidateRef: entry,
+        analysisRef: proposal.analysisRef,
+        historyRef: null,
+        attempt: 1,
+        candidateRefs: [proposal.candidateRef],
+        measurementRefs: [baselineRef],
+        decisionRef: null,
+        outcome: 'verification-failed',
+      }),
+    );
+  });
+  t.after(() => fixture.dispose());
+  await assert.rejects(
+    fixture.runtime.manager.run(fixture.recipePath, {
+      id: 'foreign-assessment',
+    }),
+    /assessment candidate, source or cleanup mismatch/,
+  );
+  assert.ok(
+    fixture.requests.every((request) => request.input.stage !== 'summarize'),
+  );
+});
 
 test('operator generation receives configured prompts and rejects analysis after prompt changes', async (t) => {
   const promptsDirectory = await mkdtemp(join(tmpdir(), 'operator-prompts-'));
@@ -356,108 +709,124 @@ test('operator generation receives configured prompts and rejects analysis after
   assert.equal(result.status, 'succeeded');
 });
 
-test('operator Proposer performs independent diagnosis/generation, repairs failed source and delivers the measured summary to a fresh entry proposal', async (t) => {
-  const fixture = await setup(async (context, requests) => {
-    const { entry, baselineRef } = await baseline(context);
-    const first = object(
-      await context.invoke('proposer', {
-        action: 'propose',
-        phase: 'static',
-        entryCandidateRef: entry,
-        baselineMeasurementRef: baselineRef,
-        attempt: 1,
-        goal: 'Optimize',
-        analysisRef: null,
-        historyRef: null,
-      }),
-    );
-    assert.equal(first.status, 'created');
-    const failed = object(
-      await context.invoke('evaluator', {
-        action: 'evaluate',
-        candidateRef: first.candidateRef,
-        caseIds: ['fixed'],
-      }),
-    );
-    const repaired = object(
-      await context.invoke('proposer', {
-        action: 'repair',
-        phase: 'static',
-        failedCandidateRef: first.candidateRef,
-        measurementRef: failed.measurementRef,
-        analysisRef: first.analysisRef,
-        historyRef: null,
-        attempt: 1,
-        repairIndex: 1,
-        goal: 'Repair',
-      }),
-    );
-    const measured = object(
-      await context.invoke('evaluator', {
-        action: 'evaluate',
-        candidateRef: repaired.candidateRef,
-        caseIds: ['fixed'],
-      }),
-    );
-    const decision = object(
-      await context.invoke('selector', {
-        incumbentMeasurementRef: baselineRef,
-        candidateMeasurementRef: measured.measurementRef,
-      }),
-    );
-    const summary = object(
-      await context.invoke('proposer', {
-        action: 'summarize',
-        phase: 'static',
-        entryCandidateRef: entry,
-        analysisRef: first.analysisRef,
-        historyRef: null,
-        attempt: 1,
-        candidateRefs: [first.candidateRef, repaired.candidateRef],
-        measurementRefs: [failed.measurementRef, measured.measurementRef],
-        decisionRef: decision.decisionRef,
-        outcome: 'verified-no-gain',
-      }),
-    );
-    const history = await readHistory(string(summary.historyRef), context);
-    assert.equal(history.summaries[0]!.facts.candidateMs, 12);
-    const next = object(
-      await context.invoke('proposer', {
-        action: 'propose',
-        phase: 'static',
-        entryCandidateRef: entry,
-        baselineMeasurementRef: baselineRef,
-        attempt: 2,
-        goal: 'Optimize differently',
-        analysisRef: first.analysisRef,
-        historyRef: summary.historyRef,
-      }),
-    );
-    assert.equal(next.status, 'created');
-    assert.deepEqual(
-      requests.map((request) => object(request.input).stage),
-      ['diagnose', 'generate', 'repair', 'summarize', 'generate'],
-    );
-    const nextInput = object(requests[4]!.input);
-    assert.match(JSON.stringify(nextInput.history), /Use one hypothesis/);
-    assert.match(JSON.stringify(nextInput.history), /candidateMs.*12/);
-    assert.equal(
-      requests[4]!.source,
-      operatorFixtureSource('fixture:latency=10'),
-    );
-    assert.equal(
-      requests[2]!.source,
-      operatorFixtureSource('fixture:incorrect'),
-    );
-    assert.match(
-      JSON.stringify(object(requests[2]!.input).evidence),
-      /KERNEL_CONTRACT_FAILED/,
-    );
-    const child = await context.readCandidate(string(next.candidateRef));
-    assert.equal(child.parentRef, entry);
-    return { ...next, historyRef: summary.historyRef };
-  });
+test('operator Proposer repairs a failed multi-file candidate and delivers the measured summary to a fresh entry proposal', async (t) => {
+  const fixture = await setup(
+    async (context, requests) => {
+      const { entry, baselineRef } = await baseline(context);
+      const first = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 1,
+          goal: 'Optimize',
+          analysisRef: null,
+          historyRef: null,
+        }),
+      );
+      assert.equal(first.status, 'created');
+      const failed = object(
+        await context.invoke('evaluator', {
+          action: 'evaluate',
+          candidateRef: first.candidateRef,
+          caseIds: ['fixed'],
+        }),
+      );
+      const repaired = object(
+        await context.invoke('proposer', {
+          action: 'repair',
+          phase: 'static',
+          failedCandidateRef: first.candidateRef,
+          measurementRef: failed.measurementRef,
+          analysisRef: first.analysisRef,
+          historyRef: null,
+          attempt: 1,
+          repairIndex: 1,
+          goal: 'Repair',
+        }),
+      );
+      const measured = object(
+        await context.invoke('evaluator', {
+          action: 'evaluate',
+          candidateRef: repaired.candidateRef,
+          caseIds: ['fixed'],
+        }),
+      );
+      const decision = object(
+        await context.invoke('selector', {
+          incumbentMeasurementRef: baselineRef,
+          candidateMeasurementRef: measured.measurementRef,
+        }),
+      );
+      const summary = object(
+        await context.invoke('summarizer', {
+          action: 'summarize',
+          actions: [first, repaired],
+          phase: 'static',
+          entryCandidateRef: entry,
+          analysisRef: first.analysisRef,
+          historyRef: null,
+          attempt: 1,
+          candidateRefs: [first.candidateRef, repaired.candidateRef],
+          measurementRefs: [failed.measurementRef, measured.measurementRef],
+          decisionRef: decision.decisionRef,
+          outcome: 'verified-no-gain',
+        }),
+      );
+      const history = await readHistory(string(summary.historyRef), context);
+      assert.equal(history.summaries[0]!.facts.candidateMs, 12);
+      const next = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'static',
+          entryCandidateRef: entry,
+          baselineMeasurementRef: baselineRef,
+          attempt: 2,
+          goal: 'Optimize differently',
+          analysisRef: first.analysisRef,
+          historyRef: summary.historyRef,
+        }),
+      );
+      assert.equal(next.status, 'created');
+      assert.deepEqual(
+        requests.map((request) => object(request.input).stage),
+        ['diagnose', 'generate', 'repair', 'summarize', 'generate'],
+      );
+      const nextInput = object(requests[4]!.input);
+      assert.match(JSON.stringify(nextInput.history), /Use one hypothesis/);
+      assert.match(JSON.stringify(nextInput.history), /candidateMs.*12/);
+      assert.equal(
+        requests[4]!.source,
+        operatorFixtureSource('fixture:latency=10'),
+      );
+      assert.equal(
+        requests[2]!.source,
+        operatorFixtureSource('fixture:incorrect'),
+      );
+      assert.match(
+        JSON.stringify(object(requests[2]!.input).evidence),
+        /KERNEL_CONTRACT_FAILED/,
+      );
+      const child = await context.readCandidate(string(next.candidateRef));
+      assert.equal(child.parentRef, entry);
+      for (const request of requests) {
+        assert.equal(request.input.sourcePath, 'kernels/transpose[0].py');
+        assert.deepEqual(request.input.sourceFiles, [
+          'kernels/constants.py',
+          'kernels/transpose[0].py',
+        ]);
+      }
+      return { ...next, historyRef: summary.historyRef };
+    },
+    false,
+    { sourcePath: 'kernels/transpose[0].py' },
+  );
   t.after(() => fixture.dispose());
+  await writeFile(
+    join(fixture.root, 'example/baseline/kernels/constants.py'),
+    'BLOCK = 32\n',
+  );
   const result = await fixture.runtime.manager.run(fixture.recipePath, {
     id: 'operator-actions',
   });
@@ -538,8 +907,9 @@ test('operator summary model failure preserves completed effects and blocks repl
         }),
       );
       return object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [proposed],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: proposed.analysisRef,
@@ -639,15 +1009,15 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
           }),
         );
         const summarized = object(
-          await context.invoke('proposer', {
+          await context.invoke('summarizer', {
             action: 'summarize',
+            actions: [proposed],
             phase: 'metrics',
             parentCandidateRef: parent,
             incumbentMeasurementRef: incumbent,
             analysisRef: proposed.analysisRef,
             round,
             historyRef,
-            staticHistoryRef: null,
             candidateRefs: [proposed.candidateRef],
             measurementRefs: [assessed.measurementRef],
             decisionRef: selected.decisionRef,
@@ -666,6 +1036,14 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
       const analyses = requests.filter(
         (request) => object(request.input).stage === 'diagnose-metrics',
       );
+      const summaries = requests.filter(
+        (request) => request.input.stage === 'summarize',
+      );
+      assert.equal(summaries.length, 2);
+      for (const { input } of summaries) {
+        assert.equal(input.history, undefined);
+        assert.equal(input.staticHistory, undefined);
+      }
       assert.equal(generates.length, 2);
       assert.equal(analyses.length, 2);
       assert.equal(object(generates[0]!.input).hardwareContext, hardwareText);
@@ -676,6 +1054,11 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
         JSON.stringify(object(generates[1]!.input).history),
         /candidateMs.*9/,
       );
+      const history = generates[1]!.input.history;
+      assert.ok(Array.isArray(history));
+      assert.deepEqual(object(history[0]).lessons, [
+        { text: 'Use one hypothesis', basis: 'evaluation' },
+      ]);
       assert.equal(
         generates[1]!.source,
         operatorFixtureSource('fixture:latency=9'),
@@ -683,7 +1066,12 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
       return { parent, historyRef };
     },
     false,
-    { metrics: true, initialValid: true, hardwareText },
+    {
+      metrics: true,
+      initialValid: true,
+      hardwareText,
+      summaryBasis: 'evaluation',
+    },
   );
   t.after(() => fixture.dispose());
   const result = await fixture.runtime.manager.run(fixture.recipePath, {
@@ -763,15 +1151,15 @@ test('metric repairs use the failed candidate and deliver the complete user hard
         }),
       );
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [proposed, repaired],
           phase: 'metrics',
           parentCandidateRef: entry,
           incumbentMeasurementRef: baselineRef,
           analysisRef: proposed.analysisRef,
           round: 1,
           historyRef: null,
-          staticHistoryRef: null,
           candidateRefs: [proposed.candidateRef, repaired.candidateRef],
           measurementRefs: [failed.measurementRef, assessed.measurementRef],
           decisionRef: selection.decisionRef,
@@ -807,7 +1195,7 @@ test('metric repairs use the failed candidate and deliver the complete user hard
   );
 });
 
-test('invalid metric analysis retains error evidence and fact history so later rounds can continue', async (t) => {
+test('invalid metric analysis rereads fact history through twelve rounds beyond former ceilings', async (t) => {
   const fixture = await setup(
     async (context, requests) => {
       const { entry, baselineRef } = await baseline(context);
@@ -820,7 +1208,7 @@ test('invalid metric analysis retains error evidence and fact history so later r
         }),
       );
       let historyRef = null;
-      for (let round = 1; round <= 2; round++) {
+      for (let round = 1; round <= 12; round++) {
         const result = object(
           await context.invoke('proposer', {
             action: 'propose',
@@ -842,15 +1230,15 @@ test('invalid metric analysis retains error evidence and fact history so later r
           'metrics',
         );
         const summary = object(
-          await context.invoke('proposer', {
+          await context.invoke('summarizer', {
             action: 'summarize',
+            actions: [result],
             phase: 'metrics',
             parentCandidateRef: entry,
             incumbentMeasurementRef: baselineRef,
             analysisRef: result.analysisRef,
             round,
             historyRef,
-            staticHistoryRef: null,
             candidateRefs: [],
             measurementRefs: [],
             decisionRef: null,
@@ -868,12 +1256,18 @@ test('invalid metric analysis retains error evidence and fact history so later r
         requests.filter(
           (request) => object(request.input).stage === 'diagnose-metrics',
         ).length,
-        2,
+        12,
       );
+      for (const request of requests.filter(
+        (r) => object(r.input).stage === 'diagnose-metrics',
+      ))
+        assert.deepEqual(object(request.input).history, []);
+      const history = object(await context.artifacts.readJson(historyRef!));
+      assert.equal((history.summaryRefs as string[]).length, 12);
       return { historyRef };
     },
     false,
-    { metrics: true, invalidMetrics: true },
+    { metrics: true, invalidMetrics: true, historyWindow: 0 },
   );
   t.after(() => fixture.dispose());
   assert.equal(
@@ -884,6 +1278,68 @@ test('invalid metric analysis retains error evidence and fact history so later r
     ).status,
     'succeeded',
   );
+});
+
+test('operator source bytes follow the explicit Application Target rather than a proposer ceiling', async (t) => {
+  const outputSource =
+    operatorFixtureSource('fixture:latency=8') + `# ${'€'.repeat(12000)}\n`;
+  for (const permitted of [true, false]) {
+    const fixture = await setup(
+      async (context) => {
+        const { entry, baselineRef } = await baseline(context);
+        return object(
+          await context.invoke('proposer', {
+            action: 'propose',
+            phase: 'static',
+            entryCandidateRef: entry,
+            baselineMeasurementRef: baselineRef,
+            attempt: 1,
+            goal: 'Apply the complete authorized source',
+            analysisRef: null,
+            historyRef: null,
+          }),
+        );
+      },
+      false,
+      { initialValid: true, outputSource },
+    );
+    t.after(() => fixture.dispose());
+    if (permitted) {
+      const targetPath = join(fixture.root, 'example/target.yaml');
+      const target = object(parse(await readFile(targetPath, 'utf8')));
+      object(object((target.entries as JsonObject[])[0]).content).maxBytes =
+        65536;
+      object(target.constraints).maxChangedBytes = 65536;
+      await writeFile(targetPath, stringify(target));
+      const result = await fixture.runtime.manager.run(fixture.recipePath, {
+        id: 'large-source-permitted',
+      });
+      assert.equal(object(result.output).status, 'created');
+      const candidate = await fixture.runtime.manager.facts.read(
+        'candidates',
+        string(object(result.output).candidateRef),
+      );
+      const tree = object(
+        await fixture.runtime.manager.artifacts.readJson(
+          string(candidate.artifactRef),
+        ),
+      );
+      assert.equal(
+        Buffer.from(
+          string(object((tree.files as JsonObject[])[0]).base64),
+          'base64',
+        ).toString('utf8'),
+        outputSource,
+      );
+    } else {
+      await assert.rejects(
+        fixture.runtime.manager.run(fixture.recipePath, {
+          id: 'large-source-rejected',
+        }),
+        /content|size|bytes/i,
+      );
+    }
+  }
 });
 
 test('invalid static summary output preserves a fact-only summary with an explicit unavailable status', async (t) => {
@@ -903,8 +1359,9 @@ test('invalid static summary output preserves a fact-only summary with an explic
         }),
       );
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [proposal],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: proposal.analysisRef,
@@ -975,8 +1432,9 @@ for (const abortAt of ['summary', 'history'] as const)
         };
         try {
           return object(
-            await context.invoke('proposer', {
+            await context.invoke('summarizer', {
               action: 'summarize',
+              actions: [proposal],
               phase: 'static',
               entryCandidateRef: entry,
               analysisRef: proposal.analysisRef,
@@ -1006,7 +1464,7 @@ for (const abortAt of ['summary', 'history'] as const)
     const calls = await fixture.runtime.manager.facts.list('calls');
     const summarized = calls.filter(
       (call) =>
-        call.pluginId === 'proposer.operator' &&
+        call.pluginId === 'summarizer.operator' &&
         object(call.input).action === 'summarize',
     );
     assert.equal(summarized.length, 1);
@@ -1043,10 +1501,14 @@ test('asynchronous invalid generation retains error evidence and history for the
       assert.equal(error.stage, 'propose');
       assert.equal(error.phase, 'static');
       assert.equal(error.attempt, 1);
-      assert.match(string(error.message), /more than 1 items/);
+      assert.match(
+        string(error.message),
+        /edits\/0\/path must be equal to one of the allowed values/,
+      );
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [first],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: first.analysisRef,
@@ -1089,7 +1551,7 @@ test('asynchronous invalid generation retains error evidence and history for the
       return next;
     },
     false,
-    { invalidEdits: 'generate' },
+    { invalidEdits: 'generate', sourcePath: 'kernels/transpose.py' },
   );
   t.after(() => fixture.dispose());
   assert.equal(
@@ -1148,8 +1610,9 @@ test('asynchronous invalid repair retains the failed source and repair error wit
       assert.equal(error.stage, 'repair');
       assert.equal(error.phase, 'static');
       const summary = object(
-        await context.invoke('proposer', {
+        await context.invoke('summarizer', {
           action: 'summarize',
+          actions: [first, repair],
           phase: 'static',
           entryCandidateRef: entry,
           analysisRef: first.analysisRef,
@@ -1166,7 +1629,7 @@ test('asynchronous invalid repair retains the failed source and repair error wit
       return summary;
     },
     false,
-    { invalidEdits: 'repair' },
+    { invalidEdits: 'repair', sourcePath: 'kernels/transpose.py' },
   );
   t.after(() => fixture.dispose());
   assert.equal(
@@ -1211,5 +1674,175 @@ for (const [label, error] of [
       (failure: unknown) =>
         failure instanceof Error && failure.message.includes(error.message),
     );
+  });
+}
+
+for (const repair of [false, true]) {
+  test(
+    repair
+      ? 'metric repair rejects an absent hypothesis'
+      : 'metric diagnosis can finish without retrieval, generation or candidate commit',
+    async (t) => {
+      const fixture = await setup(
+        async (context, requests) => {
+          const { entry, baselineRef } = await baseline(context);
+          const diagnostic = object(
+            await context.invoke('evaluator', {
+              action: 'profile',
+              candidateRef: entry,
+              caseIds: ['fixed'],
+              assessmentMeasurementRef: baselineRef,
+            }),
+          );
+          const proposal = object(
+            await context.invoke('proposer', {
+              action: 'propose',
+              phase: 'metrics',
+              parentCandidateRef: entry,
+              incumbentMeasurementRef: baselineRef,
+              diagnosticMeasurementRef: diagnostic.measurementRef,
+              round: 1,
+              historyRef: null,
+              staticHistoryRef: null,
+              goal: 'Find a distinct testable hypothesis',
+            }),
+          );
+          assert.equal(proposal.status, 'no-change');
+          assert.equal(proposal.reasonCode, 'no-new-hypothesis');
+          assert.equal(proposal.candidateRef, entry);
+          assert.equal(
+            proposal.rationale,
+            'No distinct testable transformation remains',
+          );
+          assert.deepEqual(
+            requests.map(({ input }) => input.stage),
+            ['diagnose-metrics'],
+          );
+          const analysis = object(
+            await context.artifacts.readJson(string(proposal.analysisRef)),
+          );
+          assert.equal(analysis.retrievalStatus, 'skipped');
+          assert.equal(analysis.retrievalRef, null);
+          assert.deepEqual(analysis.diagnosis, {
+            status: 'no-new-hypothesis',
+            reason: 'No distinct testable transformation remains',
+          });
+          const summary = object(
+            await context.invoke('summarizer', {
+              action: 'summarize',
+              phase: 'metrics',
+              parentCandidateRef: entry,
+              incumbentMeasurementRef: baselineRef,
+              round: 1,
+              analysisRef: proposal.analysisRef,
+              historyRef: null,
+              actions: [proposal],
+              candidateRefs: [entry],
+              measurementRefs: [],
+              decisionRef: null,
+              candidateDiagnosticMeasurementRef: null,
+              outcome: 'no-change',
+            }),
+          );
+          const stored = object(
+            await context.artifacts.readJson(string(summary.summaryRef)),
+          );
+          assert.equal(object(stored.facts).candidateMs, null);
+          assert.equal(object(stored.facts).accepted, false);
+          const history = await priorHistory(
+            string(summary.historyRef),
+            2,
+            entry,
+            context,
+          );
+          assert.equal(history.summaries[0]!.facts.outcome, 'no-change');
+          if (repair)
+            await context.invoke('proposer', {
+              action: 'repair',
+              phase: 'metrics',
+              failedCandidateRef: entry,
+              measurementRef: baselineRef,
+              analysisRef: proposal.analysisRef,
+              round: 1,
+              repairIndex: 1,
+              historyRef: null,
+              staticHistoryRef: null,
+              goal: 'Do not repair an absent hypothesis',
+            });
+          return proposal;
+        },
+        false,
+        { metrics: true, noMetricsHypothesis: true },
+      );
+      t.after(() => fixture.dispose());
+      const run = () =>
+        fixture.runtime.manager.run(fixture.recipePath, {
+          id: 'no-metric-hypothesis',
+        });
+      if (repair)
+        await assert.rejects(
+          run,
+          /Metric repair requires a completed analysis/,
+        );
+      else assert.equal((await run()).status, 'succeeded');
+    },
+  );
+}
+
+for (const basis of ['evaluation', 'agent-report', 'hypothesis'] as const) {
+  test(`unmeasured summary ${basis} claims retain their actual evidence strength`, async (t) => {
+    const fixture = await setup(
+      async (context) => {
+        const { entry, baselineRef } = await baseline(context);
+        const proposal = object(
+          await context.invoke('proposer', {
+            action: 'propose',
+            phase: 'static',
+            entryCandidateRef: entry,
+            baselineMeasurementRef: baselineRef,
+            attempt: 1,
+            goal: 'Find a testable change',
+            analysisRef: null,
+            historyRef: null,
+          }),
+        );
+        const summary = object(
+          await context.invoke('summarizer', {
+            action: 'summarize',
+            phase: 'static',
+            entryCandidateRef: entry,
+            attempt: 1,
+            analysisRef: proposal.analysisRef,
+            historyRef: null,
+            actions: [proposal],
+            candidateRefs: [entry],
+            measurementRefs: [],
+            decisionRef: null,
+            outcome: 'no-change',
+          }),
+        );
+        const stored = object(
+          await context.artifacts.readJson(string(summary.summaryRef)),
+        );
+        assert.equal(
+          stored.summaryStatus,
+          basis === 'evaluation' ? 'unavailable' : 'available',
+        );
+        if (basis !== 'evaluation')
+          assert.deepEqual(stored.lessons, [
+            { text: 'Use one hypothesis', basis },
+          ]);
+        else
+          assert.match(string(stored.explanation), /evaluation.*measurement/i);
+        return summary;
+      },
+      true,
+      { summaryBasis: basis },
+    );
+    t.after(() => fixture.dispose());
+    const result = await fixture.runtime.manager.run(fixture.recipePath, {
+      id: `summary-basis-${basis}`,
+    });
+    assert.equal(result.status, 'succeeded');
   });
 }

@@ -12,6 +12,7 @@ import type {
   IterativeProposerOutput,
   IterativeProposerWork,
 } from '../../contracts/plugin-types/proposer-iterative.js';
+import { literalPathPattern } from '../shared/file-application/target.js';
 import {
   configSchema,
   type PromptModule,
@@ -60,19 +61,6 @@ function safePath(path: string): string {
       `Pareto evolution proposer module path is not a safe bundle-relative path: ${path}`,
     );
   return path;
-}
-
-function literalModulePattern(path: string): string {
-  // Node expands braces before parsing character classes, even in `[{]a,b[}]`.
-  // Complement ranges represent braces exactly without triggering expansion;
-  // backslash escapes cannot be used because Windows normalizes them as separators.
-  return path.replace(/[*?[\]{}()+@]/g, (character) =>
-    character === '{'
-      ? '[^\u0000-z|-\uffff]'
-      : character === '}'
-        ? '[^\u0000-|~-\uffff]'
-        : `[${character}]`,
-  );
 }
 
 export function validateModules(modules: readonly PromptModule[]): void {
@@ -594,7 +582,7 @@ async function prepareRound(
       goal: `${settings.goal}\nRevise only module ${module.id} (${module.path}) using the supplied evaluation evidence.`,
       editConstraints: {
         ...constraints,
-        allowedPaths: [literalModulePattern(module.path)],
+        allowedPaths: [literalPathPattern(module.path)],
         maxChangedFiles:
           typeof constraints.maxChangedFiles === 'number'
             ? Math.min(1, constraints.maxChangedFiles)

@@ -74,6 +74,27 @@ test('large ranges and explicit foreach concurrency pass the former DSL ceilings
   });
   assert.equal(await policy.execute(options()), 10001);
 });
+
+test('Loop bounds accept safe integers above 100000 for literal and evaluated limits', async () => {
+  for (const maxIterations of [
+    Number.MAX_SAFE_INTEGER,
+    '${{ input.maximum }}',
+  ]) {
+    const policy = new Policy({
+      ...base,
+      steps: [
+        { id: 'repeat', type: 'loop', maxIterations, while: false, steps: [] },
+      ],
+    });
+    assert.equal(
+      await policy.execute({
+        ...options(),
+        input: { maximum: Number.MAX_SAFE_INTEGER },
+      }),
+      0,
+    );
+  }
+});
 test('journal recovery skips completed containers and replays control at the nearest loop', async () => {
   const policy = new Policy({
     ...base,

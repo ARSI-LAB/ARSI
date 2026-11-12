@@ -4,7 +4,7 @@ import { parseConfig } from '../../shared/schema.js';
 import { missingPath, resolveAgent } from '../shared/doctor/checks.js';
 import { loadOperatorTask } from '../shared/operator-task.js';
 import type { OperatorProposerConfig } from './schema.js';
-import { loadOperatorResources, readHardwareContext } from './service.js';
+import { loadOperatorResources, readHardwareContext } from './resources.js';
 
 export async function checkOperatorProposer(
   context: DoctorContext,

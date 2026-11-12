@@ -9,7 +9,7 @@ import { piDefinition } from '../../src/plugins/agent-pi/index.js';
 import { object } from '../../src/shared/json.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
-import { requestOperatorAgent } from '../../src/plugins/proposer-operator/service.js';
+import { requestOperatorAgent } from '../../src/plugins/shared/operator-attempt/agent.js';
 
 async function projectContext(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-operator-stage-'));
@@ -28,7 +28,7 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
     signal: new AbortController().signal,
     async invokeAgent(this: RuntimeContext, binding, request) {
       assert.equal(binding, 'agent');
-      assert.equal(this.scope?.limits.modelCalls, 24);
+      assert.equal(this.scope?.limits.modelCalls, undefined);
       assert.ok(typeof request.cwd === 'string');
       assert.deepEqual(Object.keys(request).sort(), [
         'cwd',
@@ -36,14 +36,22 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
         'outputSchema',
       ]);
       assert.equal(
-        await readFile(join(request.cwd, 'input.py'), 'utf8'),
+        await readFile(
+          join(request.cwd, 'context/sources/kernels/add.py'),
+          'utf8',
+        ),
         'authorized source',
       );
       assert.deepEqual(
         JSON.parse(
           await readFile(join(request.cwd, 'context/input.json'), 'utf8'),
         ),
-        { hardwareContext: 'authorized hardware context' },
+        {
+          hardwareContext: 'authorized hardware context',
+          sourcePath: 'kernels/add.py',
+          sourceFiles: ['kernels/add.py'],
+          editablePaths: ['kernels/add.py'],
+        },
       );
       assert.match(
         await readFile(join(request.cwd, 'AGENTS.md'), 'utf8'),
@@ -58,7 +66,10 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
   const request = {
     goal: 'Test',
     prompt: 'test',
-    files: { 'input.py': 'authorized source' },
+    sourcePath: 'kernels/add.py',
+    sourceFiles: ['kernels/add.py'],
+    editablePaths: ['kernels/add.py'],
+    files: { 'context/sources/kernels/add.py': 'authorized source' },
     input: { hardwareContext: 'authorized hardware context' },
     outputSchema: { type: 'object' },
   };
@@ -80,6 +91,127 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
     ),
     /scope/i,
   );
+});
+
+test('operator profile snapshots remain readable in chunks by the Agent read tool', async (t) => {
+  const metrics = Object.fromEntries(
+    Array.from({ length: 1500 }, (_, index) => [
+      String(index) + '核/vector~0',
+      { 'aiv_gm_to_ub_bw(GB/s)': 32.414, aiv_vec_ratio: 0.955 },
+    ]),
+  );
+  const input = { profile: { kernels: [{ metrics }] } };
+  const context = (await projectContext(t)).extend({
+    experimentId: 'large-profile',
+    callId: 'diagnose-metrics',
+    signal: new AbortController().signal,
+    async invokeAgent(_binding, request) {
+      const text = await readFile(
+        join(request.cwd, 'context/input.json'),
+        'utf8',
+      );
+      assert.ok(Buffer.byteLength(text) > 50 * 1024);
+      // Pi's read tool cannot return a single line exceeding its 50 KiB window.
+      assert.ok(
+        text.split('\n').every((line) => Buffer.byteLength(line) < 50 * 1024),
+      );
+      assert.deepEqual(object(JSON.parse(text)).profile, input.profile);
+      return {};
+    },
+  });
+  await requestOperatorAgent(
+    'diagnose-metrics',
+    'agent',
+    {
+      goal: 'Read the measured profile',
+      prompt: 'Return the measured bottleneck',
+      input,
+      sourcePath: 'input.py',
+      sourceFiles: ['input.py'],
+      editablePaths: ['input.py'],
+      files: {},
+      outputSchema: { type: 'object' },
+    },
+    context,
+  );
+});
+
+test('operator stages forward authorized snapshots above 2 MiB without an implicit evidence cap', async (t) => {
+  const source = 'x'.repeat(2 * 1024 * 1024 + 1);
+  const context = (await projectContext(t)).extend({
+    experimentId: 'large-snapshot',
+    callId: 'generate',
+    signal: new AbortController().signal,
+    async invokeAgent(this: RuntimeContext, _binding, request) {
+      assert.equal(
+        await readFile(
+          join(request.cwd, 'context/sources/kernels/add.py'),
+          'utf8',
+        ),
+        source,
+      );
+      assert.equal(this.scope?.limits.evidenceBytes, undefined);
+      return { accepted: true };
+    },
+  });
+  assert.deepEqual(
+    await requestOperatorAgent(
+      'generate',
+      'agent',
+      {
+        goal: 'Inspect the complete authorized source',
+        prompt: 'Return JSON',
+        sourcePath: 'kernels/add.py',
+        sourceFiles: ['kernels/add.py'],
+        editablePaths: ['kernels/add.py'],
+        files: { 'context/sources/kernels/add.py': source },
+        input: {},
+        outputSchema: { type: 'object' },
+      },
+      context,
+    ),
+    { accepted: true },
+  );
+});
+
+test('operator stage timeout can be disabled while parent cancellation still propagates', async (t) => {
+  const parent = new AbortController();
+  const cancelled = new Error('Explicit parent cancellation');
+  const context = (await projectContext(t)).extend({
+    experimentId: 'no-local-deadline',
+    callId: 'generate',
+    signal: parent.signal,
+    async invokeAgent(this: RuntimeContext) {
+      assert.equal(this.scope?.limits.elapsedWallMs, undefined);
+      return new Promise<never>((_resolve, reject) => {
+        this.signal.addEventListener(
+          'abort',
+          () => reject(this.signal.reason),
+          {
+            once: true,
+          },
+        );
+      });
+    },
+  });
+  const pending = requestOperatorAgent(
+    'generate',
+    'agent',
+    {
+      goal: 'Test cancellation',
+      prompt: 'Return JSON',
+      input: {},
+      sourcePath: 'kernels/add.py',
+      sourceFiles: ['kernels/add.py'],
+      editablePaths: ['kernels/add.py'],
+      files: {},
+      outputSchema: { type: 'object' },
+    },
+    context,
+    0,
+  );
+  parent.abort(cancelled);
+  await assert.rejects(pending, (error) => error === cancelled);
 });
 
 type Reply = { read: true } | { delegate: true } | { result: JsonObject };
@@ -111,7 +243,9 @@ async function modelFixture(replies: Reply[], modelCalls = 64) {
                 'read' in reply
                   ? {
                       name: 'read',
-                      arguments: JSON.stringify({ path: 'input.py' }),
+                      arguments: JSON.stringify({
+                        path: 'context/sources/kernels/add.py',
+                      }),
                     }
                   : {
                       name: 'subagent',
@@ -154,7 +288,10 @@ async function modelFixture(replies: Reply[], modelCalls = 64) {
           {
             goal: 'Review and propose a valid edit',
             prompt: 'Return JSON after inspecting authorized evidence.',
-            files: { 'input.py': 'authorized source' },
+            sourcePath: 'kernels/add.py',
+            sourceFiles: ['kernels/add.py'],
+            editablePaths: ['kernels/add.py'],
+            files: { 'context/sources/kernels/add.py': 'authorized source' },
             input: {},
             outputSchema: { type: 'object' },
           },
@@ -203,18 +340,23 @@ const continuedProposal: Reply[] = [
   { result: { accepted: true } },
 ];
 
-test('operator stage completes tool continuations and delegated review beyond two model calls', async (t) => {
-  const fixture = await modelFixture(continuedProposal);
+test('operator stage completes tool continuations and delegated review beyond 24 model calls', async (t) => {
+  const fixture = await modelFixture([
+    { delegate: true },
+    ...Array.from({ length: 24 }, (): Reply => ({ read: true })),
+    { result: { findings: 'reviewed source' } },
+    { result: { accepted: true } },
+  ]);
   t.after(() => fixture.close());
   const result = await fixture.run();
   assert.equal(result.status, 'succeeded');
   assert.deepEqual(result.output, { accepted: true });
-  assert.equal(fixture.requestCount(), 6);
+  assert.equal(fixture.requestCount(), 27);
   const budget = await fixture.manager.facts.read('budgets', 'test');
-  assert.equal(budget.modelCalls, 6);
+  assert.equal(budget.modelCalls, 27);
   const scopes = object(budget.scopes);
   assert.equal(Object.keys(scopes).length, 1);
-  assert.equal(object(Object.values(scopes)[0]).modelCalls, 6);
+  assert.equal(object(Object.values(scopes)[0]).modelCalls, 27);
   const calls = (await fixture.manager.facts.list('calls')).filter(
     (call) => call.bindingId === 'agent',
   );
@@ -228,20 +370,6 @@ test('operator stage completes tool continuations and delegated review beyond tw
   assert.ok(parent);
   assert.equal(object(delegate.input).goal, 'Review the authorized source');
   assert.equal(object(delegate.input).cwd, object(parent.input).cwd);
-});
-
-test('operator stage stops delegated model effects at its shared 24-call limit', async (t) => {
-  const fixture = await modelFixture([
-    { delegate: true },
-    ...Array.from({ length: 23 }, (): Reply => ({ read: true })),
-    { result: { findings: 'would exceed the shared stage limit' } },
-  ]);
-  t.after(() => fixture.close());
-  await assert.rejects(fixture.run(), /Reflection modelCalls budget exceeded/);
-  assert.equal(fixture.requestCount(), 24);
-  const budget = await fixture.manager.facts.read('budgets', 'test');
-  assert.equal(budget.modelCalls, 24);
-  assert.equal(object(Object.values(object(budget.scopes))[0]).modelCalls, 24);
 });
 
 test('lower Manager model budget stops an operator stage before its next external request', async (t) => {
@@ -279,6 +407,9 @@ test('operator model stage bounds all calls with one propagated timeout without 
     {
       goal: 'Bounded request',
       prompt: 'Return JSON',
+      sourcePath: 'kernels/add.py',
+      sourceFiles: ['kernels/add.py'],
+      editablePaths: ['kernels/add.py'],
       files: {},
       input: {},
       outputSchema: { type: 'object' },

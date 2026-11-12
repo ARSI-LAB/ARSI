@@ -33,7 +33,7 @@ export const createInferenceSelector: OperationDefinition<
       if (!comparison.eligible)
         return {
           accepted: false,
-          reason: 'Candidate does not satisfy metric eligibility',
+          reason: 'Candidate does not satisfy metric prerequisites',
         };
       const violations = comparison.constraints.map((check) => ({
         before: violation(check, check.incumbentValue),

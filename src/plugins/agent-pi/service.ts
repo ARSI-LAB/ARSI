@@ -198,7 +198,11 @@ export const createAgentPi: OperationDefinition<
           systemPrompt: instructions,
         });
         await resourceLoader.reload();
-        const tools = await projectTools(cwd, request.role !== undefined);
+        const tools = await projectTools(
+          cwd,
+          request.role !== undefined,
+          config.bashMode,
+        );
         if (request.role === undefined) {
           const delegate = await createProjectSubagentTool(
             request,

@@ -17,7 +17,7 @@ import {
   unknownKeys,
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { configPathFields } from '../../shared/config-paths.js';
+import { configPathFields } from '../../shared/paths.js';
 import { readYaml } from '../loaders/yaml.js';
 import { resolveConfig } from '../loaders/config.js';
 import { safeId } from '../storage/index.js';
@@ -34,7 +34,11 @@ export interface ReflectionConfig {
   targets: Record<string, { resources: string[] }>;
   goal: string;
   implementation: { contract: string; ref: string; config: JsonObject };
-  budget: { modelCalls?: number; elapsedWallMs?: number };
+  budget: {
+    modelCalls?: number;
+    elapsedWallMs?: number;
+    evidenceBytes?: number;
+  };
 }
 function count(value: JsonValue, label: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
@@ -152,10 +156,22 @@ export async function validateReflection(
       });
     if (!goal.trim()) throw new Error(`goal: file is empty ${goalFile}`);
     const rawBudget = object(definition.budget ?? {}, 'budget');
-    unknownKeys(rawBudget, ['modelCalls', 'timeoutSeconds'], 'budget');
+    unknownKeys(
+      rawBudget,
+      ['modelCalls', 'timeoutSeconds', 'evidenceBytes'],
+      'budget',
+    );
     const budget: ReflectionConfig['budget'] = {};
     if (rawBudget.modelCalls !== undefined)
       budget.modelCalls = count(rawBudget.modelCalls, 'budget.modelCalls');
+    if (rawBudget.evidenceBytes !== undefined) {
+      budget.evidenceBytes = count(
+        rawBudget.evidenceBytes,
+        'budget.evidenceBytes',
+      );
+      if (budget.evidenceBytes === 0)
+        throw new Error('budget.evidenceBytes must be positive');
+    }
     if (rawBudget.timeoutSeconds !== undefined) {
       const seconds = count(rawBudget.timeoutSeconds, 'budget.timeoutSeconds');
       const elapsedWallMs = seconds * 1000;

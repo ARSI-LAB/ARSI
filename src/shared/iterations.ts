@@ -1,4 +1,4 @@
-interface ExecutionPathIteration {
+interface IterationScope {
   /** Zero-based iteration index in outer-to-inner order. */
   index: number;
   /** Recorded segments following this iteration scope, without rewriting them. */
@@ -6,12 +6,12 @@ interface ExecutionPathIteration {
 }
 
 /** Read current iteration-N scopes and historical loop/N scopes; opaque paths have none. */
-export function executionPathIterations(
+export function readIterationScopes(
   path: string | null | undefined,
-): ExecutionPathIteration[] {
+): IterationScope[] {
   const segments = path?.split('/') ?? [];
   const current = segments[0] === 'steps';
-  const iterations: ExecutionPathIteration[] = [];
+  const iterations: IterationScope[] = [];
   for (let position = 0; position < segments.length; position++) {
     // Current paths alternate step IDs and scopes after the initial "steps".
     let digits =

@@ -22,7 +22,7 @@ export const createMetricSelector: OperationDefinition<
     } = comparison;
     const accepted = feasible && improved;
     const reason = !eligible
-      ? 'Candidate does not satisfy metric eligibility'
+      ? 'Candidate does not satisfy metric prerequisites'
       : !feasible
         ? 'Candidate does not satisfy metric constraints'
         : accepted

@@ -6,6 +6,7 @@ import type {
 } from '../../contracts/index.js';
 import {
   measurementEvidenceSchema,
+  environmentSummarySchema,
   measurementItemsSchema,
   typedArtifact,
   validateMeasurement,
@@ -33,7 +34,7 @@ import {
   agentxWorkloadSchema,
   conditionsSchema,
 } from '../shared/evaluator-adapter/schemas/index.js';
-import { conditions } from './conditions.js';
+import { conditions, environmentSummary } from './conditions.js';
 import { agentxMetrics, aisbenchPoint } from './metrics.js';
 import {
   aisbenchWorkloadSchema,
@@ -316,7 +317,14 @@ export async function normalizeEvaluation(
     evidenceIndexRef,
     profile,
     diagnosticsRef: failure ? await context.artifacts.putJson(failure) : null,
-    extensions: [],
+    extensions: [
+      await typed(
+        context,
+        'measurement.environment-summary/v1',
+        environmentSummarySchema,
+        object(redact(environmentSummary(condition))),
+      ),
+    ],
   };
   validateMeasurement(measurement);
   return context.recordMeasurement(measurement);

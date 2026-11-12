@@ -218,6 +218,15 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
         call,
       );
       const measurement = measurements[0]!;
+      if (kind === 'inferencebench') {
+        assert.ok(Array.isArray(measurement.extensions));
+        const summary = object(measurement.extensions[0]);
+        assert.equal(summary.schemaId, 'measurement.environment-summary/v1');
+        const environment = object(stored.get(string(summary.artifactRef)));
+        assert.equal(environment.benchmark, 'agentx');
+        assert.equal(environment.resourcesVerified, false);
+        assert.equal(environment.software, null);
+      }
       const list = object(stored.get(string(measurement.itemsRef)));
       assert.ok(Array.isArray(list.items));
       const items = list.items.map((item) => object(item));

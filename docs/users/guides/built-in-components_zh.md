@@ -120,3 +120,9 @@ Reflection 只需要 Policy 显式声明执行。在 Reflection配置文件中 �
 判断主指标收益。指标名称、阈值与优化方向由 Recipe 配置，selector 不硬编码目标。
 失败候选可直接拒绝，不伪造数值；未知或取消状态仍是错误。training-summary 提案器
 从 `context/metrics.json` 读取公共指标数值及单位，不受摘要预览截断影响。
+
+推理 Measurement 另附公开环境摘要。training-summary 提案器通过
+`context/metrics.json` 获取摘要、来源 artifact 引用以及完整指标值和单位。
+摘要包含已报告的引擎软件、设备标识、验证状态、SDK/运行时身份和标量负载配置；
+不包含凭据、主机名、端点或私有原生配置。缺失信息仍为未知；版本信息不证明候选
+选项已生效，仍需运行证据确认。没有该扩展的旧 Measurement 仍可读取，只是不提供环境摘要。

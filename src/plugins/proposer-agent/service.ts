@@ -66,7 +66,7 @@ export const createProposerAgent: OperationDefinition<
           input: {
             metricEvidencePath: 'context/metrics.json',
             metricEvidenceInstruction:
-              'Read actual metric values and units here when previews omit them. Missing metrics are unknown, not zero.',
+              'Read actual metric values, units and evaluator-provided environment summaries here before researching options. Missing metrics or environment fields are unknown; resource verification does not prove flag activation.',
           },
         };
       }

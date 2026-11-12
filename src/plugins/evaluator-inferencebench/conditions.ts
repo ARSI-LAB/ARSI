@@ -155,3 +155,39 @@ function environmentConditions(raw: JsonObject): JsonObject {
   }
   return result;
 }
+
+/** Public search context excludes credentials, endpoints, host names and native configuration. */
+export function environmentSummary(condition: JsonObject): JsonObject {
+  const fixed = object(condition.fixed);
+  const resources = nullableObject(fixed.serviceResources);
+  const config = nullableObject(fixed.config);
+  const benchmark = nullableObject(config?.benchmark);
+  const workload = nullableObject(nullableObject(benchmark?.config)?.workload);
+  const load: JsonObject = {};
+  for (const key of [
+    'dataset',
+    'inputLength',
+    'outputLength',
+    'dataCount',
+    'concurrency',
+    'requestRate',
+    'warmups',
+    'testType',
+  ]) {
+    const value = workload?.[key];
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    )
+      load[key] = value;
+  }
+  return {
+    software: resources?.software ?? null,
+    devices: resources?.devices ?? null,
+    resourcesVerified: resources?.verified === true,
+    workload: load,
+    benchmark: benchmark?.name ?? null,
+    identity: fixed.identity ?? null,
+  };
+}

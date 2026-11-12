@@ -126,3 +126,12 @@ belong to Recipe configuration, not hardcoded selector goals. Failed candidates
 can be rejected without fabricated scores; unknown or cancelled outcomes remain
 errors. Training-summary proposers receive public metric values and units in
 `context/metrics.json`, independently of bounded evidence previews.
+
+Inference measurements also attach a public environment summary. Training-summary
+proposals receive it in `context/metrics.json` beside exact metrics and units,
+with the originating artifact reference. It includes reported engine software,
+device identifiers, verification status, SDK/runtime identity and scalar workload
+settings; credentials, host names, endpoints and private native configuration are
+excluded. Missing fields remain unknown. Reported versions do not prove that a
+candidate option was activated; inspect runtime evidence separately. Older
+measurements without this extension remain readable and have no environment summary.

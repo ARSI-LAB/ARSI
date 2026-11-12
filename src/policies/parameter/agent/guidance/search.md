@@ -1,7 +1,7 @@
-# Configuration research guidance
+# Configuration search guidance
 
-Start from measured behavior and competing explanations. Check the installed
-interface, defaults and effective settings before proposing a change. Separate
-configuration, confirmed activation and measured effect. Prefer candidates that
-distinguish hypotheses; preserve coupled edits needed for one mechanism. Revisit
-rejected ideas only with new evidence or changed applicability conditions.
+Start from measured outcomes and competing explanations. Check applicable
+interfaces and effective settings before proposing changes. Distinguish proposed
+configuration from confirmed behavior. Prefer candidates that test a hypothesis;
+preserve coupled changes required by one mechanism. Revisit rejected ideas when
+new evidence or changed applicability conditions justify it.

@@ -21,6 +21,10 @@ sources and selector outcomes, then delivers the saved experience to subsequent
 proposals. Its output includes `memoryRef`. It retains the previous version on an
 ordinary update failure and does not automatically inherit another experiment.
 See the [parameter Policy](../../../src/policies/parameter/agent/policy.yaml).
+Its [generic Memory prompt](../../../src/policies/parameter/agent/memory.md)
+remains in RSI. To specialize it, copy the file into your scenario and set
+`bindings.memoryUpdater.config.prompt` to that copy in the Recipe. The path
+resolves relative to the Recipe; the Memory flow and plugin remain shared.
 
 See the [Harness² Policy](../../../src/policies/harness2/policy.yaml) and [WikiSkill Policy](../../../src/policies/wikiskill/policy.yaml) for their calls and state updates. The [Evidence views](../concepts/architecture.md#evidence) describe what each view exposes.
 

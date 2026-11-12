@@ -175,9 +175,18 @@ ember-rsi run path/to/recipe.yaml
 `policy.config.reflection` 开关，默认均为 `false`。Memory 在每批完成评测后整理经验，
 将保存的 `memoryRef` 传给后续提案；Reflection 在仍可继续试验的批次之间仅修订
 Proposer 的 `guidance`。两者复用配置的 `agent` 绑定和 `training-summary` 证据视图。
-可以通过 `bindings.proposer.config.guidance` 指向独立目录，提供自己的初始指引。
+Policy 保留通用 Proposer、Memory 和 Reflection 提示词，不默认注入 Proposer 的初始指引。启用 Reflection 时，
+需通过 `bindings.proposer.config.guidance` 指向独立目录，可复制
+[初始指引模板](../../../src/policies/parameter/agent/guidance/search.md)。
+Reflection 关闭时不加载或校验其资源，未声明 `guidance` 字段的自定义 Proposer 也可使用。
+场景可通过 `bindings.proposer.config.prompt`、`bindings.memoryUpdater.config.prompt`
+和 `reflection.configFile` 指向各自的提示词副本，无需复制 Policy。
 结果包含 `memoryRef`，没有经验时为 `null`。存储与激活行为见
 [Memory](memory_zh.md) 和 [Reflection](reflection_zh.md)。
+
+这是可复用的单文件配置搜索编排；目标、研究方法和专家角色由 Recipe 及其资源提供。
+Evaluator 绑定仍要求 `contract.inferencebench`，selector 要求
+`contract.selector-metrics`；其他评测契约需使用兼容适配器或另一个 Policy。
 
 默认的 `selector.inference` 用 `metric` 和 `direction` 定义主优化指标，用 `constraints` 定义性能目标，并通过 `prerequisite: true` 标记在目标值比较前执行的硬性要求。它允许在全部达标前接受约束违反程度减小的候选，同时防止已满足的约束退步。选择规则见[内置组件](built-in-components_zh.md#loop-组件)。Policy 保留当前最优版本，并用 `candidateFeasible` 单独报告是否达标，不将其等同于候选是否被接受。
 

@@ -20,7 +20,7 @@ Policy 使用 `rsi.policy/v1`，与 `rsi.recipe/v1` 的 Recipe 配合使用。�
 | `input`               | 提供输入默认值，如：可引用 Application 创建的初始候选。                        |
 | `require`             | 声明流程使用的绑定名及其公共契约，如 `evaluator` 需要 `contract.agentbench`。  |
 | `defaults.bindings`   | 为绑定提供默认插件和配置，Recipe 可以覆盖。                                    |
-| `defaults.reflection` | 通过 `configFile` 指定 Reflection 配置文件；使用 `reflection` 步骤时需要声明。 |
+| `defaults.reflection` | 通过 `configFile` 选择 Reflection 文件；使用 `reflection` 步骤时需要声明。可选 `enabled` 按 Policy 配置控制加载，默认 `true`。 |
 | `state_schema`        | 使用共享状态时，定义状态字段和类型。                                           |
 | `state`               | 设置共享状态的初始值；可用表达式读取 `input`、`application` 和 `config`。      |
 | `steps`               | 按顺序执行的步骤列表，每步声明 `id` 和 `type`。                                |

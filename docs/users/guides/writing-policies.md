@@ -20,7 +20,7 @@ Policies use `rsi.policy/v1` with `rsi.recipe/v1` Recipes. The main fields are:
 | `input`               | Supply input defaults, which can reference the Application's initial candidate.                                                 |
 | `require`             | Declare binding names and their public contracts, such as `evaluator` requiring `contract.agentbench`.                          |
 | `defaults.bindings`   | Supply default plugins and configuration that the Recipe can override.                                                          |
-| `defaults.reflection` | Select a Reflection configuration file through `configFile`; required when the flow uses a `reflection` step.                   |
+| `defaults.reflection` | Select a Reflection file through `configFile`; required for `reflection` steps. Optional `enabled` controls loading from Policy config (default `true`).                   |
 | `state_schema`        | Define shared-state fields and types when the flow needs state.                                                                 |
 | `state`               | Set initial shared-state values; expressions can read `input`, `application`, and `config`.                                     |
 | `steps`               | Ordered execution steps, each declaring `id` and `type`.                                                                        |

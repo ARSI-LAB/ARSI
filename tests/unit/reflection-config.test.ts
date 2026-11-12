@@ -338,6 +338,19 @@ test('Policy compiler registers Reflection separately from raw generator contrac
     () =>
       new Policy({
         ...policy,
+        defaults: {
+          reflection: {
+            configFile: './reflection.yaml',
+            enabled: '${{ state.enabled }}',
+          },
+        },
+      }),
+    /enabled.*root state is not allowed/,
+  );
+  assert.throws(
+    () =>
+      new Policy({
+        ...policy,
         steps: [
           { id: 'improve', type: 'reflection', with: { goal: 'Override' } },
         ],
@@ -439,7 +452,55 @@ test('Recipe validation loads only the selected whole Reflection file before exe
     Recipe.load(recipePath, runtime.registry),
     /reflection.yaml.*evidence/,
   );
-  const withoutDeclaration = structuredClone(definitionPolicy);
+  // Conditional assembly uses the Policy config, independently of binding shapes.
+  const conditional = structuredClone(definitionPolicy);
+  conditional.config_schema = {
+    type: 'object',
+    properties: { learn: { type: 'boolean', default: false } },
+    additionalProperties: false,
+  };
+  object(object(conditional.defaults).reflection).enabled =
+    '${{ config.learn }}';
+  await writeFile(policyPath, stringify(conditional));
+  const disabled = await Recipe.load(recipePath, runtime.registry);
+  assert.equal(disabled.reflection, undefined); // Invalid selected file is not read.
+  assert.equal(
+    (await Recipe.fromJSON(disabled.toJSON(), runtime.registry)).reflection,
+    undefined,
+  );
+  object(recipe.policy).config = { learn: true };
+  await writeFile(recipePath, stringify(recipe));
+  await assert.rejects(
+    Recipe.load(recipePath, runtime.registry),
+    /reflection.yaml.*evidence/,
+  );
+  await writeFile(selected, stringify(definition));
+  const enabled = await Recipe.load(recipePath, runtime.registry);
+  assert.equal(enabled.reflection?.path, selected);
+  await rm(selected);
+  assert.deepEqual(
+    (
+      await Recipe.fromJSON(enabled.toJSON(), runtime.registry, {
+        policy: enabled.policy,
+        reflection: enabled.reflection,
+      })
+    ).reflection,
+    enabled.reflection,
+  ); // Recovery consumes the locked config.
+  await assert.rejects(
+    Recipe.fromJSON(disabled.toJSON(), runtime.registry, {
+      policy: disabled.policy,
+      reflection: enabled.reflection,
+    }),
+    /locked Reflection conflicts with disabled/,
+  );
+  object(object(conditional.defaults).reflection).enabled = 'false';
+  await writeFile(policyPath, stringify(conditional));
+  await assert.rejects(
+    Recipe.load(recipePath, runtime.registry),
+    /enabled.*boolean result/,
+  );
+  const withoutDeclaration = structuredClone(conditional);
   delete object(withoutDeclaration.defaults).reflection;
   await writeFile(policyPath, stringify(withoutDeclaration));
   await assert.rejects(

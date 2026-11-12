@@ -12,6 +12,9 @@ Reflection 根据执行证据改进目标插件，使后续调用采用改进后
 与 Memory 开关独立。它通过 `training-summary` 读取提案、评测、selector 和已有
 Memory 调用记录，仅可修订 Proposer 的 `guidance`，不能修改选择规则、负载或候选参数。
 下一次提案加载已激活的版本；达到候选上限或收到无修改提案后不再进行收尾 Reflection。
+启用前需配置独立的 `bindings.proposer.config.guidance` 目录。RSI 保留通用
+Reflection 目标和初始指引模板；场景可复制这些资源，并通过本地
+`reflection.configFile` 选择副本。关闭时，此 Policy 不加载或校验 Reflection 资源。
 
 ## 1. 配置 Reflection 模块
 
@@ -111,7 +114,13 @@ defaults:
     configFile: ./reflection.yaml
 ```
 
-Runtime 加载 Policy 时会校验这份配置，实际执行由第二步添加的 Reflection 步骤触发。
+Runtime 加载 Recipe 时会校验选中的配置，实际执行由第二步添加的 Reflection 步骤触发。
+
+对于可选 Reflection，Policy 可在此声明中添加 `enabled`，默认值为 `true`。
+它接受布尔值或仅引用 `config` 的表达式，例如 `enabled: ${{ config.reflection }}`；
+相应布尔字段需声明在 Policy 的配置 Schema 中。结果为 `false` 时，不加载或校验
+选中的 Reflection 文件；非布尔结果会报错。Reflection 步骤也需使用相同条件保护，
+因为 `enabled` 控制装配，不改变 Policy 的控制流。
 
 #### 通过 Recipe 替换文件
 
@@ -124,6 +133,9 @@ reflection:
 ```
 
 这里的 `reflection.configFile` 相对于 Recipe 文件解析，选择的文件仍按第 1 节编写。它会完整替换 Policy 声明的默认配置，因此 Policy 需要先声明 `defaults.reflection`。调用时机仍由 Policy 决定。
+Recipe 替换文件不会绕过 Policy 的 `enabled` 条件。适配 `parameter.agent` 时，可将
+它的 `reflection.yaml` 和 `reflection.md` 复制到场景目录，修改本地目标，再在此处
+选择该 YAML 文件。通用目标、组件和编排仍留在 RSI，场景维护自己的特化副本。
 
 ### 第二步：指定 Reflection 调用时机
 

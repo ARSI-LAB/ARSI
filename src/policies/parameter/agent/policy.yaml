@@ -1,6 +1,6 @@
 schemaVersion: rsi.policy/v1
 id: parameter.agent
-description: Establish a measurable inference baseline and tune engine parameters with Agent proposals.
+description: Search configuration candidates with Agent proposals, measured selection and optional learning.
 # policy schema
 input_schema:
   $ref: ../../../contracts/policies/candidate-input.yaml

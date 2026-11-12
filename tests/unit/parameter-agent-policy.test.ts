@@ -1,10 +1,85 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  RuntimeContext,
+  applicationContract,
+  inferencebenchContract,
+  proposerContract,
+  type JsonObject,
+} from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Policy } from '../../src/runtime/policy/index.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { object } from '../../src/shared/json.js';
+
+test('parameter.agent leaves guidance unset and accepts custom Proposers when Reflection is disabled', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-defaults-'));
+  const registry = new Registry();
+  t.after(async () => {
+    await registry.dispose();
+    await rm(root, { recursive: true, force: true });
+  });
+  await registerBuiltins(registry);
+  for (const [id, contract] of [
+    ['custom.application', applicationContract],
+    ['custom.evaluator', inferencebenchContract],
+    ['custom.proposer', proposerContract],
+  ] as const) {
+    registry.registerOperation({
+      id,
+      contract,
+      configSchema: { type: 'object', additionalProperties: false },
+      async create() {
+        throw new Error('Loading must not execute plugins');
+      },
+    });
+  }
+  await writeFile(join(root, 'prompt.md'), 'User supplied prompt');
+  const declaration = {
+    schemaVersion: 'rsi.recipe/v1',
+    id: 'parameter-defaults',
+    application: { plugin: 'custom.application' },
+    policy: { id: 'parameter.agent', config: {} as JsonObject },
+    bindings: {
+      proposer: { config: { prompt: './prompt.md' } },
+      evaluator: { plugin: 'custom.evaluator' },
+    },
+  };
+  const options = { sourcePath: join(root, 'recipe.yaml') };
+  const standard = await Recipe.fromJSON(declaration, registry, options);
+  assert.equal(standard.policyConfig.memory, false);
+  assert.equal(standard.policyConfig.reflection, false);
+  assert.equal(
+    standard.bindings.proposer!.config.prompt,
+    join(root, 'prompt.md'),
+  );
+  assert.equal(standard.bindings.proposer!.config.guidance, undefined);
+  assert.equal(standard.reflection, undefined);
+  const custom = {
+    ...declaration,
+    bindings: {
+      ...declaration.bindings,
+      proposer: { plugin: 'custom.proposer' },
+    },
+  };
+  for (const memory of [false, true]) {
+    custom.policy.config = { memory };
+    const loaded = await Recipe.fromJSON(custom, registry, options);
+    assert.equal(loaded.reflection, undefined);
+    assert.deepEqual(loaded.bindings.proposer!.config, {});
+    const reloaded = await Recipe.fromJSON(loaded.toJSON(), registry, options);
+    assert.equal(reloaded.reflection, undefined);
+  }
+  custom.policy.config = { reflection: true };
+  await assert.rejects(
+    Recipe.fromJSON(custom, registry, options),
+    /Resource guidance is not declared/,
+  );
+});
 
 test('parameter.agent follows selector decisions and returns the measured incumbent before constraints are met', async () => {
   const registry = new Registry();

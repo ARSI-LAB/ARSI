@@ -16,7 +16,7 @@ import { validateSchemaDefinition } from '../../shared/schema.js';
 import { compileFlow } from '../compiler/flow.js';
 import { readPolicyDocument } from '../compiler/document.js';
 import { runPolicy, type PolicyExecutionOptions } from './executor.js';
-import { reflectionConfigFile } from '../revisions/declaration.js';
+import { reflectionDefaults } from '../revisions/declaration.js';
 import {
   parseSteps,
   safeIdentifier,
@@ -149,7 +149,7 @@ export class Policy {
     );
     unknownKeys(this.defaults, ['bindings', 'reflection'], 'defaults');
     if (this.defaults.reflection !== undefined)
-      reflectionConfigFile(this.defaults.reflection, 'defaults.reflection');
+      reflectionDefaults(this.defaults.reflection);
     for (const [name, raw] of Object.entries(
       object(
         this.defaults.bindings === undefined ? {} : this.defaults.bindings,

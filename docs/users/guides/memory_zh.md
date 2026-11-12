@@ -19,6 +19,10 @@ Harness²、WikiSkill 和 parameter.agent 已配置 Memory 插件、提示词、
 每批评测后使用 `training-summary`、候选源码和 selector 结果整理经验，再传给后续提案。
 输出包含 `memoryRef`；普通更新失败时保留上一版本，不自动继承其他实验的经验。
 具体编排见 [参数搜索 Policy](../../../src/policies/parameter/agent/policy.yaml)。
+[通用 Memory 提示词](../../../src/policies/parameter/agent/memory.md) 保留在 RSI。
+需要场景适配时，将文件复制到场景目录，并在 Recipe 的
+`bindings.memoryUpdater.config.prompt` 中选择副本。路径相对于 Recipe 解析；
+Memory 流程和插件仍然复用框架实现。
 
 具体调用和状态更新见 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 和 [WikiSkill Policy](../../../src/policies/wikiskill/policy.yaml)。各视图的可见范围见 [Evidence](../concepts/architecture_zh.md#evidence)。
 

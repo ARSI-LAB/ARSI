@@ -176,9 +176,22 @@ For `parameter.agent`, `policy.config.candidatesPerRound` defaults to 4 and acce
 measured batches and passes the saved `memoryRef` to subsequent proposals;
 Reflection revises only Proposer `guidance` between batches when another trial
 can run. Both reuse the configured `agent` binding and `training-summary` evidence.
-Set `bindings.proposer.config.guidance` to a dedicated directory to supply your
-own initial guidance. The result includes `memoryRef` (`null` when absent).
+The Policy supplies generic Proposer, Memory and Reflection prompts without injecting initial Proposer
+guidance. When enabling Reflection, set `bindings.proposer.config.guidance` to a
+dedicated directory; the [starter guidance](../../../src/policies/parameter/agent/guidance/search.md)
+can be copied there. With Reflection disabled, its resources are not loaded or
+validated, including for custom Proposers without a `guidance` field.
+Scene-specific copies of prompts can be selected through
+`bindings.proposer.config.prompt`, `bindings.memoryUpdater.config.prompt` and
+`reflection.configFile`; they do not require a copy of the Policy.
+The result includes `memoryRef` (`null` when absent).
 See [Memory](memory.md) and [Reflection](reflection.md) for storage and activation.
+
+This is reusable single-file configuration-search orchestration: objectives,
+research methods and specialist roles come from the Recipe and its resources.
+The evaluator binding still requires `contract.inferencebench`, and the selector
+requires `contract.selector-metrics`; other evaluation contracts need a compatible
+adapter or a different Policy.
 
 The default `selector.inference` uses `metric` and `direction` for the primary objective, `constraints` for performance targets, with `prerequisite: true` marking hard requirements that run before objective comparison. It can accept reduced constraint violations before every target is met, while preventing regressions in satisfied constraints. See [Built-in components](built-in-components.md#loop-components) for the selection rules. The Policy retains the incumbent and reports `candidateFeasible` separately from whether a candidate was accepted.
 

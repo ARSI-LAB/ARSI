@@ -111,30 +111,6 @@ Run from an experiment workspace that already contains `.rsi/`. The web dashboar
 
 ![rsi-studio-wikiskill-compact](../assets/rsi-studio-wikiskill-compact.gif)
 
-### Inspect Policy structure
-
-Open an experiment and select **Policy** to inspect its initial saved Policy and Recipe definition. The view identifies the Policy and saved-definition digest. Editing local source files does not change this snapshot. The view is read-only: it does not run plugins, restore resources, or fetch the contents of referenced files.
-
-- **Flow** opens first, with top-level steps between **Policy Input** and **Policy Output**. Select a node to inspect its declaration and saved configuration. Use the separate expand button on a step to reveal a loop, collection body, or branch. Nested containers stay collapsed until expanded.
-- In a container's details, expand the collapsed `steps` group to see each child step ID on its own row. Click an ID to reveal the corresponding node in **Flow**.
-- **Flow** previews values that can be resolved from the saved configuration, including known ranges with their item counts. **Flow** and **Data** describe built-in expression operations in plain English. Expand **Nested operations** to see their operands and use the information icon to read the original expression.
-- Select a linked value or expression to highlight its dependencies in **Data**. **Policy Input** links both Policy defaults and saved Recipe input expressions. ForEach **Item key** is shown in Data details.
-- For a state write expression, **Focused** also highlights the written field and the nodes that declare reads of that field, including **Policy Output** when applicable.
-- When an expression reads a state field, **Focused** highlights the matching initial state inputs and declared writes. A write to a parent field is included when the expression reads a nested field.
-- **Data** shows grouped sources, steps, and outputs from left to right, with connections attached to fields or expression locations. Dashed lines show dynamic access to a known collection or object boundary.
-- The detail panel shows the Policy ID and snapshot digest above the declaration and saved configuration. Expand nested objects and lists to inspect their fields and items. Hover over or focus the information icon beside `type` for its meaning.
-- **Flow** and **Data** use the same symbols and bold type labels for steps. Data sources have their own symbols. The diamond marks a plugin call. In its details, select the `use` value to jump to **Saved effective binding**. Expand **Input** and select a linked expression to highlight its field and connections in **Data**.
-- Switching to **Data** with a step or Policy endpoint selected opens **Focused** and fits the graph to the canvas. **Focused** keeps **Policy Input** and **Policy Output** visible with the selected group's direct relationships and a shortest declared path on each side when available. If the selected group lacks one of those paths, the view keeps an independent input-to-output path when one exists. **Full graph** shows all relationships and highlights the selected group's direct connections. Data opens in **Full graph** when there is no matching selection.
-- Click anywhere on a Data card to inspect the group. Double-click the card or choose **Focused** after selecting it to focus the graph on that group.
-- When the detail panel is beside the graph, drag the divider to resize it. With the divider focused, use the left and right arrow keys to adjust its width.
-- Drag anywhere on the graph to pan, including over nodes. Click a node to select it. Hold `Ctrl` and scroll up over the graph to zoom in, or scroll down to zoom out. Use **Fit to view** to see the whole graph. With the graph focused, arrow keys pan and `Home` fits the graph. Viewport and expansion choices are retained while the Policy page remains mounted. Detail selection and container expansion have separate keyboard-accessible controls.
-
-Both branches and repeated bodies describe declared possibilities, without showing execution status, iteration instances, or which write supplied a state value. Details preserve expression text and distinguish saved configuration from runtime values. Reflection details describe the initial configuration; use **Reflection & Memory** for later revisions.
-
-Incomplete analysis remains visible in both focused and full views. A partial data analysis can leave a valid flow view available. Missing, unsupported, invalid, or oversized saved definitions have explicit diagnostics; the dashboard never substitutes current source files or silently truncates a graph.
-
-The first version accepts at most 2,000 steps, 20,000 relationships and field ports combined, JSON declaration nesting of 64 levels, and 4 MiB each for the saved input and serialized structure response. These are rejection limits, not pagination. For scale, projection of the existing parameter-grid and Harness² declarations with deterministic saved binding fixtures produced 13 and 19 steps, 49 and 84 data relationships, and approximately 94 and 164 KiB responses respectively; no plugins were executed for these measurements.
-
 ## Troubleshooting
 
 | Symptom                                                           | Check                                                                                                                                                                       |

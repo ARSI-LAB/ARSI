@@ -136,4 +136,4 @@ excluded. Missing fields remain unknown. Reported versions do not prove that a
 candidate option was activated; inspect runtime evidence separately. Older
 measurements without this extension remain readable and have no environment summary.
 
-AISBench synthetic workloads require an Evaluator revision supporting `dataset: synthetic` and `warmups`. RSI maps the `aisbench:synthetic` identity and validates complete request/token totals, positive throughput and finite latencies. No dataset implementation hash is required. The default SDK pin is unchanged; a consumer must install a compatible SDK for this workload.
+AISBench requires an Evaluator revision whose `aisbench-performance` points include normalized scalar `metrics` (value, unit, evidence pointer) and `workload`. Evaluator owns CSV parsing, workload/source validation and completeness checks; RSI only maps these results and archives evidence. Missing normalized metrics are rejected instead of falling back to parsing raw CSV. The default SDK pin is unchanged; install a compatible SDK in the RSI environment.

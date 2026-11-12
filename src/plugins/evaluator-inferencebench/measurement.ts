@@ -35,11 +35,8 @@ import {
   conditionsSchema,
 } from '../shared/evaluator-adapter/schemas/index.js';
 import { conditions, environmentSummary } from './conditions.js';
-import { agentxMetrics, aisbenchPoint } from './metrics.js';
-import {
-  aisbenchWorkloadSchema,
-  inferenceProfileSchema,
-} from './measurement-schema.js';
+import { agentxMetrics, performancePoint } from './metrics.js';
+import { inferenceProfileSchema } from './measurement-schema.js';
 
 let implementationIdentity: Promise<string> | undefined;
 function adapterIdentity(): Promise<string> {
@@ -147,30 +144,30 @@ export async function normalizeEvaluation(
       pointStatus === 'succeeded' &&
       record?.evaluationKind === 'performance' &&
       nullableObject(record.verdict)?.passed === null &&
-      nullableObject(record.collection)?.artifacts === 'complete' &&
-      pointSummary
+      nullableObject(record.collection)?.artifacts === 'complete'
     ) {
-      const point = await aisbenchPoint(
+      const point = await performancePoint(
         context.artifacts,
-        pointSummary,
-        run,
+        metricsEnvelope,
         id,
       );
-      pointMetrics = point.metrics;
-      parameters = await typed(
-        context,
-        'measurement.aisbench-workload/v1',
-        aisbenchWorkloadSchema,
-        point.workload,
-      );
-      pointCoverage = 'complete';
-      pointKey = conditionsKey
-        ? digest({ conditionsKey, workload: point.workload })
-        : null;
-      // AISBench's one point is the run result. Never average multiple points.
-      if (taskIds.length === 1) {
-        comparisonKey = pointKey;
-        metrics = pointMetrics;
+      if (point) {
+        pointMetrics = point.metrics;
+        parameters = await typed(
+          context,
+          'measurement.aisbench-workload/v1',
+          { type: 'object' },
+          point.workload,
+        );
+        pointCoverage = 'complete';
+        pointKey = conditionsKey
+          ? digest({ conditionsKey, workload: point.workload })
+          : null;
+        // AISBench's one point is the run result. Never average multiple points.
+        if (taskIds.length === 1) {
+          comparisonKey = pointKey;
+          metrics = pointMetrics;
+        }
       }
     } else if (!aisbench && pointSummary) {
       const source = nullableObject(run.source);

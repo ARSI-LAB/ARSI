@@ -975,14 +975,43 @@ test('AISBench uses the final complete workload point for throughput and latency
       { total_req: '160', qps: '3.4', 'TTFT P90': '8.1', 'TPOT SLO_P90': '' },
     ],
   };
-  const run = (callId: string) =>
-    normalizeInferencebench(
+  const point: JsonObject = {
+    taskId,
+    status: 'completed',
+    workload,
+    metrics: {
+      requestThroughput: {
+        value: 3.4,
+        unit: 'requests/sec',
+        source: '/measurement/rows/1/qps',
+      },
+      ttftP90: {
+        value: 8.1,
+        unit: 'ms',
+        source: '/measurement/rows/1/TTFT P90',
+      },
+      tpotP90: {
+        value: null,
+        unit: 'ms',
+        source: '/measurement/rows/1/TPOT SLO_P90',
+      },
+    },
+    measurement: object(record.solve).observations,
+  };
+  const envelope = {
+    snapshotDigest: snap.digest,
+    metrics: { 'aisbench-performance': { applicable: true, points: [point] } },
+  };
+  const run = async (callId: string) => {
+    await writeFile(join(directory, 'metrics.json'), JSON.stringify(envelope));
+    return normalizeInferencebench(
       native,
       { candidateRef: 'candidate:a' },
       execution,
-      { kind: 'local', exitCode: 0, snapshot: snap },
+      { kind: 'local', exitCode: 0, snapshot: snap, runDirectory: directory },
       context(directory).extend(services).extend({ callId }),
     );
+  };
   await run('complete');
   const measured = measurements[0]!;
   const metrics = object(measured.metrics);
@@ -1014,40 +1043,39 @@ test('AISBench uses the final complete workload point for throughput and latency
   assert.equal(partial.comparisonKey, null);
   assert.deepEqual(partial.metrics, {});
 
-  const synthetic = { ...workload, dataset: 'synthetic', warmups: 8 };
-  const syntheticId = `aisbench-${fingerprintConfig(synthetic).slice(-16)}`;
-  object(snap.run).taskIds = [syntheticId];
-  object(object(snap.run).source).source = 'aisbench:synthetic';
-  object(record.key).taskId = syntheticId;
   object(record.collection).artifacts = 'complete';
-  const summary = object(object(record.solve).observations);
-  summary.workload = synthetic;
-  const row = {
-    total_req: '160',
-    failed_req: '0',
-    total_input_tokens: '327680',
-    total_output_tokens: '81920',
-    qps: '2',
-    output_throughput: '4096',
-    'TTFT P90': '16',
-    'TPOT SLO_P90': '68',
-    'E2EL P90': '150000',
+  // RSI accepts new workload fields and metric names without parsing native rows.
+  point.workload = {
+    ...workload,
+    dataset: 'synthetic',
+    warmups: 8,
+    futureOption: true,
   };
-  summary.rows = [row];
-  await run('synthetic-complete');
+  object(point.metrics).outputThroughput = {
+    value: 4096,
+    unit: 'tokens/sec',
+    source: '/measurement/rows/0/output_throughput',
+  };
+  await run('normalized');
   assert.deepEqual(
     object(object(measurements[3]!.metrics).outputThroughput).value,
     { kind: 'scalar', value: 4096 },
   );
-  for (const change of [
-    { failed_req: '1' },
-    { total_output_tokens: '1' },
-    { output_throughput: '0' },
-    { 'TPOT SLO_P90': '' },
-  ]) {
-    summary.rows = [{ ...row, ...change }];
-    await assert.rejects(run('synthetic-invalid'), /Synthetic AISBench/);
-  }
+  point.status = 'incomplete';
+  await run('incomplete');
+  assert.equal(measurements[4]!.coverage, 'partial');
+  assert.deepEqual(measurements[4]!.metrics, {});
+  point.status = 'completed';
+  envelope.snapshotDigest = 'stale';
+  await assert.rejects(run('stale'), /snapshotDigest/);
+  envelope.snapshotDigest = snap.digest;
+  point.taskId = 'foreign';
+  await assert.rejects(run('foreign'), /missing or duplicated/);
+  point.taskId = taskId;
+  object(object(point.metrics).outputThroughput).value = '4096';
+  await assert.rejects(run('malformed'), /finite or null/);
+  delete point.metrics;
+  await assert.rejects(run('legacy-sdk'), /SDK point metrics/);
 });
 
 test('AgentX preserves point distributions and official comparability, without an invented run average', async () => {

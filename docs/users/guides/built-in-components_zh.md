@@ -127,4 +127,4 @@ Reflection 只需要 Policy 显式声明执行。在 Reflection配置文件中 �
 不包含凭据、主机名、端点或私有原生配置。缺失信息仍为未知；版本信息不证明候选
 选项已生效，仍需运行证据确认。没有该扩展的旧 Measurement 仍可读取，只是不提供环境摘要。
 
-AISBench 合成负载需要支持 `dataset: synthetic` 和 `warmups` 的 Evaluator 版本。RSI 映射 `aisbench:synthetic` 来源，并检查完整请求/token 总量、正吞吐和有限时延，不要求数据集实现哈希。默认 SDK 依赖不变；使用此负载的调用方需安装兼容 SDK。
+AISBench 需要使用在 `aisbench-performance` 测量点中提供规范化标量 `metrics`（数值、单位、证据位置）与 `workload` 的 Evaluator 版本。CSV 解析、负载/来源验证及完整性检查由 Evaluator 负责；RSI 只映射结果并归档证据。缺少规范化指标会报错，不会退回解析原始 CSV。默认 SDK 依赖不变，请在 RSI 环境中安装兼容 SDK。

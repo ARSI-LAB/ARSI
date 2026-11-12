@@ -74,7 +74,7 @@ OperatorBench 使用 SDK 的 `kernel` benchmark 和 RSI 的 `task.directory`。�
 
 ### 选择并配置 Agent 后端
 
-只需配置下面四种后端中的一种。Pi 直接使用 Recipe 中的模型配置；Codex、Claude Code 和 DSH 调用本机已安装的 CLI。
+只需配置下面后端中的一种。Pi 直接使用 Recipe 中的模型配置；Codex、Claude Code、DSH 和 OpenCode 调用本机已安装的 CLI。
 
 以下 YAML 都是**已有 Recipe 的局部配置**：替换 `bindings.agent`，保留 Application、Policy 和其他绑定。自定义 Policy 如果使用其他 Agent 绑定名，请使用对应名称。Agent 配置不会替你配置 Evaluator 的模型。
 
@@ -117,7 +117,7 @@ bindings:
 - `timeoutMs` 限制每次模型请求，省略 `timeoutMs` 时底层 HTTP 客户端使用十分钟请求超时。两个字段都接受 1 到 2,147,483,647 的整数毫秒。
 - `executionTimeoutMs` 限制整个 Agent 调用，包括模型请求、工具、输出纠正、上下文压缩、重试等待和等待中的子 Agent，不会在每次请求后重置。
 
-### 原生 CLI 后端：Codex、Claude Code 和 DSH
+### 原生 CLI 后端
 
 - **用户负责准备环境**：安装或更新所选 CLI，并在 Recipe 中选择对应的 Agent 后端。使用启动 RSI 的同一系统用户完成 CLI 登录或模型服务配置，再通过 CLI 确认模型可用。已有配置可直接沿用，无需在 Recipe 中重复填写 API 地址和密钥。
 - **RSI 自动完成调用**：启动对应 CLI，为任务准备工作目录、提示词和会话，调用原生工具读取任务文件，校验返回结果，并在调用结束时清理进程和临时调用文件。Agent 返回修改建议，由 RSI 检查并应用。
@@ -127,6 +127,7 @@ bindings:
 | Codex | [官方文档](https://developers.openai.com/codex/cli/) | `codex login` 登录，`codex login status` 检查；运行 `codex` 验证模型 | `agent.codex` |
 | Claude Code | [官方文档](https://code.claude.com/docs/en/setup) | `claude auth login` 登录，`claude auth status` 检查；运行 `claude` 验证模型 | `agent.claudecode` |
 | DSH | [官方文档](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | 配置 headless profile 后，运行 `dsh --profile headless "Reply with OK."` 验证模型 | `agent.dsh` |
+| OpenCode V2 | [官方文档](https://opencode.ai/docs/cli/)；`npm install -g @opencode/cli` | 运行 `opencode` 配置并验证模型 | `agent.opencode` |
 
 使用自定义模型服务时，按所选 CLI 的官方说明配置，不必使用账号登录。登录状态检查不等于模型调用成功；请确认 CLI 能正常回答问题。DSH 需要验证 **headless** profile，只配置 Web 界面不够。
 
@@ -147,8 +148,11 @@ bindings:
 | Codex | `model`、`thinkingLevel` |
 | Claude Code | `model`、`effort` |
 | DSH | 模型在原生 headless profile 中配置 |
+| OpenCode | `model`：`provider/model`，可追加 `#variant` |
 
 RSI 保留原生模型和认证配置，但限制任务为只读提案，不接受交互式审批。Claude Code 的 Hooks 和 MCP 在 RSI 调用中禁用。
+
+OpenCode 使用独立实例，不连接用户正在使用的后台服务。其 RSI 只读 Agent 支持文件读取和 Skills，不执行 Shell、MCP 工具或子 Agent 委派。用户模型和认证配置仍由原生 CLI 加载；返回结果须通过 RSI 的 JSON 校验。
 
 ### 检查并启动
 

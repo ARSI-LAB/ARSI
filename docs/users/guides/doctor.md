@@ -94,6 +94,7 @@ The following built-in implementations declare their own `doctor` callback. Doct
 | `agent.codex`             | 1. Check that the Codex command is available and supports native diagnostics.<br>2. Run native diagnostics in an isolated project using the configured model and reasoning level, then read the results.                                                             |
 | `agent.claudecode` | Check CLI options and native JSON authentication status. Text-only installation diagnostics remain `unchecked`; run `claude doctor` manually. Model access is not verified. |
 | `agent.dsh` | Check CLI options and compose the headless configuration to detect composition errors. This may refresh native caches; dynamic model routes, stored credentials and model access are not verified. |
+| `agent.opencode` | Check the V2 CLI version, required options, and composition of native configuration with the RSI read-only Agent. Uses a private instance and may refresh native caches; credential validity and model access are not verified. |
 
 ### Proposers, Memory, Reflection and Selectors
 
@@ -200,7 +201,7 @@ Doctor checks bindings sequentially. The command's total duration depends on the
 | ---------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Common `runDoctorCheck` checks                 | 60 seconds per check by default                                        | Local paths, configuration and Application verification/acquisition have separate timers; operations within one check share its limit. |
 | `agent.codex` `executable` and `doctor`        | 60 seconds each                                                        | CLI help and native doctor help share the `executable` timer; native JSON diagnostics are separate.                                    |
-| `agent.claudecode` / `agent.dsh` | 60 seconds per check | CLI compatibility, Claude authentication and DSH configuration. |
+| `agent.claudecode` / `agent.dsh` / `agent.opencode` | 60 seconds per check | CLI compatibility, Claude authentication and DSH/OpenCode configuration. |
 | Pi `model-access` HTTP request                 | 10 seconds per request                                                 | Covers the HTTP request and complete response body within the outer 60-second check.                                                   |
 | Optuna `python-dependencies`                   | 60 seconds outside; configured `python.timeoutMs` also applies         | A shorter worker timeout can finish earlier; a longer value cannot extend the enclosing RSI check.                                     |
 | Evaluator SDK connectivity and download probes | Per probe, managed by the SDK                                          | The pinned SDK allows 5 seconds for executable and Ray TCP/TLS checks, and 180 seconds for each download network probe.                |

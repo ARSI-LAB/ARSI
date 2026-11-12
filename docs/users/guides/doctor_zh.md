@@ -94,6 +94,7 @@ flowchart TD
 | `agent.codex`             | 1. 检查 Codex 命令是否可用、是否支持原生诊断。<br>2. 按所配模型和思考等级，在隔离项目中运行原生诊断并读取结果。                                               |
 | `agent.claudecode` | 检查 CLI 参数和原生 JSON 认证状态。安装诊断仅有文本输出，标为 `unchecked`，可自行运行 `claude doctor`；不验证模型访问。 |
 | `agent.dsh` | 检查 CLI 参数，并展开 headless 配置以发现配置组合错误。可能刷新原生缓存；不验证动态模型路由、存储凭据或模型访问。 |
+| `agent.opencode` | 检查 V2 CLI 版本、必要参数，以及原生配置能否与 RSI 只读 Agent 组合。使用独立实例，可能刷新原生缓存；不验证凭据有效性或模型访问。 |
 
 ### Proposer、Memory、Reflection 与 Selector
 
@@ -200,7 +201,7 @@ doctor 按顺序检查各个绑定。命令总耗时取决于各项检查与清�
 | --------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
 | 通用 `runDoctorCheck` 检查              | 默认每项 60 秒                                     | 本地路径、配置、Application 验证与获取各自计时，同一项内的多个操作共用时限。     |
 | `agent.codex` 的 `executable`、`doctor` | 各 60 秒                                           | CLI 帮助与原生 doctor 帮助共用 `executable` 时限，原生 JSON 诊断另算一项。       |
-| `agent.claudecode` / `agent.dsh` | 每项 60 秒 | CLI 兼容性、Claude 认证及 DSH 配置。 |
+| `agent.claudecode` / `agent.dsh` / `agent.opencode` | 每项 60 秒 | CLI 兼容性、Claude 认证及 DSH/OpenCode 配置。 |
 | Pi 的 `model-access` HTTP 请求          | 每次请求 10 秒                                     | 包含 HTTP 请求和完整响应正文读取，位于外层 60 秒检查内。                         |
 | Optuna 的 `python-dependencies`         | 外层 60 秒，同时受已配置的 `python.timeoutMs` 约束 | 更短的 worker 时限可提前结束，更长的值不能延长外层 RSI 检查。                    |
 | Evaluator SDK 的连通性与下载探针        | 按 SDK 单项计时                                    | 当前固定 SDK 给可执行程序检查与 Ray TCP/TLS 检查 5 秒，每项下载网络探针 180 秒。 |

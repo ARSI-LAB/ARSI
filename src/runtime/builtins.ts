@@ -5,6 +5,7 @@ import { agentbundleDefinition } from '../plugins/application-agentbundle/index.
 import { inferenceDefinition } from '../plugins/application-inference/index.js';
 import { piDefinition } from '../plugins/agent-pi/index.js';
 import { claudeCodeDefinition } from '../plugins/agent-claudecode/index.js';
+import { openCodeDefinition } from '../plugins/agent-opencode/index.js';
 import { dshDefinition } from '../plugins/agent-dsh/index.js';
 import { codexDefinition } from '../plugins/agent-codex/index.js';
 import { proposerDefinition } from '../plugins/proposer-agent/index.js';
@@ -32,6 +33,7 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     codexDefinition,
     claudeCodeDefinition,
     dshDefinition,
+    openCodeDefinition,
     proposerDefinition,
     operatorProposerDefinition,
     operatorSummarizerDefinition,

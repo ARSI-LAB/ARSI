@@ -1,19 +1,19 @@
 import type { JsonObject, JsonValue } from '../../contracts/index.js';
 import { json } from '../../shared/json.js';
-import { evaluateDataFunction } from './functions.js';
 import {
   compileExpression,
   isForbiddenExpressionProperty,
   ProtocolError,
   type ExpressionAst,
-} from './expression-syntax.js';
+} from '../../shared/policy-expression-syntax.js';
+import { evaluateDataFunction } from './functions.js';
 
 export {
   compileExpression,
   expressionPaths,
   expressions,
   type ExpressionAst,
-} from './expression-syntax.js';
+} from '../../shared/policy-expression-syntax.js';
 
 function isPlainObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);

@@ -1,5 +1,19 @@
-import type { JsonValue } from '../../contracts/json.js';
-import { dataFunctionArity, type DataFunctionName } from './functions.js';
+import type { JsonValue } from '../contracts/json.js';
+
+const dataFunctionArity = Object.freeze({
+  get: 3,
+  length: 1,
+  size: 1,
+  flatten: 1,
+  append: 2,
+  concat: 2,
+  pluck: 2,
+  range: 2,
+  some: 3,
+  if: 3,
+  compact: 1,
+});
+type DataFunctionName = keyof typeof dataFunctionArity;
 
 export class ProtocolError extends Error {
   constructor(path: string, message: string) {

@@ -2,7 +2,7 @@ import {
   compileExpression,
   expressions,
   type ExpressionAst,
-} from '../../../src/runtime/policy/expression-syntax.js';
+} from '../../../src/shared/policy-expression-syntax.js';
 
 interface PolicyExpressionOperand {
   label: string;

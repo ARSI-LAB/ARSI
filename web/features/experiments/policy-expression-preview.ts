@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue } from '../../../src/contracts/json.js';
-import type { StructureDetail } from '../../../src/contracts/policy-structure.js';
+import type { StructureDetail } from '../../api/observation-client';
 
 function savedConfigValue(
   configuration: JsonValue,

@@ -1,10 +1,18 @@
 import { connectionError, setDisconnected } from './connection-state.js';
 import type { JsonValue } from '../../src/contracts/json.js';
-import {
-  isStructureRangePreviewBounds,
-  type PolicyStructure,
-  type StructureExpressionPreview,
-} from '../../src/contracts/policy-structure.js';
+import { isStructureRangePreviewBounds } from '../../src/shared/observation/policy-range-preview.js';
+import type {
+  PolicyStructure,
+  StructureExpressionPreview,
+} from '../../src/shared/observation/policy-structure.js';
+export type {
+  PolicyStructure,
+  StructureDataEdge,
+  StructureDataNode,
+  StructureDetail,
+  StructureFlowEdge,
+  StructureStep,
+} from '../../src/shared/observation/policy-structure.js';
 import type {
   CallTrace,
   CallInstructions,

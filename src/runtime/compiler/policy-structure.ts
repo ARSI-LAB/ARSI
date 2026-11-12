@@ -1,5 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../../contracts/json.js';
+import { object } from '../../shared/json.js';
+import { isStructureRangePreviewBounds } from '../../shared/observation/policy-range-preview.js';
 import type {
   PolicyStructure,
   StructureDataEdge,
@@ -10,9 +12,7 @@ import type {
   StructurePort,
   StructureScope,
   StructureStep,
-} from '../../contracts/policy-structure.js';
-import { isStructureRangePreviewBounds } from '../../contracts/policy-structure.js';
-import { object } from '../../shared/json.js';
+} from '../../shared/observation/policy-structure.js';
 import {
   compileExpression,
   evaluateExpressionAst,

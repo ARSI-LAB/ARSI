@@ -1,4 +1,4 @@
-import type { JsonValue } from './json.js';
+import type { JsonValue } from '../../contracts/json.js';
 
 /** Static initial-definition projection. No coordinates, execution state or evaluated values. */
 export type StructureAvailability = 'complete' | 'partial' | 'unavailable';
@@ -95,19 +95,6 @@ export type StructureExpressionPreview =
   | { location: string; kind: 'config'; path: string[] }
   | { location: string; kind: 'value'; value: JsonValue }
   | { location: string; kind: 'range'; start: number; end: number };
-
-/** Validates exclusive range bounds and a length representable by an array. */
-export function isStructureRangePreviewBounds(
-  start: number,
-  end: number,
-): boolean {
-  return (
-    Number.isSafeInteger(start) &&
-    Number.isSafeInteger(end) &&
-    end >= start &&
-    end - start <= 0xffff_ffff
-  );
-}
 
 export interface StructureDetail {
   id: string;

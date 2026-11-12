@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonObject, JsonValue } from '../../src/contracts/json.js';
-import type {
-  PolicyStructure,
-  StructureDataNode,
-} from '../../src/contracts/policy-structure.js';
 import {
   policyStructureLimits,
   projectPolicyStructure,
 } from '../../src/runtime/compiler/policy-structure.js';
 import { object } from '../../src/shared/json.js';
+import type {
+  PolicyStructure,
+  StructureDataNode,
+} from '../../src/shared/observation/policy-structure.js';
 
 function project(
   steps: JsonValue[],

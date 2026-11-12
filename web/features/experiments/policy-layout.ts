@@ -3,11 +3,11 @@ import type {
   StructureDataEdge,
   StructureDataNode,
   StructureFlowEdge,
-} from '../../../src/contracts/policy-structure.js';
+} from '../../api/observation-client.js';
 import {
   compileExpression,
   expressions,
-} from '../../../src/runtime/policy/expression-syntax.js';
+} from '../../../src/shared/policy-expression-syntax.js';
 
 export interface GraphBox {
   id: string;

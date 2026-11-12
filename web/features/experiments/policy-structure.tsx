@@ -1,12 +1,12 @@
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import type { JsonValue } from '../../../src/contracts/json.js';
-import type {
-  PolicyStructure as PolicyStructureModel,
-  StructureDataNode,
-  StructureDetail,
-  StructureStep,
-} from '../../../src/contracts/policy-structure.js';
-import { parsePolicyStructure } from '../../api/observation-client';
+import {
+  parsePolicyStructure,
+  type PolicyStructure as PolicyStructureModel,
+  type StructureDataNode,
+  type StructureDetail,
+  type StructureStep,
+} from '../../api/observation-client';
 import { Feedback } from '../../components/observation-feedback';
 import { useObservation } from './use-observation';
 import {

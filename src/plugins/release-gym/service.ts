@@ -377,9 +377,6 @@ function reportIssues(
     issues.push(`${label} report adapter does not match the release config`);
   if (report.tier !== 'full')
     issues.push(`${label} report tier is ${report.tier}, not full`);
-  if (report.seed === null) issues.push(`${label} report has no seed`);
-  else if (report.seed !== settings.promotionDefaults.seed)
-    issues.push(`${label} report seed does not match the release config`);
   if (report.rollouts === null || report.rollouts < 0)
     issues.push(`${label} report has an invalid rollout count`);
   if (report.rolloutsFailed === null || report.rolloutsFailed < 0)
@@ -533,8 +530,9 @@ function identityMismatches(
     ['benchmark', candidate.benchmark, incumbent.benchmark],
     ['dataset_version', candidate.datasetVersion, incumbent.datasetVersion],
     ['tier', candidate.tier, incumbent.tier],
-    ['seed', candidate.seed, incumbent.seed],
-    ['rollouts', candidate.rollouts, incumbent.rollouts],
+    // seed is recorded evidence, not experiment identity: Gym deliberately
+    // excludes it from the holdout one-shot key. Successful rollout count also
+    // varies with infrastructure failures and is normalized by effectiveMetric.
     [
       'manifest_schema_version',
       candidate.manifestSchemaVersion,

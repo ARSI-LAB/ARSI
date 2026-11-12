@@ -36,8 +36,9 @@ interface GymFixture {
 interface FixtureOptions {
   failureDigest?: string;
   candidateEnvironment?: string;
-  missingSeed?: boolean;
   rollouts?: number;
+  candidateRollouts?: number;
+  incumbentRollouts?: number;
   rolloutsFailed?: number;
   candidateRolloutsFailed?: number;
   incumbentRolloutsFailed?: number;
@@ -173,7 +174,7 @@ function reportFor(
     benchmark: job.body.benchmark,
     split: 'holdout',
     tier: 'full',
-    ...(options.missingSeed ? {} : { seed: job.body.seed }),
+    seed: job.body.seed,
     status: 'completed',
     metrics: {
       reward_mean: reward,
@@ -181,7 +182,10 @@ function reportFor(
         digest === CANDIDATE_DIGEST
           ? (options.candidatePassRate ?? reward)
           : (options.incumbentPassRate ?? reward),
-      rollouts: options.rollouts ?? 4,
+      rollouts:
+        digest === CANDIDATE_DIGEST
+          ? (options.candidateRollouts ?? options.rollouts ?? 4)
+          : (options.incumbentRollouts ?? options.rollouts ?? 4),
       rollouts_failed:
         digest === CANDIDATE_DIGEST
           ? (options.candidateRolloutsFailed ?? options.rolloutsFailed ?? 0)
@@ -320,6 +324,13 @@ function config(
     },
     poll: { intervalMs: 100, timeoutMs: 5000 },
     ...(activation === undefined ? {} : { activation }),
+  };
+}
+
+function withSeed(value: GymReleaseConfig, seed: number): GymReleaseConfig {
+  return {
+    ...value,
+    promotionDefaults: { ...value.promotionDefaults, seed },
   };
 }
 
@@ -490,7 +501,6 @@ test('release.gym rejects a failed candidate without spending an incumbent holdo
 
 test('release.gym rejects incomplete report metrics before comparing candidates', async () => {
   const cases: Array<{ options: FixtureOptions; pattern: RegExp }> = [
-    { options: { missingSeed: true }, pattern: /has no seed/ },
     { options: { rollouts: 0 }, pattern: /no attempted rollouts/ },
   ];
   for (const scenario of cases) {
@@ -544,6 +554,68 @@ test('release.gym compares effective pass rate when infrastructure rollouts fail
     assert.ok(Math.abs(Number(comparison.candidateValue) - 0.64) < 1e-12);
     assert.ok(Math.abs(Number(comparison.incumbentValue) - 0.5) < 1e-12);
     assert.ok(Math.abs(Number(comparison.delta) - 0.14) < 1e-12);
+  } finally {
+    await gym.close();
+  }
+});
+
+test('release.gym compares effective pass rate when successful rollout counts differ', async () => {
+  const gym = await gymFixture(
+    { [CANDIDATE_DIGEST]: 0.8, [INCUMBENT_DIGEST]: 0.5 },
+    {
+      candidateRollouts: 3,
+      candidateRolloutsFailed: 1,
+      candidatePassRate: 1,
+      incumbentRollouts: 4,
+      incumbentPassRate: 0.5,
+    },
+  );
+  try {
+    const { context, artifacts } = harness();
+    const release = await createGymRelease(
+      config(gym.baseUrl),
+      context,
+      releaseConfigSchema,
+    );
+    const output = await release.execute(
+      { candidateRef: 'candidate:final', incumbentRef: 'candidate:incumbent' },
+      context,
+    );
+    assert.equal(output.decision, 'promote');
+    const comparison = object(artifacts.get(output.releaseRef)!.comparison);
+    assert.ok(Math.abs(Number(comparison.candidateValue) - 0.75) < 1e-12);
+    assert.ok(Math.abs(Number(comparison.incumbentValue) - 0.5) < 1e-12);
+  } finally {
+    await gym.close();
+  }
+});
+
+test('release.gym compares reports reused across a seed change', async () => {
+  const gym = await gymFixture(
+    { [CANDIDATE_DIGEST]: 0.8, [INCUMBENT_DIGEST]: 0.5 },
+    { reuseCompletedReports: true },
+  );
+  try {
+    const { context, charges } = harness();
+    const input = {
+      candidateRef: 'candidate:final',
+      incumbentRef: 'candidate:incumbent',
+    };
+    const first = await createGymRelease(
+      withSeed(config(gym.baseUrl), 43),
+      context,
+      releaseConfigSchema,
+    );
+    await first.execute(input, context);
+    const second = await createGymRelease(
+      withSeed(config(gym.baseUrl), 44),
+      context,
+      releaseConfigSchema,
+    );
+    const output = await second.execute(input, context);
+    assert.equal(output.decision, 'promote');
+    assert.equal(gym.posted.length, 2);
+    assert.deepEqual(charges, ['evaluationRuns', 'evaluationRuns']);
   } finally {
     await gym.close();
   }

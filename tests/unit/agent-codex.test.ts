@@ -16,7 +16,7 @@ import { proposerEditOutputSchema } from '../../src/plugins/proposer-agent/edits
 import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { configSchema } from '../../src/plugins/agent-codex/schema.js';
 import { parseConfig } from '../../src/shared/schema.js';
-import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
+import { createRuntime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { stringify } from 'yaml';
 import { object } from '../../src/shared/json.js';
@@ -564,7 +564,10 @@ test('existing Policy accepts the native Codex binding', async () => {
     object(declaration.bindings).agent = { plugin: 'agent.codex', config: {} };
     const path = join(directory, 'recipe.yaml');
     await writeFile(path, stringify(declaration));
-    await validateRecipe(runtime, path);
+    assert.equal(
+      (await Recipe.load(path, runtime.registry)).bindings.agent?.pluginId,
+      'agent.codex',
+    );
   } finally {
     await runtime.dispose();
     await rm(directory, { recursive: true, force: true });

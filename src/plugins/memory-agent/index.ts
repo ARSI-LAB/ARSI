@@ -6,6 +6,7 @@ import type {
 import { configSchema, type AgentEditingConfig } from './schema.js';
 import { memoryContract } from '../../contracts/plugin-types/index.js';
 import { createMemoryAgent } from './service.js';
+import { checkAgentEditor } from '../shared/agent-editing/doctor.js';
 export const memoryDefinition: OperationDefinition<
   MemoryInput,
   MemoryOutput,
@@ -16,4 +17,5 @@ export const memoryDefinition: OperationDefinition<
   contract: memoryContract,
   configSchema,
   create: createMemoryAgent,
+  doctor: checkAgentEditor,
 };

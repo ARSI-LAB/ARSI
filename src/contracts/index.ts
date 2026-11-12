@@ -6,6 +6,17 @@ export { defineContract } from './contract.js';
 export type { PluginContract } from './contract.js';
 export type { Operation, OperationDefinition } from './operation.js';
 export type {
+  DoctorBinding,
+  DoctorCheck,
+  DoctorContext,
+  DoctorRecipe,
+  DoctorRegistry,
+  DoctorReport,
+  DoctorResult,
+  MissingResource,
+  OperationDoctor,
+} from './doctor.js';
+export type {
   Binding,
   BindingDeclaration,
   Recipe,

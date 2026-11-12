@@ -6,6 +6,7 @@ import type {
 import { applicationContract } from '../../contracts/plugin-types/index.js';
 import { configSchema, type KernelApplicationConfig } from './schema.js';
 import { createApplicationKernel } from './service.js';
+import { checkKernelApplication } from './doctor.js';
 
 export { createApplicationKernel } from './service.js';
 export type { KernelApplicationConfig } from './schema.js';
@@ -19,4 +20,5 @@ export const kernelApplicationDefinition: OperationDefinition<
   contract: applicationContract,
   configSchema,
   create: createApplicationKernel,
+  doctor: checkKernelApplication,
 };

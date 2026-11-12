@@ -69,7 +69,7 @@ budget: { operations: 5, elapsedWallMs: 30000 }
   return root;
 }
 
-test('CLI loads external implementation and Policy for catalog, validate and execution', async () => {
+test('CLI loads external implementation and Policy for catalog, doctor and execution', async () => {
   const root = await fixture();
   const run = async (...args: string[]): Promise<Record<string, unknown>> => {
     const result = await execute(
@@ -90,17 +90,14 @@ test('CLI loads external implementation and Policy for catalog, validate and exe
       Array.isArray(catalog.policies) &&
         catalog.policies.includes('external.policy'),
     );
-    assert.equal(
-      (
-        await run(
-          'validate',
-          join(root, 'recipe.yaml'),
-          '--plugin-dir',
-          extension,
-        )
-      ).valid,
-      true,
+    const preflight = await run(
+      'doctor',
+      join(root, 'recipe.yaml'),
+      '--plugin-dir',
+      extension,
     );
+    assert.equal(preflight.recipeId, 'external-recipe');
+    assert.deepEqual(preflight.summary, { passed: 1, failed: 0, unchecked: 1 });
     const executed = await run(
       'run',
       'recipe.yaml',

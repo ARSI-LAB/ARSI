@@ -1,6 +1,5 @@
 export {
   createRuntime,
-  validateRecipe,
   type Runtime,
   type RuntimeOptions,
 } from './runtime/context.js';
@@ -16,6 +15,7 @@ export { defineContract } from './contracts/contract.js';
 export { RuntimeContext } from './contracts/runtime/context.js';
 export * from './contracts/plugin-types/index.js';
 export type * from './contracts/index.js';
+export { runDoctorCheck } from './shared/doctor-check.js';
 export {
   prepareAgentProject,
   type AgentRole,

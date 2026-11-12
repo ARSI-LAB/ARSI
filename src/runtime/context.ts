@@ -1,9 +1,7 @@
-import { resolve } from 'node:path';
 import type {
   ArtifactStore,
   FactStore,
   WorkspaceService,
-  JsonObject,
   RuntimeContext,
 } from '../contracts/index.js';
 import { Registry } from './registry/index.js';
@@ -13,7 +11,6 @@ import {
   homePluginDirectories,
   loadPluginDirectories,
 } from './loaders/plugins.js';
-import { Recipe } from './loaders/recipe.js';
 export interface Runtime {
   context: RuntimeContext;
   manager: Manager;
@@ -61,23 +58,5 @@ export async function createRuntime(
       await manager.dispose();
       await registry.dispose();
     },
-  };
-}
-export async function validateRecipe(
-  runtime: Runtime,
-  path: string,
-): Promise<JsonObject> {
-  const recipe = await Recipe.load(resolve(path), runtime.registry);
-  return {
-    valid: true,
-    recipeId: recipe.id,
-    policyId: recipe.policy.id,
-    plugins: [
-      ...new Set([
-        recipe.application.pluginId,
-        ...Object.values(recipe.bindings).map((binding) => binding.pluginId),
-        ...(recipe.reflection ? [recipe.reflection.implementation.ref] : []),
-      ]),
-    ],
   };
 }

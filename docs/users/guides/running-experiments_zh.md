@@ -15,7 +15,7 @@
 | `ember-rsi catalog`                         | 列出已注册插件和 Policy ID。                                                                  |
 | `ember-rsi list plugins`                    | 查看插件描述、契约、Schema 和兼容的 Policy 绑定。                                             |
 | `ember-rsi list policies`                   | 查看 Policy 描述、Schema、依赖和兼容插件。                                                    |
-| `ember-rsi validate <recipe.yaml>`          | 校验配置和组装关系，不运行实验。                                                              |
+| `ember-rsi doctor <recipe.yaml>`            | 检查生效配置、本地资源和运行前提，不运行实验。                                                |
 | `ember-rsi run <recipe.yaml>`               | 启动或续跑实验并保存记录。                                                                    |
 | `ember-rsi list`                            | 列出已保存的实验。                                                                            |
 | `ember-rsi show <experiment-id>`            | 输出已保存的实验状态、结果和错误信息。                                                        |
@@ -56,11 +56,13 @@ ember-rsi [通用选项] <命令> [位置参数] [命令选项]
 例如，可以通过下面的命令来校验 + 启动：
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml
+ember-rsi doctor my-experiment/recipe.yaml
 ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
 ```
 
-- `validate` 检查 Recipe、插件配置、契约兼容性、Policy 编译和已声明的 Reflection 资源。
+- `doctor` 检查 Recipe、插件配置、契约兼容性、Policy 编译和已声明的 Reflection 资源，再调用每个生效组件定义上的可选 `doctor` 能力。单份 JSON 报告包含 `recipeId`、`summary`、`checks` 和 `missingResources`。
+  - 状态为 `passed`（通过）、`failed`（失败）或 `unchecked`（未检查）。
+  - 检查流程、报告解读、内置检查和自定义组件接入方式，参见 [doctor 指南](doctor_zh.md)。
 
 在同一工作区的另一终端中查看进度：
 

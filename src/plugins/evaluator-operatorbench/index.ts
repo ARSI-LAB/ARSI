@@ -9,6 +9,7 @@ import {
   type OperatorbenchConfig,
 } from './schema.js';
 import { createOperatorbench } from './service.js';
+import { operatorbenchDoctor } from './doctor.js';
 
 export { createOperatorbench };
 
@@ -21,4 +22,5 @@ export const operatorbenchDefinition: OperationDefinition<
   contract: operatorbenchContract,
   configSchema: operatorbenchConfigSchema,
   create: createOperatorbench,
+  doctor: operatorbenchDoctor,
 };

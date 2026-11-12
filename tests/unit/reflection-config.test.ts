@@ -19,7 +19,8 @@ import { Registry } from '../../src/runtime/registry/index.js';
 import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
 import { validateReflection } from '../../src/runtime/revisions/validation.js';
 import { Policy } from '../../src/runtime/policy/index.js';
-import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
+import { createRuntime } from '../../src/runtime/context.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { object } from '../../src/shared/json.js';
 import { parseLockedReflection } from '../../src/runtime/manager/definition-lock.js';
 async function fixture(t: TestContext) {
@@ -426,20 +427,23 @@ test('Recipe validation loads only the selected whole Reflection file before exe
     reflection: { configFile: './reflection.yaml' },
   };
   await writeFile(recipePath, stringify(recipe));
-  assert.equal((await validateRecipe(runtime, recipePath)).valid, true);
+  assert.equal(
+    (await Recipe.load(recipePath, runtime.registry)).id,
+    'recipe.preflight',
+  );
   assert.deepEqual(await runtime.manager.facts.list('calls'), []);
   // An invalid selected override is never replaced by a valid default file.
   await writeFile(join(root, 'missing-default.yaml'), stringify(definition));
   await writeFile(selected, stringify({ ...definition, evidence: [] }));
   await assert.rejects(
-    validateRecipe(runtime, recipePath),
+    Recipe.load(recipePath, runtime.registry),
     /reflection.yaml.*evidence/,
   );
   const withoutDeclaration = structuredClone(definitionPolicy);
   delete object(withoutDeclaration.defaults).reflection;
   await writeFile(policyPath, stringify(withoutDeclaration));
   await assert.rejects(
-    validateRecipe(runtime, recipePath),
+    Recipe.load(recipePath, runtime.registry),
     /does not declare defaults.reflection/,
   );
 });

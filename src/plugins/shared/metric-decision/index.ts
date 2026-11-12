@@ -17,6 +17,7 @@ type ConstraintCheck = {
   definitionRef: string;
   min: number | null;
   max: number | null;
+  exclusiveMax?: boolean;
   incumbentValue: number;
   candidateValue: number;
   passed: boolean;
@@ -42,17 +43,31 @@ const statistic = { enum: ['mean', 'p50', 'p95', 'p99', null] };
 const bound = { type: ['number', 'null'] };
 const checks = {
   type: 'array',
-  items: recordSchema({
-    prerequisite: { type: 'boolean' },
-    metric: ref,
-    statistic,
-    definitionRef: ref,
-    min: bound,
-    max: bound,
-    incumbentValue: { type: 'number' },
-    candidateValue: { type: 'number' },
-    passed: { type: 'boolean' },
-  }),
+  items: recordSchema(
+    {
+      prerequisite: { type: 'boolean' },
+      metric: ref,
+      statistic,
+      definitionRef: ref,
+      min: bound,
+      max: bound,
+      exclusiveMax: { type: 'boolean' },
+      incumbentValue: { type: 'number' },
+      candidateValue: { type: 'number' },
+      passed: { type: 'boolean' },
+    },
+    [
+      'prerequisite',
+      'metric',
+      'statistic',
+      'definitionRef',
+      'min',
+      'max',
+      'incumbentValue',
+      'candidateValue',
+      'passed',
+    ],
+  ),
 };
 export const metricDecisionSchema: JsonSchema = recordSchema({
   kind: { const: 'metric-decision' },
@@ -166,7 +181,12 @@ export async function readDecisionFeedback(
     )
       throw new Error('Decision constraint does not match measurement');
     if (check.min !== null) constraints.push(check.min - check.candidateValue);
-    if (check.max !== null) constraints.push(check.candidateValue - check.max);
+    if (check.max !== null)
+      constraints.push(
+        check.exclusiveMax && check.candidateValue === check.max
+          ? Number.EPSILON
+          : check.candidateValue - check.max,
+      );
   }
   return {
     loss:
@@ -191,6 +211,7 @@ export async function readDecisionFeedback(
         definitionRef: c.definitionRef,
         min: c.min,
         max: c.max,
+        ...(c.exclusiveMax ? { exclusiveMax: true } : {}),
       })),
     },
   };

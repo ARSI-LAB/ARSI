@@ -598,7 +598,15 @@ export class Manager {
               );
             } catch (cleanupError) {
               await cleanup.externalFailure(cleanupError, instanceId);
-              if (error === undefined) throw cleanupError;
+              throw error === undefined
+                ? cleanupError
+                : Object.assign(
+                    new AggregateError(
+                      [error, cleanupError],
+                      'Instance cleanup was not confirmed',
+                    ),
+                    { status: 'unknown' },
+                  );
             }
           }
         },

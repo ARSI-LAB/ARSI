@@ -41,7 +41,7 @@ Validation checks schemas without starting Python or the remote server.
 After building RSI and configuring deployment:
 
 ```sh
-ember-rsi validate examples/artifacts/inference/parameter-tpe/recipe.yaml
+ember-rsi doctor examples/artifacts/inference/parameter-tpe/recipe.yaml
 ember-rsi run examples/artifacts/inference/parameter-tpe/recipe.yaml --id parameter-tpe-first
 ember-rsi show parameter-tpe-first
 ember-rsi run examples/artifacts/inference/parameter-tpe/recipe.yaml --id parameter-tpe-first --resume

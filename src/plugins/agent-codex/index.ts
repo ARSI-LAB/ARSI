@@ -6,6 +6,7 @@ import type {
 import { agentContract } from '../../contracts/plugin-types/index.js';
 import { configSchema, type AgentCodexConfig } from './schema.js';
 import { createAgentCodex } from './service.js';
+import { checkCodexAgent } from './doctor.js';
 
 export const codexDefinition: OperationDefinition<
   AgentInput,
@@ -17,4 +18,5 @@ export const codexDefinition: OperationDefinition<
   contract: agentContract,
   configSchema,
   create: createAgentCodex,
+  doctor: checkCodexAgent,
 };

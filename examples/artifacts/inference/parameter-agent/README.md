@@ -37,8 +37,8 @@ Use the ember-rsi skill to start a vLLM inference parameter optimization experim
      confirm cleanup. Set the serving endpoint in the Recipe and point
      application.config.remote.script to the verified deployment script.
 
-3. Run and monitor. Validate the prepared Recipe with ember-rsi validate and
-   start it with ember-rsi run <recipe.yaml> --id <experiment-id>. Keep the
+3. Run and monitor. Check the prepared Recipe with ember-rsi doctor <recipe.yaml>
+   and start it with ember-rsi run <recipe.yaml> --id <experiment-id>. Keep the
    run active and check ember-rsi show <experiment-id> from another terminal
    in the same working directory until it finishes. Report the baseline and
    best measured throughput, TTFT, and TPOT, and say whether both limits were met.

@@ -37,14 +37,15 @@ The Policy's `require` specifies the contract, and the binding selects a plugin 
 
 `OperationDefinition<I, O, C>` describes a plugin definition. Its three type parameters are input, output, and configuration; see the [interface definition](../../../src/contracts/operation.ts).
 
-| Field                  | Meaning                                                             | How to fill it in                                                                                   |
-| ---------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `id`                   | Unique plugin implementation ID used by bindings.                   | Required, for example `proposer.keep-parent`; must not duplicate a registered plugin or Policy ID.  |
-| `description`          | Describe the plugin's purpose.                                      | Optional short description.                                                                         |
-| `contract`             | Declare the public contract the plugin follows.                     | Required imported contract object, such as `proposerContract`.                                      |
-| `configSchema`         | Validate this implementation's configuration.                       | Required JSON Schema; declare an object Schema even when there are no settings.                     |
-| `create`               | Create a plugin instance from configuration.                        | Required async function `create(config, context)` returning an object with `execute` and `dispose`. |
-| `implementationDigest` | Identify the implementation version so recovery can detect changes. | Optional digest covering the actual implementation code; update it when the code changes.           |
+| Field                  | Meaning                                                             | How to fill it in                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                   | Unique plugin implementation ID used by bindings.                   | Required, for example `proposer.keep-parent`; must not duplicate a registered plugin or Policy ID.                             |
+| `description`          | Describe the plugin's purpose.                                      | Optional short description.                                                                                                    |
+| `contract`             | Declare the public contract the plugin follows.                     | Required imported contract object, such as `proposerContract`.                                                                 |
+| `configSchema`         | Validate this implementation's configuration.                       | Required JSON Schema; declare an object Schema even when there are no settings.                                                |
+| `create`               | Create a plugin instance from configuration.                        | Required async function `create(config, context)` returning an object with `execute` and `dispose`.                            |
+| `doctor`               | Diagnose this component's prerequisites before an experiment.       | Optional `OperationDoctor<C>` function that receives `DoctorContext<C>` and returns a `DoctorResult`.                          |
+| `implementationDigest` | Identify the implementation version so recovery can detect changes. | Optional digest covering the actual implementation code; update it when the code changes.                                      |
 
 - Without `implementationDigest`, Registry generates a digest from the `create` function text, contract, and configuration Schema.
 
@@ -272,18 +273,18 @@ Omit `plugin` to keep the Policy's default implementation. A replacement must sa
 With the extension in `~/.ember-rsi/plugins/my-extension/`, use the installed CLI directly from the working directory containing `my-experiment/`:
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml
+ember-rsi doctor my-experiment/recipe.yaml
 ember-rsi run my-experiment/recipe.yaml --id custom-run
 ```
 
 If the extension is elsewhere, such as `my-extension/` under the working directory, pass the same extension directory when validating, running, and resuming:
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
+ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id custom-run --plugin-dir ./my-extension
 ```
 
-`validate` checks contracts, bindings, and configuration without executing plugin business logic. After running, check that `propose` returns `status: no-change` and the expected `rationale`; see [Run and inspect experiments](running-experiments.md) for viewing step results.
+`doctor` checks contracts, bindings and configuration, then invokes each selected component definition's optional `doctor` function. It incorporates the returned `DoctorResult` into the report.
 
 ## Use RuntimeContext
 
@@ -337,7 +338,7 @@ Besides the CLI, your own program can create a Runtime and register plugins. Thi
 
 ```ts
 import { resolve } from 'node:path';
-import { createRuntime, validateRecipe } from 'ember-rsi';
+import { createRuntime, Recipe } from 'ember-rsi';
 import { keepParentDefinition } from './my-extension/dist/proposer-keep-parent/index.js';
 
 // Create Runtime, disable user-level extension loading, and register definitions directly.
@@ -352,10 +353,10 @@ try {
     resolve('./my-extension/policy.yaml'),
   );
 
-  // Validate and run the complete Recipe with the same Runtime.
+  // Assemble the Recipe with structural validation, then run it with the same Runtime.
   const recipePath = resolve('./my-experiment/recipe.yaml');
-  const check = await validateRecipe(runtime, recipePath);
-  console.log(check);
+  const recipe = await Recipe.load(recipePath, runtime.registry);
+  console.log(recipe.id);
   const result = await runtime.manager.run(recipePath, { id: 'custom-run' });
   console.log(result.status, result.output);
 } finally {
@@ -373,3 +374,5 @@ Common `createRuntime` options are listed below; see the [Runtime entrypoint](..
 | `pluginDirectories` | Additional extension directories, relative to the current process directory. | No extra directories are loaded. |
 
 Registrations in a host only apply to that Runtime. A separately started CLI loads extensions from the default user-level directory, or from directories selected with `--plugin-dir`.
+
+`Recipe.load` assembles and structurally validates the definition without running prerequisite probes. Use `ember-rsi doctor` with the same extension registrations for CLI preflight. Add optional `doctor` to the component definition for its own diagnostics; see [Connecting custom components](doctor.md#4-connecting-custom-components) for the public callback and a complete registration example.

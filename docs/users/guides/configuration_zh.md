@@ -138,7 +138,7 @@ Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置�
 
 推理优化可用 `evaluator.inferencebench` 的 `benchmark.name: aisbench` 和内置 SSH Solver，也可选择 `agentx` 及其回放 Solver。基线和候选使用相同的评测负载。Runtime 统一执行 Recipe 的 `budget` 所定义的实验级上限。
 
-对于 `parameter.agent`，`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 按顺序直接调用 `evaluator.inferencebench`，再用更新后的当前最优版本生成下一批。`maxTrials` 限制所有批次的候选尝试总数。启动或评测失败会停止实验并触发实例清理。
+对于 `parameter.agent`，`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 按顺序直接调用 `evaluator.inferencebench`，再用更新后的当前最优版本生成下一批。`maxTrials` 限制所有批次的候选尝试总数。已确认且完成清理的启动失败记为失败 Measurement，并拒绝该候选；SDK 评测失败、取消、收集不完整或清理状态不明会停止实验。失败基线不能启动搜索。
 
 默认的 `selector.inference` 用 `metric` 和 `direction` 定义主优化指标，用 `constraints` 定义性能目标，并通过 `prerequisite: true` 标记在目标值比较前执行的硬性要求。它允许在全部达标前接受约束违反程度减小的候选，同时防止已满足的约束退步。选择规则见[内置组件](built-in-components_zh.md#loop-组件)。Policy 保留当前最优版本，并用 `candidateFeasible` 单独报告是否达标，不将其等同于候选是否被接受。
 
@@ -211,3 +211,5 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | `bindings.evaluator.config.benchmark.config.profiling.retryDelayMs`             | 可选的 profiling 重试间隔，单位毫秒；`0` 表示不等待，省略时保留指数退避。                         |
 
 以上 SDK 配置需要匹配的 kernel Evaluator 实现。直接创建 Node 计时器的超时和清理参数必须在其可表示的范围内（`2147483647` 毫秒）；profiling 重试等待由 SDK 分段执行。这些是平台语义，不是优化预算。文件和编辑字节限制由 Target 拥有，Proposer 不再额外施加 32 KiB 源码上限。JSON 证据读取默认返回 60,000 字节的摘要，调用方可提供更大的 `maxBytes`，同时遵守显式作用域限制。文件投影在没有显式字节限制时保留完整授权来源；摘要仍属于派生视图。类型、路径、归属、评分区间和单 case 协议校验继续生效。
+
+搜索行为沿用 Codex 原生配置。含专家角色的调用保留父 rollout，供完整上下文的原生委派使用；无角色调用仍使用临时线程。已确认且清理完成的起服失败可被拒绝后继续；SDK 评测失败、取消或清理不明会停止实验。

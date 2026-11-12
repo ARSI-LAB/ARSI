@@ -84,7 +84,7 @@ a positive `batchSize` (for example `32`), and a `files` inventory of relative p
 ```bash
 pnpm install --frozen-lockfile
 pnpm build
-pnpm ember-rsi validate examples/artifacts/kernel/transpose-copy/recipe.search.yaml
+pnpm ember-rsi doctor examples/artifacts/kernel/transpose-copy/recipe.search.yaml
 node --import ./examples/artifacts/kernel/transpose-copy/http-timeout.mjs dist/src/entries/cli/main.js run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
 pnpm ember-rsi show transpose-copy-search-001
 ```
@@ -201,7 +201,7 @@ the PyTorch ratio alone does not establish that gain.
 
 For offline software checks, run `pnpm check` and `pnpm check:package`. These use
 controlled workers and do not establish real NPU correctness or performance.
-`validate` checks configuration; a real run must establish device readiness,
+`doctor` checks configuration and applicable local prerequisites; a real run must establish device readiness,
 strict correctness, timing evidence, and confirmed cleanup. Preserve the
 Manager facts and referenced immutable artifacts under `.rsi/`, including SDK
 run IDs and raw evidence, when exporting an experiment. A summary or selected

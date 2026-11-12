@@ -9,7 +9,7 @@ import { json, object, string } from '../../shared/json.js';
 import { editResource } from '../shared/agent-editing/index.js';
 import { prepareDocumentPreviews } from './document-previews.js';
 
-const reviewer = {
+export const reflectionReviewer = {
   name: 'reflection-reviewer',
   description:
     'Review a focused Reflection question against the authorized workspace evidence.',
@@ -73,7 +73,7 @@ export const createReflectionAgent: OperationDefinition<
             readOnlyPaths: Object.keys(files),
           },
         },
-        [reviewer],
+        [reflectionReviewer],
       );
       if (updated.changeRef !== null)
         return {

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { JsonObject } from '../../contracts/index.js';
 import { object } from '../../shared/json.js';
+import { validate } from '../../shared/schema.js';
 import type { ResolvedOptunaConfig } from './schema.js';
 
 export type OptunaWorker = (
@@ -12,6 +13,35 @@ export type OptunaWorker = (
 export const workerPath = fileURLToPath(
   new URL('./python/worker.py', import.meta.url),
 );
+
+export function validateOptunaWorkerResponse(
+  response: JsonObject,
+  action: 'check' | 'suggest',
+): void {
+  validate(
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        environment: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            python: { type: 'string' },
+            optuna: { const: '4.5.0' },
+            numpy: { const: '2.2.6' },
+          },
+          required: ['python', 'optuna', 'numpy'],
+        },
+        parameters: { type: 'object' },
+      },
+      required:
+        action === 'check' ? ['environment'] : ['environment', 'parameters'],
+    },
+    response,
+    'Optuna worker response',
+  );
+}
 
 /** Own a one-shot child through close, including spawn failure and cancellation. */
 export async function runJsonProcess(

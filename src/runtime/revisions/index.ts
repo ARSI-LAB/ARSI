@@ -528,8 +528,6 @@ export async function reflect(
     const changedTargets = new Set<string>();
     let total = 0,
       changedFiles = 0;
-    // Windows also reports 0666 for writable files created with 0644.
-    const textModes = process.platform === 'win32' ? [0o644, 0o666] : [0o644];
     for (const path of new Set([...oldTree.keys(), ...newTree.keys()])) {
       const a = oldTree.get(path),
         b = newTree.get(path);
@@ -548,7 +546,8 @@ export async function reflect(
       const change = !a ? 'create' : !b ? 'delete' : 'modify';
       if (!strings(mapping.changes).includes(change))
         throw new Error(`Reflection ${change} denied`);
-      if (b && !textModes.includes(b.mode & 0o777))
+      // Content edits preserve existing permissions; new text files may follow umask.
+      if (b && ((b.mode & 0o111) !== 0 || (a && b.mode !== a.mode)))
         throw new Error('Reflection resource mode change denied');
       const bytes = b ? Buffer.from(b.base64, 'base64').length : 0;
       total += bytes;

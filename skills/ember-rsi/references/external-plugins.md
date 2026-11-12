@@ -6,7 +6,7 @@ Use repeatable `--plugin-dir` options after the command:
 
 ```sh
 ember-rsi catalog --plugin-dir ./my-extension
-ember-rsi validate ./recipe.yaml --plugin-dir ./my-extension
+ember-rsi doctor ./recipe.yaml --plugin-dir ./my-extension
 ember-rsi run ./recipe.yaml --plugin-dir ./my-extension --id experiment-01
 ember-rsi dashboard --plugin-dir ./my-extension --port 4317
 ```
@@ -42,6 +42,6 @@ Directory arguments resolve against the process working directory. Use `import.m
 
 Builtins register first, then home extensions, then explicit directories in argument order. Repeated directories resolving to the same real path register once per Runtime. Missing/invalid entrypoints, registration failures and duplicate IDs stop startup with directory context. Builtin IDs cannot be silently overridden. Registration runs again for each new Runtime even when Node caches the imported module.
 
-All commands share loading, including Web startup. Use the same directories when validating, running or resuming and preserve extension versions/resources. This is startup loading; changing files does not reload a running experiment.
+All commands share loading, including Web startup. Use the same directories for doctor, run and resume, and preserve extension versions/resources. This is startup loading; changing files does not reload a running experiment.
 
 A complete working extension is included at [extension/index.mjs](../assets/minimal/extension/index.mjs).

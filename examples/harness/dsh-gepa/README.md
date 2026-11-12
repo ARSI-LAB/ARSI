@@ -44,7 +44,7 @@ Then build, validate and run the Recipe:
 
 ```sh
 pnpm build
-pnpm ember-rsi validate examples/harness/dsh-gepa/recipe.yaml
+pnpm ember-rsi doctor examples/harness/dsh-gepa/recipe.yaml
 pnpm ember-rsi run examples/harness/dsh-gepa/recipe.yaml --id gepa-office
 ```
 

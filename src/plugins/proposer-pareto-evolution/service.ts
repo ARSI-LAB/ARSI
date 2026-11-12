@@ -63,7 +63,7 @@ function safePath(path: string): string {
   return path;
 }
 
-function validateModules(modules: readonly PromptModule[]): void {
+export function validateModules(modules: readonly PromptModule[]): void {
   const ids = new Set<string>();
   const paths = new Set<string>();
   for (const module of modules) {

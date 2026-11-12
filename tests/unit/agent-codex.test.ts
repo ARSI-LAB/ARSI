@@ -16,7 +16,7 @@ import { proposerEditOutputSchema } from '../../src/plugins/proposer-agent/edits
 import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { configSchema } from '../../src/plugins/agent-codex/schema.js';
 import { parseConfig } from '../../src/shared/schema.js';
-import { createRuntime, validateRecipe } from '../../src/runtime/context.js';
+import { createRuntime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { stringify } from 'yaml';
 import { object } from '../../src/shared/json.js';
@@ -328,6 +328,7 @@ test('Codex uses the managed project cwd and the native tool surface', async (t)
     assert.equal(object(audit.thread).cwd, await realpath(project));
     assert.equal(object(audit.turn).cwd, await realpath(project));
     assert.equal(object(audit.thread).dynamicTools, undefined);
+    assert.equal(object(audit.thread).ephemeral, false);
     assert.match(JSON.stringify(audit.args), /project_root_markers/);
     assert.match(String(object(audit.thread).permissions), /^rsi-agent-/);
     assert.match(JSON.stringify(audit.args), /workspace_roots/);
@@ -564,9 +565,34 @@ test('existing Policy accepts the native Codex binding', async () => {
     object(declaration.bindings).agent = { plugin: 'agent.codex', config: {} };
     const path = join(directory, 'recipe.yaml');
     await writeFile(path, stringify(declaration));
-    await validateRecipe(runtime, path);
+    assert.equal(
+      (await Recipe.load(path, runtime.registry)).bindings.agent?.pluginId,
+      'agent.codex',
+    );
   } finally {
     await runtime.dispose();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('Codex keeps calls without roles ephemeral and inherits native search settings', async () => {
+  const f = await fixture(['{"answer":"ok"}']);
+  try {
+    await f.run();
+    if (!process.env.RSI_TEST_CODEX_EXECUTABLE) {
+      const audit = object(
+        JSON.parse(await readFile(join(f.directory, 'execution.json'), 'utf8')),
+      );
+      assert.equal(object(audit.thread).ephemeral, true);
+      assert.ok(
+        Array.isArray(audit.args) &&
+          !audit.args.some(
+            (arg: unknown) =>
+              typeof arg === 'string' && arg.startsWith('web_search='),
+          ),
+      );
+    }
+  } finally {
+    await f.close();
   }
 });

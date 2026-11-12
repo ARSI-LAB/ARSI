@@ -186,14 +186,14 @@ policy:
 扩展已放在 `~/.ember-rsi/plugins/my-extension/` 时，在包含 `my-experiment/` 的工作目录直接使用已安装的 CLI：
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml
+ember-rsi doctor my-experiment/recipe.yaml
 ember-rsi run my-experiment/recipe.yaml --id baseline-01
 ```
 
 如果扩展保存在工作目录下的 `my-extension/` 等其他位置，校验、运行和恢复时都传入同一扩展目录：
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml --plugin-dir ./my-extension
+ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 ember-rsi run my-experiment/recipe.yaml --id baseline-01 --plugin-dir ./my-extension
 ```
 

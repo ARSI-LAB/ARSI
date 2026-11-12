@@ -15,7 +15,7 @@ Use `ember-rsi --help` to list commands and `ember-rsi <command> --help` for a c
 | `ember-rsi catalog`                         | List registered plugin and Policy IDs.                                                                                                    |
 | `ember-rsi list plugins`                    | Inspect plugin descriptions, contracts, Schemas, and compatible Policy bindings.                                                          |
 | `ember-rsi list policies`                   | Inspect Policy descriptions, Schemas, requirements, and compatible plugins.                                                               |
-| `ember-rsi validate <recipe.yaml>`          | Validate configuration and wiring without running the experiment.                                                                         |
+| `ember-rsi doctor <recipe.yaml>`            | Check effective configuration, local resources and runtime prerequisites without running the experiment.                                  |
 | `ember-rsi run <recipe.yaml>`               | Start or resume an experiment and persist its records.                                                                                    |
 | `ember-rsi list`                            | List saved experiments.                                                                                                                   |
 | `ember-rsi show <experiment-id>`            | Print saved experiment status, output, and error information.                                                                             |
@@ -56,11 +56,13 @@ These options apply across commands:
 For example, validate and start an experiment with:
 
 ```sh
-ember-rsi validate my-experiment/recipe.yaml
+ember-rsi doctor my-experiment/recipe.yaml
 ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01
 ```
 
-- `validate` checks the Recipe, plugin configuration, contract compatibility, Policy compilation, and declared Reflection resources.
+- `doctor` checks the Recipe, plugin configuration, contract compatibility, Policy compilation and declared Reflection resources, then calls the optional `doctor` capability on each effective component definition. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`.
+  - Statuses are `passed`, `failed` and `unchecked`.
+  - For the diagnostic flow, report interpretation, built-in checks and custom-component integration, see the [doctor guide](doctor.md).
 
 Inspect progress from another terminal in the same workspace:
 

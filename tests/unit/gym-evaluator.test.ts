@@ -204,6 +204,10 @@ interface FakeGymOptions {
   queuedForever?: boolean;
   missingResultPolls?: number;
   items?: JsonValue[];
+  rollouts?: number;
+  rolloutsFailed?: number;
+  rewardMean?: number;
+  passRate?: number;
 }
 
 async function fakeGym(options: FakeGymOptions = {}): Promise<{
@@ -257,11 +261,15 @@ async function fakeGym(options: FakeGymOptions = {}): Promise<{
           eval_id: input.eval_id,
           status: options.status ?? 'completed',
           metrics: {
-            reward_mean: options.status === 'failed' ? null : 0.75,
-            pass_rate: options.status === 'failed' ? null : 0.5,
+            reward_mean:
+              options.rewardMean ??
+              (options.status === 'failed' ? null : 0.75),
+            pass_rate:
+              options.passRate ?? (options.status === 'failed' ? null : 0.5),
             rollouts:
-              options.status === 'failed' ? 0 : (options.items?.length ?? 1),
-            rollouts_failed: 0,
+              options.rollouts ??
+              (options.status === 'failed' ? 0 : (options.items?.length ?? 1)),
+            rollouts_failed: options.rolloutsFailed ?? 0,
           },
           overfit_guard: { trusted: options.trusted ?? true },
           experiment_profile_id: 'fixture-profile',
@@ -395,6 +403,91 @@ test('gym evaluator publishes the candidate, submits its digest, and records com
       'candidateRef',
       'bundleDigest',
     ]);
+  } finally {
+    await gym.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('gym evaluator counts failed rollouts as zero and keeps the evaluation comparable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-gym-failures-'));
+  const gym = await fakeGym({
+    rollouts: 1,
+    rolloutsFailed: 1,
+    rewardMean: 1,
+    passRate: 1,
+    items: [
+      {
+        task_id: 'task/a',
+        rollouts: 1,
+        reward_mean: 1,
+        pass_rate: 1,
+        rollouts_failed: 0,
+        checks: [
+          {
+            id: 'answer-match/0',
+            status: 'passed',
+            score: 1,
+            reason: null,
+          },
+        ],
+        diagnostics: [],
+        truncated: false,
+      },
+      {
+        task_id: 'task/b',
+        rollouts: 0,
+        reward_mean: null,
+        pass_rate: null,
+        rollouts_failed: 1,
+        checks: [
+          {
+            id: 'execution',
+            status: 'failed',
+            score: 0,
+            reason: 'dsh did not finish within 300s',
+          },
+        ],
+        diagnostics: [
+          {
+            kind: 'gym-execution',
+            code: 'rollout_failure',
+            message: 'dsh did not finish within 300s',
+            truncated: false,
+          },
+        ],
+        truncated: false,
+      },
+    ],
+  });
+  const execution = await bundle(root);
+  const { services, measurements } = harness(root, execution);
+  try {
+    const operation = await createGym(
+      config(gym.baseUrl, root),
+      services,
+      gymConfigSchema,
+    );
+    await operation.execute(
+      { candidateRef: 'candidate:a', taskIds: ['task/a', 'task/b'] },
+      context(root, services),
+    );
+    const measurement = measurements[0]!;
+    assert.equal(measurement.status, 'succeeded');
+    assert.equal(measurement.coverage, 'complete');
+    const metrics = measurement.metrics as JsonObject;
+    assert.deepEqual((metrics.successRate as JsonObject).value, {
+      kind: 'scalar',
+      value: 0.5,
+    });
+    assert.deepEqual((metrics.meanReward as JsonObject).value, {
+      kind: 'scalar',
+      value: 0.5,
+    });
+    assert.deepEqual((metrics.rolloutsFailed as JsonObject).value, {
+      kind: 'scalar',
+      value: 1,
+    });
   } finally {
     await gym.close();
     await rm(root, { recursive: true, force: true });

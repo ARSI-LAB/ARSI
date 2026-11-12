@@ -19,12 +19,24 @@ policy:
         - e1fc63a2-da7a-432f-be78-7c4a95598703
         - 8e867cd7-cff9-4e6c-867a-ff5ddc2550be
         - ec09fa32-d03f-4bf8-84b0-1f16922c3ae4
-        - 50ad0280-0819-4bd9-b275-5de32d3b5bcb
+        - 5d0080cb-90d7-4712-bc33-848150e917d3
+        - 46719c30-f4c3-4cad-be07-d5cb21eee6bb
+        - 4b6bb5f7-f634-410e-815d-e673ab7f8632
+        - b816bfce-3d80-4913-a07d-69b752ce6377
+        - 72e110e7-464c-453c-a309-90a95aed6538
         - 42576abe-0deb-4869-8c63-225c2d75a95a
+        - b415aba4-4b68-4fc6-9b89-2c812e55a3e1
+        - 935e2cff-ae78-4218-b3f5-115589b19dae
+        - 50ad0280-0819-4bd9-b275-5de32d3b5bcb
       # Validation uses text-only tasks; video URL tasks are excluded because
       # YouTube retrieval is environment-dependent and can exhaust the DSH timeout.
       validationTaskIds:
         - 27d5d136-8563-469e-92bf-fd103c28b57c
+        - dc28cf18-6431-458b-83ef-64b3ce566c10
+        - 4b650a35-8529-4695-89ed-8dc7a500a498
+        - c714ab3a-da30-4603-bacd-d008800188b9
+        - 7673d772-ef80-4f0f-a602-1bf4485c9b43
+        - 5188369a-3bbe-43d8-8b94-11558f909a08
       # Gym owns the real holdout gate. RSI must never receive holdout task IDs.
       testTaskIds: []
 bindings:
@@ -39,12 +51,12 @@ bindings:
         tier: screen
         # A new seed avoids replaying the failed eval-26257179c297408b cache.
         # Baseline and candidate evaluations all use this same seed.
-        seed: 43
+        seed: 48
       poll:
         intervalMs: 5000
         timeoutMs: 3600000
       budget:
-        maxRollouts: 5
+        maxRollouts: 12
         timeoutS: 3600
       activation:
         kind: dsh-user-layer
@@ -58,7 +70,7 @@ bindings:
       promotionDefaults:
         adapter: dsh_candidate
         benchmark: gaia_text_validation
-        seed: 43
+        seed: 48
       poll:
         intervalMs: 5000
         timeoutMs: 7200000

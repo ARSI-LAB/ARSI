@@ -109,8 +109,8 @@ export async function createGymRelease(
           comparison.delta === null
             ? null
             : {
-                candidateRewardMean: comparison.candidateRewardMean,
-                incumbentRewardMean: comparison.incumbentRewardMean,
+                candidatePassRate: comparison.candidatePassRate,
+                incumbentPassRate: comparison.incumbentPassRate,
                 delta: comparison.delta,
                 minDelta: settings.minDelta,
               },
@@ -251,18 +251,28 @@ function reportIssues(
   if (report.seed === null) issues.push(`${label} report has no seed`);
   else if (report.seed !== settings.promotionDefaults.seed)
     issues.push(`${label} report seed does not match the release config`);
-  if (report.rollouts === null || report.rollouts <= 0)
-    issues.push(`${label} report has no positive rollout count`);
-  if (report.rolloutsFailed === null)
-    issues.push(`${label} report has no rollouts_failed count`);
-  else if (report.rollouts !== null && report.rolloutsFailed > report.rollouts)
-    issues.push(`${label} report has more failed rollouts than rollouts`);
-  else if (report.rolloutsFailed > 0)
-    issues.push(
-      `${label} report contains ${report.rolloutsFailed} failed rollouts`,
-    );
-  if (report.rewardMean === null || !Number.isFinite(report.rewardMean))
-    issues.push(`${label} report has no finite reward_mean`);
+  if (report.rollouts === null || report.rollouts < 0)
+    issues.push(`${label} report has an invalid rollout count`);
+  if (report.rolloutsFailed === null || report.rolloutsFailed < 0)
+    issues.push(`${label} report has an invalid rollouts_failed count`);
+  else if (
+    report.rollouts !== null &&
+    report.rollouts + report.rolloutsFailed <= 0
+  )
+    issues.push(`${label} report has no attempted rollouts`);
+  if (
+    report.passRate !== null &&
+    (!Number.isFinite(report.passRate) ||
+      report.passRate < 0 ||
+      report.passRate > 1)
+  )
+    issues.push(`${label} report has an invalid pass_rate`);
+  if (report.rollouts !== null && report.rollouts > 0) {
+    if (report.passRate === null)
+      issues.push(`${label} report has no finite pass_rate`);
+    if (report.rewardMean === null || !Number.isFinite(report.rewardMean))
+      issues.push(`${label} report has no finite reward_mean`);
+  }
   for (const [field, value] of [
     ['dataset_version', report.datasetVersion],
     ['manifest_schema_version', report.manifestSchemaVersion],
@@ -275,6 +285,18 @@ function reportIssues(
   return issues;
 }
 
+function effectivePassRate(report: GymPromotionReport | null): number | null {
+  if (report === null) return null;
+  const successful = report.rollouts;
+  const failed = report.rolloutsFailed;
+  if (successful === null || failed === null) return null;
+  const attempted = successful + failed;
+  if (attempted <= 0) return null;
+  if (successful === 0) return 0;
+  if (report.passRate === null) return null;
+  return (report.passRate * successful) / attempted;
+}
+
 function compare(
   candidate: RoleResult,
   incumbent: RoleResult | null,
@@ -285,19 +307,19 @@ function compare(
   reason: string;
   reasons: string[];
   delta: number | null;
-  candidateRewardMean: number | null;
-  incumbentRewardMean: number | null;
+  candidatePassRate: number | null;
+  incumbentPassRate: number | null;
 } {
   const candidateReport = candidate.outcome.report;
-  const candidateRewardMean = candidateReport?.rewardMean ?? null;
+  const candidatePassRate = effectivePassRate(candidateReport);
   if (candidateIssues.length > 0)
     return {
       decision: 'reject',
       reason: candidateIssues[0]!,
       reasons: candidateIssues,
       delta: null,
-      candidateRewardMean,
-      incumbentRewardMean: null,
+      candidatePassRate,
+      incumbentPassRate: null,
     };
   if (incumbent === null)
     return {
@@ -305,45 +327,64 @@ function compare(
       reason: 'incumbent promotion report is unavailable',
       reasons: ['incumbent promotion report is unavailable'],
       delta: null,
-      candidateRewardMean,
-      incumbentRewardMean: null,
+      candidatePassRate,
+      incumbentPassRate: null,
     };
 
   const incumbentReport = incumbent.outcome.report;
+  const incumbentPassRate = effectivePassRate(incumbentReport);
   const issues = reportIssues(incumbent, 'incumbent', settings);
   if (candidateReport !== null && incumbentReport !== null)
     issues.push(...identityMismatches(candidateReport, incumbentReport));
+  if (
+    candidatePassRate === null ||
+    incumbentPassRate === null ||
+    !Number.isFinite(candidatePassRate) ||
+    !Number.isFinite(incumbentPassRate)
+  ) {
+    const rateIssues = [
+      ...issues,
+      'holdout reports do not provide a comparable effective pass rate',
+    ];
+    return {
+      decision: 'reject',
+      reason: rateIssues[0]!,
+      reasons: rateIssues,
+      delta: null,
+      candidatePassRate,
+      incumbentPassRate,
+    };
+  }
   if (issues.length > 0)
     return {
       decision: 'reject',
       reason: issues[0]!,
       reasons: issues,
       delta: null,
-      candidateRewardMean,
-      incumbentRewardMean: incumbentReport?.rewardMean ?? null,
+      candidatePassRate,
+      incumbentPassRate,
     };
 
-  const incumbentRewardMean = incumbentReport!.rewardMean!;
-  const delta = candidateRewardMean! - incumbentRewardMean;
+  const delta = candidatePassRate - incumbentPassRate;
   if (delta > settings.minDelta)
     return {
       decision: 'promote',
-      reason: 'candidate strictly beats incumbent on holdout',
+      reason: 'candidate effective holdout pass rate strictly beats incumbent',
       reasons: [],
       delta,
-      candidateRewardMean,
-      incumbentRewardMean,
+      candidatePassRate,
+      incumbentPassRate,
     };
   return {
     decision: 'keep-incumbent',
     reason:
       delta === settings.minDelta
-        ? 'holdout scores are equal; keep the incumbent'
-        : 'candidate does not exceed the release threshold; keep the incumbent',
+        ? 'holdout effective pass rates are equal; keep the incumbent'
+        : 'candidate effective holdout pass rate does not exceed the release threshold; keep the incumbent',
     reasons: [],
     delta,
-    candidateRewardMean,
-    incumbentRewardMean,
+    candidatePassRate,
+    incumbentPassRate,
   };
 }
 

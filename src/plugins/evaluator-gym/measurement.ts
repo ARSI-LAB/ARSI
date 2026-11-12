@@ -174,6 +174,18 @@ export async function recordGymMeasurement(
         })
       : null;
   const status = measurementStatus(outcome, failure);
+  const successfulRollouts = outcome?.rollouts ?? 0;
+  const failedRollouts = outcome?.rolloutsFailed ?? 0;
+  const attemptedRollouts = successfulRollouts + failedRollouts;
+  const scaleByAttempts = (value: number | null | undefined): number | null =>
+    outcome === null ||
+    value === null ||
+    value === undefined ||
+    attemptedRollouts === 0
+      ? null
+      : (value * successfulRollouts) / attemptedRollouts;
+  const effectiveRewardMean = scaleByAttempts(outcome?.rewardMean);
+  const effectivePassRate = scaleByAttempts(outcome?.passRate);
   const coverage = measurementCoverage(outcome, taskIds.length);
   const source = { artifactRef: nativeResultRef, pointer: '/outcome/metrics' };
   const definitions = await Promise.all([
@@ -183,7 +195,7 @@ export async function recordGymMeasurement(
       'score',
       'scalar',
       'gym.metrics.reward_mean',
-      'native Gym mean over successful rollouts; failures are reported separately',
+      'Gym mean reward with infrastructure-failed attempts counted as zero',
     ),
     definition(
       context.artifacts,
@@ -191,7 +203,7 @@ export async function recordGymMeasurement(
       'ratio',
       'scalar',
       'gym.metrics.pass_rate',
-      'native Gym pass rate over executed rollouts',
+      'Gym pass rate with infrastructure-failed attempts counted as zero',
     ),
     definition(
       context.artifacts,
@@ -213,13 +225,13 @@ export async function recordGymMeasurement(
   const metrics: JsonObject = {
     meanReward: scalarMetric(
       definitions[0]!,
-      outcome?.rewardMean ?? null,
+      effectiveRewardMean,
       source,
       'Gym reported no reward mean',
     ),
     successRate: scalarMetric(
       definitions[1]!,
-      outcome?.passRate ?? null,
+      effectivePassRate,
       source,
       'Gym reported no pass rate',
     ),
@@ -252,7 +264,11 @@ export async function recordGymMeasurement(
   ];
   const items: JsonValue[] = [];
   const nativeItems = outcome?.items ?? [];
-  if (taskIds.length && outcome !== null && outcome.rollouts > 0) {
+  if (
+    taskIds.length &&
+    outcome !== null &&
+    outcome.rollouts + outcome.rolloutsFailed > 0
+  ) {
     for (const taskId of taskIds) {
       const nativeItemIndex = nativeItems.findIndex(
         (item) => item.taskId === taskId,
@@ -538,9 +554,12 @@ function measurementCoverage(
   expected: number,
 ): Measurement['coverage'] {
   if (outcome === null) return 'unknown';
-  if (outcome.rollouts === 0) return 'none';
-  if (outcome.rolloutsFailed > 0) return 'partial';
-  if (expected > 0 && outcome.rollouts < expected) return 'partial';
+  if (outcome.rollouts + outcome.rolloutsFailed === 0) return 'none';
+  if (
+    expected > 0 &&
+    outcome.rollouts + outcome.rolloutsFailed < expected
+  )
+    return 'partial';
   return 'complete';
 }
 

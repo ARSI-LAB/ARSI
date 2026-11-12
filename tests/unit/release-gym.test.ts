@@ -39,6 +39,8 @@ interface FixtureOptions {
   missingSeed?: boolean;
   rollouts?: number;
   rolloutsFailed?: number;
+  candidateRolloutsFailed?: number;
+  incumbentRolloutsFailed?: number;
   conflictOnce?: boolean;
 }
 
@@ -147,7 +149,10 @@ function reportFor(
       reward_mean: reward,
       pass_rate: reward,
       rollouts: options.rollouts ?? 4,
-      rollouts_failed: options.rolloutsFailed ?? 0,
+      rollouts_failed:
+        digest === CANDIDATE_DIGEST
+          ? (options.candidateRolloutsFailed ?? options.rolloutsFailed ?? 0)
+          : (options.incumbentRolloutsFailed ?? options.rolloutsFailed ?? 0),
     },
     manifest_schema_version: 2,
     harness_manifest_digest: HARNESS_DIGEST,
@@ -433,8 +438,7 @@ test('release.gym rejects a failed candidate without spending an incumbent holdo
 test('release.gym rejects incomplete report metrics before comparing candidates', async () => {
   const cases: Array<{ options: FixtureOptions; pattern: RegExp }> = [
     { options: { missingSeed: true }, pattern: /has no seed/ },
-    { options: { rollouts: 0 }, pattern: /positive rollout count/ },
-    { options: { rolloutsFailed: 1 }, pattern: /failed rollouts/ },
+    { options: { rollouts: 0 }, pattern: /no attempted rollouts/ },
   ];
   for (const scenario of cases) {
     const gym = await gymFixture(
@@ -461,6 +465,33 @@ test('release.gym rejects incomplete report metrics before comparing candidates'
     } finally {
       await gym.close();
     }
+  }
+});
+
+test('release.gym compares effective pass rate when infrastructure rollouts fail', async () => {
+  const gym = await gymFixture(
+    { [CANDIDATE_DIGEST]: 0.8, [INCUMBENT_DIGEST]: 0.5 },
+    { rollouts: 4, candidateRolloutsFailed: 1 },
+  );
+  try {
+    const { context, artifacts } = harness();
+    const release = await createGymRelease(
+      config(gym.baseUrl),
+      context,
+      releaseConfigSchema,
+    );
+    const output = await release.execute(
+      { candidateRef: 'candidate:final', incumbentRef: 'candidate:incumbent' },
+      context,
+    );
+    assert.equal(output.decision, 'promote');
+    assert.equal(gym.posted.length, 2);
+    const comparison = object(artifacts.get(output.releaseRef)!.comparison);
+    assert.ok(Math.abs(Number(comparison.candidatePassRate) - 0.64) < 1e-12);
+    assert.ok(Math.abs(Number(comparison.incumbentPassRate) - 0.5) < 1e-12);
+    assert.ok(Math.abs(Number(comparison.delta) - 0.14) < 1e-12);
+  } finally {
+    await gym.close();
   }
 });
 

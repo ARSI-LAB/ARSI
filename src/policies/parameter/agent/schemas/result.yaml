@@ -8,6 +8,7 @@ properties:
   candidateRef: { type: string, minLength: 1 }
   measurementRef: { type: string, minLength: 1 }
   candidateFeasible: { type: boolean }
+  memoryRef: { type: [string, 'null'] }
   trials:
     type: array
     items:
@@ -38,5 +39,6 @@ required:
     candidateRef,
     measurementRef,
     candidateFeasible,
+    memoryRef,
     trials,
   ]

@@ -52,6 +52,7 @@ steps:
         use: proposer
         with:
           parent: ${{ state.incumbent }}
+          memoryRef: ${{ state.memoryRef }}
           goal: ${{ config.goal }}
           maxCandidates: >-
             ${{ if(config.candidatesPerRound < config.maxTrials - length(state.trials),
@@ -88,6 +89,38 @@ steps:
         while: ${{ length(state.trials) < config.maxTrials }}
         steps:
           $ref: ./trial-steps.yaml#/evaluate
+      - id: remember_if_enabled
+        type: if
+        if: ${{ config.memory && length(steps.candidates.output) > 0 }}
+        then:
+          steps:
+            - id: remember
+              type: invoke
+              use: memoryUpdater
+              with:
+                memoryRef: ${{ state.memoryRef }}
+                goal: Consolidate measured configuration-search experience, preserving sources, counterexamples and applicability conditions.
+                evidenceRefs: ${{ compact(concat(append(range(0, 0), steps.baseline.output.measurementRef), pluck(state.trials, 'measurementRef'))) }}
+                sources: ${{ state.sources }}
+                observations:
+                  baselineCandidateRef: ${{ input.candidateRef }}
+                  baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
+                  incumbentCandidateRef: ${{ state.incumbent }}
+                  incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
+                  proposals: ${{ steps.propose.output }}
+                  trials: ${{ state.trials }}
+                  selection: ${{ config.selection }}
+            - id: save_memory
+              type: state
+              state:
+                memoryRef: ${{ steps.remember.output.memoryRef }}
+      - id: reflect_if_enabled
+        type: if
+        if: ${{ config.reflection && length(steps.candidates.output) > 0 && length(state.trials) < config.maxTrials }}
+        then:
+          steps:
+            - id: improve_guidance
+              type: reflection
 
 # output
 output:
@@ -98,4 +131,5 @@ output:
   candidateRef: ${{ state.incumbent }}
   measurementRef: ${{ state.incumbentMeasurement }}
   candidateFeasible: ${{ state.incumbentFeasible }}
+  memoryRef: ${{ state.memoryRef }}
   trials: ${{ state.trials }}

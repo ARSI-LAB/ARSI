@@ -171,6 +171,15 @@ For inference optimization, `evaluator.inferencebench` supports `benchmark.name:
 
 For `parameter.agent`, `policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy invokes `evaluator.inferencebench` directly and serially, then uses the latest incumbent when requesting the next batch. `maxTrials` caps candidate attempts across all batches. Confirmed, cleaned startup failures reject the candidate; SDK measurement failures, cancellation or uncertain cleanup stop the experiment.
 
+`parameter.agent` also supports independent `policy.config.memory` and
+`policy.config.reflection` switches, both `false` by default. Memory consolidates
+measured batches and passes the saved `memoryRef` to subsequent proposals;
+Reflection revises only Proposer `guidance` between batches when another trial
+can run. Both reuse the configured `agent` binding and `training-summary` evidence.
+Set `bindings.proposer.config.guidance` to a dedicated directory to supply your
+own initial guidance. The result includes `memoryRef` (`null` when absent).
+See [Memory](memory.md) and [Reflection](reflection.md) for storage and activation.
+
 The default `selector.inference` uses `metric` and `direction` for the primary objective, `constraints` for performance targets, with `prerequisite: true` marking hard requirements that run before objective comparison. It can accept reduced constraint violations before every target is met, while preventing regressions in satisfied constraints. See [Built-in components](built-in-components.md#loop-components) for the selection rules. The Policy retains the incumbent and reports `candidateFeasible` separately from whether a candidate was accepted.
 
 With `application.inference.config.remote.discoverParameters: true`, the launcher reports its installed parameter catalog at initialization. Agent proposals receive the catalog in `context/input.json` as `target.parameterCatalog`. The vLLM Ascend example enables this feature and limits the catalog to an explicit performance-parameter allowlist; precision, quantization, speculative decoding, and structured configs are excluded.

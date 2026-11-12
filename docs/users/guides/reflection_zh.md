@@ -6,6 +6,13 @@ Reflection 根据执行证据改进目标插件，使后续调用采用改进后
 
 - 内置 Harness² Policy 已配置 Reflection 来改进 Invariant Proposer 和 Domain Proposer，目前允许修改它们的 `guidance`。`improve_guidance` 步骤默认处于注释状态。参见 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 和 [Reflection 配置](../../../src/policies/harness2/reflection.yaml)。
 
+内置 `parameter.agent` Policy 声明了[配置搜索 Reflection
+模块](../../../src/policies/parameter/agent/reflection.yaml)。设置
+`policy.config.reflection: true` 后，在每批完成评测且仍有后续试验时调用；默认关闭，
+与 Memory 开关独立。它通过 `training-summary` 读取提案、评测、selector 和已有
+Memory 调用记录，仅可修订 Proposer 的 `guidance`，不能修改选择规则、负载或候选参数。
+下一次提案加载已激活的版本；达到候选上限或收到无修改提案后不再进行收尾 Reflection。
+
 ## 1. 配置 Reflection 模块
 
 `reflection.yaml` 指定参考哪些执行记录、改进哪些插件、允许修改插件的哪些内容，以及由哪个 Reflection 插件和 Agent 完成反思。将文件放在 Policy 旁；下面使用 Harness² 已声明的绑定名，接入自己的 Policy 时按实际绑定名调整：

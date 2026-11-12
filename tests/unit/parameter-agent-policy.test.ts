@@ -33,6 +33,7 @@ test('parameter.agent follows selector decisions and returns the measured incumb
             return { measurementRef: `m-${input.candidateRef}` };
           }
           if (binding === 'proposer') {
+            assert.equal(input.memoryRef, null);
             if (input.parent === 'baseline') {
               assert.equal(input.maxCandidates, 2);
               assert.deepEqual(input.evidenceRefs, ['m-baseline']);
@@ -124,6 +125,7 @@ test('parameter.agent follows selector decisions and returns the measured incumb
     ]);
     assert.equal(result.status, 'no-feasible-configuration');
     assert.equal(result.candidateFeasible, false);
+    assert.equal(result.memoryRef, null);
     assert.equal(result.stopReason, 'no-change');
     assert.equal(result.baselineCandidateRef, 'baseline');
     assert.equal(result.baselineMeasurementRef, 'm-baseline');

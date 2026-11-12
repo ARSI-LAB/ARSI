@@ -6,6 +6,15 @@ Reflection improves target plugins using execution evidence so later calls adopt
 
 - The built-in Harness² Policy configures Reflection to improve the Invariant and Domain Proposers, currently authorizing changes to their `guidance`. Its `improve_guidance` step is commented out by default. See the [Harness² Policy](../../../src/policies/harness2/policy.yaml) and its [Reflection configuration](../../../src/policies/harness2/reflection.yaml).
 
+The built-in `parameter.agent` Policy declares a [configuration-search Reflection
+module](../../../src/policies/parameter/agent/reflection.yaml). Set
+`policy.config.reflection: true` to invoke it after measured batches while another
+trial remains; the default is `false`, independently of Memory. It reads proposal,
+evaluation, selector and available Memory records using `training-summary`, and
+can revise only the Proposer's `guidance`. It cannot change selection rules,
+workload or candidate parameters. The next proposal loads the activated revision;
+there is no final Reflection call after the trial limit or a no-change proposal.
+
 ## 1. Configure a Reflection module
 
 `reflection.yaml` specifies which execution records to consult, which plugins to improve, which parts of those plugins may change, and which Reflection plugin and Agent perform the reflection. Put it beside the Policy. This example uses binding names declared by Harness²; adjust them to match your own Policy:

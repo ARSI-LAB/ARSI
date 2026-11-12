@@ -4,6 +4,8 @@ properties:
   parameterFile: { type: string, minLength: 1, default: tuning.json }
   maxTrials: { type: integer, minimum: 1, default: 8 }
   candidatesPerRound: { type: integer, minimum: 1, maximum: 6, default: 4 }
+  memory: { type: boolean, default: false }
+  reflection: { type: boolean, default: false }
   goal:
     type: string
     minLength: 1

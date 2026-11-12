@@ -1,5 +1,11 @@
 ﻿import type { JsonObject, JsonValue } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
+import {
+  GymHttpClient,
+  type GymHttpClientOptions,
+  optionalObject,
+  sleep,
+} from '../shared/gym/http.js';
 
 /** The bounded slice of the Gym `eval_service` contract that ember-rsi consumes. */
 export interface GymEvalRequest {
@@ -62,6 +68,7 @@ export interface GymEvalOutcome {
   trusted: boolean | null;
   experimentProfileId: string | null;
   datasetVersion: string | null;
+  manifestSchemaVersion: number | null;
   harnessManifestDigest: string | null;
   environmentDigest: string | null;
   evaluationDigest: string | null;
@@ -75,28 +82,14 @@ export interface GymEvalOutcome {
   warnings: readonly string[];
 }
 
-export interface GymClientOptions {
-  baseUrl: string;
+export interface GymClientOptions extends GymHttpClientOptions {
   intervalMs?: number;
   timeoutMs?: number;
-  requestTimeoutMs?: number;
-  fetch?: typeof fetch;
 }
 
 export interface GymEvaluateOptions {
   /** Persist the eval id before polling so an interrupted run is recoverable. */
   onSubmitted?: (evalId: string) => Promise<void> | void;
-}
-
-export class GymHttpError extends Error {
-  constructor(
-    readonly path: string,
-    readonly statusCode: number,
-    readonly body: string,
-  ) {
-    super(`Gym ${path} failed with HTTP ${statusCode}: ${body.slice(0, 300)}`);
-    this.name = 'GymHttpError';
-  }
 }
 
 export class GymEvaluationError extends Error {
@@ -115,18 +108,14 @@ export class GymEvaluationError extends Error {
 }
 
 export class GymEvaluationClient {
-  private readonly baseUrl: string;
+  private readonly http: GymHttpClient;
   private readonly intervalMs: number;
   private readonly timeoutMs: number;
-  private readonly requestTimeoutMs: number;
-  private readonly fetchImpl: typeof fetch;
 
   constructor(options: GymClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.http = new GymHttpClient(options);
     this.intervalMs = options.intervalMs ?? 2000;
     this.timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
-    this.requestTimeoutMs = options.requestTimeoutMs ?? 30 * 1000;
-    this.fetchImpl = options.fetch ?? fetch;
   }
 
   async evaluate(
@@ -145,8 +134,20 @@ export class GymEvaluationClient {
           { phase: 'submit', evalId, submitted: false, outcomeUnknown: false },
         );
       submitted = true;
-      await options.onSubmitted?.(evalId);
-      return await this.finish(first, evalId, signal);
+      const warnings: string[] = [];
+      try {
+        await options.onSubmitted?.(evalId);
+      } catch (error) {
+        warnings.push(
+          `Gym eval id ${evalId} was accepted but not persisted: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      const result = await this.finish(first, evalId, signal);
+      return warnings.length === 0
+        ? result
+        : { ...result, warnings: [...result.warnings, ...warnings] };
     } catch (error) {
       if (error instanceof GymEvaluationError) throw error;
       throw new GymEvaluationError(
@@ -219,17 +220,7 @@ export class GymEvaluationClient {
     body: JsonObject,
     signal: AbortSignal,
   ): Promise<JsonObject> {
-    const timeout = AbortSignal.timeout(this.requestTimeoutMs);
-    const combined = AbortSignal.any([signal, timeout]);
-    const response = await this.fetchImpl(this.baseUrl + path, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: combined,
-    });
-    const text = await response.text();
-    if (!response.ok) throw new GymHttpError(path, response.status, text);
-    return object(JSON.parse(text), `${path} response`);
+    return this.http.post(path, body, signal);
   }
 }
 
@@ -280,6 +271,7 @@ function outcome(raw: JsonObject): GymEvalOutcome {
     trusted: booleanOrNull(guard?.trusted),
     experimentProfileId: stringOrNull(raw.experiment_profile_id),
     datasetVersion: stringOrNull(raw.dataset_version),
+    manifestSchemaVersion: integerOrNull(raw.manifest_schema_version),
     harnessManifestDigest: stringOrNull(raw.harness_manifest_digest),
     environmentDigest: stringOrNull(raw.environment_digest),
     evaluationDigest: stringOrNull(raw.evaluation_digest),
@@ -376,10 +368,6 @@ function statusOf(value: JsonValue | undefined): GymEvalStatus {
   throw new Error(`Gym returned an unknown status: ${String(value)}`);
 }
 
-function optionalObject(value: JsonValue | undefined): JsonObject | null {
-  return value === undefined || value === null ? null : object(value);
-}
-
 function stringOf(value: JsonValue | undefined, label: string): string {
   return string(value, label);
 }
@@ -398,21 +386,12 @@ function integerOf(value: JsonValue | undefined): number {
     : 0;
 }
 
-function booleanOrNull(value: JsonValue | undefined): boolean | null {
-  return typeof value === 'boolean' ? value : null;
+function integerOrNull(value: JsonValue | undefined): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value)
+    ? value
+    : null;
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) return reject(signal.reason);
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
+function booleanOrNull(value: JsonValue | undefined): boolean | null {
+  return typeof value === 'boolean' ? value : null;
 }

@@ -7,7 +7,11 @@ import type {
 } from '../../contracts/index.js';
 import { object, string, strings } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { activateCandidate } from './activation.js';
+import { activateCandidate } from '../shared/gym/activation.js';
+import {
+  expandGymEnvironment,
+  resolveGymActivation,
+} from '../shared/gym/config.js';
 import {
   GymEvaluationClient,
   GymEvaluationError,
@@ -15,7 +19,7 @@ import {
   type GymEvalRequest,
 } from './client.js';
 import { recordGymMeasurement } from './measurement.js';
-import type { GymActivation, GymConfig } from './schema.js';
+import type { GymConfig } from './schema.js';
 import {
   gymSubmissionKey,
   readGymSubmission,
@@ -23,75 +27,6 @@ import {
   type GymSubmission,
   type GymSubmissionStatus,
 } from './submission.js';
-
-const ENVIRONMENT_REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
-
-export function expandGymEnvironment(
-  value: string,
-  field: string,
-  environment: Readonly<Record<string, string | undefined>>,
-): string {
-  return value.replace(ENVIRONMENT_REFERENCE, (_match, name: string) => {
-    const replacement = environment[name];
-    if (replacement === undefined)
-      throw new Error(
-        `gym ${field} references missing environment variable ${name}`,
-      );
-    return replacement;
-  });
-}
-
-export function resolveGymActivation(
-  activation: GymActivation | undefined,
-  environment: Readonly<Record<string, string | undefined>> = process.env,
-): GymActivation | undefined {
-  if (activation?.kind === 'directory')
-    return {
-      ...activation,
-      directory: expandGymEnvironment(
-        activation.directory,
-        'activation.directory',
-        environment,
-      ),
-    };
-  if (activation?.kind === 'dsh-user-layer')
-    return {
-      ...activation,
-      dshHome: expandGymEnvironment(
-        activation.dshHome,
-        'activation.dshHome',
-        environment,
-      ),
-      ...(activation.profileName === undefined
-        ? {}
-        : {
-            profileName: expandGymEnvironment(
-              activation.profileName,
-              'activation.profileName',
-              environment,
-            ),
-          }),
-      ...(activation.basePatch === undefined
-        ? {}
-        : {
-            basePatch: expandGymEnvironment(
-              activation.basePatch,
-              'activation.basePatch',
-              environment,
-            ),
-          }),
-    };
-  if (activation?.kind === 'remote-http')
-    return {
-      ...activation,
-      activateUrl: expandGymEnvironment(
-        activation.activateUrl,
-        'activation.activateUrl',
-        environment,
-      ),
-    };
-  return activation;
-}
 
 export function resolveGymConfig(
   config: GymConfig,
@@ -283,9 +218,10 @@ export async function createGym(
         submissionKey(candidateRef, settings, taskIds),
       );
       return (
-        existing?.evalId !== null &&
-        existing?.evalId !== undefined &&
-        (existing.status === 'submitted' || existing.status === 'unknown')
+        existing !== null &&
+        (existing.status === 'prepared' ||
+          existing.status === 'submitted' ||
+          existing.status === 'unknown')
       );
     },
     async dispose(): Promise<void> {},

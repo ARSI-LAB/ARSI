@@ -111,6 +111,8 @@ defaults:
         metric: successRate
         direction: maximize
 steps:
+  # A duplicate key fails the foreach step, so this declares train/validation/test
+  # without adding a speculative set-difference expression to the DSL.
   - id: validate_disjoint_splits
     type: foreach
     foreach: ${{ concat(concat(config.dataset.trainTaskIds,
@@ -228,11 +230,11 @@ steps:
             candidateValue: ${{ steps.select.output.candidateValue }}
             selectedValue: ${{ steps.select.output.selectedValue }}
             accepted: ${{ steps.select.output.accepted }}
-            tieAdvanced: ${{ steps.select.output.accepted == false && steps.select.output.candidateValue == steps.select.output.incumbentValue }}
+            tieAdvanced: ${{ steps.select.output.accepted == false && steps.select.output.candidateFeasible && steps.select.output.candidateValue == steps.select.output.incumbentValue }}
             reason: ${{ steps.select.output.reason }}
       - id: adopt
         type: if
-        if: ${{ steps.select.output.accepted || steps.select.output.candidateValue == steps.select.output.incumbentValue }}
+        if: ${{ steps.select.output.accepted || (steps.select.output.candidateFeasible && steps.select.output.candidateValue == steps.select.output.incumbentValue) }}
         then:
           steps:
             - id: save

@@ -2,7 +2,9 @@ import type { JsonObject } from '../../contracts/index.js';
 import {
   gymActivationSchema,
   type GymActivation,
-} from '../evaluator-gym/schema.js';
+} from '../shared/gym/schema.js';
+
+export type GymReleaseMetric = 'successRate' | 'meanReward';
 
 export type GymReleaseConfig = {
   baseUrl: string;
@@ -15,6 +17,7 @@ export type GymReleaseConfig = {
   };
   poll?: { intervalMs?: number; timeoutMs?: number };
   minDelta?: number;
+  metric?: GymReleaseMetric;
   activation?: GymActivation;
 };
 
@@ -56,6 +59,12 @@ export const releaseConfigSchema: JsonObject = {
       },
     },
     minDelta: { type: 'number', minimum: 0, default: 0 },
+    metric: {
+      enum: ['successRate', 'meanReward'],
+      default: 'successRate',
+      description:
+        'Effective holdout objective; successRate uses pass_rate and meanReward uses reward_mean.',
+    },
     activation: gymActivationSchema,
   },
   required: ['baseUrl', 'promotionDefaults'],

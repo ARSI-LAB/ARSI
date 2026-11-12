@@ -75,6 +75,7 @@ bindings:
         intervalMs: 5000
         timeoutMs: 7200000
       minDelta: 0
+      metric: successRate
       activation:
         kind: dsh-user-layer
         dshHome: ${DSH_HOME}

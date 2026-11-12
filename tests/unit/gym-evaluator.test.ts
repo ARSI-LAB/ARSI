@@ -26,7 +26,7 @@ import {
 } from '../../src/contracts/models/measurement.js';
 import { projectEvidence } from '../../src/runtime/services/facts/evidence.js';
 import { validate } from '../../src/shared/schema.js';
-import { activateCandidate } from '../../src/plugins/evaluator-gym/activation.js';
+import { activateCandidate } from '../../src/plugins/shared/gym/activation.js';
 import {
   createGym,
   resolveGymConfig,
@@ -105,13 +105,19 @@ interface Harness {
   stored: Map<string, JsonValue>;
   measurements: JsonObject[];
   charges: string[];
+  facts: Map<string, JsonObject>;
 }
 
-function harness(root: string, execution: Execution): Harness {
+function harness(
+  root: string,
+  execution: Execution,
+  options: { failFactWrites?: readonly number[] } = {},
+): Harness {
   const stored = new Map<string, JsonValue>();
   const facts = new Map<string, JsonObject>();
   const measurements: JsonObject[] = [];
   const charges: string[] = [];
+  let factWrites = 0;
   const services: RuntimeContext = new RuntimeContext().extend({
     rootDirectory: root,
     dataDirectory: root,
@@ -137,6 +143,9 @@ function harness(root: string, execution: Execution): Harness {
         return structuredClone(value);
       },
       write: async (kind, id, value) => {
+        factWrites++;
+        if (options.failFactWrites?.includes(factWrites))
+          throw new Error(`fixture fact write ${factWrites} failed`);
         facts.set(`${kind}/${id}`, structuredClone(value));
       },
       list: async () => [],
@@ -177,7 +186,7 @@ function harness(root: string, execution: Execution): Harness {
     },
     withInstance: async (_candidate, _capability, use) => use({ ...execution }),
   });
-  return { services, stored, measurements, charges };
+  return { services, stored, measurements, charges, facts };
 }
 
 function context(
@@ -208,6 +217,8 @@ interface FakeGymOptions {
   rolloutsFailed?: number;
   rewardMean?: number;
   passRate?: number;
+  evaluationDigest?: string;
+  manifestSchemaVersion?: number;
 }
 
 async function fakeGym(options: FakeGymOptions = {}): Promise<{
@@ -216,10 +227,13 @@ async function fakeGym(options: FakeGymOptions = {}): Promise<{
   submitCount: () => number;
   resultCount: () => number;
   setQueuedForever: (value: boolean) => void;
+  setEvaluationDigest: (value: string) => void;
   close: () => Promise<void>;
 }> {
   const submissions: JsonObject[] = [];
+  const submittedTasks = new Map<string, string[]>();
   let queuedForever = options.queuedForever ?? false;
+  let evaluationDigest = options.evaluationDigest ?? `sha256:${'d'.repeat(64)}`;
   const missingResultPolls = options.missingResultPolls ?? 0;
   let resultCount = 0;
   const server = createServer(async (request, response) => {
@@ -227,8 +241,13 @@ async function fakeGym(options: FakeGymOptions = {}): Promise<{
     if (request.url === '/gym_evaluate') {
       submissions.push(input);
       const rejected = options.status === 'rejected';
+      const evalId = `eval-${String(submissions.length).padStart(16, '0')}`;
+      const taskIds = Array.isArray(input.task_ids)
+        ? input.task_ids.map((taskId) => String(taskId))
+        : [];
+      submittedTasks.set(evalId, taskIds);
       reply(response, 200, {
-        eval_id: `eval-${String(submissions.length).padStart(16, '0')}`,
+        eval_id: evalId,
         status: rejected ? 'rejected' : 'queued',
         ...(rejected
           ? {
@@ -255,30 +274,53 @@ async function fakeGym(options: FakeGymOptions = {}): Promise<{
         });
         return;
       }
+      const evalId = String(input.eval_id);
+      const rewardMean =
+        options.rewardMean ?? (options.status === 'failed' ? null : 0.75);
+      const passRate =
+        options.passRate ?? (options.status === 'failed' ? null : 0.5);
+      const taskIds = submittedTasks.get(evalId) ?? [];
+      const items =
+        options.items ??
+        taskIds.map((taskId) => ({
+          task_id: taskId,
+          rollouts: 1,
+          reward_mean: rewardMean,
+          pass_rate: passRate,
+          rollouts_failed: 0,
+          checks: [
+            {
+              id: 'answer-match/0',
+              status: (passRate ?? 0) >= 1 ? 'passed' : 'failed',
+              score: rewardMean,
+              reason: null,
+            },
+          ],
+          diagnostics: [],
+          truncated: false,
+        }));
       reply(response, 200, {
         found: true,
         result: {
-          eval_id: input.eval_id,
+          eval_id: evalId,
           status: options.status ?? 'completed',
           metrics: {
-            reward_mean:
-              options.rewardMean ??
-              (options.status === 'failed' ? null : 0.75),
-            pass_rate:
-              options.passRate ?? (options.status === 'failed' ? null : 0.5),
+            reward_mean: rewardMean,
+            pass_rate: passRate,
             rollouts:
               options.rollouts ??
-              (options.status === 'failed' ? 0 : (options.items?.length ?? 1)),
+              (options.status === 'failed' ? 0 : items.length),
             rollouts_failed: options.rolloutsFailed ?? 0,
           },
           overfit_guard: { trusted: options.trusted ?? true },
           experiment_profile_id: 'fixture-profile',
           dataset_version: 'fixture-dataset-v1',
+          manifest_schema_version: options.manifestSchemaVersion ?? 2,
           harness_manifest_digest: MANIFEST_DIGEST,
           environment_digest: ENVIRONMENT_DIGEST,
-          evaluation_digest: `sha256:${'d'.repeat(64)}`,
+          evaluation_digest: evaluationDigest,
           per_rollout_ref: '/fixture/rollouts.jsonl',
-          items: options.items ?? [],
+          items,
           cost: { total_tokens: 42, wall_time_s: 1.5 },
           warnings: [],
         },
@@ -297,6 +339,9 @@ async function fakeGym(options: FakeGymOptions = {}): Promise<{
     resultCount: () => resultCount,
     setQueuedForever: (value) => {
       queuedForever = value;
+    },
+    setEvaluationDigest: (value) => {
+      evaluationDigest = value;
     },
     close: () =>
       new Promise<void>((resolve, reject) =>
@@ -710,6 +755,154 @@ test('an interrupted poll resumes by eval id without submitting a second rollout
   }
 });
 
+test('gym measurement identity includes budget and evaluation digest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-gym-identity-'));
+  const gym = await fakeGym();
+  const execution = await bundle(root);
+  const { services, measurements } = harness(root, execution);
+  try {
+    const first = await createGym(
+      { ...config(gym.baseUrl, root), budget: { maxRollouts: 1 } },
+      services,
+      gymConfigSchema,
+    );
+    await first.execute(
+      { candidateRef: 'candidate:a', taskIds: ['task/a'] },
+      context(root, services, 'call-budget-1'),
+    );
+    const second = await createGym(
+      { ...config(gym.baseUrl, root), budget: { maxRollouts: 2 } },
+      services,
+      gymConfigSchema,
+    );
+    await second.execute(
+      { candidateRef: 'candidate:a', taskIds: ['task/a'] },
+      context(root, services, 'call-budget-2'),
+    );
+    gym.setEvaluationDigest(`sha256:${'e'.repeat(64)}`);
+    const third = await createGym(
+      { ...config(gym.baseUrl, root), budget: { maxRollouts: 2 } },
+      services,
+      gymConfigSchema,
+    );
+    await third.execute(
+      { candidateRef: 'candidate:b', taskIds: ['task/a'] },
+      context(root, services, 'call-digest-2'),
+    );
+
+    const keys = measurements.map((measurement) =>
+      String(measurement.comparisonKey),
+    );
+    assert.equal(new Set(keys).size, 3);
+  } finally {
+    await gym.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('gym coverage requires every requested task to attempt a rollout', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-gym-coverage-'));
+  const gym = await fakeGym({
+    rollouts: 2,
+    items: [
+      {
+        task_id: 'task/a',
+        rollouts: 2,
+        reward_mean: 1,
+        pass_rate: 1,
+        rollouts_failed: 0,
+        checks: [
+          { id: 'answer-match/0', status: 'passed', score: 1, reason: null },
+        ],
+        diagnostics: [],
+        truncated: false,
+      },
+    ],
+  });
+  const execution = await bundle(root);
+  const { services, measurements } = harness(root, execution);
+  try {
+    const operation = await createGym(
+      config(gym.baseUrl, root),
+      services,
+      gymConfigSchema,
+    );
+    await assert.rejects(
+      operation.execute(
+        { candidateRef: 'candidate:a', taskIds: ['task/a', 'task/b'] },
+        context(root, services),
+      ),
+      /coverage is incomplete/i,
+    );
+    assert.equal(measurements[0]!.coverage, 'partial');
+    assert.equal(measurements[0]!.status, 'succeeded');
+  } finally {
+    await gym.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('gym evaluator keeps the result when submission persistence warns', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-gym-submit-warning-'));
+  const gym = await fakeGym();
+  const execution = await bundle(root);
+  const { services, measurements, stored } = harness(root, execution, {
+    failFactWrites: [2],
+  });
+  try {
+    const operation = await createGym(
+      config(gym.baseUrl, root),
+      services,
+      gymConfigSchema,
+    );
+    await operation.execute(
+      { candidateRef: 'candidate:a', taskIds: ['task/a'] },
+      context(root, services),
+    );
+    assert.equal(measurements[0]!.status, 'succeeded');
+    const profile = stored.get(
+      String((measurements[0]!.profile as JsonObject).artifactRef),
+    ) as JsonObject;
+    assert.match(
+      JSON.stringify(profile.warnings),
+      /accepted but not persisted/,
+    );
+  } finally {
+    await gym.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a prepared submission remains retryable when eval-id persistence fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-gym-submit-recover-'));
+  const gym = await fakeGym();
+  const execution = await bundle(root);
+  const { services } = harness(root, execution, {
+    failFactWrites: [2, 3],
+  });
+  try {
+    const operation = await createGym(
+      config(gym.baseUrl, root),
+      services,
+      gymConfigSchema,
+    );
+    const input = { candidateRef: 'candidate:a', taskIds: ['task/a'] };
+    const callContext = context(root, services);
+    await assert.rejects(operation.execute(input, callContext));
+    assert.equal(
+      await operation.canRetry!(
+        input,
+        { callId: 'call', status: 'failed' },
+        callContext,
+      ),
+      true,
+    );
+  } finally {
+    await gym.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('dsh user-layer activation composes bundle plugin patches and links their packages', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-gym-dsh-'));
   try {
@@ -752,6 +945,18 @@ test('dsh user-layer activation composes bundle plugin patches and links their p
     assert.deepEqual(patch, [
       { insert: [{ id: 'fixture', name: '@fixture/plugin' }] },
     ]);
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(
+          join(dshHome, 'profiles', 'headless', '.rsi-gym-activation.json'),
+          'utf8',
+        ),
+      ),
+      {
+        candidate_id: 'candidate:a',
+        candidate_digest: BUNDLE_DIGEST,
+      },
+    );
     const entries = await readdir(join(dshHome, 'materialized'));
     assert.equal(entries.length, 1);
     await stat(

@@ -16,9 +16,9 @@ import type {
   JsonObject,
   JsonValue,
   RuntimeContext,
-} from '../../contracts/index.js';
-import { digest, json, object, string } from '../../shared/json.js';
-import { scanTree } from '../shared/file-application/target.js';
+} from '../../../contracts/index.js';
+import { digest, json, object, string } from '../../../shared/json.js';
+import { scanTree } from '../file-application/target.js';
 import type { GymActivation } from './schema.js';
 
 const USER_LAYER_LOCK = new Map<string, Promise<unknown>>();
@@ -158,6 +158,17 @@ async function replaceDshUserLayer(
   await atomicWrite(
     join(profile, 'cordis.patch.yml'),
     `${JSON.stringify([...base, ...bundle.patch], null, 2)}\n`,
+  );
+  await atomicWrite(
+    join(profile, '.rsi-gym-activation.json'),
+    `${JSON.stringify(
+      {
+        candidate_id: candidateRef,
+        candidate_digest: bundleDigest,
+      },
+      null,
+      2,
+    )}\n`,
   );
 }
 

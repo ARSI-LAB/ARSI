@@ -270,3 +270,92 @@ test('policy.gym-rsi advances a tied candidate to holdout', async (t) => {
   assert.equal(result.effectiveRef, 'c1');
   assert.equal(result.releaseDecision, 'promote');
 });
+
+test('policy.gym-rsi does not advance an infeasible tie to holdout', async (t) => {
+  const policy = await loadGymPolicy(t);
+  let releaseInput: JsonObject | null = null;
+  const result = object(
+    await policy.execute({
+      input: { candidateRef: 'h0' },
+      config: policyConfig(),
+      application: {},
+      context: new RuntimeContext().extend({
+        signal: new AbortController().signal,
+      }),
+      checkpoint: async () => {},
+      invoke: async (name, raw): Promise<JsonObject> => {
+        const input = object(raw);
+        if (name === 'evaluator') {
+          const taskId = (input.taskIds as string[])[0];
+          return { measurementRef: taskId === 'train' ? 'm-train' : 'm-val' };
+        }
+        if (name === 'memoryUpdater')
+          return {
+            status: 'no-change',
+            memoryRef: input.memoryRef,
+            changeRef: null,
+            reason: 'No update.',
+          };
+        if (name === 'proposer')
+          return {
+            status: 'created',
+            candidateRef: 'c1',
+            diffRef: 'diff',
+            rationale: 'Proposal is infeasible.',
+          };
+        if (name === 'selector')
+          return {
+            accepted: false,
+            candidateFeasible: false,
+            selectedCandidateRef: 'h0',
+            measurementRef: 'm-val',
+            decisionRef: 'decision',
+            reason: 'Infeasible validation tie.',
+            metric: 'successRate',
+            incumbentValue: 1,
+            candidateValue: 1,
+            selectedValue: 1,
+          };
+        if (name === 'release') {
+          releaseInput = input;
+          return {
+            decision: 'keep-incumbent',
+            reason: 'Infeasible candidate was not advanced.',
+            releaseRef: 'artifact:release',
+          };
+        }
+        throw new Error(`unexpected binding ${name}`);
+      },
+    }),
+  );
+
+  assert.deepEqual(releaseInput, { candidateRef: 'h0', incumbentRef: 'h0' });
+  assert.equal(result.searchCandidateRef, 'h0');
+  assert.equal(result.effectiveRef, 'h0');
+});
+
+test('policy.gym-rsi rejects overlapping dataset task ids', async (t) => {
+  const policy = await loadGymPolicy(t);
+  await assert.rejects(
+    policy.execute({
+      input: { candidateRef: 'h0' },
+      config: {
+        maxRounds: 1,
+        dataset: {
+          trainTaskIds: ['same'],
+          validationTaskIds: ['same'],
+          testTaskIds: [],
+        },
+      },
+      application: {},
+      context: new RuntimeContext().extend({
+        signal: new AbortController().signal,
+      }),
+      checkpoint: async () => {},
+      invoke: async () => {
+        throw new Error('overlapping splits must fail before invocation');
+      },
+    }),
+    /duplicate foreach key/,
+  );
+});

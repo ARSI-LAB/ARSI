@@ -42,6 +42,10 @@ interface FixtureOptions {
   candidateRolloutsFailed?: number;
   incumbentRolloutsFailed?: number;
   conflictOnce?: boolean;
+  candidateSubmitStatus?: number;
+  candidatePassRate?: number;
+  incumbentPassRate?: number;
+  reuseCompletedReports?: boolean;
 }
 
 function digestFor(ref: string): string {
@@ -54,12 +58,36 @@ async function gymFixture(
 ): Promise<GymFixture> {
   const posted: PostedPromotion[] = [];
   const jobs = new Map<string, PostedPromotion>();
+  const completedReports = new Map<string, JsonObject>();
   let counter = 0;
   let conflictIssued = false;
   const server = createServer(
     async (request: IncomingMessage, response: ServerResponse) => {
       if (request.method === 'POST' && request.url === '/promotion') {
         const body = object(await jsonBody(request));
+        const digest = string(body.candidate_digest);
+        const completed = completedReports.get(digest);
+        if (options.reuseCompletedReports && completed !== undefined) {
+          json(response, 200, {
+            promotion_id: completed.promotion_id,
+            state: 'completed',
+            candidate_id: body.candidate_id,
+            candidate_digest: digest,
+            benchmark: body.benchmark,
+            reused: true,
+            report: completed,
+          });
+          return;
+        }
+        if (
+          digest === CANDIDATE_DIGEST &&
+          options.candidateSubmitStatus !== undefined
+        ) {
+          json(response, options.candidateSubmitStatus, {
+            detail: 'fixture candidate submission failure',
+          });
+          return;
+        }
         const id = `promo-${String(++counter).padStart(16, '0')}`;
         const postedValue = { body, id };
         if (options.conflictOnce && !conflictIssued) {
@@ -104,10 +132,12 @@ async function gymFixture(
           });
           return;
         }
+        const report = reportFor(job, rewards[digest] ?? 0, options);
+        completedReports.set(digest, report);
         json(response, 200, {
           promotion_id: job.id,
           state: 'completed',
-          report: reportFor(job, rewards[digest] ?? 0, options),
+          report,
         });
         return;
       }
@@ -147,7 +177,10 @@ function reportFor(
     status: 'completed',
     metrics: {
       reward_mean: reward,
-      pass_rate: reward,
+      pass_rate:
+        digest === CANDIDATE_DIGEST
+          ? (options.candidatePassRate ?? reward)
+          : (options.incumbentPassRate ?? reward),
       rollouts: options.rollouts ?? 4,
       rollouts_failed:
         digest === CANDIDATE_DIGEST
@@ -172,8 +205,10 @@ function harness(): {
   artifacts: Map<string, JsonObject>;
   charges: string[];
   instances: Array<{ ref: string; instanceKey?: string }>;
+  facts: Map<string, JsonObject>;
 } {
   const artifacts = new Map<string, JsonObject>();
+  const facts = new Map<string, JsonObject>();
   const charges: string[] = [];
   const instances: Array<{ ref: string; instanceKey?: string }> = [];
   const context = new RuntimeContext().extend({
@@ -197,8 +232,15 @@ function harness(): {
       materialize: async () => {},
     },
     facts: {
-      read: async () => ({}),
-      write: async () => {},
+      read: async (kind: string, id: string) => {
+        const value = facts.get(`${kind}/${id}`);
+        if (value === undefined)
+          throw Object.assign(new Error('missing fact'), { code: 'ENOENT' });
+        return structuredClone(value);
+      },
+      write: async (kind: string, id: string, value: JsonObject) => {
+        facts.set(`${kind}/${id}`, structuredClone(value));
+      },
       list: async () => [],
     },
     workspaces: {
@@ -262,7 +304,7 @@ function harness(): {
       });
     },
   });
-  return { context, artifacts, charges, instances };
+  return { context, artifacts, charges, instances, facts };
 }
 
 function config(
@@ -325,6 +367,17 @@ test('release.gym compares candidate and incumbent holdout reports without task 
       { ref: 'candidate:incumbent', instanceKey: 'incumbent' },
       { ref: 'candidate:final', instanceKey: 'activate' },
     ]);
+    assert.equal(
+      await release.canRetry!(
+        {
+          candidateRef: 'candidate:final',
+          incumbentRef: 'candidate:incumbent',
+        },
+        { callId: 'release', status: 'failed' },
+        context,
+      ),
+      false,
+    );
     const record = artifacts.get(output.releaseRef)!;
     assert.equal(record.decision, 'promote');
     assert.ok(Math.abs(Number(object(record.comparison).delta) - 0.3) < 1e-12);
@@ -487,8 +540,9 @@ test('release.gym compares effective pass rate when infrastructure rollouts fail
     assert.equal(output.decision, 'promote');
     assert.equal(gym.posted.length, 2);
     const comparison = object(artifacts.get(output.releaseRef)!.comparison);
-    assert.ok(Math.abs(Number(comparison.candidatePassRate) - 0.64) < 1e-12);
-    assert.ok(Math.abs(Number(comparison.incumbentPassRate) - 0.5) < 1e-12);
+    assert.equal(comparison.metric, 'successRate');
+    assert.ok(Math.abs(Number(comparison.candidateValue) - 0.64) < 1e-12);
+    assert.ok(Math.abs(Number(comparison.incumbentValue) - 0.5) < 1e-12);
     assert.ok(Math.abs(Number(comparison.delta) - 0.14) < 1e-12);
   } finally {
     await gym.close();
@@ -516,6 +570,130 @@ test('release.gym attaches to an existing promotion on HTTP 409', async () => {
       gym.posted.map((entry) => entry.body.candidate_id),
       ['candidate:incumbent'],
     );
+  } finally {
+    await gym.close();
+  }
+});
+
+test('release.gym restores the incumbent when candidate promotion fails', async () => {
+  const gym = await gymFixture(
+    { [CANDIDATE_DIGEST]: 0.8, [INCUMBENT_DIGEST]: 0.5 },
+    { candidateSubmitStatus: 500 },
+  );
+  try {
+    const { context, facts, charges, instances } = harness();
+    const activation = {
+      kind: 'directory' as const,
+      directory: await mkdtemp(join(tmpdir(), 'release-target-')),
+    };
+    const release = await createGymRelease(
+      config(gym.baseUrl, activation),
+      context,
+      releaseConfigSchema,
+    );
+    const input = {
+      candidateRef: 'candidate:final',
+      incumbentRef: 'candidate:incumbent',
+    };
+    await assert.rejects(release.execute(input, context), /HTTP 500/);
+    assert.deepEqual(instances, [
+      { ref: 'candidate:final', instanceKey: 'candidate' },
+      { ref: 'candidate:incumbent', instanceKey: 'activate' },
+    ]);
+    assert.deepEqual(charges, []);
+    const attempt = [...facts.values()][0]!;
+    assert.equal(attempt.retryable, true);
+    assert.equal(
+      await release.canRetry!(
+        input,
+        { callId: 'release', status: 'failed' },
+        context,
+      ),
+      true,
+    );
+  } finally {
+    await gym.close();
+  }
+});
+
+test('release.gym does not retry a permanent HTTP failure', async () => {
+  const gym = await gymFixture(
+    { [CANDIDATE_DIGEST]: 0.8, [INCUMBENT_DIGEST]: 0.5 },
+    { candidateSubmitStatus: 400 },
+  );
+  try {
+    const { context } = harness();
+    const release = await createGymRelease(
+      config(gym.baseUrl),
+      context,
+      releaseConfigSchema,
+    );
+    const input = {
+      candidateRef: 'candidate:final',
+      incumbentRef: 'candidate:incumbent',
+    };
+    await assert.rejects(release.execute(input, context), /HTTP 400/);
+    assert.equal(
+      await release.canRetry!(
+        input,
+        { callId: 'release', status: 'failed' },
+        context,
+      ),
+      false,
+    );
+  } finally {
+    await gym.close();
+  }
+});
+
+test('release.gym does not charge again when Gym reuses completed reports', async () => {
+  const gym = await gymFixture(
+    { [CANDIDATE_DIGEST]: 0.8, [INCUMBENT_DIGEST]: 0.5 },
+    { reuseCompletedReports: true },
+  );
+  try {
+    const { context, charges } = harness();
+    const release = await createGymRelease(
+      config(gym.baseUrl),
+      context,
+      releaseConfigSchema,
+    );
+    const input = {
+      candidateRef: 'candidate:final',
+      incumbentRef: 'candidate:incumbent',
+    };
+    await release.execute(input, context);
+    assert.deepEqual(charges, ['evaluationRuns', 'evaluationRuns']);
+    const second = await release.execute(input, context);
+    assert.equal(second.decision, 'promote');
+    assert.deepEqual(charges, ['evaluationRuns', 'evaluationRuns']);
+    assert.equal(gym.posted.length, 2);
+  } finally {
+    await gym.close();
+  }
+});
+
+test('release.gym can compare dense mean reward independently of pass rate', async () => {
+  const gym = await gymFixture(
+    { [CANDIDATE_DIGEST]: 0.8, [INCUMBENT_DIGEST]: 0.5 },
+    { candidatePassRate: 0.5, incumbentPassRate: 0.5 },
+  );
+  try {
+    const { context, artifacts } = harness();
+    const release = await createGymRelease(
+      { ...config(gym.baseUrl), metric: 'meanReward' },
+      context,
+      releaseConfigSchema,
+    );
+    const output = await release.execute(
+      { candidateRef: 'candidate:final', incumbentRef: 'candidate:incumbent' },
+      context,
+    );
+    assert.equal(output.decision, 'promote');
+    const comparison = object(artifacts.get(output.releaseRef)!.comparison);
+    assert.equal(comparison.metric, 'meanReward');
+    assert.ok(Math.abs(Number(comparison.candidateValue) - 0.8) < 1e-12);
+    assert.ok(Math.abs(Number(comparison.incumbentValue) - 0.5) < 1e-12);
   } finally {
     await gym.close();
   }

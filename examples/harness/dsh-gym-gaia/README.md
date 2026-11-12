@@ -61,8 +61,8 @@ release, so these values cannot feed another search round.
 - `testTaskIds` is empty because Gym owns the release split.
 
 Both lists in `recipe.yaml` are disjoint subsets of Gym's `train_full` split.
-No holdout task ID may appear in any RSI list. The example pins five training
-tasks and one validation task to keep the demo affordable; RSI still
+No holdout task ID may appear in any RSI list. The example pins twelve training
+tasks and six validation tasks to keep the demo affordable; RSI still
 evaluates them under `split: train_full`, not `train_probe`.
 
 Validation intentionally uses text-only tasks; video URL tasks are excluded
@@ -73,9 +73,12 @@ it requires downloading an external paper and can stall in network-isolated runs
 
 `maxRounds: 1` demonstrates one complete mutation and selection round. Raise it
 for a longer search. `tier: screen` is the search-side Gym rollout budget;
-`release.gym` always requests Gym's `full` tier for holdout.
+`release.gym` always requests Gym's `full` tier for holdout. It compares
+effective `successRate` by default; set `metric: meanReward` when a dense-reward
+benchmark should use Gym's `reward_mean` objective instead.
 
-The GAIA profile's `full` tier currently caps rollouts at 64 with two repeats.
+The GAIA profile's `full` tier currently caps rollouts at 64 with one repeat per
+task.
 Covering every training row therefore requires raising that limit (or setting
 `limit: null`) in `eval_service/profiles/rsi_v1_gaia.yaml`. The example keeps
 the smaller pinned subsets so a first end-to-end run stays affordable.
@@ -174,9 +177,11 @@ reads a candidate's latest verdict and ledger summaries; it does not trigger a
 holdout rollout. `POST /promotion` is the only holdout trigger used by the RSI
 flow.
 
-If an RSI process is interrupted during release, rerun it. Promotion is keyed
-by `candidate_digest + benchmark`, so an already completed report is reused
-instead of spending a second holdout run.
+If an RSI process is interrupted during release, rerun it. Gym keys a promotion
+by candidate digest, benchmark, adapter, tier, and evaluation digest. The seed
+is recorded in the report but excluded from the one-shot key, so changing it
+cannot buy another holdout run. An already completed report is reused instead
+of spending a second holdout run.
 
 ## Guardrails
 
@@ -184,9 +189,12 @@ instead of spending a second holdout run.
 - `release.gym` cannot express a split or task IDs; Gym always evaluates the
   complete locked holdout split.
 - Promotion is loopback-only and is not an MCP tool.
+- DSH activation atomically writes `.rsi-gym-activation.json` beside the active
+  profile; Gym rejects holdout when its candidate id or digest does not match.
 - Holdout output is terminal evidence only. It must not be written back into
   Wiki memory, proposer evidence, training summaries, or search selection.
 - Validation ties advance the candidate to release; only a strictly worse
   proposal is rejected during search.
 - At release, a candidate must strictly exceed the incumbent by `minDelta`
-  (default `0`). Ties keep the incumbent.
+  (default `0`) on the configured `metric` (`successRate` by default). Ties
+  keep the incumbent.

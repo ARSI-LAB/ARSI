@@ -1,5 +1,12 @@
 import type { JsonObject, JsonValue } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
+import {
+  GymHttpClient,
+  GymHttpError,
+  type GymHttpClientOptions,
+  optionalObject,
+  sleep,
+} from '../shared/gym/http.js';
 
 export interface GymPromotionRequest {
   candidateId: string;
@@ -52,12 +59,17 @@ export interface GymPromotionOutcome {
   errorMessage: string | null;
 }
 
-export interface GymPromotionClientOptions {
-  baseUrl: string;
+export interface GymPromotionClientOptions extends GymHttpClientOptions {
   intervalMs?: number;
   timeoutMs?: number;
-  requestTimeoutMs?: number;
-  fetch?: typeof fetch;
+}
+
+export interface GymPromoteOptions {
+  /** Called after Gym accepts or reuses a promotion, before polling begins. */
+  onAccepted?: (accepted: {
+    promotionId: string;
+    reused: boolean;
+  }) => Promise<void> | void;
 }
 
 export class GymPromotionError extends Error {
@@ -75,57 +87,52 @@ export class GymPromotionError extends Error {
   }
 }
 
-export class GymPromotionConflict extends GymPromotionError {
-  constructor(
-    message: string,
-    readonly promotionId: string,
-  ) {
-    super(message, {
-      phase: 'submit',
-      promotionId,
-      submitted: false,
-      outcomeUnknown: false,
-    });
-    this.name = 'GymPromotionConflict';
-  }
-}
-
 export class GymPromotionClient {
-  private readonly baseUrl: string;
+  private readonly http: GymHttpClient;
   private readonly intervalMs: number;
   private readonly timeoutMs: number;
-  private readonly requestTimeoutMs: number;
-  private readonly fetchImpl: typeof fetch;
 
   constructor(options: GymPromotionClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.http = new GymHttpClient(options);
     this.intervalMs = options.intervalMs ?? 5000;
     this.timeoutMs = options.timeoutMs ?? 60 * 60 * 1000;
-    this.requestTimeoutMs = options.requestTimeoutMs ?? 30 * 1000;
-    this.fetchImpl = options.fetch ?? fetch;
   }
 
   async promote(
     request: GymPromotionRequest,
     signal: AbortSignal,
+    options: GymPromoteOptions = {},
   ): Promise<GymPromotionOutcome> {
     let promotionId: string | null = null;
     let submitted = false;
     try {
-      const first = await this.post('/promotion', body(request), signal);
+      const first = await this.http.post('/promotion', body(request), signal);
       promotionId = stringOf(first.promotion_id, 'promotion_id');
       const state = stateOf(first.state);
       const reused = first.reused === true;
+      submitted = true;
+      await options.onAccepted?.({ promotionId, reused });
       const report = reportOrNull(first.report);
       if (report !== null || terminal(state))
         return outcome(promotionId, state, reused, report, first.error);
-      submitted = true;
-      return await this.poll(promotionId, signal);
+      return await this.poll(promotionId, signal, reused);
     } catch (error) {
-      if (error instanceof GymPromotionConflict) {
-        promotionId = error.promotionId;
-        submitted = true;
-        return await this.poll(promotionId, signal);
+      if (error instanceof GymHttpError) {
+        const conflictId = conflictPromotionId(error.statusCode, error.body);
+        if (conflictId !== null) {
+          promotionId = conflictId;
+          submitted = true;
+          await options.onAccepted?.({ promotionId, reused: true });
+          return await this.poll(promotionId, signal, true);
+        }
+        const phase = error.path === '/promotion' ? 'submit' : 'poll';
+        const requestSubmitted = phase === 'poll' || error.statusCode >= 500;
+        throw new GymPromotionError(error.message, {
+          phase,
+          promotionId,
+          submitted: requestSubmitted,
+          outcomeUnknown: requestSubmitted,
+        });
       }
       if (error instanceof GymPromotionError) throw error;
       throw new GymPromotionError(
@@ -143,6 +150,7 @@ export class GymPromotionClient {
   private async poll(
     promotionId: string,
     signal: AbortSignal,
+    reused: boolean,
   ): Promise<GymPromotionOutcome> {
     const deadline = Date.now() + this.timeoutMs;
     while (true) {
@@ -158,63 +166,15 @@ export class GymPromotionClient {
           },
         );
       await sleep(this.intervalMs, signal);
-      const raw = await this.get(
+      const raw = await this.http.get(
         `/promotion/${encodeURIComponent(promotionId)}`,
         signal,
       );
       const state = stateOf(raw.state);
       const report = reportOrNull(raw.report);
       if (terminal(state))
-        return outcome(promotionId, state, false, report, raw.error);
+        return outcome(promotionId, state, reused, report, raw.error);
     }
-  }
-
-  private async post(
-    path: string,
-    body: JsonObject,
-    signal: AbortSignal,
-  ): Promise<JsonObject> {
-    return this.request(path, 'POST', body, signal);
-  }
-
-  private async get(path: string, signal: AbortSignal): Promise<JsonObject> {
-    return this.request(path, 'GET', undefined, signal);
-  }
-
-  private async request(
-    path: string,
-    method: 'GET' | 'POST',
-    body: JsonObject | undefined,
-    signal: AbortSignal,
-  ): Promise<JsonObject> {
-    const timeout = AbortSignal.timeout(this.requestTimeoutMs);
-    const response = await this.fetchImpl(this.baseUrl + path, {
-      method,
-      headers:
-        body === undefined ? undefined : { 'content-type': 'application/json' },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.any([signal, timeout]),
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      const conflictId = conflictPromotionId(response.status, text);
-      if (conflictId !== null)
-        throw new GymPromotionConflict(
-          `Gym ${path} reports an existing promotion ${conflictId}`,
-          conflictId,
-        );
-      const submitted = method === 'POST' && response.status >= 500;
-      throw new GymPromotionError(
-        `Gym ${path} failed with HTTP ${response.status}: ${text.slice(0, 300)}`,
-        {
-          phase: method === 'POST' ? 'submit' : 'poll',
-          promotionId: null,
-          submitted,
-          outcomeUnknown: submitted,
-        },
-      );
-    }
-    return object(JSON.parse(text), `${path} response`);
   }
 }
 
@@ -311,10 +271,6 @@ function stateOf(value: JsonValue | undefined): GymPromotionState {
   throw new Error(`Gym returned an unknown promotion state: ${String(value)}`);
 }
 
-function optionalObject(value: JsonValue | undefined): JsonObject | null {
-  return value === undefined || value === null ? null : object(value);
-}
-
 function stringOf(value: JsonValue | undefined, label: string): string {
   return string(value, label);
 }
@@ -349,19 +305,4 @@ function conflictPromotionId(status: number, text: string): string | null {
   } catch {
     return null;
   }
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) return reject(signal.reason);
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
 }

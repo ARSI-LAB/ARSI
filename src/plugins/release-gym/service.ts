@@ -7,26 +7,46 @@ import type {
 } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { activateCandidate } from '../evaluator-gym/activation.js';
+import { activateCandidate } from '../shared/gym/activation.js';
 import {
   expandGymEnvironment,
   resolveGymActivation,
-} from '../evaluator-gym/service.js';
+} from '../shared/gym/config.js';
+import {
+  gymReleaseAttemptKey,
+  readGymReleaseAttempt,
+  writeGymReleaseAttempt,
+  type GymReleaseAttemptStatus,
+} from './attempt.js';
 import {
   GymPromotionClient,
+  GymPromotionError,
   type GymPromotionOutcome,
   type GymPromotionReport,
 } from './client.js';
-import { type GymReleaseConfig } from './schema.js';
+import type { GymReleaseConfig, GymReleaseMetric } from './schema.js';
 
 interface ResolvedReleaseConfig extends GymReleaseConfig {
   minDelta: number;
+  metric: GymReleaseMetric;
 }
 
 interface RoleResult {
   ref: string;
   digest: string;
   outcome: GymPromotionOutcome;
+}
+
+type RoleName = 'candidate' | 'incumbent';
+
+interface Comparison {
+  decision: 'promote' | 'keep-incumbent' | 'reject';
+  reason: string;
+  reasons: string[];
+  delta: number | null;
+  metric: GymReleaseMetric;
+  candidateValue: number | null;
+  incumbentValue: number | null;
 }
 
 export function resolveReleaseConfig(
@@ -37,6 +57,7 @@ export function resolveReleaseConfig(
     ...config,
     baseUrl: expandGymEnvironment(config.baseUrl, 'baseUrl', environment),
     minDelta: config.minDelta ?? 0,
+    metric: config.metric ?? 'successRate',
     activation: resolveGymActivation(config.activation, environment),
   };
 }
@@ -66,79 +87,153 @@ export async function createGymRelease(
       );
       context.signal.throwIfAborted();
 
-      const candidate = await evaluateRole(
-        'candidate',
+      const attemptKey = gymReleaseAttemptKey(
         candidateRef,
-        settings,
-        client,
-        context,
+        incumbentRef,
+        releaseFingerprint(settings),
       );
-      const candidateIssues = reportIssues(candidate, 'candidate', settings);
-      const incumbent =
-        candidateRef === incumbentRef
-          ? candidate
-          : candidateIssues.length === 0
-            ? await evaluateRole(
-                'incumbent',
-                incumbentRef,
-                settings,
-                client,
-                context,
-              )
-            : null;
-      const comparison = compare(
-        candidate,
-        incumbent,
-        candidateIssues,
-        settings,
-      );
+      const promotionRoles: RoleName[] = [];
+      const persistAttempt = (
+        status: GymReleaseAttemptStatus,
+        retryable: boolean,
+        error: string | null,
+      ) =>
+        writeGymReleaseAttempt(context.facts, {
+          schemaVersion: 'rsi.gym-release-attempt/v1',
+          key: attemptKey,
+          candidateRef,
+          incumbentRef,
+          status,
+          retryable,
+          promotionRoles: [...promotionRoles],
+          error,
+          updatedAt: new Date().toISOString(),
+        });
 
-      const record = {
-        schemaVersion: 'rsi.gym-release/v1',
-        generatedAt: new Date().toISOString(),
-        decision: comparison.decision,
-        reason: comparison.reason,
-        reasons: comparison.reasons,
-        minDelta: settings.minDelta,
-        candidate: summarize(candidate, 'candidate', settings),
-        incumbent:
-          incumbent === null
-            ? null
-            : summarize(incumbent, 'incumbent', settings),
-        comparison:
-          comparison.delta === null
-            ? null
-            : {
-                candidatePassRate: comparison.candidatePassRate,
-                incumbentPassRate: comparison.incumbentPassRate,
-                delta: comparison.delta,
-                minDelta: settings.minDelta,
-              },
-      };
-      const releaseRef = await context.artifacts.putJson(record);
+      await persistAttempt('running', true, null);
+      try {
+        const candidate = await evaluateRole(
+          'candidate',
+          candidateRef,
+          settings,
+          client,
+          context,
+          async () => {
+            if (!promotionRoles.includes('candidate'))
+              promotionRoles.push('candidate');
+            await persistAttempt('submitting', true, null);
+          },
+        );
+        const candidateIssues = reportIssues(candidate, 'candidate', settings);
+        const incumbent =
+          candidateRef === incumbentRef
+            ? candidate
+            : candidateIssues.length === 0
+              ? await evaluateRole(
+                  'incumbent',
+                  incumbentRef,
+                  settings,
+                  client,
+                  context,
+                  async () => {
+                    if (!promotionRoles.includes('incumbent'))
+                      promotionRoles.push('incumbent');
+                    await persistAttempt('submitting', true, null);
+                  },
+                )
+              : null;
+        const comparison = compare(
+          candidate,
+          incumbent,
+          candidateIssues,
+          settings,
+        );
 
-      const chosenRef =
-        comparison.decision === 'promote' ? candidateRef : incumbentRef;
-      await activateChosen(chosenRef, settings, context);
-      return {
-        decision: comparison.decision,
-        reason: comparison.reason,
-        releaseRef,
-      };
+        const record = {
+          schemaVersion: 'rsi.gym-release/v1',
+          generatedAt: new Date().toISOString(),
+          decision: comparison.decision,
+          reason: comparison.reason,
+          reasons: comparison.reasons,
+          metric: comparison.metric,
+          minDelta: settings.minDelta,
+          candidate: summarize(candidate, 'candidate', settings),
+          incumbent:
+            incumbent === null
+              ? null
+              : summarize(incumbent, 'incumbent', settings),
+          comparison:
+            comparison.delta === null
+              ? null
+              : {
+                  metric: comparison.metric,
+                  candidateValue: comparison.candidateValue,
+                  incumbentValue: comparison.incumbentValue,
+                  delta: comparison.delta,
+                  minDelta: settings.minDelta,
+                },
+        };
+        const releaseRef = await context.artifacts.putJson(record);
+
+        const chosenRef =
+          comparison.decision === 'promote' ? candidateRef : incumbentRef;
+        await activateChosen(chosenRef, settings, context);
+        await persistAttempt('completed', false, null);
+        return {
+          decision: comparison.decision,
+          reason: comparison.reason,
+          releaseRef,
+        };
+      } catch (error) {
+        const retryable = failureRetryable(error, promotionRoles);
+        await persistAttempt('failed', retryable, errorText(error)).catch(
+          () => undefined,
+        );
+        const failure = await restoreIncumbentOnFailure(
+          candidateRef,
+          incumbentRef,
+          settings,
+          context,
+          error,
+        );
+        throw failure;
+      }
     },
-    async canRetry(): Promise<boolean> {
-      return true;
+    async canRetry(input, _receipt, context): Promise<boolean> {
+      try {
+        const source = object(input, 'gym release input');
+        const candidateRef = string(
+          source.candidateRef,
+          'gym release input.candidateRef',
+        );
+        const incumbentRef = string(
+          source.incumbentRef,
+          'gym release input.incumbentRef',
+        );
+        const attempt = await readGymReleaseAttempt(
+          context.facts,
+          gymReleaseAttemptKey(
+            candidateRef,
+            incumbentRef,
+            releaseFingerprint(settings),
+          ),
+        );
+        return attempt?.retryable === true;
+      } catch {
+        return false;
+      }
     },
     async dispose(): Promise<void> {},
   };
 }
 
 async function evaluateRole(
-  role: 'candidate' | 'incumbent',
+  role: RoleName,
   ref: string,
   settings: ResolvedReleaseConfig,
   client: GymPromotionClient,
   context: RuntimeContext,
+  onPromotion: () => Promise<void>,
 ): Promise<RoleResult> {
   context.signal.throwIfAborted();
   return context.withInstance(
@@ -165,7 +260,7 @@ async function evaluateRole(
           digest,
         );
       }
-      await context.charge('evaluationRuns', 1);
+      await onPromotion();
       const defaults = settings.promotionDefaults;
       const outcome = await client.promote(
         {
@@ -180,6 +275,11 @@ async function evaluateRole(
           ...(defaults.budget === undefined ? {} : { budget: defaults.budget }),
         },
         context.signal,
+        {
+          onAccepted: async ({ reused }) => {
+            if (!reused) await context.charge('evaluationRuns', 1);
+          },
+        },
       );
       return { ref, digest, outcome };
     },
@@ -215,6 +315,35 @@ async function activateChosen(
     },
     { instanceKey: 'activate' },
   );
+}
+
+async function restoreIncumbentOnFailure(
+  candidateRef: string,
+  incumbentRef: string,
+  settings: ResolvedReleaseConfig,
+  context: RuntimeContext,
+  cause: unknown,
+): Promise<unknown> {
+  if (settings.activation === undefined || candidateRef === incumbentRef)
+    return cause;
+  const restoreContext = context.extend({
+    signal: AbortSignal.timeout(30_000),
+  });
+  try {
+    await activateChosen(incumbentRef, settings, restoreContext);
+    return cause;
+  } catch (restoreError) {
+    return new AggregateError(
+      [cause, restoreError],
+      'gym release failed and the incumbent could not be restored',
+    );
+  }
+}
+
+function failureRetryable(error: unknown, roles: readonly RoleName[]): boolean {
+  if (error instanceof GymPromotionError)
+    return error.details.submitted || error.details.outcomeUnknown;
+  return roles.length > 0;
 }
 
 function reportIssues(
@@ -285,7 +414,10 @@ function reportIssues(
   return issues;
 }
 
-function effectivePassRate(report: GymPromotionReport | null): number | null {
+function effectiveMetric(
+  report: GymPromotionReport | null,
+  metric: GymReleaseMetric,
+): number | null {
   if (report === null) return null;
   const successful = report.rollouts;
   const failed = report.rolloutsFailed;
@@ -293,8 +425,9 @@ function effectivePassRate(report: GymPromotionReport | null): number | null {
   const attempted = successful + failed;
   if (attempted <= 0) return null;
   if (successful === 0) return 0;
-  if (report.passRate === null) return null;
-  return (report.passRate * successful) / attempted;
+  const value = metric === 'successRate' ? report.passRate : report.rewardMean;
+  if (value === null) return null;
+  return (value * successful) / attempted;
 }
 
 function compare(
@@ -302,24 +435,18 @@ function compare(
   incumbent: RoleResult | null,
   candidateIssues: string[],
   settings: ResolvedReleaseConfig,
-): {
-  decision: 'promote' | 'keep-incumbent' | 'reject';
-  reason: string;
-  reasons: string[];
-  delta: number | null;
-  candidatePassRate: number | null;
-  incumbentPassRate: number | null;
-} {
+): Comparison {
   const candidateReport = candidate.outcome.report;
-  const candidatePassRate = effectivePassRate(candidateReport);
+  const candidateValue = effectiveMetric(candidateReport, settings.metric);
   if (candidateIssues.length > 0)
     return {
       decision: 'reject',
       reason: candidateIssues[0]!,
       reasons: candidateIssues,
       delta: null,
-      candidatePassRate,
-      incumbentPassRate: null,
+      metric: settings.metric,
+      candidateValue,
+      incumbentValue: null,
     };
   if (incumbent === null)
     return {
@@ -327,32 +454,38 @@ function compare(
       reason: 'incumbent promotion report is unavailable',
       reasons: ['incumbent promotion report is unavailable'],
       delta: null,
-      candidatePassRate,
-      incumbentPassRate: null,
+      metric: settings.metric,
+      candidateValue,
+      incumbentValue: null,
     };
 
   const incumbentReport = incumbent.outcome.report;
-  const incumbentPassRate = effectivePassRate(incumbentReport);
+  const incumbentValue = effectiveMetric(incumbentReport, settings.metric);
   const issues = reportIssues(incumbent, 'incumbent', settings);
   if (candidateReport !== null && incumbentReport !== null)
     issues.push(...identityMismatches(candidateReport, incumbentReport));
+  const metricLabel =
+    settings.metric === 'successRate'
+      ? 'effective holdout pass rate'
+      : 'effective holdout mean reward';
   if (
-    candidatePassRate === null ||
-    incumbentPassRate === null ||
-    !Number.isFinite(candidatePassRate) ||
-    !Number.isFinite(incumbentPassRate)
+    candidateValue === null ||
+    incumbentValue === null ||
+    !Number.isFinite(candidateValue) ||
+    !Number.isFinite(incumbentValue)
   ) {
-    const rateIssues = [
+    const valueIssues = [
       ...issues,
-      'holdout reports do not provide a comparable effective pass rate',
+      `holdout reports do not provide a comparable ${metricLabel}`,
     ];
     return {
       decision: 'reject',
-      reason: rateIssues[0]!,
-      reasons: rateIssues,
+      reason: valueIssues[0]!,
+      reasons: valueIssues,
       delta: null,
-      candidatePassRate,
-      incumbentPassRate,
+      metric: settings.metric,
+      candidateValue,
+      incumbentValue,
     };
   }
   if (issues.length > 0)
@@ -361,30 +494,33 @@ function compare(
       reason: issues[0]!,
       reasons: issues,
       delta: null,
-      candidatePassRate,
-      incumbentPassRate,
+      metric: settings.metric,
+      candidateValue,
+      incumbentValue,
     };
 
-  const delta = candidatePassRate - incumbentPassRate;
+  const delta = candidateValue - incumbentValue;
   if (delta > settings.minDelta)
     return {
       decision: 'promote',
-      reason: 'candidate effective holdout pass rate strictly beats incumbent',
+      reason: `candidate ${metricLabel} strictly beats incumbent`,
       reasons: [],
       delta,
-      candidatePassRate,
-      incumbentPassRate,
+      metric: settings.metric,
+      candidateValue,
+      incumbentValue,
     };
   return {
     decision: 'keep-incumbent',
     reason:
       delta === settings.minDelta
-        ? 'holdout effective pass rates are equal; keep the incumbent'
-        : 'candidate effective holdout pass rate does not exceed the release threshold; keep the incumbent',
+        ? `${metricLabel}s are equal; keep the incumbent`
+        : `candidate ${metricLabel} does not exceed the release threshold; keep the incumbent`,
     reasons: [],
     delta,
-    candidatePassRate,
-    incumbentPassRate,
+    metric: settings.metric,
+    candidateValue,
+    incumbentValue,
   };
 }
 
@@ -471,6 +607,26 @@ function summarize(
           },
     errorCode: role.outcome.errorCode,
     errorMessage: role.outcome.errorMessage,
+    metric: settings.metric,
     minDelta: settings.minDelta,
   };
+}
+
+function releaseFingerprint(settings: ResolvedReleaseConfig): JsonObject {
+  return {
+    baseUrl: settings.baseUrl,
+    adapter: settings.promotionDefaults.adapter,
+    benchmark: settings.promotionDefaults.benchmark,
+    seed: settings.promotionDefaults.seed,
+    datasetVersion: settings.promotionDefaults.datasetVersion ?? null,
+    maxRollouts: settings.promotionDefaults.budget?.maxRollouts ?? null,
+    timeoutS: settings.promotionDefaults.budget?.timeoutS ?? null,
+    minDelta: settings.minDelta,
+    metric: settings.metric,
+    activation: settings.activation ?? null,
+  };
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

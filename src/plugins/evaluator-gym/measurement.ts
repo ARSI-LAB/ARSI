@@ -24,11 +24,14 @@ function adapterIdentity(): Promise<string> {
   return (implementationIdentity ??= sourceIdentity(import.meta.url, [
     './index',
     './service',
-    './activation',
     './client',
     './measurement',
     './submission',
     './schema',
+    '../shared/gym/activation',
+    '../shared/gym/config',
+    '../shared/gym/http',
+    '../shared/gym/schema',
   ]));
 }
 
@@ -94,6 +97,7 @@ const gymProfileSchema: JsonObject = recordSchema({
   rollouts: { type: 'integer', minimum: 0 },
   rolloutsFailed: { type: 'integer', minimum: 0 },
   trusted: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
+  manifestSchemaVersion: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
   environmentDigest: nullableText,
   harnessManifestDigest: nullableText,
   evaluationDigest: nullableText,
@@ -161,14 +165,19 @@ export async function recordGymMeasurement(
   const comparisonKey =
     known && outcome !== null
       ? digest({
+          baseUrl: input.baseUrl,
           adapter: request.adapter,
           benchmark: request.benchmark,
           split: request.split,
           tier: request.tier,
           seed: request.seed,
           taskIds: [...taskIds].sort(),
+          maxRollouts: config.budget?.maxRollouts ?? null,
+          timeoutS: config.budget?.timeoutS ?? null,
+          manifestSchemaVersion: outcome.manifestSchemaVersion,
           harnessManifestDigest: outcome.harnessManifestDigest,
           environmentDigest: outcome.environmentDigest,
+          evaluationDigest: outcome.evaluationDigest,
           datasetVersion: outcome.datasetVersion,
           experimentProfileId: outcome.experimentProfileId,
         })
@@ -186,7 +195,7 @@ export async function recordGymMeasurement(
       : (value * successfulRollouts) / attemptedRollouts;
   const effectiveRewardMean = scaleByAttempts(outcome?.rewardMean);
   const effectivePassRate = scaleByAttempts(outcome?.passRate);
-  const coverage = measurementCoverage(outcome, taskIds.length);
+  const coverage = measurementCoverage(outcome, taskIds);
   const source = { artifactRef: nativeResultRef, pointer: '/outcome/metrics' };
   const definitions = await Promise.all([
     definition(
@@ -474,6 +483,7 @@ export async function recordGymMeasurement(
       rollouts: outcome?.rollouts ?? 0,
       rolloutsFailed: outcome?.rolloutsFailed ?? 0,
       trusted: outcome?.trusted ?? null,
+      manifestSchemaVersion: outcome?.manifestSchemaVersion ?? null,
       environmentDigest: outcome?.environmentDigest ?? null,
       harnessManifestDigest: outcome?.harnessManifestDigest ?? null,
       evaluationDigest: outcome?.evaluationDigest ?? null,
@@ -508,6 +518,10 @@ function conditionReasons(outcome: GymEvalOutcome | null): string[] {
     reasons.push('Gym reported no environment digest');
   if (outcome.harnessManifestDigest === null)
     reasons.push('Gym reported no harness manifest digest');
+  if (outcome.manifestSchemaVersion === null)
+    reasons.push('Gym reported no manifest schema version');
+  if (outcome.evaluationDigest === null)
+    reasons.push('Gym reported no evaluation digest');
   if (outcome.datasetVersion === null)
     reasons.push('Gym reported no dataset version');
   if (outcome.experimentProfileId === null)
@@ -551,16 +565,17 @@ function measurementStatus(
 
 function measurementCoverage(
   outcome: GymEvalOutcome | null,
-  expected: number,
+  taskIds: readonly string[],
 ): Measurement['coverage'] {
   if (outcome === null) return 'unknown';
-  if (outcome.rollouts + outcome.rolloutsFailed === 0) return 'none';
-  if (
-    expected > 0 &&
-    outcome.rollouts + outcome.rolloutsFailed < expected
-  )
-    return 'partial';
-  return 'complete';
+  const attempted = new Set(
+    outcome.items
+      .filter((item) => item.rollouts + item.rolloutsFailed > 0)
+      .map((item) => item.taskId),
+  );
+  const covered = taskIds.filter((taskId) => attempted.has(taskId)).length;
+  if (covered === 0) return 'none';
+  return covered === taskIds.length ? 'complete' : 'partial';
 }
 
 function comparableReason(

@@ -6,6 +6,7 @@ import type {
 import { configSchema, type InferenceConfig } from './schema.js';
 import { applicationContract } from '../../contracts/plugin-types/index.js';
 import { createApplicationInference } from './service.js';
+import { checkInferenceApplication } from './doctor.js';
 export const inferenceDefinition: OperationDefinition<
   ApplicationInput,
   ApplicationOutput,
@@ -17,4 +18,5 @@ export const inferenceDefinition: OperationDefinition<
   contract: applicationContract,
   configSchema,
   create: createApplicationInference,
+  doctor: checkInferenceApplication,
 };

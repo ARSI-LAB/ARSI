@@ -1,3 +1,4 @@
+import { OperationRejectedError } from '../../contracts/runtime/errors.js';
 import { lstat, mkdir, realpath, rm } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
@@ -401,7 +402,11 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       }
     })();
     const supervised = job.catch((error) => {
-      if (!optionalCalls.has(callId)) options.onFailure(error, caller);
+      if (
+        !optionalCalls.has(callId) &&
+        !(error instanceof OperationRejectedError && active.has(caller.callId))
+      )
+        options.onFailure(error, caller);
       throw error;
     });
     active.set(callId, supervised);

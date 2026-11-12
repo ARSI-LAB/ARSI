@@ -52,7 +52,7 @@ steps:
         use: proposer
         with:
           parent: ${{ state.incumbent }}
-          goal: Propose ranked inference parameter candidates that could improve serving performance within the benchmark constraints.
+          goal: ${{ config.goal }}
           maxCandidates: >-
             ${{ if(config.candidatesPerRound < config.maxTrials - length(state.trials),
             config.candidatesPerRound, config.maxTrials - length(state.trials)) }}
@@ -63,6 +63,7 @@ steps:
             baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
             incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
             trials: ${{ state.trials }}
+            selection: ${{ config.selection }}
           editConstraints:
             allowedPaths: ['${{ config.parameterFile }}']
             maxChangedFiles: 1

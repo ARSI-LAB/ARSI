@@ -32,17 +32,7 @@ The following table lists the top-level Recipe fields. For a complete Recipe exa
 
 ## Agent and environment variables
 
-Agents in the optimization flow generate proposals, review deliverables, consolidate experience, and perform other model tasks. The built-in backends are Pi, Codex, Claude Code, and DSH. Evaluator settings are separate from the optimization Agent: AgentBench configures the evaluated Agent's (Solver's) model services, InferenceBench configures inference service benchmarks, and OperatorBench configures kernel evaluation environments.
-
-All backends run in the workspace prepared for the Agent call. The `contract.agent` input supplies `cwd`, `goal`, and `outputSchema`, with `role` for Pi delegation through the Runtime. Codex, Claude Code, and DSH delegate through native tools. Backends read instructions from `AGENTS.md` or `CLAUDE.md` and use the workspace files for task context.
-
-| Configuration target  | Purpose                                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Evaluator             | Configure model services, tasks, or execution environments for the selected benchmark.                              |
-| Pi (`agent.pi`)       | Call a specified model service through Pi to execute Agent tasks in the optimization flow.                          |
-| Codex (`agent.codex`) | Execute Agent tasks in the optimization flow through a local Codex installation, using its login and configuration. |
-| Claude Code (`agent.claudecode`) | Execute Agent tasks using native Claude Code tools and structured output.                                           |
-| DSH (`agent.dsh`) | Execute Agent tasks through the official DSH headless CLI and native configuration. |
+Configure the optimization Agent and the evaluated system's Evaluator separately; their model settings are independent. Choose Pi to configure model access in the Recipe, or Codex, Claude Code or DSH to use an installed CLI.
 
 ### Environment variables
 
@@ -108,78 +98,55 @@ The [Pi Schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLe
 - `timeoutMs` limits each model request. The underlying HTTP client uses a ten-minute request timeout when `timeoutMs` is omitted. Both timeout fields accept integer milliseconds from 1 to 2,147,483,647.
 - `executionTimeoutMs` limits the complete Agent invocation, including model requests, tools, output correction, context compaction, retry waits, and awaited subagents. It does not reset between requests.
 
-### Codex backend
+### Native CLI backends: Codex, Claude Code and DSH
 
-`agent.codex` executes optimization tasks through a locally installed Codex CLI, using its login and configuration. Switch the Agent binding to this backend:
+Install the CLI on the computer running RSI, then sign in or configure API access. RSI calls that CLI and uses its model and authentication settings.
 
-```yaml
-bindings:
-  agent:
-    plugin: agent.codex
-    config: {}
-```
+| Backend | Command | Model configuration | Optional Recipe settings |
+| --- | --- | --- | --- |
+| `agent.codex` | `codex` | `~/.codex/config.toml` and native login | `model`, `thinkingLevel` |
+| `agent.claudecode` | `claude` | Native login or gateway environment | `model`, `effort` |
+| `agent.dsh` | `dsh` | Headless profile under `$DSH_HOME/profiles/headless` (default `~/.dsh/profiles/headless`) | None |
 
-Install and authenticate Codex as the same operating-system user that launches RSI. Keep model services and credentials in the native Codex configuration.
-
-RSI starts `codex app-server` in the supplied Agent project's `cwd`, creates an ephemeral session, and uses native Codex tools with a read-only filesystem permission profile. It validates the final JSON and closes the process when the call ends. The Agent project's files remain available to the calling plugin; the backend does not create or delete a separate system temporary workspace.
-
-The default user configuration is `~/.codex/config.toml`. RSI supplies `.rsi-project` as the project-root marker and registers the prepared `.codex/agents` roles. Supply experiment instructions and Skills through the calling plugin's resources so they are included in the Agent project.
-
-The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executable` (default `codex`), optional `model`, optional `thinkingLevel`, and optional `timeoutMs`. Omitted `model` and `thinkingLevel` retain local defaults. Explicit values override the model and reasoning effort for the call without rewriting local configuration.
-
-- `timeoutMs` limits the complete call and accepts integer milliseconds from 1 to 2,147,483,647. Experiment cancellation and configured wall budgets also propagate to the process.
-
-- This backend currently cannot enforce the experiment's `modelCalls` budget.
-
-### Claude Code backend
-
-`agent.claudecode` uses a locally installed Claude Code CLI on macOS/Linux (verified with 2.1.319). Prepare its login or gateway environment before running RSI:
-
-```yaml
-bindings:
-  agent:
-    plugin: agent.claudecode
-    config: {}
-```
-
-The [Claude Code Schema](../../../src/plugins/agent-claudecode/schema.ts) accepts `executable` (default `claude`), optional `model`, `effort`, and `timeoutMs` for the whole call. Unlike Codex's `thinkingLevel`, this backend uses `effort` for reasoning strength. Authentication and model connections remain configured in the native client environment.
-
-Each call uses a fresh session, native Skills and subagents, and read-only tools; RSI applies the structured edit proposal. User/project settings, ordinary Hooks and MCP are disabled. These tool restrictions are not an OS sandbox and do not override administrator-managed Hooks. The backend cannot enforce `modelCalls` budgets.
-
-### DSH backend
-
-`agent.dsh` runs the installed official DSH CLI in headless mode. Install a release supporting `--json`, stdin tasks, `--permission-mode`, and `--approval-policy` (verified with `0.2.2-rc.1`). RSI does not install or upgrade DSH automatically. For the verified release:
-
-```sh
-npm install -g @deepseek-ai/dsh@0.2.2-rc.1
-dsh --version
-dsh --profile headless --help
-```
+Choose a backend in your Recipe. This example uses DSH; to use Codex or Claude Code, change only `plugin`:
 
 ```yaml
 bindings:
   agent:
     plugin: agent.dsh
     config:
-      executable: dsh
       timeoutMs: 180000
 ```
 
-The [DSH Schema](../../../src/plugins/agent-dsh/schema.ts) accepts `executable` (default `dsh`) and optional `timeoutMs` for the complete call. Model routes and reasoning settings remain in the user's DSH headless profile (`$DSH_HOME/profiles/headless`, or `~/.dsh/profiles/headless` by default). Web-only profile settings and plugins are not automatically inherited. Prepare the headless model route before running RSI; `agent.dsh` does not accept `model`, `base_url`, or `api_key` fields. RSI inherits the launch environment and `DSH_HOME`; an invocation-only overlay restores the native credential store, authorization, and account plugins that upstream headless disables by default. It does not rewrite user configuration. API keys remain in native configuration or environment references, never Recipe fields.
+`timeoutMs: 180000` gives each Agent task up to 3 minutes. Use `config: {}` if you do not need a timeout. If RSI cannot find the CLI, set `executable` to its full path under `config`. Codex and Claude Code also accept the model options listed above.
 
-Each invocation starts a fresh native session in the supplied Agent project. DSH retains native session logs. RSI supplies project instruction discovery and the `.agents/skills` path; native DSH subagents can read the generated `roles/<name>.md`. Direct `AgentInput.role` delegation is unsupported, as with Codex.
+Install DSH:
 
-The CLI runs with `read-only` and `approval-policy never`: native file tools cannot modify the task workspace, and requests requiring human approval are rejected. For editing tasks, DSH returns structured edit proposals that RSI validates and applies, as with Codex and Claude Code. User-installed plugins retain their own behavior; this adapter does not provide an additional OS sandbox. Candidate submission still passes through RSI's Application validation.
+```sh
+npm install -g @deepseek-ai/dsh
+```
 
-Success requires both exit code zero and a completed native final event, followed by JSON Schema validation. Invalid final JSON fails without a correction turn or automatic rerun. RSI records session IDs and available per-step native token usage; missing usage stays unknown, and internal `modelCalls` budgets cannot be enforced. Raw model/tool output and stderr are not copied to RSI diagnostics; inspect native DSH logs for detailed failures.
+Configure model access in DSH’s **headless** profile; configuring only the Web UI is not enough. Keep models and API keys in DSH configuration or environment variables, not in Recipe `model`, `base_url` or `api_key` fields.
 
-Timeout, cancellation, and disposal terminate the process group on macOS/Linux. Windows is unsupported. This backend has been live-tested on macOS only.
+Check your Recipe before starting:
+
+```sh
+ember-rsi doctor path/to/recipe.yaml
+ember-rsi run path/to/recipe.yaml
+```
+
+See [Doctor](doctor.md) for interpreting results. Claude Code checks CLI compatibility and authentication; DSH checks CLI compatibility and headless configuration composition. `model-access: unchecked` means model access still needs verification.
+
+- The Agent reads task files and proposes changes; RSI checks and applies them.
+- Claude Code disables user/project settings, ordinary Hooks and MCP. Configure authentication through native login or the launch environment.
+- Configure prompts and Skills in the calling component, such as the Proposer.
+- These backends cannot limit model requests with `budget.modelCalls`; use `timeoutMs` or an experiment duration budget to limit running time.
 
 ## Inference optimization
 
 For inference optimization, `evaluator.inferencebench` supports `benchmark.name: aisbench` with the bundled SSH solver, or `agentx` with the replay solver. Use the same benchmark workload for the baseline and candidate trials. The Runtime enforces the experiment-wide limits in the Recipe’s `budget`.
 
-For `parameter.agent`, `policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy invokes `evaluator.inferencebench` directly and serially, then uses the latest incumbent when requesting the next batch. `maxTrials` caps candidate attempts across all batches. Startup or evaluation failures stop the experiment and trigger instance cleanup.
+For `parameter.agent`, `policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy invokes `evaluator.inferencebench` directly and serially, then uses the latest incumbent when requesting the next batch. `maxTrials` caps candidate attempts across all batches. Confirmed, cleaned startup failures reject the candidate; SDK measurement failures, cancellation or uncertain cleanup stop the experiment.
 
 The default `selector.inference` uses `metric` and `direction` for the primary objective, `constraints` for performance targets, and optional `eligibility` for hard requirements. It can accept reduced constraint violations before every target is met, while preventing regressions in satisfied constraints. See [Built-in components](built-in-components.md#loop-components) for the selection rules. The Policy retains the incumbent and reports `candidateFeasible` separately from whether a candidate was accepted.
 
@@ -230,3 +197,5 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | Policy call step                                      | `steps[].with.editConstraints.maxChangedFiles`    | When supported by the contract, limit the number of files changed by this edit.                                                                                       | No additional per-edit file-count limit; existing constraints such as the Target still apply.                     |
 | Policy call step                                      | `steps[].with.editConstraints.maxChangedBytes`    | When supported by the contract, limit the total changed-file content size for this edit, in bytes.                                                                    | No additional per-edit byte limit; existing constraints such as the Target still apply.                           |
 | Policy call step                                      | `steps[].with.editConstraints.maxChangedSubtrees` | Maximum number of Target entries whose file or directory scopes a candidate edit may change.                                                                          | No limit on the number of Target entries affected by this edit.                                                   |
+
+Codex calls with native expert roles retain their parent rollout so full-context delegation can fork it. Calls without roles remain ephemeral. Search behavior follows the native Codex configuration.

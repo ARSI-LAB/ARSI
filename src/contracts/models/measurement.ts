@@ -48,6 +48,27 @@ export const typedArtifactSchema = recordSchema({
   schemaDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
   artifactRef: text,
 });
+/** Evaluator-owned public context for version-aware proposal research. */
+export const environmentSummarySchema = recordSchema({
+  software: { type: ['string', 'null'] },
+  devices: { anyOf: [{ type: 'array', items: text }, { type: 'null' }] },
+  resourcesVerified: { type: 'boolean' },
+  workload: {
+    type: 'object',
+    additionalProperties: { type: ['string', 'number', 'boolean'] },
+  },
+  benchmark: nullableText,
+  identity: {
+    anyOf: [
+      recordSchema({
+        evaluator: recordSchema({ name: text, version: text }),
+        runtime: recordSchema({ node: text, platform: text, arch: text }),
+      }),
+      { type: 'null' },
+    ],
+  },
+});
+
 const sourceSchema = recordSchema({
   artifactRef: text,
   pointer: { type: 'string' },

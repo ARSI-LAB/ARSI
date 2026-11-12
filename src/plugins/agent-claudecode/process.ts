@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { extname, resolve } from 'node:path';
+import { nativeAgentCommand } from '../shared/native-agent/executable.js';
+import { terminateWindowsTree } from '../shared/native-agent/terminate.js';
 
 /** Own the CLI and its descendants until completion, failure, or cancellation. */
 export async function runClaudeProcess(
@@ -11,32 +12,31 @@ export async function runClaudeProcess(
   onLine: (line: string) => void,
 ): Promise<void> {
   signal.throwIfAborted();
-  const script = ['.js', '.cjs', '.mjs'].includes(extname(executable));
-  const command = script
-    ? process.execPath
-    : /[/\\]/.test(executable)
-      ? resolve(executable)
-      : executable;
-  if (process.platform === 'win32')
-    throw new Error(
-      'agent.claudecode currently requires POSIX process-group cancellation',
-    );
+  const launch = await nativeAgentCommand(executable);
+  signal.throwIfAborted();
   await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(
-      command,
-      script ? [resolve(executable), ...args] : args,
-      {
-        cwd: directory,
-        env: process.env,
-        detached: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    );
+    const child = spawn(launch.command, [...launch.args, ...args], {
+      cwd: directory,
+      env: process.env,
+      detached: process.platform !== 'win32',
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     let failure: unknown;
     let buffer = '';
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let terminating: Promise<void> | undefined;
     const terminate = (kind: NodeJS.Signals): void => {
       if (!child.pid) return;
+      if (process.platform === 'win32') {
+        terminating ??= terminateWindowsTree(child.pid).catch(
+          (error: unknown) => {
+            failure ??= error;
+            child.kill('SIGKILL');
+          },
+        );
+        return;
+      }
       try {
         process.kill(-child.pid, kind);
       } catch (error) {
@@ -91,9 +91,10 @@ export async function runClaudeProcess(
     });
     // Descendants must not keep stdio open after the CLI exits.
     child.once('exit', stop);
-    child.once('close', (code, exitSignal) => {
+    child.once('close', async (code, exitSignal) => {
       consume(buffer);
       terminate('SIGKILL');
+      await terminating;
       if (killTimer) clearTimeout(killTimer);
       signal.removeEventListener('abort', stop);
       if (signal.aborted) reject(signal.reason);

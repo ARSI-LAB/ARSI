@@ -2,7 +2,7 @@
 
 Use the complete [external implementations](../assets/minimal/extension/operations.mjs) and [registration entry](../assets/minimal/extension/index.mjs). They import only the two public package entrypoints and run through real Manager calls.
 
-An OperationDefinition has `id`, a **contract object** such as imported `proposerContract` (not the string `contract.proposer`), `configSchema`, async `create(config, services)` returning `{ execute(input, context), dispose() }`, and optional `description` and `implementationDigest`. Contract owns input/output schemas; implementation owns config. Historical `display`/`presentation` metadata is unsupported. Keep configuration validation at the public boundary and treat model results as untrusted until validated.
+An OperationDefinition has `id`, a **contract object** such as imported `proposerContract` (not the string `contract.proposer`), `configSchema`, async `create(config, services)` returning `{ execute(input, context), dispose() }`, and optional `doctor`, `description` and `implementationDigest`. Contract owns input/output schemas; implementation owns config. Historical `display`/`presentation` metadata is unsupported. Keep configuration validation at the public boundary and treat model results as untrusted until validated.
 
 A Policy's `require` instead uses the **contract ID string**, e.g. `proposer: { contract: contract.proposer }`. A Recipe binding chooses your implementation ID. Register in the executing host before validation; see [external extensions](external-plugins.md).
 
@@ -13,6 +13,12 @@ Read [service signatures](runtime-services.md) before storing candidates/measure
 The SDK adapter's runner-injection helpers are internal, not exported package APIs. They may be used in repository development tests, but cannot be an installed consumer's integration prerequisite. Use the stock evaluator with its configured backend or implement the public evaluator contract. Never import `src/plugins/...` from a consumer.
 
 Verify invalid inputs/config, actual outputs, relevant side effects, no-change behavior, cancellation, repeat/unknown-effect handling and owned-resource cleanup. Do not count a registration-only or schema-only test as successful plugin execution.
+
+Attach a repeatable preflight function as `doctor: checkCustom` on the component definition and register it through `registry.registerOperation(definition)`. The public `OperationDoctor<C>` and `DoctorContext<C>` types are available from `ember-rsi/contracts`. Read effective configuration from `context.binding.config` and return `DoctorResult` with component-local check IDs. Use `runDoctorCheck` from `ember-rsi` for bounded operations and pass `{ signal: context.signal }`. Return `status: 'unchecked'` for skipped work and list missing inputs in `missingResources`, with `checksNotRun` pointing to local unchecked IDs. Export and package the callback with the component. The CLI calls it during full `doctor`. Omitted callbacks and `--static` leave plugin-specific coverage `unchecked` while common checks run.
+
+Reuse preparation or bounded local lifecycle operations without running Agents, model inference or benchmarks. SDK-backed Evaluators adapt normal configuration and delegate to SDK doctor rather than duplicating its probes. Use `context.directory` or the isolated Runtime for temporary writes, propagate each check's signal, and release owned resources on success, failure and interruption. Verify a working input, a concrete broken prerequisite and relevant cancellation/cleanup boundaries.
+
+For example, an editor configured with `config: { prompt: ./prompt.md, agentRef: agent }` can check that `agent` implements the Agent contract and load the resolved `prompt` with the existing prompt loader. In separate temporary fixtures, use a readable prompt for the working case and a missing prompt for the fault case. Assert that the fault identifies `config.prompt`, leaves project preparation unchecked, and preserves an independent check. Exercise the callback during development, then run `ember-rsi doctor recipe.yaml --plugin-dir ./extension` with the packaged component to verify discovery and JSON/exit status. Do not report missing doctor coverage as a successful component check.
 
 ## Discover schemas through public APIs
 

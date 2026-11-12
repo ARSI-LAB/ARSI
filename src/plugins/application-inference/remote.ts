@@ -234,7 +234,7 @@ export async function createRemoteBackend(
   const calibration =
     remote.calibration === undefined ? null : object(remote.calibration);
   const discoverParameters = remote.discoverParameters === true;
-  const tuneMemory = discoverParameters && !calibration;
+  const tuneMemory = !calibration;
   let calibrationSweep: { start: number; step: number; steps: number } | null =
     null;
   if (calibration) {
@@ -389,20 +389,17 @@ export async function createRemoteBackend(
     if (!Object.keys(parameters).length)
       throw new Error('Engine parameters must not be empty');
     for (const key of Object.keys(parameters)) {
-      if (!/^[a-z][a-z0-9_]*$/.test(key))
+      if (!/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/.test(key))
         throw new Error(
           `Engine parameter ${key} must be a lowercase argument name`,
         );
       if (
         (key === 'gpu_memory_utilization' && !tuneMemory) ||
-        (key === 'enable_prefix_caching' && !discoverParameters) ||
         [
           'host',
           'port',
-          'tensor_parallel_size',
-          'max_model_len',
           'served_model_name',
-          'dtype',
+          'data_parallel_rpc_port',
         ].includes(key)
       )
         throw new Error(

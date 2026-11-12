@@ -4,6 +4,7 @@ import {
   type IterativeProposerOutput,
 } from '../../contracts/plugin-types/proposer-iterative.js';
 import type { OperationDefinition } from '../../contracts/index.js';
+import { checkParetoEvolutionProposer } from './doctor.js';
 import { configSchema, type ParetoEvolutionConfig } from './schema.js';
 import { createParetoEvolutionProposer } from './service.js';
 
@@ -18,4 +19,5 @@ export const paretoEvolutionProposerDefinition: OperationDefinition<
   contract: iterativeProposerContract,
   configSchema,
   create: createParetoEvolutionProposer,
+  doctor: checkParetoEvolutionProposer,
 };

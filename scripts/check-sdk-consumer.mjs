@@ -22,6 +22,7 @@ import {Evaluator} from 'ember-evaluator';
 import {RuntimeContext} from './dist/src/contracts/index.js';
 import {FileArtifacts} from './dist/src/runtime/storage/index.js';
 import {createAgentbench} from './dist/src/plugins/evaluator-agentbench/service.js';
+import {sdkDoctor} from './dist/src/plugins/shared/evaluator-adapter/doctor-sdk.js';
 if(${JSON.stringify(isolated)}){
  const installed=await realpath(${JSON.stringify(packageDirectory)});
  for(const name of ['agent-bundle-core','ember-evaluator']){
@@ -37,6 +38,11 @@ process.env.EVALUATOR_RUN_INDEX_DIR=join(root,'run-index');
 try {
  process.env.EVALUATOR_NETWORK_CONFIG=join(root,'network.yaml');
  await writeFile(process.env.EVALUATOR_NETWORK_CONFIG,'{}\\n');
+ const invalidDoctorConfig=join(root,'invalid-doctor.json');
+ await writeFile(invalidDoctorConfig,'{}');
+ await assert.rejects(sdkDoctor({configPath:invalidDoctorConfig,
+  networkConfigPath:process.env.EVALUATOR_NETWORK_CONFIG,
+  env:process.env,signal:new AbortController().signal}),/SDK doctor could not complete/);
  const plugin=\`
 import {appendFileSync} from 'node:fs';
 import {createBundleSdk} from \${JSON.stringify(import.meta.resolve('agent-bundle-core'))};

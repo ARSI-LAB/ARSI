@@ -208,14 +208,14 @@ export MODEL_API_KEY="your-api-key"
 
 ```sh
 ember-rsi catalog # List registered IDs
-ember-rsi validate my-experiment/recipe.yaml # Check configuration, contracts, and bindings
+ember-rsi doctor my-experiment/recipe.yaml # Check configuration and runtime prerequisites
 ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01 # Run the experiment
 ember-rsi show terminal-skills-01 # Inspect the saved status and results
 ```
 
 - Use `ember-rsi list` to find saved experiments.
 - Use `ember-rsi cancel terminal-skills-01` to request cancellation.
-- Use `ember-rsi validate my-experiment/recipe.yaml` to check schemas, bindings, contracts, and declared Reflection resources. This command does not make model requests or prepare the benchmark.
+- Use `ember-rsi doctor my-experiment/recipe.yaml` to check schemas, bindings, contracts, declared Reflection resources, local inputs and supported runtime prerequisites. Evaluators delegate to the SDK's full doctor, including its download and Docker build probes. For coverage and side effects, see the [doctor guide](guides/doctor.md).
 - Use `ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01 --resume` to resume an interrupted experiment, reusing the original Recipe, working directory, and experiment ID.
 - Use `ember-rsi dashboard --port <port>` to inspect candidates, measurements, and calls. Run it from the same working directory containing `.rsi/` and open the address printed by the command. The `Reflection & Memory` tab also lets you inspect experience and revisions, and preview and apply Reflection changes; see [Dashboard](guides/running-experiments.md#dashboard). Start, resume, and cancel through the CLI.
 
@@ -226,6 +226,7 @@ Inspect the saved experiment status, Measurement status and coverage, and scores
 - [Understand how a Recipe runs](concepts/architecture.md) and how the Runtime coordinates the Application, Policy, and plugins.
 - [Choose a built-in Policy and its components](guides/built-in-components.md) for your optimization target and evaluation setup.
 - [Configure experiments](guides/configuration.md), including Recipe fields, plugin bindings, Agents, environment variables, and budgets.
+- [Diagnose an experiment with doctor](guides/doctor.md), including built-in checks, report interpretation and custom-component coverage.
 - [Run, observe, and recover experiments](guides/running-experiments.md) with the CLI and dashboard.
 - [Use Skills](guides/using-skills.md) with your personal coding Agent, the evaluated Agent, or the optimizer.
 - [Configure Memory](guides/memory.md) to consolidate execution experience and pass it to later optimization calls.

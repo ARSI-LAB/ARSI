@@ -89,7 +89,7 @@ for (const goal of [
 }
 test(
   'DSH timeout stops its process group and cleans the launch overlay',
-  { skip: process.platform === 'win32' },
+  {},
   async () => {
     const f = await fixture(1000);
     try {

@@ -2,5 +2,10 @@ type: object
 additionalProperties: false
 properties:
   parameterFile: { type: string, minLength: 1, default: tuning.json }
-  maxTrials: { type: integer, minimum: 1, maximum: 100, default: 8 }
+  maxTrials: { type: integer, minimum: 1, default: 8 }
   candidatesPerRound: { type: integer, minimum: 1, maximum: 6, default: 4 }
+  goal:
+    type: string
+    minLength: 1
+    default: Propose ranked inference candidates that improve serving performance within the benchmark constraints.
+  selection: { type: object, default: {} }

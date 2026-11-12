@@ -1,3 +1,4 @@
+import { checkDshAgent } from './doctor.js';
 import type {
   AgentInput,
   AgentOutput,
@@ -16,5 +17,6 @@ export const dshDefinition: OperationDefinition<
   description: 'Execute agent tasks through the native DSH CLI.',
   contract: agentContract,
   configSchema,
+  doctor: checkDshAgent,
   create: createAgentDsh,
 };

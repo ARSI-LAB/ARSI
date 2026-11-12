@@ -164,7 +164,7 @@ The Harness² example optimizes an AgentBundle baseline across 10 tasks, with up
 
 ```sh
 # Validate the Recipe without starting the experiment.
-ember-rsi validate examples/harness/dsh-harness2/recipe.yaml
+ember-rsi doctor examples/harness/dsh-harness2/recipe.yaml
 
 # Start the experiment with this ID. This makes real model calls.
 ember-rsi run examples/harness/dsh-harness2/recipe.yaml --id my-harness2-task

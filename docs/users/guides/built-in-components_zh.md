@@ -28,7 +28,7 @@
 
 Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供能正常启动的配置，并为基线预留一次 evaluation run。基线评测失败时，实验停止。
 
-`parameter.agent` 按顺序直接调用 `evaluator.inferencebench` 评测每个候选。启动或评测失败会停止实验并触发实例清理。默认的 `selector.inference` 允许 Policy 在全部性能目标达成前保留有改善的候选。输出始终保留当前最优版本的 `candidateRef` 和 `measurementRef`，由 `candidateFeasible` 表示其是否满足配置的约束；即使 `status` 为 `no-feasible-configuration`，这些引用也会保留。
+`parameter.agent` 按顺序直接调用 `evaluator.inferencebench` 评测每个候选。已确认且完成清理的启动失败记为失败 Measurement，并拒绝该候选；SDK 评测失败、取消、收集不完整或清理状态不明会停止实验。失败基线不能启动搜索。默认的 `selector.inference` 允许 Policy 在全部性能目标达成前保留有改善的候选。输出始终保留当前最优版本的 `candidateRef` 和 `measurementRef`，由 `candidateFeasible` 表示其是否满足配置的约束；即使 `status` 为 `no-feasible-configuration`，这些引用也会保留。
 
 ## Loop 组件
 
@@ -49,9 +49,9 @@ Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供�
 | Selector    | `selector.inference`                            | 先改善约束违反程度，再在目标范围内优化主指标。                        | 优化推理性能，并保留逐步接近延迟目标的有效进展。 |
 | Selector    | `selector.artifact`                             | 让模型按评审标准比较匿名展示的报告等交付内容。                        | 按内容质量选择候选。                         |
 | Agent 后端  | [`agent.pi`](configuration_zh.md#pi-后端)       | 通过 Pi 执行提案生成、内容评审和经验总结等任务。                      | 使用自选模型服务驱动优化流程。               |
-| Agent 后端  | [`agent.codex`](configuration_zh.md#codex-后端) | 通过本机 Codex 执行提案生成、内容评审和经验总结等任务。               | 复用已有的 Codex 登录和配置。                |
-| Agent 后端  | [`agent.claudecode`](configuration_zh.md#claude-code-后端) | 通过本机 Claude Code CLI 执行 Agent 任务。                            | 原生 Skills、子 Agent、结构化输出与只读工具。 |
-| Agent 后端  | [`agent.dsh`](configuration_zh.md#dsh-后端)     | 通过官方 DSH headless CLI 执行优化 Agent 任务。                       | 复用 DSH 原生配置和工具。                    |
+| Agent 后端  | [`agent.codex`](configuration_zh.md#原生-cli-后端codexclaude-code-和-dsh) | 通过本机 Codex 执行提案生成、内容评审和经验总结等任务。               | 复用已有的 Codex 登录和配置。                |
+| Agent 后端  | [`agent.claudecode`](configuration_zh.md#原生-cli-后端codexclaude-code-和-dsh) | 通过本机 Claude Code CLI 执行 Agent 任务。                            | 原生 Skills、子 Agent、结构化输出与只读工具。 |
+| Agent 后端  | [`agent.dsh`](configuration_zh.md#原生-cli-后端codexclaude-code-和-dsh)     | 通过官方 DSH headless CLI 执行优化 Agent 任务。                       | 复用 DSH 原生配置和工具。                    |
 
 `selector.inference` 与 `selector.metric` 使用相同的 `contract.selector-metrics` 接口和配置字段。尚有约束未满足时，只要所有约束的违反程度都不增加，且至少一项减小，就可以接受候选。违反程度完全相同时，主指标必须改善并超过配置的门槛。已满足的约束必须保持满足；全部达标后，在保持达标的前提下优化主指标，不再退回未达标候选。配置的 `eligibility` 检查始终是硬性要求。只有完整、可比较且包含所需指标的测量才能用于选择。
 
@@ -104,3 +104,27 @@ Reflection 只需要 Policy 显式声明执行。在 Reflection配置文件中 �
 - **Harness²**：已授权修改 Invariant Proposer 和 Domain Proposer 的 `guidance` 指导文件。`improve_guidance` 步骤默认注释；在自定义 Policy 中启用后，可更新这些文件，供后续 Proposer 生成提案时使用。
 
 通过校验的修改由 Runtime 在当前实验中启用，供后续插件调用读取使用。具体配置、资源授权和跨实验复用见 [Reflection 使用指南](reflection_zh.md)。
+
+
+### 推理配置候选
+
+远程推理从 `remote.parametersFile`（默认 `tuning.json`）读取一个 JSON 候选。
+`parameter.agent` 只编辑 `config.parameterFile`，启动器保持固定。Policy 接收可配置
+的 `goal` 与给提案器的 `selection` 说明。启动器可以解释嵌套选项和环境设置，无需
+上传引擎源码或构建脚本。
+
+框架保留服务端点参数（`host`、`port`、`served_model_name`、
+`data_parallel_rpc_port`），其他引擎选项由启动器与引擎校验。未启用启动校准时，
+显存利用率可以调优。质量、精度与上下文长度要求仍写在提示词中，不自动保证准确率。
+
+指标约束支持 `exclusiveMax: true` 表示严格上界。`selector.inference` 在尚未可行时，
+可以接受约束违反量减少、其他违反量不增加的候选；可行后用 `minRelativeImprovement`
+判断主指标收益。指标名称、阈值与优化方向由 Recipe 配置，selector 不硬编码目标。
+失败候选可直接拒绝，不伪造数值；未知或取消状态仍是错误。training-summary 提案器
+从 `context/metrics.json` 读取公共指标数值及单位，不受摘要预览截断影响。
+
+推理 Measurement 另附公开环境摘要。training-summary 提案器通过
+`context/metrics.json` 获取摘要、来源 artifact 引用以及完整指标值和单位。
+摘要包含已报告的引擎软件、设备标识、验证状态、SDK/运行时身份和标量负载配置；
+不包含凭据、主机名、端点或私有原生配置。缺失信息仍为未知；版本信息不证明候选
+选项已生效，仍需运行证据确认。没有该扩展的旧 Measurement 仍可读取，只是不提供环境摘要。

@@ -15,7 +15,7 @@ Prepare Node 24, project dependencies, DSH/AgentBundle, a working Docker Engine 
 From the repository root:
 
 ```bash
-ember-rsi validate examples/harness/dsh-wikiskill/recipe.yaml
+ember-rsi doctor examples/harness/dsh-wikiskill/recipe.yaml
 ember-rsi run examples/harness/dsh-wikiskill/recipe.yaml
 ```
 

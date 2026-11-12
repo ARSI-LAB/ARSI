@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { extname, resolve } from 'node:path';
+import { nativeAgentCommand } from '../shared/native-agent/executable.js';
+import { terminateWindowsTree } from '../shared/native-agent/terminate.js';
 
 /** Own the CLI process group, including descendants, until its pipes close. */
 export async function runDshProcess(
@@ -11,20 +12,13 @@ export async function runDshProcess(
   onLine: (line: string) => void,
 ): Promise<void> {
   signal.throwIfAborted();
-  const script = ['.js', '.cjs', '.mjs'].includes(extname(executable));
-  if (process.platform === 'win32')
-    throw new Error(
-      'agent.dsh currently supports macOS/Linux process-group cleanup only',
-    );
+  const launch = await nativeAgentCommand(executable);
+  signal.throwIfAborted();
   await new Promise<void>((done, reject) => {
     const child = spawn(
-      script
-        ? process.execPath
-        : executable.includes('/')
-          ? resolve(executable)
-          : executable,
+      launch.command,
       [
-        ...(script ? [resolve(executable)] : []),
+        ...launch.args,
         '--profile',
         'headless',
         '--patch',
@@ -39,6 +33,7 @@ export async function runDshProcess(
       {
         cwd,
         env: process.env,
+        windowsHide: true,
         detached: process.platform !== 'win32',
         stdio: ['pipe', 'pipe', 'pipe'],
       },
@@ -46,11 +41,20 @@ export async function runDshProcess(
     let failure: unknown;
     let buffer = '';
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let terminating: Promise<void> | undefined;
     const terminate = (value: NodeJS.Signals): void => {
+      if (process.platform === 'win32') {
+        if (child.pid)
+          terminating ??= terminateWindowsTree(child.pid).catch(
+            (error: unknown) => {
+              failure ??= error;
+              child.kill('SIGKILL');
+            },
+          );
+        return;
+      }
       try {
-        if (process.platform !== 'win32' && child.pid)
-          process.kill(-child.pid, value);
-        else child.kill(value);
+        if (child.pid) process.kill(-child.pid, value);
       } catch (error) {
         if (
           !(error instanceof Error && 'code' in error && error.code === 'ESRCH')
@@ -98,7 +102,8 @@ export async function runDshProcess(
     child.once('exit', () => {
       if (process.platform !== 'win32') terminate('SIGKILL');
     });
-    child.once('close', (code, exitSignal) => {
+    child.once('close', async (code, exitSignal) => {
+      await terminating;
       clearTimeout(killTimer);
       signal.removeEventListener('abort', cancel);
       try {

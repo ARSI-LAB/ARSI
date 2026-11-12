@@ -1,3 +1,5 @@
+import { environmentSummary } from '../../src/plugins/evaluator-inferencebench/conditions.js';
+import { metricEvidence } from '../../src/plugins/proposer-agent/metric-evidence.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -364,4 +366,95 @@ test('Tool-return prefixes preserve Unicode and failure identity without shorten
   assert.equal(payload.truncated, true);
   assert.equal(Array.from(String(payload.preview)).length, 2000);
   assert.doesNotMatch(packet, /UNREAD_TAIL|\uFFFD/);
+});
+
+test('training metric evidence retains values and units without copying private profiles', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'metric-evidence-'));
+  const artifacts = new FileArtifacts(root);
+  try {
+    const definitionRef = await artifacts.putJson({
+      id: 'throughput',
+      unit: 'tokens/s',
+      valueKind: 'scalar',
+    });
+    const summary = environmentSummary({
+      fixed: {
+        serviceResources: {
+          software: 'engine-1.0',
+          devices: ['0', '1'],
+          verified: true,
+          host: 'PRIVATE',
+        },
+        config: {
+          benchmark: {
+            name: 'aisbench',
+            config: {
+              workload: {
+                concurrency: 330,
+                inputLength: 4096,
+                token: 'PRIVATE',
+              },
+            },
+            solver: { password: 'PRIVATE' },
+          },
+        },
+        identity: null,
+      },
+    });
+    assert.deepEqual(summary.workload, { concurrency: 330, inputLength: 4096 });
+    const environmentRef = await artifacts.putJson(summary);
+    const metrics = {
+      throughput: {
+        definitionRef,
+        status: 'available',
+        value: { kind: 'scalar', value: 4588.57 },
+      },
+    };
+    const context = new RuntimeContext().extend({
+      artifacts,
+      async readMeasurement(ref) {
+        return {
+          ref,
+          candidateRef: 'c',
+          status: 'succeeded',
+          coverage: 'complete',
+          comparisonKey: 'same-load',
+          metrics,
+          profile: { secret: 'PRIVATE' },
+          extensions: [
+            {
+              schemaId: 'measurement.environment-summary/v1',
+              artifactRef: environmentRef,
+              schemaDigest: 'unused',
+            },
+          ],
+        };
+      },
+    });
+    const evidence = await metricEvidence(['m', 'm'], context);
+    assert.equal(
+      object(object(evidence.metricDefinitions)[definitionRef]).unit,
+      'tokens/s',
+    );
+    assert.equal(JSON.stringify(evidence).includes('4588.57'), true);
+    assert.equal(JSON.stringify(evidence).includes('PRIVATE'), false);
+    assert.equal(JSON.stringify(evidence).includes('engine-1.0'), true);
+    assert.deepEqual(
+      environmentSummary({ fixed: { config: null, serviceResources: null } }),
+      {
+        software: null,
+        devices: null,
+        resourcesVerified: false,
+        workload: {},
+        benchmark: null,
+        identity: null,
+      },
+    );
+    assert.equal(
+      Array.isArray(evidence.measurements) && evidence.measurements.length,
+      1,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

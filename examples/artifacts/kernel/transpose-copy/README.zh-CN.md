@@ -65,7 +65,7 @@ Embedding 身份文件使用 `rsi.operator-embedding-identity/v1`，包含带 `i
 ```bash
 pnpm install --frozen-lockfile
 pnpm build
-pnpm ember-rsi validate examples/artifacts/kernel/transpose-copy/recipe.search.yaml
+pnpm ember-rsi doctor examples/artifacts/kernel/transpose-copy/recipe.search.yaml
 pnpm ember-rsi run examples/artifacts/kernel/transpose-copy/recipe.search.yaml --id transpose-copy-search-001
 pnpm ember-rsi show transpose-copy-search-001
 ```
@@ -150,7 +150,7 @@ Policy 的显式 `profile` 操作仍会启用采集，并强制关闭磁盘缓�
 
 离线软件检查使用 `pnpm check` 和 `pnpm check:package`。
 这些检查使用受控 worker，不能证明真实 NPU 上的正确性或性能。
-`validate` 检查配置；真实运行还须验证设备就绪、严格正确性、计时证据和资源清理。
+`doctor` 检查配置和适用的本地前提；真实运行还须验证设备就绪、严格正确性、计时证据和资源清理。
 导出实验时，保留 `.rsi/` 中的 Manager 事实及引用的不可变产物，
 包括 SDK run ID 和原始证据。仅保留摘要或选中的源码不足以恢复或审计。
 凭证不得放入共享示例或导出的记录。

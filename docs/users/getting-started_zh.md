@@ -208,14 +208,14 @@ export MODEL_API_KEY="your-api-key"
 
 ```sh
 ember-rsi catalog # List registered IDs
-ember-rsi validate my-experiment/recipe.yaml # Check configuration, contracts, and bindings
+ember-rsi doctor my-experiment/recipe.yaml # Check configuration and runtime prerequisites
 ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01 # Run the experiment
 ember-rsi show terminal-skills-01 # Inspect the saved status and results
 ```
 
 - 用 `ember-rsi list` 查看已保存的实验。
 - 用 `ember-rsi cancel terminal-skills-01` 请求取消。
-- 用 `ember-rsi validate my-experiment/recipe.yaml` 检查 Schema、绑定、契约及已声明的 Reflection 资源。该命令不发起模型请求，也不准备基准环境。
+- 用 `ember-rsi doctor my-experiment/recipe.yaml` 检查 Schema、绑定、契约、已声明的 Reflection 资源、本地输入和已支持的运行前提。Evaluator 委托 SDK 的完整 doctor，包括其下载与 Docker 构建探针；覆盖范围与副作用见 [doctor 指南](guides/doctor_zh.md)。
 - 用 `ember-rsi run my-experiment/recipe.yaml --id terminal-skills-01 --resume` 恢复中断的实验，沿用原 Recipe、工作目录和实验 ID。
 - 用 `ember-rsi dashboard --port <端口号>` 查看候选、测量和调用记录。从包含 `.rsi/` 的同一工作目录执行，并打开命令输出的地址。`Reflection & Memory` 页签还可检查经验与修订版本，并预览、应用 Reflection 修改；详见[工作台](guides/running-experiments_zh.md#工作台)。启动、恢复和取消仍通过 CLI 操作。
 
@@ -226,6 +226,7 @@ ember-rsi show terminal-skills-01 # Inspect the saved status and results
 - [了解 Recipe 如何执行](concepts/architecture_zh.md)，以及 Runtime 如何协调 Application、Policy 和插件。
 - [选择内置 Policy 和组件](guides/built-in-components_zh.md)，匹配你的优化目标和评测环境。
 - [配置实验](guides/configuration_zh.md)，了解 Recipe 字段、插件绑定、Agent 与环境变量及预算。
+- [使用 doctor 诊断实验](guides/doctor_zh.md)，了解内置检查、报告含义和自定义组件的覆盖范围。
 - [运行、观察与恢复实验](guides/running-experiments_zh.md)，使用 CLI 和工作台。
 - [使用 Skill](guides/using-skills_zh.md)，为个人编程 Agent、被评测的 Agent 或优化器配置 Skill。
 - [配置 Memory](guides/memory_zh.md)，整理执行经验并传给后续优化调用。

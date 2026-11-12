@@ -218,6 +218,15 @@ for (const kind of ['agentbench', 'inferencebench'] as const) {
         call,
       );
       const measurement = measurements[0]!;
+      if (kind === 'inferencebench') {
+        assert.ok(Array.isArray(measurement.extensions));
+        const summary = object(measurement.extensions[0]);
+        assert.equal(summary.schemaId, 'measurement.environment-summary/v1');
+        const environment = object(stored.get(string(summary.artifactRef)));
+        assert.equal(environment.benchmark, 'agentx');
+        assert.equal(environment.resourcesVerified, false);
+        assert.equal(environment.software, null);
+      }
       const list = object(stored.get(string(measurement.itemsRef)));
       assert.ok(Array.isArray(list.items));
       const items = list.items.map((item) => object(item));
@@ -1373,6 +1382,57 @@ test('inferencebench rejects malformed native metrics before storing artifacts o
       );
       assert.equal(stored.size, 0);
       assert.equal(measurements.length, 0);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('inferencebench records cleaned startup rejection once without invoking the SDK', async () => {
+  const { OperationRejectedError } = await import(
+    '../../src/contracts/index.js'
+  );
+  const directory = await mkdtemp(join(tmpdir(), 'startup-measurement-'));
+  try {
+    const { services, measurements } = harness(directory);
+    const call = context(directory).extend(services);
+    const charges: number[] = [];
+    call.charge = async (_resource, count) => {
+      charges.push(count);
+    };
+    call.withInstance = async () => {
+      throw new OperationRejectedError(
+        'Engine rejected candidate after cleanup',
+      );
+    };
+    const evaluator = await createInferencebench(
+      { benchmark: 'agentx' },
+      services,
+      async () => {
+        throw Error('SDK must not run');
+      },
+    );
+    try {
+      const result = await evaluator.execute(
+        { candidateRef: 'candidate:a' },
+        call,
+      );
+      assert.equal(result.measurementRef, 'measurement:one');
+      assert.equal(measurements[0]?.status, 'failed');
+      assert.equal(typeof measurements[0]?.finishedAt, 'string');
+      assert.deepEqual(measurements[0]?.metrics, {});
+      assert.deepEqual(charges, [1]);
+      const controller = new AbortController();
+      controller.abort(new Error('cancelled'));
+      call.signal = controller.signal;
+      await assert.rejects(
+        evaluator.execute({ candidateRef: 'candidate:a' }, call),
+        /cancelled/,
+      );
+      assert.equal(measurements.length, 1);
+      assert.deepEqual(charges, [1]);
+    } finally {
+      await evaluator.dispose();
     }
   } finally {
     await rm(directory, { recursive: true, force: true });

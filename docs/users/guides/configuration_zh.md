@@ -32,17 +32,7 @@ Recipe 包含以下顶层字段，完整 Recipe 示例见[快速入门](../getti
 
 ## Agent 与环境变量
 
-优化流程中的 Agent 负责生成提案、评审交付内容、整理经验等模型任务，内置后端为 Pi、Codex、Claude Code 和 DSH。Evaluator 的配置与优化 Agent 分开：AgentBench 配置被测 Agent（Solver）的模型服务，InferenceBench 配置推理服务基准，OperatorBench 配置算子评测环境。
-
-各后端都在为 Agent 调用准备好的 workspace 中运行。`contract.agent` 接收 `cwd`、`goal` 和 `outputSchema`，Pi 通过 Runtime 委派时还会传入 `role`。Codex、Claude Code 和 DSH 使用原生工具委派。后端从 `AGENTS.md` 或 `CLAUDE.md` 读取指令，并从工作目录读取任务材料。
-
-| 配置对象               | 用途                                                             |
-| ---------------------- | ---------------------------------------------------------------- |
-| Evaluator              | 配置所选基准的模型服务、任务或评测环境。                         |
-| Pi（`agent.pi`）       | 通过 Pi 调用指定的模型服务，执行优化流程中的 Agent 任务。        |
-| Codex（`agent.codex`） | 通过本机 Codex 执行优化流程中的 Agent 任务，沿用本地登录和配置。 |
-| Claude Code（`agent.claudecode`） | 使用 Claude Code 原生工具和结构化输出执行 Agent 任务。           |
-| DSH（`agent.dsh`） | 通过官方 DSH headless CLI 和原生配置执行 Agent 任务。 |
+分别配置优化流程使用的 Agent 和被测系统使用的 Evaluator，两者的模型设置互不替代。Agent 可选 Pi（在 Recipe 中配置模型服务）或 Codex、Claude Code、DSH（使用已安装的 CLI）。
 
 ### 环境变量
 
@@ -108,78 +98,55 @@ bindings:
 - `timeoutMs` 限制每次模型请求，省略 `timeoutMs` 时底层 HTTP 客户端使用十分钟请求超时。两个字段都接受 1 到 2,147,483,647 的整数毫秒。
 - `executionTimeoutMs` 限制整个 Agent 调用，包括模型请求、工具、输出纠正、上下文压缩、重试等待和等待中的子 Agent，不会在每次请求后重置。
 
-### Codex 后端
+### 原生 CLI 后端：Codex、Claude Code 和 DSH
 
-`agent.codex` 通过本机已安装的 Codex CLI 执行优化任务，沿用本地登录和配置。将 Agent 绑定切换到该后端：
+先在运行 RSI 的电脑上安装 CLI，并完成登录或 API 配置。RSI 会调用这个 CLI，沿用它的模型和认证配置。
 
-```yaml
-bindings:
-  agent:
-    plugin: agent.codex
-    config: {}
-```
+| 后端 | 命令 | 模型配置位置 | Recipe 可选设置 |
+| --- | --- | --- | --- |
+| `agent.codex` | `codex` | `~/.codex/config.toml` 和原生登录 | `model`、`thinkingLevel` |
+| `agent.claudecode` | `claude` | 原生登录或网关环境变量 | `model`、`effort` |
+| `agent.dsh` | `dsh` | `$DSH_HOME/profiles/headless`（默认 `~/.dsh/profiles/headless`） | 无 |
 
-使用启动 RSI 的同一系统用户安装并完成 Codex 认证。模型服务和凭据保留在原生 Codex 配置中。
-
-RSI 在传入的 Agent 项目 `cwd` 中启动 `codex app-server`，创建临时会话，使用原生 Codex 工具及只读文件系统权限配置。最终 JSON 校验后关闭进程。Agent 项目文件保留给调用方插件使用；该后端不会另外创建或删除系统临时工作目录。
-
-用户配置默认位于 `~/.codex/config.toml`。RSI 使用 `.rsi-project` 标记项目根目录，并注册准备好的 `.codex/agents` 角色。实验指令与 Skills 应通过调用方插件的资源传入，以便包含在 Agent 项目中。
-
-[Codex Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、可选的 `model`、`thinkingLevel` 和 `timeoutMs`。省略 `model`、`thinkingLevel` 时沿用本地默认值，显式填写则只覆盖本次调用的模型和推理强度，不改写本地配置。
-
-- `timeoutMs` 限制完整调用，接受 1 到 2,147,483,647 的整数毫秒，实验取消和已配置的墙钟预算也会传递给进程。
-
-- 目前该后端无法执行实验的 `modelCalls` 预算。
-
-### Claude Code 后端
-
-`agent.claudecode` 使用本机 Claude Code CLI（macOS/Linux，已验证 2.1.319）。运行 RSI 前先准备好登录或网关环境：
-
-```yaml
-bindings:
-  agent:
-    plugin: agent.claudecode
-    config: {}
-```
-
-[Claude Code Schema](../../../src/plugins/agent-claudecode/schema.ts) 接受 `executable`（默认 `claude`）、可选的 `model`、`effort` 和整次调用的 `timeoutMs`。与 Codex 的 `thinkingLevel` 不同，此后端使用 `effort` 配置思考强度。认证和模型连接仍由原生客户端环境配置。
-
-每次调用使用独立会话、原生 Skills 和子 Agent，以及只读工具；RSI 负责应用结构化编辑提案。用户/项目设置、普通 Hooks 和 MCP 被禁用。这些工具限制不是 OS 沙箱，也不覆盖管理员管理的 Hooks。此后端无法执行 `modelCalls` 预算。
-
-### DSH 后端
-
-`agent.dsh` 通过官方安装的 DSH CLI headless 模式执行任务。需要支持 `--json`、stdin 任务输入、`--permission-mode` 和 `--approval-policy` 的版本（已验证 `0.2.2-rc.1`）。RSI 不会自动安装或升级 DSH。安装已验证版本并检查接口：
-
-```sh
-npm install -g @deepseek-ai/dsh@0.2.2-rc.1
-dsh --version
-dsh --profile headless --help
-```
+在 Recipe 中选择后端。下面使用 DSH；换成 Codex 或 Claude Code 时，只需修改 `plugin`：
 
 ```yaml
 bindings:
   agent:
     plugin: agent.dsh
     config:
-      executable: dsh
       timeoutMs: 180000
 ```
 
-[DSH Schema](../../../src/plugins/agent-dsh/schema.ts) 接受 `executable`（默认 `dsh`）和可选的整体调用超时 `timeoutMs`。模型路由和推理设置继续由用户的 DSH headless profile 管理（`$DSH_HOME/profiles/headless`，默认是 `~/.dsh/profiles/headless`）。仅配置在 Web profile 中的设置和插件不会自动继承。运行 RSI 前先配置 headless 模型路由；`agent.dsh` 不接受 `model`、`base_url` 或 `api_key` 字段。RSI 继承启动环境和 `DSH_HOME`；仅本次调用使用的配置覆盖会恢复上游 headless 默认关闭的原生凭据存储、认证及账号插件，不修改用户配置。密钥保留在原生配置或环境变量引用中，不写入 Recipe 字段。
+`timeoutMs: 180000` 表示一次 Agent 任务最多运行 3 分钟；不需要限制时可改成 `config: {}`。如果 RSI 找不到 CLI，可在 `config` 中用 `executable` 指定完整路径。Codex 和 Claude Code 还可以添加表中的模型选项。
 
-每次调用在传入的 Agent 项目中创建新的原生会话，DSH 保留原生会话日志。RSI 指定项目指令发现边界和 `.agents/skills` 路径；DSH 原生子 Agent 可读取生成的 `roles/<name>.md`。与 Codex 一样，不支持直接通过 `AgentInput.role` 委派。
+安装 DSH：
 
-CLI 固定使用 `read-only` 和 `approval-policy never`：原生文件工具不能修改任务工作区，需要人工批准的请求会被拒绝。编辑任务中，DSH 与 Codex、Claude Code 一样返回结构化修改提案，由 RSI 校验并应用。用户安装的插件仍遵循各自的行为；本适配器不提供额外的操作系统沙箱。候选提交仍经过 RSI Application 校验。
+```sh
+npm install -g @deepseek-ai/dsh
+```
 
-成功必须同时满足进程退出码为零、原生最终事件为 completed、结果通过 JSON Schema 校验。最终 JSON 无效时直接失败，不追加纠正轮次或自动重跑。RSI 记录会话 ID 和可获得的逐步原生 token 用量；缺失用量保持未知，无法执行内部 `modelCalls` 预算约束。原始模型/工具输出及 stderr 不会复制到 RSI 诊断日志；详细失败信息请查看 DSH 原生日志。
+DSH 需要配置 **headless** profile 的模型服务；只配置 Web 界面还不够。模型和密钥放在 DSH 配置或环境变量中，不要在 Recipe 中填写 `model`、`base_url` 或 `api_key`。
 
-macOS/Linux 上，超时、取消和销毁会终止进程组。不支持 Windows。此后端目前仅在 macOS 做过真实测试。
+启动前检查 Recipe：
+
+```sh
+ember-rsi doctor path/to/recipe.yaml
+ember-rsi run path/to/recipe.yaml
+```
+
+结果说明见 [Doctor](doctor_zh.md)。Claude Code 检查 CLI 兼容性和认证状态；DSH 检查 CLI 兼容性及 headless 配置组合。`model-access: unchecked` 表示仍需确认模型访问可用。
+
+- Agent 读取任务文件并返回修改建议，由 RSI 检查后写入。
+- Claude Code 禁用用户/项目设置、普通 Hooks 和 MCP；认证使用原生登录或启动环境变量。
+- 在 Proposer 等调用组件中配置提示词和 Skills。
+- 这些后端不能按 `budget.modelCalls` 限制模型请求次数；请用 `timeoutMs` 或实验时长预算控制运行时间。
 
 ## 推理优化
 
 推理优化可用 `evaluator.inferencebench` 的 `benchmark.name: aisbench` 和内置 SSH Solver，也可选择 `agentx` 及其回放 Solver。基线和候选使用相同的评测负载。Runtime 统一执行 Recipe 的 `budget` 所定义的实验级上限。
 
-对于 `parameter.agent`，`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 按顺序直接调用 `evaluator.inferencebench`，再用更新后的当前最优版本生成下一批。`maxTrials` 限制所有批次的候选尝试总数。启动或评测失败会停止实验并触发实例清理。
+对于 `parameter.agent`，`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 按顺序直接调用 `evaluator.inferencebench`，再用更新后的当前最优版本生成下一批。`maxTrials` 限制所有批次的候选尝试总数。已确认且完成清理的启动失败记为失败 Measurement，并拒绝该候选；SDK 评测失败、取消、收集不完整或清理状态不明会停止实验。失败基线不能启动搜索。
 
 默认的 `selector.inference` 用 `metric` 和 `direction` 定义主优化指标，用 `constraints` 定义性能目标，并可通过 `eligibility` 指定硬性要求。它允许在全部达标前接受约束违反程度减小的候选，同时防止已满足的约束退步。选择规则见[内置组件](built-in-components_zh.md#loop-组件)。Policy 保留当前最优版本，并用 `candidateFeasible` 单独报告是否达标，不将其等同于候选是否被接受。
 
@@ -230,3 +197,5 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedFiles`    | 契约支持时，限制这次编辑最多修改多少个文件。                                                              | 不增加这次编辑的文件数上限；Target 等已有约束仍生效。                             |
 | Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedBytes`    | 契约支持时，限制这次编辑的变更文件内容总大小，单位字节。                                                  | 不增加这次编辑的字节数上限；Target 等已有约束仍生效。                             |
 | Policy 调用步骤                                       | `steps[].with.editConstraints.maxChangedSubtrees` | 候选编辑最多涉及多少个 Target 条目对应的文件或目录范围。                                                  | 不限制这次编辑涉及的 Target 条目数量。                                            |
+
+搜索行为沿用 Codex 原生配置。含专家角色的调用保留父 rollout，供完整上下文的原生委派使用；无角色调用仍使用临时线程。已确认且清理完成的起服失败可被拒绝后继续；SDK 评测失败、取消或清理不明会停止实验。

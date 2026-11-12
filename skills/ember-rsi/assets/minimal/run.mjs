@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRuntime, validateRecipe } from 'ember-rsi';
+import { createRuntime, Recipe } from 'ember-rsi';
 const root = fileURLToPath(new URL('.', import.meta.url));
 const runtime = await createRuntime({
   rootDirectory: root,
@@ -10,7 +10,7 @@ const runtime = await createRuntime({
 });
 try {
   const path = resolve(root, 'recipe.yaml');
-  await validateRecipe(runtime, path);
+  await Recipe.load(path, runtime.registry);
   const id = 'skill-' + Date.now();
   const result = await runtime.manager.run(path, { id });
   assert.equal(result.status, 'succeeded');

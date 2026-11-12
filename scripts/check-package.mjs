@@ -98,6 +98,21 @@ try {
     'installed executable works outside its source checkout',
   );
   assert.match(help, /reflection/);
+  assert.match(help, /^\s+doctor \[options\] <recipe\.yaml>/m);
+  assert.doesNotMatch(help, /^\s+validate(?:\s|$)/m);
+  assert.throws(
+    () =>
+      execFileSync(process.execPath, [command, 'validate', 'recipe.yaml'], {
+        env: consumerEnv,
+        cwd: outside,
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: 30000,
+      }),
+    (error) =>
+      error.status === 2 && /unknown command 'validate'/.test(error.stderr),
+    'installed CLI rejects the removed validate command',
+  );
   for (const args of [
     ['run', '--help'],
     ['run', '-h'],
@@ -143,6 +158,123 @@ try {
     shell: process.platform === 'win32',
   });
   assert.match(binHelp, /list \[kind\]/);
+
+  const doctorExtension = join(consumer, 'doctor-extension');
+  await mkdir(doctorExtension);
+  await writeFile(join(doctorExtension, 'input.txt'), 'doctor-ready');
+  await writeFile(
+    join(doctorExtension, 'policy.json'),
+    JSON.stringify({
+      schemaVersion: 'rsi.policy/v1',
+      id: 'consumer.doctor',
+      input_schema: { type: 'object' },
+      output_schema: { type: 'object' },
+      require: { custom: { contract: 'contract.proposer' } },
+      steps: [],
+      output: {},
+    }),
+  );
+  const doctorRecipePath = join(doctorExtension, 'recipe.json');
+  await writeFile(
+    doctorRecipePath,
+    JSON.stringify({
+      schemaVersion: 'rsi.recipe/v1',
+      id: 'consumer.doctor',
+      application: { plugin: 'consumer.doctor-application', config: {} },
+      policy: { id: 'consumer.doctor' },
+      bindings: {
+        custom: {
+          plugin: 'proposer.consumer-doctor',
+          config: { inputFile: './input.txt' },
+        },
+      },
+    }),
+  );
+  await writeFile(
+    join(doctorExtension, 'index.mjs'),
+    `
+import {readFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {proposerContract,applicationContract} from 'ember-rsi/contracts';
+import {runDoctorCheck} from 'ember-rsi';
+export const customDefinition={
+ id:'proposer.consumer-doctor',contract:proposerContract,
+ configSchema:{type:'object',properties:{inputFile:{type:'string','x-rsi-path':'file'}},required:['inputFile']},
+ async create(){throw Error('Doctor must not instantiate the proposer');},
+ async doctor(context){
+  const input=await runDoctorCheck('read-input',async signal=>{
+   if(this.id!==context.binding.pluginId)throw Error('Missing definition receiver');
+   if(context.binding.pluginId!=='proposer.consumer-doctor')throw Error('Missing binding metadata');
+   const value=await readFile(context.binding.config.inputFile,{encoding:'utf8',signal});
+   if(value!=='doctor-ready')throw Error('Input is not doctor-ready');
+  },{signal:context.signal});
+  return {checks:[input,{id:'remote',status:'unchecked',reason:'This fixture does not probe remote services.'}]};
+ }
+};
+export function register(registry){
+ registry.registerOperation(customDefinition);
+ registry.registerOperation({id:'consumer.doctor-application',contract:applicationContract,configSchema:{type:'object'},async create(){throw Error('Doctor must not instantiate the Application');}});
+ registry.registerPolicy('consumer.doctor',fileURLToPath(new URL('./policy.json',import.meta.url)));
+}
+`,
+  );
+  const doctorArgs = [
+    command,
+    'doctor',
+    doctorRecipePath,
+    '--plugin-dir',
+    doctorExtension,
+  ];
+  const doctorOptions = {
+    env: consumerEnv,
+    cwd: outside,
+    encoding: 'utf8',
+    timeout: 30000,
+    stdio: 'pipe',
+  };
+  const doctorReport = JSON.parse(
+    execFileSync(process.execPath, doctorArgs, doctorOptions),
+  );
+  assert.equal(doctorReport.summary.failed, 0);
+  assert.equal(
+    doctorReport.checks.find((check) => check.id === 'custom.read-input')
+      ?.status,
+    'passed',
+  );
+  assert.equal(
+    doctorReport.checks.find((check) => check.id === 'custom.remote')?.status,
+    'unchecked',
+  );
+  await writeFile(join(doctorExtension, 'input.txt'), 'broken');
+  assert.throws(
+    () => execFileSync(process.execPath, doctorArgs, doctorOptions),
+    (error) => {
+      assert.equal(error.status, 1);
+      const report = JSON.parse(String(error.stdout));
+      assert.equal(
+        report.checks.find((check) => check.id === 'custom.read-input')?.status,
+        'failed',
+      );
+      return true;
+    },
+  );
+  const staticReport = JSON.parse(
+    execFileSync(process.execPath, [...doctorArgs, '--static'], doctorOptions),
+  );
+  assert.equal(staticReport.summary.failed, 0);
+  assert.equal(
+    staticReport.checks.find(
+      (check) => check.id === 'custom.resource.inputFile',
+    )?.status,
+    'passed',
+  );
+  assert.equal(
+    staticReport.checks.find((check) => check.id === 'custom.plugin')?.status,
+    'unchecked',
+  );
+  console.log(
+    'Installed component doctor: registration, full checks and static mode passed.',
+  );
 
   assert.deepEqual(
     JSON.parse(
@@ -251,35 +383,6 @@ export function register(registry) {
     await cp(join(root, 'examples/harness', name), example, {
       recursive: true,
     });
-    const validation = JSON.parse(
-      execFileSync(
-        process.execPath,
-        [command, 'validate', join(example, 'recipe.yaml')],
-        {
-          env: consumerEnv,
-          cwd: outside,
-          encoding: 'utf8',
-          timeout: 30000,
-        },
-      ),
-    );
-    assert.equal(
-      validation.valid,
-      true,
-      'installed package resolves example bindings and policy schemas',
-    );
-    if (name === 'dsh-harness2')
-      assert.ok(
-        validation.plugins.includes('reflection.agent'),
-        'installed consumer assembles Reflection with its packaged default prompt',
-      );
-    if (name === 'dsh-gepa') {
-      assert.equal(validation.policyId, 'policy.gepa');
-      assert.ok(
-        validation.plugins.includes('proposer.pareto-evolution'),
-        'installed consumer assembles built-in GEPA without an extension directory',
-      );
-    }
   }
   checkSdkConsumer(
     join(consumer, 'node_modules/ember-rsi'),
@@ -297,27 +400,6 @@ export function register(registry) {
       join(outside, name),
       { recursive: true },
     );
-  }
-  for (const name of ['parameter-grid', 'parameter-tpe', 'parameter-agent']) {
-    const inferenceValidation = JSON.parse(
-      execFileSync(
-        process.execPath,
-        [command, 'validate', join(outside, name, 'recipe.yaml')],
-        { env: consumerEnv, cwd: outside, encoding: 'utf8', timeout: 30000 },
-      ),
-    );
-    assert.equal(
-      inferenceValidation.valid,
-      true,
-      `installed package validates ${name} without source paths`,
-    );
-    if (name === 'parameter-agent') {
-      assert.equal(inferenceValidation.policyId, 'parameter.agent');
-      assert.ok(inferenceValidation.plugins.includes('selector.inference'));
-      assert.ok(
-        inferenceValidation.plugins.includes('evaluator.inferencebench'),
-      );
-    }
   }
   const packagedWorker = join(
     consumer,
@@ -403,10 +485,12 @@ import {readFile,realpath,stat,writeFile,mkdir} from 'node:fs/promises';
 import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {createRuntime,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,iterativeProposerContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
+import * as publicApi from 'ember-rsi';
+import {createRuntime,Recipe,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,iterativeProposerContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
 import {RuntimeContext as ContractContext,iterativeProposerContract as ContractsIterativeProposerContract} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
 assert.equal(iterativeProposerContract,ContractsIterativeProposerContract);
+assert.equal(Object.hasOwn(publicApi,'validateRecipe'),false);
 const packageDirectory=await realpath(${JSON.stringify(join(consumer, 'node_modules/ember-rsi'))});
 async function packageResource(path){
  const location=relative(packageDirectory,await realpath(path));
@@ -441,6 +525,20 @@ assert.equal(runtime.context.traceId,'consumer');
 const standalonePolicy=new Policy({schemaVersion:'rsi.policy/v1',id:'consumer.policy',input_schema:{type:'object'},output_schema:{type:'object'},steps:[],output:{value:7}});
 assert.deepEqual(await standalonePolicy.execute({application:{},context:context.extend({signal:new AbortController().signal}),invoke:async()=>{throw new Error('Unexpected plugin call');},checkpoint:async()=>{}}),{value:7},'installed Policy supports direct construction and execution');
 try {
+ for(const name of ['dsh-harness2','dsh-wikiskill','dsh-gepa','parameter-grid','parameter-tpe','parameter-agent']){
+  const recipe=await Recipe.load(resolve(${JSON.stringify(outside)},name,'recipe.yaml'),runtime.registry);
+  assert.equal(recipe.schemaVersion,'rsi.recipe/v1','installed package resolves example bindings and Policy schemas');
+  if(name==='dsh-harness2')assert.equal(recipe.reflection.implementation.ref,'reflection.agent','installed consumer assembles Reflection with its packaged default prompt');
+  if(name==='dsh-gepa'){
+   assert.equal(recipe.policy.id,'policy.gepa');
+   assert.equal(recipe.bindings.evolutionProposer.pluginId,'proposer.pareto-evolution','installed consumer assembles built-in GEPA without an extension directory');
+  }
+  if(name==='parameter-agent'){
+   assert.equal(recipe.policy.id,'parameter.agent');
+   assert.equal(recipe.bindings.selector.pluginId,'selector.inference');
+   assert.equal(recipe.bindings.evaluator.pluginId,'evaluator.inferencebench');
+  }
+ }
  const installed=new URL('./node_modules/ember-rsi/dist/src/',import.meta.url);
  const {validate}=await import(new URL('shared/schema.js',installed));
  assert.equal(operatorProposerContract.id,'contract.proposer-operator');
@@ -673,7 +771,25 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
 }
 `,
   );
-  await checkOperatorConsumer(consumer, operatorExample);
+  await writeFile(
+    join(consumer, 'doctor-consumer.ts'),
+    `
+import {proposerContract,type OperationDefinition,type ProposerInput,type ProposerOutput,type OperationDoctor,type DoctorContext,type DoctorResult} from 'ember-rsi/contracts';
+import {runDoctorCheck,type OperationDoctor as RootOperationDoctor,type DoctorResult as RootDoctorResult} from 'ember-rsi';
+type Config={inputFile:string};
+export const checkCustom:OperationDoctor<Config>=async(context:DoctorContext<Config>):Promise<DoctorResult>=>{
+ const path:string=context.binding.config.inputFile;
+ const input=await runDoctorCheck('input',async signal=>{signal.throwIfAborted();void path;},{signal:context.signal});
+ const result:RootDoctorResult={checks:[input,{id:'remote',status:'unchecked',reason:'No remote probe.'}]};
+ return result;
+};
+const rootDoctor:RootOperationDoctor<Config>=checkCustom;void rootDoctor;
+export const doctorDefinition:OperationDefinition<ProposerInput,ProposerOutput,Config>={
+ id:'proposer.custom',contract:proposerContract,configSchema:{type:'object'},doctor:checkCustom,
+ async create(){return{async execute(input){return{status:'no-change',candidateRef:input.parent,diffRef:null,rationale:'fixture'};},async dispose(){}};}
+};
+`,
+  );
   const compiler = join(root, 'node_modules/typescript/bin/tsc');
   const compileArgs = [
     '--noEmit',
@@ -686,7 +802,11 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
     'NodeNext',
     '--skipLibCheck',
   ];
-  for (const file of ['contracts-consumer.ts', 'events-consumer.ts']) {
+  for (const file of [
+    'contracts-consumer.ts',
+    'events-consumer.ts',
+    'doctor-consumer.ts',
+  ]) {
     execFileSync(process.execPath, [compiler, ...compileArgs, file], {
       env: consumerEnv,
       cwd: consumer,
@@ -699,6 +819,7 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
     'event-payload': `services.event.emit({tag:'publisher'}, 'consumer/notice', {count:'wrong'});`,
     'event-this': `services.event.emit({tag:1}, 'consumer/notice', {count:1});`,
     'definition-listeners': `import {definition} from './events-consumer.js'; const invalid:typeof definition={...definition,listeners:{}};void invalid;`,
+    'definition-doctor': `import {doctorDefinition} from './doctor-consumer.js';const invalid:typeof doctorDefinition={...doctorDefinition,doctor:'invalid'};void invalid;`,
     'listener-context': `services.event.on('consumer/notice',(_event,context:string)=>{void context;});`,
     'serial-return': `services.event.on('rsi/before-experiment',()=>true);`,
     'admission-return': `services.event.on('rsi/before-call',async()=>({kind:'invalid'}));`,
@@ -732,6 +853,10 @@ export function checkExecution(context:Parameters<OperationDefinition['create']>
       `${name} fails at the public context or event contract`,
     );
   }
+  console.log(
+    'Installed public doctor callback types and invalid-doctor rejection passed.',
+  );
+  await checkOperatorConsumer(consumer, operatorExample);
   console.log(
     'Package consumption passed: isolated tarball install, executable, catalog, Recipe validation, operator search with external retrieval resources, operator contracts and public context/event/kernel/operator typing.',
   );

@@ -16,15 +16,15 @@
 
 按优化需求选择内置 Policy，具体配置和运行方式见对应 README：
 
-| Policy                                                         | 适用场景                                                | 使用说明                                                                    |
-| -------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `policy.harness2`（[论文](https://arxiv.org/abs/2610.14224)）  | 尝试多种 Agent 改进方案，按最终交付质量选择结果。       | [README](../../../examples/harness/dsh-harness2/README.md)                  |
-| `policy.wikiskill`（[论文](https://arxiv.org/abs/2608.27454)） | 根据训练任务的经验持续改进 Agent 的 Skill。             | [README](../../../examples/harness/dsh-wikiskill/README.md)                 |
-| `policy.gepa`                                                  | 通过反馈驱动的变异和种群搜索优化模块化提示词。          | [README](../../../examples/harness/dsh-gepa/README.md)                      |
-| `parameter.agent`                                              | 先建立可测量的基线，再由 Agent 提出并验证推理引擎参数。 | [README](../../../examples/artifacts/inference/parameter-agent/README.md)   |
-| `policy.parameter-grid`                                        | 逐一尝试预设参数组合，选择更好的推理服务配置。          | [README](../../../examples/artifacts/inference/parameter-grid/README.md)    |
-| `policy.parameter-optuna`                                      | 利用评测反馈搜索参数，在有限预算内优化推理服务性能。    | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)     |
-| `policy.operator-search`                                       | 结合正确性检查与性能反馈，优化 Triton-Ascend 算子。     | [README](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md) |
+| Policy                                                         | 适用场景                                             | 使用说明                                                                    |
+| -------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
+| `policy.harness2`（[论文](https://arxiv.org/abs/2610.14224)）  | 尝试多种 Agent 改进方案，按最终交付质量选择结果。    | [README](../../../examples/harness/dsh-harness2/README.md)                  |
+| `policy.wikiskill`（[论文](https://arxiv.org/abs/2608.27454)） | 根据训练任务的经验持续改进 Agent 的 Skill。          | [README](../../../examples/harness/dsh-wikiskill/README.md)                 |
+| `policy.gepa` | 通过反馈驱动的变异和种群搜索优化模块化提示词。 | [README](../../../examples/harness/dsh-gepa/README.md) |
+| `parameter.agent` | 先建立可测量的基线，再由 Agent 提出并验证推理引擎参数。 | [README](../../../examples/artifacts/inference/parameter-agent/README.md) |
+| `policy.parameter-grid`                                        | 逐一尝试预设参数组合，选择更好的推理服务配置。       | [README](../../../examples/artifacts/inference/parameter-grid/README.md)    |
+| `policy.parameter-optuna`                                      | 利用评测反馈搜索参数，在有限预算内优化推理服务性能。 | [README](../../../examples/artifacts/inference/parameter-tpe/README.md)     |
+| `policy.operator-search`                                       | 结合正确性检查与性能反馈，优化 Triton-Ascend 算子。  | [README](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md) |
 
 Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供能正常启动的配置，并为基线预留一次 evaluation run。基线评测失败时，实验停止。
 
@@ -32,21 +32,20 @@ Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供�
 
 ## Loop 组件
 
-| 角色        | 内置组件                                        | 用途                                                                  | 常用场景                                         |
-| ----------- | ----------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------ |
-| Application | [`application.agentbundle`](#application)       | 管理 Agent Bundle 的文件版本和运行实例。                              | 优化提示词、Skill 和 Agent 代码。                |
-| Application | [`application.inference`](#application)         | 管理推理服务的配置版本和运行实例。                                    | 调整批处理、并发等服务参数。                     |
-| Application | [`application.kernel`](#application)            | 管理 Triton-Ascend 算子源码版本和评测工作目录。                       | 优化 NPU 算子代码。                              |
-| Proposer    | `proposer.agent`                                | 根据优化目标和执行证据调用模型修改文件。                              | 改进提示词、Skill 或代码。                       |
-| Proposer    | `proposer.operator`                             | 根据源码分析、评测或性能分析结果生成和修复算子候选。                  | 迭代改进算子实现。                               |
-| Summarizer  | `summarizer.operator`                           | 根据动作、测量和选择决定汇总已完成的尝试。                            | 为后续算子提案提供历史。                         |
-| Proposer    | `proposer.grid`                                 | 按预设取值逐一生成参数组合。                                          | 取值有限、组合较少的参数搜索。                   |
-| Proposer    | `proposer.optuna`                               | 通过 Optuna 提出参数组合并接收评测反馈。                              | 在有限预算内逐步调优。                           |
-| Proposer    | `proposer.pareto-evolution`                     | 通过反馈提案、Pareto 采样和基于血缘的交叉演化提示词模块。             | 根据训练与验证任务的反馈优化提示词。             |
-| Evaluator   | `evaluator.agentbench`                          | 运行 Agent 基准任务并保存得分与执行证据。                             | 检验提示词、Skill 或代码修改的效果。             |
-| Evaluator   | `evaluator.inferencebench`                      | 对推理服务执行基准测试，测量吞吐量、延迟等指标。                      | 比较不同服务配置的性能。                         |
-| Evaluator   | `evaluator.operatorbench`                       | 通过 Evaluator SDK 检查算子正确性、测量耗时，并按需采集性能分析数据。 | 判断算子修改是否正确、是否更快。                 |
-| Selector    | `selector.metric`                               | 按指定指标及约束比较候选。                                            | 依据成功率、吞吐量或延迟等数值选择更优版本。     |
+| 角色        | 内置组件                                        | 用途                                                                  | 常用场景                                     |
+| ----------- | ----------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------- |
+| Application | [`application.agentbundle`](#application)       | 管理 Agent Bundle 的文件版本和运行实例。                              | 优化提示词、Skill 和 Agent 代码。            |
+| Application | [`application.inference`](#application)         | 管理推理服务的配置版本和运行实例。                                    | 调整批处理、并发等服务参数。                 |
+| Application | [`application.kernel`](#application)            | 管理 Triton-Ascend 算子源码版本和评测工作目录。                       | 优化 NPU 算子代码。                          |
+| Proposer    | `proposer.agent`                                | 根据优化目标和执行证据调用模型修改文件。                              | 改进提示词、Skill 或代码。                   |
+| Proposer    | `proposer.operator`                             | 根据源码分析、评测或性能分析结果生成和修复算子候选。                  | 迭代改进算子实现。                           |
+| Proposer    | `proposer.grid`                                 | 按预设取值逐一生成参数组合。                                          | 取值有限、组合较少的参数搜索。               |
+| Proposer    | `proposer.optuna`                               | 通过 Optuna 提出参数组合并接收评测反馈。                              | 在有限预算内逐步调优。                       |
+| Proposer | `proposer.pareto-evolution` | 通过反馈提案、Pareto 采样和基于血缘的交叉演化提示词模块。 | 根据训练与验证任务的反馈优化提示词。 |
+| Evaluator   | `evaluator.agentbench`                          | 运行 Agent 基准任务并保存得分与执行证据。                             | 检验提示词、Skill 或代码修改的效果。         |
+| Evaluator   | `evaluator.inferencebench`                      | 对推理服务执行基准测试，测量吞吐量、延迟等指标。                      | 比较不同服务配置的性能。                     |
+| Evaluator   | `evaluator.operatorbench`                       | 通过 Evaluator SDK 检查算子正确性、测量耗时，并按需采集性能分析数据。 | 判断算子修改是否正确、是否更快。             |
+| Selector    | `selector.metric`                               | 按指定指标及约束比较候选。                                            | 依据成功率、吞吐量或延迟等数值选择更优版本。 |
 | Selector    | `selector.inference`                            | 先改善约束违反程度，再在目标范围内优化主指标。                        | 优化推理性能，并保留逐步接近延迟目标的有效进展。 |
 | Selector    | `selector.artifact`                             | 让模型按评审标准比较匿名展示的报告等交付内容。                        | 按内容质量选择候选。                         |
 | Agent 后端  | [`agent.pi`](configuration_zh.md#pi-后端)       | 通过 Pi 执行提案生成、内容评审和经验总结等任务。                      | 使用自选模型服务驱动优化流程。               |
@@ -58,22 +57,7 @@ Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供�
 
 ## Application
 
-Application 根据初始内容创建候选版本，检查并提交修改，并为评测准备和释放运行实例。`application.agentbundle` 管理 Agent Bundle，`application.inference` 管理推理服务配置与实例，`application.kernel` 管理 Triton-Ascend 算子源码与评测工作目录。算子优化中的 `baseline` 包含完整的初始实现，包括入口、本地 helper 和包初始化文件。每个候选快照中的全部文件都会交付给评测和 profiling。`entryFile` 指定相对于快照的入口模块，入口须提供可调用的 `kernel_function`。单文件和多文件候选都须指定 `entryFile`。Target 决定允许修改的文件，入口可以只读。实验中不能新增或删除源码成员。环境与配置见[算子优化示例](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md)。
-
-入口只读的包可以显式指定入口：
-
-```yaml
-application:
-  plugin: application.kernel
-  config:
-    baseline: { directory: ./baseline }
-    target: { schema: ./target.yaml }
-    entryFile: kernels/kernel.py
-```
-
-在 `baseline/` 下放置 `kernels/kernel.py`、`kernels/__init__.py` 和 `kernels/tiling.py`。评测任务放在其配置的 task 目录中。Target 可以只授权修改 `kernels/tiling.py`。Proposer 从 `context/sources/` 读取所有候选文件，按阶段输入中的 `editablePaths` 返回修改，每个修改文件提供完整替换内容。评测和 profiling 保留包目录结构并验证所有成员。执行描述携带入口路径和每个文件的 SHA-256。评测端从清单得到入口摘要 `sourceDigest` 和整包摘要 `sourceBundleDigest`，并将两者写入测量记录。比较条件保留只读文件摘要，排除可编辑源码的内容。多文件评测需要支持 kernel manifest `candidateRoot` 字段的 Evaluator 版本。
-
-Target 授权也适用于只有一个文件的候选快照：只读入口的字节和声明路径进入比较身份，可编辑入口则可变更内容。SDK 在 `candidate/` 下保留每个候选的实际入口路径。源码清单以确定性的路径顺序计算 bundle 哈希并比较证据，包括字节不同的 Unicode 文件名。
+Application 根据初始内容创建候选版本，检查并提交修改，并为评测准备和释放运行实例。`application.agentbundle` 管理 Agent Bundle，`application.inference` 管理推理服务配置与实例，`application.kernel` 管理 Triton-Ascend 算子源码与评测工作目录。算子基线中由 `entryFile` 指定的入口文件需要提供可调用的 `kernel_function`，环境与配置见[算子优化示例](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md)。
 
 ### 修改范围（Target）
 

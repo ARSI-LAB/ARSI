@@ -10,22 +10,21 @@ This guide explains how to choose a plugin contract, define configuration, imple
 
 Choose a contract based on the work your plugin will do. The contract defines the call's input and output; the plugin supplies the implementation and its configuration. When an existing contract meets your needs, reuse its object and types:
 
-| Contract and field definitions                                                             | Purpose                                                                                      | Contract object to import    |
-| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ---------------------------- |
-| [contract.application](../../../src/contracts/plugin-types/application.ts)                 | Manage optimization targets, commit candidates, and acquire and release execution instances. | `applicationContract`        |
-| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                             | Run model requests and tool calls.                                                           | `agentContract`              |
-| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                       | Generate candidates from goals and evidence.                                                 | `proposerContract`           |
-| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)     | Generate and repair operator candidates.                                                     | `operatorProposerContract`   |
-| [contract.summarizer-operator](../../../src/contracts/plugin-types/summarizer-operator.ts) | Summarize completed operator attempts and extend their history.                              | `operatorSummarizerContract` |
-| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                   | Evaluate candidates against a task list.                                                     | `agentbenchContract`         |
-| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)           | Evaluate inference application candidates.                                                   | `inferencebenchContract`     |
-| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)             | Check operator correctness, measure performance, or collect profiling data.                  | `operatorbenchContract`      |
-| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)       | Compare measurement metrics and select a candidate.                                          | `metricSelectorContract`     |
-| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts)   | Compare candidate content against supplied criteria and select a candidate.                  | `artifactSelectorContract`   |
-| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                           | Consolidate evidence and observations into reusable experience.                              | `memoryContract`             |
-| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                   | Propose plugin revisions based on execution evidence.                                        | `reflectionContract`         |
-| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)             | Generate parameter candidates in grid-search order.                                          | `gridProposerContract`       |
-| [contract.proposer-iterative](../../../src/contracts/plugin-types/proposer-iterative.ts)   | Manage stateful search, request work, and receive feedback.                                  | `iterativeProposerContract`  |
+| Contract and field definitions                                                           | Purpose                                                                                      | Contract object to import  |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------- |
+| [contract.application](../../../src/contracts/plugin-types/application.ts)               | Manage optimization targets, commit candidates, and acquire and release execution instances. | `applicationContract`      |
+| [contract.agent](../../../src/contracts/plugin-types/agent.ts)                           | Run model requests and tool calls.                                                           | `agentContract`            |
+| [contract.proposer](../../../src/contracts/plugin-types/proposer.ts)                     | Generate candidates from goals and evidence.                                                 | `proposerContract`         |
+| [contract.proposer-operator](../../../src/contracts/plugin-types/proposer-operator.ts)   | Generate and repair operator candidates.                                                     | `operatorProposerContract` |
+| [contract.agentbench](../../../src/contracts/plugin-types/agentbench.ts)                 | Evaluate candidates against a task list.                                                     | `agentbenchContract`       |
+| [contract.inferencebench](../../../src/contracts/plugin-types/inferencebench.ts)         | Evaluate inference application candidates.                                                   | `inferencebenchContract`   |
+| [contract.operatorbench](../../../src/contracts/plugin-types/operatorbench.ts)           | Check operator correctness, measure performance, or collect profiling data.                  | `operatorbenchContract`    |
+| [contract.selector-metrics](../../../src/contracts/plugin-types/selector-metrics.ts)     | Compare measurement metrics and select a candidate.                                          | `metricSelectorContract`   |
+| [contract.selector-artifacts](../../../src/contracts/plugin-types/selector-artifacts.ts) | Compare candidate content against supplied criteria and select a candidate.                  | `artifactSelectorContract` |
+| [contract.memory](../../../src/contracts/plugin-types/memory.ts)                         | Consolidate evidence and observations into reusable experience.                              | `memoryContract`           |
+| [contract.reflection](../../../src/contracts/plugin-types/reflection.ts)                 | Propose plugin revisions based on execution evidence.                                        | `reflectionContract`       |
+| [contract.proposer-grid](../../../src/contracts/plugin-types/proposer-grid.ts)           | Generate parameter candidates in grid-search order.                                          | `gridProposerContract`     |
+| [contract.proposer-iterative](../../../src/contracts/plugin-types/proposer-iterative.ts)                         | Manage stateful search, request work, and receive feedback.                                  | `iterativeProposerContract`           |
 
 Each regular plugin implements one public contract. Contracts such as Application include multiple actions, handled by the same `execute` according to `input.action`.
 

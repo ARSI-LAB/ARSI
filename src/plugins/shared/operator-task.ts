@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { KERNEL_TENSOR_DTYPES } from 'ember-evaluator';
 import type { JsonObject } from '../../contracts/index.js';
 import { recordSchema } from '../../contracts/models/measurement.js';
 import { digest, object, string } from '../../shared/json.js';
@@ -12,7 +13,8 @@ const shape = {
   minItems: 1,
   items: { type: 'integer', minimum: 1 },
 };
-const tensorSchema = recordSchema({ shape, dtype: { const: 'float16' } });
+const dtype = { enum: [...KERNEL_TENSOR_DTYPES] };
+const tensorSchema = recordSchema({ shape, dtype });
 const taskSchema = recordSchema({
   schemaVersion: { const: 'rsi.kernel-task/v1' },
   id: text,
@@ -26,7 +28,7 @@ const taskSchema = recordSchema({
     inputs: { type: 'array', minItems: 1, items: tensorSchema },
     output: recordSchema({
       shape,
-      dtype: { const: 'float16' },
+      dtype,
       contiguous: { type: 'boolean' },
       independent: { type: 'boolean' },
     }),

@@ -333,7 +333,8 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
     context,
   );
   const distribution = join(modules, 'ember-evaluator/dist');
-  const replay = 'adapters/kernel/msprof_replay.py';
+  const replay =
+    'plugins/benchmarks/operator/kernel/runtime/msprof_replay.py';
   await appendFile(
     join(distribution, replay),
     '\n# A rebuilt diagnostic runtime after the precision assessment\n',

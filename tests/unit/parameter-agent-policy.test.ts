@@ -1,13 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   RuntimeContext,
   applicationContract,
   inferencebenchContract,
-  proposerContract,
   type JsonObject,
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
@@ -16,7 +15,7 @@ import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { object } from '../../src/shared/json.js';
 
-test('parameter.agent leaves guidance unset and accepts custom Proposers when Reflection is disabled', async (t) => {
+test('parameter.agent loads default learning resources with either Reflection switch value', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-defaults-'));
   const registry = new Registry();
   t.after(async () => {
@@ -27,7 +26,6 @@ test('parameter.agent leaves guidance unset and accepts custom Proposers when Re
   for (const [id, contract] of [
     ['custom.application', applicationContract],
     ['custom.evaluator', inferencebenchContract],
-    ['custom.proposer', proposerContract],
   ] as const) {
     registry.registerOperation({
       id,
@@ -57,27 +55,31 @@ test('parameter.agent leaves guidance unset and accepts custom Proposers when Re
     standard.bindings.proposer!.config.prompt,
     join(root, 'prompt.md'),
   );
-  assert.equal(standard.bindings.proposer!.config.guidance, undefined);
-  assert.equal(standard.reflection, undefined);
-  const custom = {
+  assert.ok(standard.reflection);
+  const guidance = standard.bindings.proposer!.config.guidance;
+  assert.equal(typeof guidance, 'string');
+  assert.match(
+    await readFile(join(String(guidance), 'search.md'), 'utf8'),
+    /Configuration search guidance/,
+  );
+  for (const reflection of [false, true]) {
+    declaration.policy.config = { reflection };
+    const loaded = await Recipe.fromJSON(declaration, registry, options);
+    assert.ok(loaded.reflection);
+    const reloaded = await Recipe.fromJSON(loaded.toJSON(), registry, options);
+    assert.deepEqual(reloaded.reflection, loaded.reflection);
+  }
+  declaration.policy.config = { reflection: false };
+  const missingGuidance = {
     ...declaration,
     bindings: {
       ...declaration.bindings,
-      proposer: { plugin: 'custom.proposer' },
+      proposer: { config: { guidance: './missing-guidance' } },
     },
   };
-  for (const memory of [false, true]) {
-    custom.policy.config = { memory };
-    const loaded = await Recipe.fromJSON(custom, registry, options);
-    assert.equal(loaded.reflection, undefined);
-    assert.deepEqual(loaded.bindings.proposer!.config, {});
-    const reloaded = await Recipe.fromJSON(loaded.toJSON(), registry, options);
-    assert.equal(reloaded.reflection, undefined);
-  }
-  custom.policy.config = { reflection: true };
   await assert.rejects(
-    Recipe.fromJSON(custom, registry, options),
-    /Resource guidance is not declared/,
+    Recipe.fromJSON(missingGuidance, registry, options),
+    /guidance.*cannot read resource/,
   );
 });
 

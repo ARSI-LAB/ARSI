@@ -14,10 +14,11 @@ evaluation, selector and available Memory records using `training-summary`, and
 can revise only the Proposer's `guidance`. It cannot change selection rules,
 workload or candidate parameters. The next proposal loads the activated revision;
 there is no final Reflection call after the trial limit or a no-change proposal.
-Before enabling it, configure a dedicated `bindings.proposer.config.guidance`
-directory. RSI retains the generic Reflection goal and starter guidance;
-scenarios can copy these resources and select a local `reflection.configFile`.
-When disabled, this Policy does not load or validate Reflection resources.
+RSI provides a generic Reflection goal and default Proposer guidance. Scenarios
+can copy these resources, set `bindings.proposer.config.guidance` to their own
+directory and select a local `reflection.configFile`. The switch only controls
+calls: the existing Runtime validates the selected Reflection configuration and
+resources during Recipe loading, even when `policy.config.reflection` is false.
 
 ## 1. Configure a Reflection module
 
@@ -119,13 +120,6 @@ defaults:
 
 The Runtime validates the selected configuration when loading the Recipe. The Reflection step added in step 2 determines when it runs.
 
-For optional Reflection, the Policy can add `enabled` to this declaration. It
-defaults to `true` and accepts a boolean or an expression using only `config`,
-for example `enabled: ${{ config.reflection }}`. Declare that boolean in the
-Policy's config Schema. A `false` result skips loading and validating the selected
-Reflection file; a non-boolean result is an error. Guard the Reflection step with
-the same condition: `enabled` controls assembly, not the Policy's control flow.
-
 #### Override the file from a Recipe
 
 If an experiment needs a different Reflection configuration, select it in the Recipe:
@@ -137,8 +131,7 @@ reflection:
 ```
 
 This `reflection.configFile` resolves relative to the Recipe file. The selected file follows section 1 and completely replaces the Policy's default configuration, so the Policy must already declare `defaults.reflection`. The Policy still determines when Reflection runs.
-The Recipe override does not bypass the Policy's `enabled` condition. To specialize
-`parameter.agent`, copy its `reflection.yaml` and `reflection.md` into the scenario,
+To specialize `parameter.agent`, copy its `reflection.yaml` and `reflection.md` into the scenario,
 edit the local goal, and select that YAML file here. The generic goal, implementation
 and orchestration stay in RSI; the scenario owns its specialized copies.
 

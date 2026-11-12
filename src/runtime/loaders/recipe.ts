@@ -4,13 +4,10 @@ import { recipeDeclarationSchema } from '../../contracts/recipe.js';
 import { applicationContract } from '../../contracts/plugin-types/application.js';
 import { object, string, freezeSnapshot } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { Policy, evaluateTemplate } from '../policy/index.js';
+import { Policy } from '../policy/index.js';
 import { validateTemplate } from '../compiler/scope.js';
 import type { Registry } from '../registry/index.js';
-import {
-  reflectionConfigFile,
-  reflectionDefaults,
-} from '../revisions/declaration.js';
+import { reflectionConfigFile } from '../revisions/declaration.js';
 import {
   validateReflection,
   type ReflectionConfig,
@@ -199,40 +196,32 @@ export class Recipe {
         'recipe.reflection: locked Reflection requires Policy defaults.reflection',
       );
     if (defaultReflection !== undefined) {
-      const declaration = reflectionDefaults(defaultReflection);
-      const enabled = evaluateTemplate(declaration.enabled, {
-        config: resolvedPolicyConfig,
-      });
-      if (typeof enabled !== 'boolean')
-        throw new Error(
-          'policy.defaults.reflection.enabled: expected a boolean result',
-        );
-      if (!enabled && options.reflection !== undefined)
-        throw new Error(
-          'recipe.reflection: locked Reflection conflicts with disabled declaration',
-        );
-      if (enabled) {
-        const reflectionPath =
-          data.reflection === undefined
-            ? resolve(policyDirectory, declaration.configFile)
-            : resolve(
-                directory,
-                reflectionConfigFile(data.reflection, 'recipe.reflection'),
-              );
-        reflection =
-          options.reflection ??
-          (await validateReflection(
-            reflectionPath,
-            Object.fromEntries(
-              Object.entries(bindings).map(([name, binding]) => [
-                name,
-                binding.toJSON(),
-              ]),
-            ),
-            (id) => registry.get(id),
-            (id) => registry.contract(id),
-          ));
-      }
+      const reflectionPath =
+        data.reflection === undefined
+          ? resolve(
+              policyDirectory,
+              reflectionConfigFile(
+                defaultReflection,
+                'policy.defaults.reflection',
+              ),
+            )
+          : resolve(
+              directory,
+              reflectionConfigFile(data.reflection, 'recipe.reflection'),
+            );
+      reflection =
+        options.reflection ??
+        (await validateReflection(
+          reflectionPath,
+          Object.fromEntries(
+            Object.entries(bindings).map(([name, binding]) => [
+              name,
+              binding.toJSON(),
+            ]),
+          ),
+          (id) => registry.get(id),
+          (id) => registry.contract(id),
+        ));
     }
     return new Recipe({
       id: string(data.id, 'recipe.id'),

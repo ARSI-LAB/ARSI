@@ -175,10 +175,11 @@ ember-rsi run path/to/recipe.yaml
 `policy.config.reflection` 开关，默认均为 `false`。Memory 在每批完成评测后整理经验，
 将保存的 `memoryRef` 传给后续提案；Reflection 在仍可继续试验的批次之间仅修订
 Proposer 的 `guidance`。两者复用配置的 `agent` 绑定和 `training-summary` 证据视图。
-Policy 保留通用 Proposer、Memory 和 Reflection 提示词，不默认注入 Proposer 的初始指引。启用 Reflection 时，
-需通过 `bindings.proposer.config.guidance` 指向独立目录，可复制
-[初始指引模板](../../../src/policies/parameter/agent/guidance/search.md)。
-Reflection 关闭时不加载或校验其资源，未声明 `guidance` 字段的自定义 Proposer 也可使用。
+Policy 提供通用 Proposer、Memory 和 Reflection 提示词，以及默认
+[指导文档](../../../src/policies/parameter/agent/guidance/search.md)。场景可将指引复制到
+独立目录，再通过 `bindings.proposer.config.guidance` 选择副本。Reflection 开关只控制
+调用；即使关闭，Recipe 加载时仍会校验其配置和资源。自定义 Proposer 需暴露所配置的
+Reflection 目标资源，或在 Recipe 中选择与它兼容的 Reflection 配置文件。
 场景可通过 `bindings.proposer.config.prompt`、`bindings.memoryUpdater.config.prompt`
 和 `reflection.configFile` 指向各自的提示词副本，无需复制 Policy。
 结果包含 `memoryRef`，没有经验时为 `null`。存储与激活行为见

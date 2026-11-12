@@ -176,11 +176,13 @@ For `parameter.agent`, `policy.config.candidatesPerRound` defaults to 4 and acce
 measured batches and passes the saved `memoryRef` to subsequent proposals;
 Reflection revises only Proposer `guidance` between batches when another trial
 can run. Both reuse the configured `agent` binding and `training-summary` evidence.
-The Policy supplies generic Proposer, Memory and Reflection prompts without injecting initial Proposer
-guidance. When enabling Reflection, set `bindings.proposer.config.guidance` to a
-dedicated directory; the [starter guidance](../../../src/policies/parameter/agent/guidance/search.md)
-can be copied there. With Reflection disabled, its resources are not loaded or
-validated, including for custom Proposers without a `guidance` field.
+The Policy supplies generic Proposer, Memory and Reflection prompts, plus default
+[guidance](../../../src/policies/parameter/agent/guidance/search.md). To specialize
+that guidance, copy it to a dedicated directory and set
+`bindings.proposer.config.guidance` to that directory. The Reflection switch only
+controls invocation: its configuration and resources are validated at Recipe load
+time even when the switch is false. Custom Proposers must expose the configured
+Reflection target resources, or the Recipe must select a compatible Reflection file.
 Scene-specific copies of prompts can be selected through
 `bindings.proposer.config.prompt`, `bindings.memoryUpdater.config.prompt` and
 `reflection.configFile`; they do not require a copy of the Policy.

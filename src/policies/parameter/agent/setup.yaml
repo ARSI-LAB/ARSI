@@ -54,14 +54,12 @@ require:
   agent: { contract: contract.agent }
   memoryUpdater: { contract: contract.memory }
 defaults:
-  reflection:
-    configFile: ./reflection.yaml
-    enabled: ${{ config.reflection }}
+  reflection: { configFile: ./reflection.yaml }
   bindings:
     agent: { plugin: agent.codex }
     proposer:
       plugin: proposer.agent
-      config: { agentRef: agent, prompt: ./prompt.md }
+      config: { agentRef: agent, prompt: ./prompt.md, guidance: ./guidance }
     memoryUpdater:
       plugin: memory.agent
       config:

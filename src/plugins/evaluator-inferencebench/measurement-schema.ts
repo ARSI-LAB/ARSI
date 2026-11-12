@@ -1,4 +1,5 @@
 import type { JsonObject } from '../../contracts/index.js';
+import { object } from '../../shared/json.js';
 import { recordSchema } from '../../contracts/models/measurement.js';
 import {
   nullable,
@@ -16,7 +17,7 @@ export const inferenceProfileSchema = recordSchema({
 });
 
 const positiveInteger: JsonObject = { type: 'integer', minimum: 1 };
-export const aisbenchWorkloadSchema = recordSchema({
+const aisbenchWorkloadProperties: JsonObject = {
   inputLength: positiveInteger,
   outputLength: positiveInteger,
   dataCount: positiveInteger,
@@ -31,4 +32,21 @@ export const aisbenchWorkloadSchema = recordSchema({
     dp: positiveInteger,
     seed: { type: 'integer', minimum: 0 },
   }),
-});
+};
+export const aisbenchWorkloadSchema = {
+  oneOf: [
+    recordSchema(aisbenchWorkloadProperties),
+    recordSchema({
+      ...aisbenchWorkloadProperties,
+      dataset: { const: 'synthetic' },
+      warmups: { type: 'integer', minimum: 0 },
+      testType: { const: 'stream' },
+      prefixCache: recordSchema({
+        ...object(object(aisbenchWorkloadProperties.prefixCache).properties),
+        enabled: { const: false },
+        warmup: { const: false },
+        prefixRatio: { const: 0 },
+      }),
+    }),
+  ],
+};

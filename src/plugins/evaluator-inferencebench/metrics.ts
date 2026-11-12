@@ -104,7 +104,10 @@ export async function aisbenchPoint(
   if (
     summary.schemaVersion !== 1 ||
     summary.kind !== 'aisbench' ||
-    source.source !== 'github:rayn-zzz/aisbench_auto_tools_prefix' ||
+    source.source !==
+      (workload.dataset === 'synthetic'
+        ? 'aisbench:synthetic'
+        : 'github:rayn-zzz/aisbench_auto_tools_prefix') ||
     !/^[a-f0-9]{64}$/.test(bundleDigest) ||
     bundleDigest !== object(source.metadata).bundleDigest ||
     bundleDigest !== provenance.bundleDigest ||
@@ -125,6 +128,22 @@ export async function aisbenchPoint(
     throw new Error(
       'AISBench final CSV row must cover the workload and report positive qps',
     );
+  if (workload.dataset === 'synthetic') {
+    if (
+      aisbenchNumber(row.failed_req) !== 0 ||
+      aisbenchNumber(row.total_input_tokens) !==
+        Number(workload.inputLength) * Number(workload.dataCount) ||
+      aisbenchNumber(row.total_output_tokens) !==
+        Number(workload.outputLength) * Number(workload.dataCount) ||
+      (aisbenchNumber(row.output_throughput) ?? 0) <= 0 ||
+      ['TTFT P90', 'TPOT SLO_P90', 'E2EL P90'].some(
+        (key) => aisbenchNumber(row[key]) === null,
+      )
+    )
+      throw new Error(
+        'Synthetic AISBench requires complete request/token totals and valid throughput/latencies',
+      );
+  }
   const sourceRef = await artifacts.putJson(summary);
   const metrics: JsonObject = {};
   for (const [id, column, unit] of aisbenchFields) {

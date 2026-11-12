@@ -1013,6 +1013,41 @@ test('AISBench uses the final complete workload point for throughput and latency
   assert.equal(partial.coverage, 'partial');
   assert.equal(partial.comparisonKey, null);
   assert.deepEqual(partial.metrics, {});
+
+  const synthetic = { ...workload, dataset: 'synthetic', warmups: 8 };
+  const syntheticId = `aisbench-${fingerprintConfig(synthetic).slice(-16)}`;
+  object(snap.run).taskIds = [syntheticId];
+  object(object(snap.run).source).source = 'aisbench:synthetic';
+  object(record.key).taskId = syntheticId;
+  object(record.collection).artifacts = 'complete';
+  const summary = object(object(record.solve).observations);
+  summary.workload = synthetic;
+  const row = {
+    total_req: '160',
+    failed_req: '0',
+    total_input_tokens: '327680',
+    total_output_tokens: '81920',
+    qps: '2',
+    output_throughput: '4096',
+    'TTFT P90': '16',
+    'TPOT SLO_P90': '68',
+    'E2EL P90': '150000',
+  };
+  summary.rows = [row];
+  await run('synthetic-complete');
+  assert.deepEqual(
+    object(object(measurements[3]!.metrics).outputThroughput).value,
+    { kind: 'scalar', value: 4096 },
+  );
+  for (const change of [
+    { failed_req: '1' },
+    { total_output_tokens: '1' },
+    { output_throughput: '0' },
+    { 'TPOT SLO_P90': '' },
+  ]) {
+    summary.rows = [{ ...row, ...change }];
+    await assert.rejects(run('synthetic-invalid'), /Synthetic AISBench/);
+  }
 });
 
 test('AgentX preserves point distributions and official comparability, without an invented run average', async () => {

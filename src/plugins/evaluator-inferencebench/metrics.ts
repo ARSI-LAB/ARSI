@@ -1,8 +1,6 @@
 import type { ArtifactStore, JsonObject } from '../../contracts/index.js';
-import { digest, object, string } from '../../shared/json.js';
-import { validate } from '../../shared/schema.js';
+import { object, string } from '../../shared/json.js';
 import { definition } from '../shared/evaluator-adapter/metric.js';
-import { aisbenchWorkloadSchema } from './measurement-schema.js';
 const agentxUnits: Readonly<Record<string, string>> = {
   ttft: 'ms',
   itl: 'ms',
@@ -73,88 +71,65 @@ export async function agentxMetrics(
   return metrics;
 }
 
-const aisbenchFields = [
-  ['requestThroughput', 'qps', 'requests/sec'],
-  ['inputThroughput', 'input_token_throughput', 'tokens/sec'],
-  ['outputThroughput', 'output_throughput', 'tokens/sec'],
-  ['totalThroughput', 'E2E_throughput', 'tokens/sec'],
-  ['ttftP90', 'TTFT P90', 'ms'],
-  ['tpotP90', 'TPOT SLO_P90', 'ms'],
-  ['requestLatencyP90', 'E2EL P90', 'ms'],
-] as const;
-
-function aisbenchNumber(value: unknown): number | null {
-  if (typeof value !== 'string' || !value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-export async function aisbenchPoint(
+// Consume SDK-normalized metrics, without interpreting benchmark-native evidence.
+export async function performancePoint(
   artifacts: ArtifactStore,
-  summary: JsonObject,
-  run: JsonObject,
+  envelope: JsonObject | null,
   taskId: string,
-): Promise<{ workload: JsonObject; metrics: JsonObject }> {
-  const source = object(run.source, 'AISBench source');
-  const provenance = object(run.solverProvenance, 'AISBench provenance');
-  const workload = object(summary.workload, 'AISBench workload');
-  validate(aisbenchWorkloadSchema, workload, 'AISBench workload');
-  const bundleDigest = string(summary.bundleDigest, 'AISBench bundle digest');
-  const aisbenchVersion = string(summary.aisbenchVersion, 'AISBench version');
-  if (
-    summary.schemaVersion !== 1 ||
-    summary.kind !== 'aisbench' ||
-    source.source !== 'github:rayn-zzz/aisbench_auto_tools_prefix' ||
-    !/^[a-f0-9]{64}$/.test(bundleDigest) ||
-    bundleDigest !== object(source.metadata).bundleDigest ||
-    bundleDigest !== provenance.bundleDigest ||
-    aisbenchVersion !== provenance.aisbenchVersion
-  )
-    throw new Error('AISBench summary source or solver provenance mismatch');
-  if (taskId !== `aisbench-${digest(workload).slice(-16)}`)
-    throw new Error('AISBench summary workload differs from the selected task');
-  const rows = summary.rows;
-  if (!Array.isArray(rows) || !rows.length)
-    throw new Error('AISBench CSV rows are missing');
-  const rowIndex = rows.length - 1;
-  const row = object(rows[rowIndex], 'AISBench final CSV row');
-  if (
-    aisbenchNumber(row.total_req) !== workload.dataCount ||
-    (aisbenchNumber(row.qps) ?? 0) <= 0
-  )
-    throw new Error(
-      'AISBench final CSV row must cover the workload and report positive qps',
-    );
-  const sourceRef = await artifacts.putJson(summary);
+): Promise<{ workload: JsonObject; metrics: JsonObject } | null> {
+  const result = object(
+    object(envelope?.metrics)['aisbench-performance'],
+    'SDK performance metrics',
+  );
+  if (result.applicable !== true || !Array.isArray(result.points))
+    throw new Error('SDK performance metrics are missing or not applicable');
+  const matches = result.points
+    .map((v) => object(v))
+    .filter((v) => v.taskId === taskId);
+  if (matches.length !== 1)
+    throw new Error('SDK performance point is missing or duplicated');
+  const point = matches[0]!;
+  if (point.status !== 'completed') return null;
+  const workload = object(point.workload, 'SDK performance workload');
+  const sourceRef = await artifacts.putJson(point);
   const metrics: JsonObject = {};
-  for (const [id, column, unit] of aisbenchFields) {
+  for (const [id, raw] of Object.entries(
+    object(point.metrics, 'SDK point metrics'),
+  )) {
+    const metric = object(raw, `SDK metric ${id}`);
+    const unit = string(metric.unit, 'SDK metric unit');
+    const pointer = string(metric.source, 'SDK metric evidence pointer');
+    if (!pointer.startsWith('/'))
+      throw new Error('SDK metric evidence must be a JSON pointer');
+    const value = metric.value;
+    if (
+      value !== null &&
+      (typeof value !== 'number' || !Number.isFinite(value))
+    )
+      throw new Error('SDK scalar metric must be finite or null');
     const definitionRef = await definition(
       artifacts,
       id,
       unit,
       'scalar',
-      `AISBench rows.final.${column}`,
-      'single completed workload point; final native CSV row only',
+      id,
+      'single completed workload point; supplied by Evaluator',
     );
-    const value = aisbenchNumber(row[column]);
-    const source = Object.hasOwn(row, column)
-      ? { artifactRef: sourceRef, pointer: `/rows/${rowIndex}/${column}` }
-      : null;
     metrics[id] =
-      value !== null
+      value === null
         ? {
-            definitionRef,
-            status: 'available',
-            value: { kind: 'scalar', value },
-            source,
-          }
-        : {
             definitionRef,
             status: 'unavailable',
             value: null,
-            reason: 'Native AISBench column is missing or invalid',
-            source,
+            reason: 'Native statistic is missing or invalid',
+            source: { artifactRef: sourceRef, pointer },
+          }
+        : {
+            definitionRef,
+            status: 'available',
+            value: { kind: 'scalar', value },
+            source: { artifactRef: sourceRef, pointer },
           };
   }
-  return { metrics, workload };
+  return { workload, metrics };
 }

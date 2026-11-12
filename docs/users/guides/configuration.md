@@ -32,19 +32,11 @@ The following table lists the top-level Recipe fields. For a complete Recipe exa
 
 ## Agent and environment variables
 
-Agents in the optimization flow generate proposals, review deliverables, consolidate experience, and perform other model tasks. The built-in backends are Pi and Codex. Evaluator settings are separate from the optimization Agent: AgentBench configures the evaluated Agent's (Solver's) model services, InferenceBench configures inference service benchmarks, and OperatorBench configures kernel evaluation environments.
-
-Both backends run in the workspace prepared for the Agent call. The `contract.agent` input supplies `cwd`, `goal`, and `outputSchema`, with `role` for Pi delegation through the Runtime. Codex delegates through its native tool. The backend reads instructions from `AGENTS.md` and uses the workspace files for task context.
-
-| Configuration target  | Purpose                                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Evaluator             | Configure model services, tasks, or execution environments for the selected benchmark.                              |
-| Pi (`agent.pi`)       | Call a specified model service through Pi to execute Agent tasks in the optimization flow.                          |
-| Codex (`agent.codex`) | Execute Agent tasks in the optimization flow through a local Codex installation, using its login and configuration. |
+Configure the optimization Agent and the evaluated system's Evaluator separately; their model settings are independent. Choose Pi to configure model access in the Recipe, or Codex, Claude Code or DSH to use an installed CLI.
 
 ### Environment variables
 
-RSI does not automatically load `.env` files. Export variables in the process that launches the CLI.
+RSI does not automatically load `.env` files. Export variables in the process that launches the CLI. Native Agent CLIs may additionally load their own configuration or environment files according to their own rules.
 
 - **Model environment variables depend on the selected components and their configuration; the framework has no single set of required model environment variables.**
 
@@ -80,11 +72,33 @@ InferenceBench runs the SDK locally for AgentX and AISBench. The AISBench solver
 
 OperatorBench takes an SDK `kernel` benchmark and an RSI `task.directory`. After selecting the case, RSI builds and checks the final SDK configuration before acquiring the candidate. RSI supplies the service required for kernel replay. Omit `services` entirely, including empty maps. Put kernel options such as `repeat`, `python`, and `profiling` under `benchmark.config`. RSI builds the manifest from the candidate and reference, binds the selected case and seed, and stores the run index and output in the call directory. A `profile` action enables profiling and disables its cache. See the [operator Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml).
 
+### Choose and configure an Agent backend
+
+Configure just one of the four backends below. Pi uses the model settings in your Recipe; Codex, Claude Code and DSH call a CLI installed on the computer running RSI.
+
+The YAML examples are **fragments of an existing Recipe**: replace `bindings.agent`, keeping your Application, Policy and other bindings. If a custom Policy uses a different Agent binding name, use that name instead. Agent settings do not configure the Evaluator's model.
+
 ### Pi backend
 
-`agent.pi` executes Agent tasks in the optimization flow through Pi, with an explicitly configured model endpoint, model name, and credentials.
+Replace `your-model`, endpoint URLs and keys with your own values. Set environment variables in **the same terminal that starts RSI**; RSI does not load `.env` automatically. The `export NAME='value'` examples use Bash/Zsh; in Windows PowerShell, write `$env:NAME = 'value'` instead.
 
-This fragment adds explicit request and invocation deadlines to a Policy that declares an `agent` binding:
+No separate Pi CLI installation is needed. With an OpenAI Chat Completions endpoint available, set:
+
+```sh
+export MODEL_NAME='your-model'
+export MODEL_ENDPOINT='https://api.example.com/v1'
+export MODEL_API_KEY='your-api-key'
+```
+
+Windows PowerShell:
+
+```powershell
+$env:MODEL_NAME = 'your-model'
+$env:MODEL_ENDPOINT = 'https://api.example.com/v1'
+$env:MODEL_API_KEY = 'your-api-key'
+```
+
+In your Recipe:
 
 ```yaml
 bindings:
@@ -94,12 +108,9 @@ bindings:
       model: ${MODEL_NAME}
       base_url: ${MODEL_ENDPOINT}
       api_key: ${MODEL_API_KEY}
-      thinkingLevel: low
-      timeoutMs: 1800000
-      executionTimeoutMs: 3600000
 ```
 
-The [Pi Schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` for a per-request output limit; it must fit `contextWindow` and the endpoint's capabilities.
+[Pi Schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` for a per-request output limit; it must fit `contextWindow` and the endpoint's capabilities.
 
 - `api_key` must be an environment-variable reference, not a literal key.
 
@@ -108,9 +119,20 @@ The [Pi Schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLe
 - `timeoutMs` limits each model request. The underlying HTTP client uses a ten-minute request timeout when `timeoutMs` is omitted. Both timeout fields accept integer milliseconds from 1 to 2,147,483,647.
 - `executionTimeoutMs` limits the complete Agent invocation, including model requests, tools, output correction, context compaction, retry waits, and awaited subagents. It does not reset between requests.
 
-### Codex backend
+### Native CLI backends: Codex, Claude Code and DSH
 
-`agent.codex` executes optimization tasks through a locally installed Codex CLI, using its login and configuration. Switch the Agent binding to this backend:
+- **You prepare the environment**: install or update your chosen CLI and select its Agent backend in the Recipe. Sign in or configure model access as the same system user that starts RSI, then verify the model through the CLI. Reuse existing settings without duplicating API addresses or keys in the Recipe.
+- **RSI handles invocation**: start the CLI, prepare the task workspace, prompt and session, use native tools to read task files, validate the result, and clean up processes and temporary invocation files when the call ends. The Agent returns proposed changes for RSI to check and apply.
+
+| Backend | Installation and configuration | Sign in or verify | Recipe `plugin` |
+| --- | --- | --- | --- |
+| Codex | [Official guide](https://developers.openai.com/codex/cli/) | Sign in with `codex login`, check with `codex login status`, then verify the model in `codex` | `agent.codex` |
+| Claude Code | [Official guide](https://code.claude.com/docs/en/setup) | Sign in with `claude auth login`, check with `claude auth status`, then verify the model in `claude` | `agent.claudecode` |
+| DSH | [Official guide](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | Configure the headless profile, then verify with `dsh --profile headless "Reply with OK."` | `agent.dsh` |
+
+For a custom model service, follow the CLI's official configuration instructions instead of account sign-in. Authentication status alone does not confirm model access: verify that the CLI can answer a message. DSH requires a working **headless** profile, not just Web UI configuration.
+
+Then update the Agent binding in your Recipe, replacing `plugin` with your chosen backend from the table:
 
 ```yaml
 bindings:
@@ -119,20 +141,31 @@ bindings:
     config: {}
 ```
 
-Setup and invocation responsibilities are split as follows:
+`config: {}` uses the native default model. Optional overrides for an experiment are:
 
-- **The developer prepares the environment**: Install or update the Codex CLI and select `agent.codex` in the Recipe. Run `codex login` as the same operating-system user that launches RSI, then check with `codex login status`; configure model services and native tool permissions in that user's Codex configuration.
-- **RSI handles invocation automatically**: RSI starts `codex app-server`, creates a temporary working directory and session for the task, supplies the prompt and file-reading tool, validates the result, and cleans up the process and temporary directory when the call ends.
+| Backend | Optional settings |
+| --- | --- |
+| All | `executable`: full CLI path; `timeoutMs`: deadline in milliseconds for one Agent task |
+| Codex | `model`, `thinkingLevel` |
+| Claude Code | `model`, `effort` |
+| DSH | Configure the model in the native headless profile |
 
-The default Codex user configuration file is `~/.codex/config.toml`; see the [OpenAI Docs configuration guide](https://learn.chatgpt.com/docs/config-file/config-basic). RSI runs Codex in a system temporary directory by default; supply experiment-specific instructions through the relevant plugin's `prompt`, `guidance`, or other resources.
+RSI keeps native model and authentication settings while limiting tasks to read-only proposals with no interactive approvals. Claude Code Hooks and MCP are disabled for RSI calls.
 
-- The checkout's `AGENTS.md` and `.codex/config.toml` do not automatically become project settings for that invocation.
+### Check and start
 
-The [Codex Schema](../../../src/plugins/agent-codex/schema.ts) accepts `executable` (default `codex`), optional `model`, optional `thinkingLevel`, and optional `timeoutMs`. Omitted `model` and `thinkingLevel` retain local defaults. Explicit values override the model and reasoning effort for the call without rewriting local configuration.
+After configuring your chosen backend, replace the path below with your complete Recipe file and run these commands in the same terminal:
 
-- `timeoutMs` limits the complete call and accepts integer milliseconds from 1 to 2,147,483,647. Experiment cancellation and configured wall budgets also propagate to the process.
+```sh
+ember-rsi doctor path/to/recipe.yaml
+ember-rsi run path/to/recipe.yaml
+```
 
-- This backend currently cannot enforce the experiment's `modelCalls` budget.
+Resolve Doctor failures before running the experiment. `model-access: unchecked` does not confirm a working model connection: actual calls may still fail due to permissions, model names or API compatibility. See [Doctor](doctor.md) for check coverage.
+
+When running from the source repository, replace `ember-rsi` with `pnpm ember-rsi`. If the native CLI cannot be found, open a new terminal or set `executable` to its full path under the binding's `config`.
+
+For native CLI backends, add `timeoutMs: 180000` to limit each Agent task to 3 minutes; omitting it leaves that deadline unset. These backends cannot enforce `budget.modelCalls`. The Agent proposes changes for RSI to check and apply; configure prompts and Skills in the calling component, such as the Proposer.
 
 ## Inference optimization
 
@@ -162,14 +195,14 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | ------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Recipe                                | `budget.operations`                                | Maximum Runtime operation calls, including nested calls.                                                                                                              | No experiment-wide call limit.                                                                                    |
 | Recipe                                | `budget.evaluationRuns`                            | Maximum evaluation calls; one call can cover several tasks. OperatorBench evaluation and profiling calls both count.                                                  | No experiment-wide evaluation-call limit.                                                                         |
-| Recipe                                | `budget.modelCalls`                                | Maximum model requests charged by supported backends, including retries, output corrections, and subagents; does not limit benchmark Solver or native Codex requests. | No experiment-wide model-call limit.                                                                              |
+| Recipe                                | `budget.modelCalls`                                | Maximum model requests charged by supported backends, including retries, output corrections, and subagents; does not limit benchmark Solver or native Codex, Claude Code, or DSH requests. | No experiment-wide model-call limit.                                                                              |
 | Recipe                                | `budget.elapsedWallMs`                             | Maximum elapsed experiment time in milliseconds; resume includes time spent interrupted and does not restart the clock.                                               | No experiment-wide elapsed-time limit.                                                                            |
 | Recipe                                | `budget.cleanupReserveMs`                          | Separate duration limit in milliseconds for cleanup, such as releasing instances and closing plugins.                                                                 | No Runtime cleanup deadline.                                                                                      |
 | Pi                                    | `maxTokens`                                        | Maximum output tokens per model request.                                                                                                                              | Omit the output-token limit from the request; the model service decides.                                          |
 | Pi                                    | `contextWindow`                                    | Context-window size in tokens used by Pi for context management; match it to the model's capabilities.                                                                | 262144 tokens.                                                                                                    |
 | Pi                                    | `timeoutMs`                                        | Duration limit per model request, in milliseconds.                                                                                                                    | The underlying HTTP client uses 600000 ms (10 minutes).                                                           |
 | Pi                                    | `executionTimeoutMs`                               | Duration limit for a complete Agent call in milliseconds, including requests, tools, compaction, retry waits, and subagents.                                          | No separate duration limit for the complete call.                                                                 |
-| Codex                                 | `timeoutMs`                                        | Duration limit for the complete Agent call, in milliseconds.                                                                                                          | RSI sets no separate timeout for the call.                                                                        |
+| Codex / Claude Code / DSH | `timeoutMs`                                        | Duration limit for the complete Agent call, in milliseconds.                                                                                                          | RSI sets no separate timeout for the call.                                                                        |
 | Operator Proposer                     | `modelRequestTimeoutMs`                            | Shared duration limit for a complete model stage in milliseconds, including tool continuations and delegated Agents.                                                  | 120000 ms (2 minutes).                                                                                            |
 | AgentBench Evaluator                  | `services.<service>.maxTokens`                     | Per-turn output-token limit for the model service used by the evaluated Agent.                                                                                        | Determined by Solver or model-service defaults.                                                                   |
 | AgentBench / InferenceBench Evaluator | `run.timeoutSeconds`                               | Duration limit for one benchmark task attempt, in seconds.                                                                                                            | Use the SDK benchmark profile's value; fall back to 7200 seconds (2 hours) if the profile omits it.               |

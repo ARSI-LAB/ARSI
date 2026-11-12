@@ -1,0 +1,64 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
+const args = process.argv.slice(2);
+const patch = JSON.parse(
+  fs.readFileSync(args[args.indexOf('--patch') + 1], 'utf8'),
+);
+if (
+  !args.includes('--json') ||
+  args[args.indexOf('--approval-policy') + 1] !== 'never' ||
+  args[args.indexOf('--permission-mode') + 1] !== 'read-only' ||
+  !patch.some((row) => row.id === 'agent-instructions')
+)
+  process.exit(2);
+// Model/provider and credentials must remain owned by the native profile.
+assert.equal(args[args.indexOf('--profile') + 1], 'headless');
+assert(
+  !patch.some((row) => ['agent-default-model', 'llm-pi-ai'].includes(row.id)),
+);
+for (const id of ['credentials', 'authorization', 'deepseek-account'])
+  assert(patch.some((row) => row.id === id && row.disabled === false));
+let input = '';
+process.stdin.on('data', (chunk) => {
+  input += chunk;
+});
+process.stdin.on('end', () => {
+  const task = JSON.parse(input.split('\n\n')[0]);
+  const send = (event) => process.stdout.write(JSON.stringify(event) + '\n');
+  send({ type: 'session', sessionId: 'test-session' });
+  if (task.goal === 'wait' || task.goal === 'background') {
+    const child = spawn(
+      process.execPath,
+      ['-e', 'setInterval(() => {}, 1000)'],
+      { stdio: 'ignore' },
+    );
+    fs.writeFileSync('child.pid', String(child.pid));
+    if (task.goal === 'wait') {
+      setInterval(() => {}, 1000);
+      return;
+    }
+    child.unref();
+  }
+  if (task.goal === 'malformed') {
+    process.stdout.write('not-json\n');
+    return;
+  }
+  if (task.goal === 'missing') return;
+  if (task.goal === 'error') {
+    send({ type: 'error', message: 'secret-do-not-log' });
+    return;
+  }
+  send({
+    type: 'status',
+    phase: 'step_end',
+    usage: { inputTokens: 12, outputTokens: 4 },
+  });
+  send({
+    type: 'final',
+    sessionId: 'test-session',
+    reason: { kind: task.goal === 'aborted' ? 'aborted' : 'completed' },
+    text: task.goal === 'invalid' ? '{"ok":"wrong"}' : '{"ok":true}',
+  });
+  if (task.goal === 'exit-failure') process.exitCode = 1;
+});

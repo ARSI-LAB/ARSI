@@ -4,6 +4,8 @@ import { Policy } from './policy/index.js';
 import { agentbundleDefinition } from '../plugins/application-agentbundle/index.js';
 import { inferenceDefinition } from '../plugins/application-inference/index.js';
 import { piDefinition } from '../plugins/agent-pi/index.js';
+import { claudeCodeDefinition } from '../plugins/agent-claudecode/index.js';
+import { dshDefinition } from '../plugins/agent-dsh/index.js';
 import { codexDefinition } from '../plugins/agent-codex/index.js';
 import { proposerDefinition } from '../plugins/proposer-agent/index.js';
 import { operatorProposerDefinition } from '../plugins/proposer-operator/index.js';
@@ -28,6 +30,8 @@ export async function registerBuiltins(registry: Registry): Promise<void> {
     inferenceDefinition,
     piDefinition,
     codexDefinition,
+    claudeCodeDefinition,
+    dshDefinition,
     proposerDefinition,
     operatorProposerDefinition,
     operatorSummarizerDefinition,

@@ -81,7 +81,7 @@ flowchart TD
 
 ## 3. doctor 针对内置组件都检查什么
 
-以下 18 个内置实现都在自己的定义上声明 `doctor`。doctor 检查生效 Recipe 中选中的组件。
+以下内置实现都在自己的定义上声明 `doctor`。doctor 检查生效 Recipe 中选中的组件。
 
 ### Application 与 Agent
 
@@ -92,6 +92,8 @@ flowchart TD
 | `application.inference`   | 1. 检查目标定义和基线输入。<br>2. 检查本地启动命令、工作目录和资源，或远程控制脚本的解释器、脚本及参数文件。<br>3. 检查凭据所需的环境变量和启动配置是否合法。 |
 | `agent.pi`                | 1. 校验模型、服务地址、密钥和 token 限制的配置。<br>2. 从 RSI 进程连接模型服务，确认模型列表包含所选模型。                                                    |
 | `agent.codex`             | 1. 检查 Codex 命令是否可用、是否支持原生诊断。<br>2. 按所配模型和思考等级，在隔离项目中运行原生诊断并读取结果。                                               |
+| `agent.claudecode` | 检查 CLI 参数和原生 JSON 认证状态。安装诊断仅有文本输出，标为 `unchecked`，可自行运行 `claude doctor`；不验证模型访问。 |
+| `agent.dsh` | 检查 CLI 参数，并展开 headless 配置以发现配置组合错误。可能刷新原生缓存；不验证动态模型路由、存储凭据或模型访问。 |
 
 ### Proposer、Memory、Reflection 与 Selector
 
@@ -167,95 +169,6 @@ export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
 
 - 上面示例的`runDoctorCheck` 是可选工具，为单项探测设置时限并返回检查结果。
 
-<details>
-<summary>runDoctorCheck 的完整实现</summary>
-
-```ts
-import type { DoctorResult, JsonObject } from '../contracts/index.js';
-import { errorText } from './errors.js';
-
-/** Run one probe with its own deadline. The action must release its work on cancellation. */
-export async function runDoctorCheck(
-  id: string,
-  action: (signal: AbortSignal) => Promise<void>,
-  options: {
-    signal: AbortSignal;
-    timeoutMs?: number;
-    reason?: string;
-    details?: JsonObject;
-  },
-): Promise<DoctorResult['checks'][number]> {
-  const { signal, timeoutMs = 60000, reason, details } = options;
-  signal.throwIfAborted();
-  const controller = new AbortController();
-  const bounded = AbortSignal.any([signal, controller.signal]);
-  const timer = setTimeout(
-    () =>
-      controller.abort(
-        new Error(
-          `Probe timed out after ${timeoutMs} ms. Plugin availability is unknown.`,
-        ),
-      ),
-    timeoutMs,
-  );
-  let abort: (() => void) | undefined;
-  const job = Promise.resolve().then(() => {
-    bounded.throwIfAborted();
-    return action(bounded);
-  });
-  const check = { id, ...(details ? { details } : {}) };
-  try {
-    await Promise.race([
-      job,
-      new Promise<never>((_done, reject) => {
-        abort = () => reject(bounded.reason);
-        if (bounded.aborted) abort();
-        else bounded.addEventListener('abort', abort, { once: true });
-      }),
-    ]);
-    bounded.throwIfAborted();
-    return { ...check, status: 'passed', ...(reason ? { reason } : {}) };
-  } catch (error) {
-    let cleanup = '';
-    if (bounded.aborted) {
-      let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
-      cleanup = await Promise.race([
-        job.then(
-          () => '',
-          (cause: unknown) =>
-            cause === bounded.reason
-              ? ''
-              : ` Probe completion/cleanup: ${errorText(cause)}`,
-        ),
-        new Promise<string>((done) => {
-          cleanupTimer = setTimeout(
-            () =>
-              done(
-                ' Probe did not settle after cancellation. Cleanup could not be confirmed.',
-              ),
-            15000,
-          );
-        }),
-      ]);
-      clearTimeout(cleanupTimer);
-    }
-    signal.throwIfAborted();
-    return {
-      ...check,
-      status: 'failed',
-      reason: reason
-        ? `${reason}${cleanup}`
-        : `${errorText(error)}${cleanup} Plugin availability is unknown unless established by another check.`,
-    };
-  } finally {
-    clearTimeout(timer);
-    if (abort) bounded.removeEventListener('abort', abort);
-  }
-}
-```
-
-</details>
-
 在组件的 `index.ts` 或 `index.js` 中，将检测函数加入组件定义。
 
 ```js
@@ -287,12 +200,13 @@ doctor 按顺序检查各个绑定。命令总耗时取决于各项检查与清�
 | --------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
 | 通用 `runDoctorCheck` 检查              | 默认每项 60 秒                                     | 本地路径、配置、Application 验证与获取各自计时，同一项内的多个操作共用时限。     |
 | `agent.codex` 的 `executable`、`doctor` | 各 60 秒                                           | CLI 帮助与原生 doctor 帮助共用 `executable` 时限，原生 JSON 诊断另算一项。       |
+| `agent.claudecode` / `agent.dsh` | 每项 60 秒 | CLI 兼容性、Claude 认证及 DSH 配置。 |
 | Pi 的 `model-access` HTTP 请求          | 每次请求 10 秒                                     | 包含 HTTP 请求和完整响应正文读取，位于外层 60 秒检查内。                         |
 | Optuna 的 `python-dependencies`         | 外层 60 秒，同时受已配置的 `python.timeoutMs` 约束 | 更短的 worker 时限可提前结束，更长的值不能延长外层 RSI 检查。                    |
 | Evaluator SDK 的连通性与下载探针        | 按 SDK 单项计时                                    | 当前固定 SDK 给可执行程序检查与 Ray TCP/TLS 检查 5 秒，每项下载网络探针 180 秒。 |
 | Evaluator SDK 的 Ray 下载诊断           | 节点进程 3000 秒，协调端等待 3100 秒               | 节点进程的计时覆盖该节点的探测，协调端计时覆盖结果收集。                         |
 
-嵌套时限以先到期者为准。Pi 请求自己的 10 秒包含在外层 60 秒中，不能额外相加。CLI 没有 doctor 专用的超时参数，这些时限也不取自 Recipe 的实验预算。Pi/Codex 的 `config.timeoutMs` 用于真实 Agent 执行，参见[配置 Recipe、Target 与组件](configuration_zh.md)。
+嵌套时限以先到期者为准。Pi 请求自己的 10 秒包含在外层 60 秒中，不能额外相加。CLI 没有 doctor 专用的超时参数，这些时限也不取自 Recipe 的实验预算。Pi/Codex/Claude Code/DSH 的 `config.timeoutMs` 用于真实 Agent 执行，参见[配置 Recipe、Target 与组件](configuration_zh.md)。
 
 RSI 检查超时会记为 `failed`，表示探测未完成。取消探测后，`runDoctorCheck` 最多再等待 **15 秒**使其结束。若检查超时且等待结束时探测仍未完成，同一检查项的原因会说明清理无法确认。最后清理 Runtime 和临时目录还需要额外时间。
 

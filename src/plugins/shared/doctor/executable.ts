@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
-import { access, lstat } from 'node:fs/promises';
-import { delimiter, isAbsolute, join, resolve } from 'node:path';
+import { access, stat } from 'node:fs/promises';
+import { delimiter, extname, isAbsolute, join, resolve } from 'node:path';
 
 /** Resolve the same command search path used by a shell-free child process. */
 export async function executablePath(
@@ -10,7 +10,9 @@ export async function executablePath(
   const explicit = isAbsolute(command) || /[/\\]/.test(command);
   const extensions =
     process.platform === 'win32'
-      ? ['', ...(process.env.PATHEXT ?? '.EXE;.COM;.CMD;.BAT').split(';')]
+      ? extname(command)
+        ? ['']
+        : (process.env.PATHEXT ?? '.EXE;.COM;.CMD;.BAT').split(';')
       : [''];
   const bases = explicit
     ? [resolve(cwd, command)]
@@ -21,7 +23,7 @@ export async function executablePath(
     for (const extension of extensions) {
       const candidate = base + extension;
       try {
-        if (!(await lstat(candidate)).isFile()) continue;
+        if (!(await stat(candidate)).isFile()) continue;
         await access(
           candidate,
           process.platform === 'win32' ? constants.F_OK : constants.X_OK,
@@ -40,6 +42,6 @@ export async function executablePath(
     }
   }
   throw new Error(
-    `Executable is unavailable in the launch environment: ${command}`,
+    `ENOENT: Executable is unavailable in the launch environment: ${command}`,
   );
 }

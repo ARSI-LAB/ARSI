@@ -32,19 +32,11 @@ Recipe 包含以下顶层字段，完整 Recipe 示例见[快速入门](../getti
 
 ## Agent 与环境变量
 
-优化流程中的 Agent 负责生成提案、评审交付内容、整理经验等模型任务，内置后端为 Pi 和 Codex。Evaluator 的配置与优化 Agent 分开：AgentBench 配置被测 Agent（Solver）的模型服务，InferenceBench 配置推理服务基准，OperatorBench 配置算子评测环境。
-
-两个后端都在为 Agent 调用准备好的 workspace 中运行。`contract.agent` 接收 `cwd`、`goal` 和 `outputSchema`，Pi 通过 Runtime 委派时还会传入 `role`。Codex 使用原生工具委派。后端从 `AGENTS.md` 读取指令，并从工作目录读取任务材料。
-
-| 配置对象               | 用途                                                             |
-| ---------------------- | ---------------------------------------------------------------- |
-| Evaluator              | 配置所选基准的模型服务、任务或评测环境。                         |
-| Pi（`agent.pi`）       | 通过 Pi 调用指定的模型服务，执行优化流程中的 Agent 任务。        |
-| Codex（`agent.codex`） | 通过本机 Codex 执行优化流程中的 Agent 任务，沿用本地登录和配置。 |
+分别配置优化流程使用的 Agent 和被测系统使用的 Evaluator，两者的模型设置互不替代。Agent 可选 Pi（在 Recipe 中配置模型服务）或 Codex、Claude Code、DSH（使用已安装的 CLI）。
 
 ### 环境变量
 
-RSI 不会自动加载 `.env` 文件，需要在启动 CLI 的进程中导出变量。
+RSI 不会自动加载 `.env` 文件，需要在启动 CLI 的进程中导出变量。原生 Agent CLI 仍可能按自身规则加载配置或环境文件。
 
 - **模型环境变量由具体组件及其配置决定，框架没有一组统一必填的模型环境变量。**
 
@@ -80,11 +72,33 @@ InferenceBench 在本地通过 SDK 运行 AgentX 或 AISBench。AISBench solver 
 
 OperatorBench 使用 SDK 的 `kernel` benchmark 和 RSI 的 `task.directory`。选定 case 后，RSI 会在获取候选实例前生成并校验本次评测的完整 SDK 配置。kernel replay 所需的服务由 RSI 提供。Recipe 必须省略整个 `services` 字段，填写空对象也会报错。`repeat`、`python`、`profiling` 等算子参数直接写在 `benchmark.config` 下。RSI 用候选源码和参考实现生成清单，绑定选定的 case 和 seed，并在调用目录内保存索引和结果。执行 `profile` 时会开启采集并禁用缓存。要保留原有运行设置，请配置 `run.onError: abort`，并将 `run.timeoutSeconds` 设为原算子超时加 30 秒。参见[算子 Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml)。
 
+### 选择并配置 Agent 后端
+
+只需配置下面四种后端中的一种。Pi 直接使用 Recipe 中的模型配置；Codex、Claude Code 和 DSH 调用本机已安装的 CLI。
+
+以下 YAML 都是**已有 Recipe 的局部配置**：替换 `bindings.agent`，保留 Application、Policy 和其他绑定。自定义 Policy 如果使用其他 Agent 绑定名，请使用对应名称。Agent 配置不会替你配置 Evaluator 的模型。
+
 ### Pi 后端
 
-`agent.pi` 通过 Pi 执行优化流程中的 Agent 任务，适合直接指定模型服务地址、模型名称和凭据。
+示例中的 `your-model`、服务地址和密钥都要换成你自己的值。环境变量须在**启动 RSI 的同一个终端**设置；RSI 不会自动读取 `.env`。下方 `export NAME='value'` 是 Bash/Zsh 写法，Windows PowerShell 改写为 `$env:NAME = 'value'`。
 
-对声明了 `agent` 绑定的 Policy，下面的片段显式配置请求和整次调用期限：
+无需单独安装 Pi CLI。准备支持 OpenAI Chat Completions 的模型服务，在终端设置：
+
+```sh
+export MODEL_NAME='your-model'
+export MODEL_ENDPOINT='https://api.example.com/v1'
+export MODEL_API_KEY='your-api-key'
+```
+
+Windows PowerShell：
+
+```powershell
+$env:MODEL_NAME = 'your-model'
+$env:MODEL_ENDPOINT = 'https://api.example.com/v1'
+$env:MODEL_API_KEY = 'your-api-key'
+```
+
+在 Recipe 中填写：
 
 ```yaml
 bindings:
@@ -94,9 +108,6 @@ bindings:
       model: ${MODEL_NAME}
       base_url: ${MODEL_ENDPOINT}
       api_key: ${MODEL_API_KEY}
-      thinkingLevel: low
-      timeoutMs: 1800000
-      executionTimeoutMs: 3600000
 ```
 
 [Pi Schema](../../../src/plugins/agent-pi/schema.ts) 的默认值为 `thinkingLevel: low`、`contextWindow: 262144`、`retries: 0`。通过 `maxTokens` 设置单次请求的输出上限，取值须适配 `contextWindow` 和端点能力。
@@ -108,9 +119,20 @@ bindings:
 - `timeoutMs` 限制每次模型请求，省略 `timeoutMs` 时底层 HTTP 客户端使用十分钟请求超时。两个字段都接受 1 到 2,147,483,647 的整数毫秒。
 - `executionTimeoutMs` 限制整个 Agent 调用，包括模型请求、工具、输出纠正、上下文压缩、重试等待和等待中的子 Agent，不会在每次请求后重置。
 
-### Codex 后端
+### 原生 CLI 后端：Codex、Claude Code 和 DSH
 
-`agent.codex` 通过本机已安装的 Codex CLI 执行优化任务，沿用本地登录和配置。将 Agent 绑定切换到该后端：
+- **用户负责准备环境**：安装或更新所选 CLI，并在 Recipe 中选择对应的 Agent 后端。使用启动 RSI 的同一系统用户完成 CLI 登录或模型服务配置，再通过 CLI 确认模型可用。已有配置可直接沿用，无需在 Recipe 中重复填写 API 地址和密钥。
+- **RSI 自动完成调用**：启动对应 CLI，为任务准备工作目录、提示词和会话，调用原生工具读取任务文件，校验返回结果，并在调用结束时清理进程和临时调用文件。Agent 返回修改建议，由 RSI 检查并应用。
+
+| 后端 | 安装与配置说明 | 登录或验证 | Recipe 的 `plugin` |
+| --- | --- | --- | --- |
+| Codex | [官方文档](https://developers.openai.com/codex/cli/) | `codex login` 登录，`codex login status` 检查；运行 `codex` 验证模型 | `agent.codex` |
+| Claude Code | [官方文档](https://code.claude.com/docs/en/setup) | `claude auth login` 登录，`claude auth status` 检查；运行 `claude` 验证模型 | `agent.claudecode` |
+| DSH | [官方文档](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | 配置 headless profile 后，运行 `dsh --profile headless "Reply with OK."` 验证模型 | `agent.dsh` |
+
+使用自定义模型服务时，按所选 CLI 的官方说明配置，不必使用账号登录。登录状态检查不等于模型调用成功；请确认 CLI 能正常回答问题。DSH 需要验证 **headless** profile，只配置 Web 界面不够。
+
+然后修改 Recipe 中的 Agent 绑定，`plugin` 换成表中所选后端：
 
 ```yaml
 bindings:
@@ -119,20 +141,31 @@ bindings:
     config: {}
 ```
 
-这个后端的准备和调用分工如下：
+`config: {}` 使用原生默认模型。需要为本次实验调整时，可使用以下可选项：
 
-- **开发者负责准备环境**：安装或更新 Codex CLI，并在 Recipe 中选择 `agent.codex`。使用启动 RSI 的同一系统用户运行 `codex login` 完成登录，再用 `codex login status` 检查；模型服务和原生工具权限也在该用户的 Codex 配置中设置。
-- **RSI 自动完成调用**：RSI 框架会启动 `codex app-server`，为本次任务创建临时工作目录和会话，提供提示词与文件读取工具，校验返回结果，并在结束时清理进程和临时目录。
+| 后端 | 可选设置 |
+| --- | --- |
+| 全部 | `executable`：CLI 完整路径；`timeoutMs`：单次 Agent 任务的毫秒期限 |
+| Codex | `model`、`thinkingLevel` |
+| Claude Code | `model`、`effort` |
+| DSH | 模型在原生 headless profile 中配置 |
 
-Codex 用户配置默认位于 `~/.codex/config.toml`，见 [OpenAI Docs 配置说明](https://learn.chatgpt.com/docs/config-file/config-basic)。RSI 默认在系统临时目录运行 Codex；实验专用指令应通过相应插件的 `prompt`、`guidance` 等资源传入。
+RSI 保留原生模型和认证配置，但限制任务为只读提案，不接受交互式审批。Claude Code 的 Hooks 和 MCP 在 RSI 调用中禁用。
 
-- 仓库里的 `AGENTS.md` 和 `.codex/config.toml` 不会自动成为本次调用的项目配置
+### 检查并启动
 
-[Codex Schema](../../../src/plugins/agent-codex/schema.ts) 接受 `executable`（默认 `codex`）、可选的 `model`、`thinkingLevel` 和 `timeoutMs`。省略 `model`、`thinkingLevel` 时沿用本地默认值，显式填写则只覆盖本次调用的模型和推理强度，不改写本地配置。
+完成所选后端的配置后，将下面的路径换成你的完整 Recipe 文件路径，在同一个终端运行：
 
-- `timeoutMs` 限制完整调用，接受 1 到 2,147,483,647 的整数毫秒，实验取消和已配置的墙钟预算也会传递给进程。
+```sh
+ember-rsi doctor path/to/recipe.yaml
+ember-rsi run path/to/recipe.yaml
+```
 
-- 目前该后端无法执行实验的 `modelCalls` 预算。
+先处理 Doctor 的失败项，再运行实验。`model-access: unchecked` 不代表模型连接成功，实际调用仍可能因权限、模型名称或接口兼容性失败。检查范围见 [Doctor](doctor_zh.md)。
+
+使用源码仓库时，将 `ember-rsi` 换为 `pnpm ember-rsi`。如果找不到原生 CLI，重新打开终端，或在绑定的 `config` 中用 `executable` 指定 CLI 完整路径。
+
+原生 CLI 后端可加 `timeoutMs: 180000`，将每次 Agent 任务限制为 3 分钟；省略则不设此期限。它们不支持用 `budget.modelCalls` 限制模型请求次数。Agent 返回修改建议，由 RSI 检查并应用；提示词和 Skills 在 Proposer 等调用组件中配置。
 
 ## 推理优化
 
@@ -162,14 +195,14 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | ------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Recipe                                | `budget.operations`                                | Runtime 操作调用总数上限，包含嵌套调用。                                                                | 无实验级次数上限。                                                                |
 | Recipe                                | `budget.evaluationRuns`                            | 评测调用总数上限；一次调用可包含多个任务，OperatorBench 的评测和性能分析调用均计入。                    | 无实验级评测次数上限。                                                            |
-| Recipe                                | `budget.modelCalls`                                | 支持计量的后端实际模型请求总数上限，包含重试、输出纠正和子 Agent；不限制基准 Solver 或原生 Codex 请求。 | 无实验级模型调用次数上限。                                                        |
+| Recipe                                | `budget.modelCalls`                                | 支持计量的后端实际模型请求总数上限，包含重试、输出纠正和子 Agent；不限制基准 Solver 或原生 Codex、Claude Code 或 DSH 请求。 | 无实验级模型调用次数上限。                                                        |
 | Recipe                                | `budget.elapsedWallMs`                             | 整个实验的经过时间上限，单位毫秒；恢复时包含中断期间，不会重新计时。                                    | 无实验级运行时长上限。                                                            |
 | Recipe                                | `budget.cleanupReserveMs`                          | 释放实例、关闭插件等清理工作的时长上限，单位毫秒，单独计时。                                            | 无 Runtime 清理期限。                                                             |
 | Pi                                    | `maxTokens`                                        | 单次模型请求的最大输出 Token 数。                                                                       | 不发送输出 Token 上限，由模型服务决定。                                           |
 | Pi                                    | `contextWindow`                                    | Pi 用于上下文管理的窗口大小，单位 Token，应与模型能力匹配。                                             | 262144 Token。                                                                    |
 | Pi                                    | `timeoutMs`                                        | 单次模型请求的时长上限，单位毫秒。                                                                      | 底层 HTTP 客户端使用 600000 毫秒（10 分钟）。                                     |
 | Pi                                    | `executionTimeoutMs`                               | 完整 Agent 调用的时长上限，单位毫秒，包含请求、工具、压缩、重试等待和子 Agent。                         | 无整次调用的独立时长上限。                                                        |
-| Codex                                 | `timeoutMs`                                        | 完整 Agent 调用的时长上限，单位毫秒。                                                                   | RSI 不为该调用设置独立超时。                                                      |
+| Codex / Claude Code / DSH | `timeoutMs`                                        | 完整 Agent 调用的时长上限，单位毫秒。                                                                   | RSI 不为该调用设置独立超时。                                                      |
 | Operator Proposer                     | `modelRequestTimeoutMs`                            | 一个完整模型阶段的共享时长上限，单位毫秒，包含工具续调与子 Agent。                                      | 120000 毫秒（2 分钟）。                                                           |
 | AgentBench Evaluator                  | `services.<service>.maxTokens`                     | 被测 Agent 所用模型服务的每轮输出 Token 上限。                                                          | 由 Solver 或模型服务的默认设置决定。                                              |
 | AgentBench / InferenceBench Evaluator | `run.timeoutSeconds`                               | 单个基准任务一次执行的时长上限，单位秒。                                                                | 使用 SDK 基准 profile 的值；profile 未指定时为 7200 秒（2 小时）。                |

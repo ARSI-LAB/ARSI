@@ -10,6 +10,7 @@ export async function runCommand(
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     input?: string;
+    acceptedExitCodes?: readonly number[];
   },
 ): Promise<{ stdout: string; stderr: string }> {
   options.signal.throwIfAborted();
@@ -83,7 +84,10 @@ export async function runCommand(
       await terminating;
       if (options.signal.aborted) reject(options.signal.reason);
       else if (failure) reject(failure);
-      else if (code !== 0)
+      else if (
+        code === null ||
+        !(options.acceptedExitCodes ?? [0]).includes(code)
+      )
         reject(
           new Error(
             `${command} exited ${code}: ${stderr.trim() || stdout.trim()}`,

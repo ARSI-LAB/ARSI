@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtemp,
+  mkdir,
   readFile,
   readdir,
   rename,
@@ -153,6 +154,73 @@ test('project preparation rejects a redirected parent before creating any child 
       /Agent project/,
     );
     assert.deepEqual(await readdir(relocated), before);
+  } finally {
+    await f.close();
+  }
+});
+
+test('managed projects preserve Claude instructions, skill resources and native read-only roles in the snapshot', async () => {
+  const f = await fixture();
+  try {
+    const skill = join(f.root, 'skill');
+    await mkdir(join(skill, 'references'), { recursive: true });
+    await writeFile(
+      join(skill, 'SKILL.md'),
+      '---\nname: inspect\ndescription: Inspect evidence\n---\nRead references/input.txt',
+    );
+    await writeFile(join(skill, 'references/input.txt'), 'evidence');
+    const role = join(f.root, 'scout.md');
+    await writeFile(role, 'Report findings only.');
+    const context = new RuntimeContext().extend({
+      directory: f.directory,
+      artifacts: f.artifacts,
+    });
+    const prompt = 'Long instructions '.repeat(3000);
+    const project = await prepareAgentProject(
+      context,
+      prompt,
+      {},
+      [skill],
+      [{ name: 'scout', description: 'Inspect: safely', prompt: role }],
+    );
+    assert.equal(
+      await readFile(join(project, 'CLAUDE.md'), 'utf8'),
+      await readFile(join(project, 'AGENTS.md'), 'utf8'),
+    );
+    assert.equal(
+      await readFile(join(project, 'context/instructions.md'), 'utf8'),
+      prompt,
+    );
+    assert.equal(
+      await readFile(
+        join(project, '.claude/skills/inspect/references/input.txt'),
+        'utf8',
+      ),
+      'evidence',
+    );
+    const nativeRole = await readFile(
+      join(project, '.claude/agents/scout.md'),
+      'utf8',
+    );
+    assert.match(nativeRole, /Report findings only/);
+    assert.match(nativeRole, /Read/);
+    assert.doesNotMatch(nativeRole, /Bash|Write|Edit/);
+    const snapshot = parseFileTree(
+      await f.artifacts.readJson(`artifact:${basename(dirname(project))}`),
+    );
+    assert(
+      snapshot.files.some((file) => file.path === '.claude/agents/scout.md'),
+    );
+    await assert.rejects(
+      prepareAgentProject(
+        context,
+        'prompt',
+        { 'CLAUDE.md': 'collision' },
+        [],
+        [],
+      ),
+      /EEXIST/,
+    );
   } finally {
     await f.close();
   }

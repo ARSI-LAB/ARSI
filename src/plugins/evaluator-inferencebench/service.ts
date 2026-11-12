@@ -1,3 +1,5 @@
+import { OperationRejectedError } from '../../contracts/runtime/errors.js';
+import { errorText } from '../../shared/errors.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
@@ -31,89 +33,112 @@ export async function createInferencebench(
   return {
     async execute(input, context): Promise<InferencebenchOutput> {
       validate(inferencebenchContract.input_schema, input, 'evaluator input');
-      return context.withInstance(
-        input.candidateRef,
-        'inference-endpoint',
-        async (execution) => {
-          context.signal.throwIfAborted();
-          await mkdir(context.directory, { recursive: true });
-          const evaluationConfig = prepareEvaluationConfig(config, {
-            execution,
-            directory: context.directory,
-          });
-          const configPath = join(context.directory, 'evaluator.json');
-          await writeFile(configPath, JSON.stringify(evaluationConfig), {
-            mode: 0o600,
-          });
-          await context.charge('evaluationRuns', 1);
-          let result: unknown;
-          try {
-            result = await runner({
-              configPath,
-              signal: context.signal,
-              env: process.env,
+      context.signal.throwIfAborted();
+      try {
+        return await context.withInstance(
+          input.candidateRef,
+          'inference-endpoint',
+          async (execution) => {
+            context.signal.throwIfAborted();
+            await mkdir(context.directory, { recursive: true });
+            const evaluationConfig = prepareEvaluationConfig(config, {
+              execution,
+              directory: context.directory,
             });
-          } catch (error) {
-            const partial =
-              error && typeof error === 'object' && 'result' in error
-                ? error.result
-                : null;
-            const diagnostic = object(
-              redact({
-                name: error instanceof Error ? error.name : 'Error',
-                message: error instanceof Error ? error.message : String(error),
-                phase:
-                  error && typeof error === 'object' && 'phase' in error
-                    ? error.phase
-                    : null,
-              }),
-            );
+            const configPath = join(context.directory, 'evaluator.json');
+            await writeFile(configPath, JSON.stringify(evaluationConfig), {
+              mode: 0o600,
+            });
+            await context.charge('evaluationRuns', 1);
+            let result: unknown;
+            try {
+              result = await runner({
+                configPath,
+                signal: context.signal,
+                env: process.env,
+              });
+            } catch (error) {
+              const partial =
+                error && typeof error === 'object' && 'result' in error
+                  ? error.result
+                  : null;
+              const diagnostic = object(
+                redact({
+                  name: error instanceof Error ? error.name : 'Error',
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                  phase:
+                    error && typeof error === 'object' && 'phase' in error
+                      ? error.phase
+                      : null,
+                }),
+              );
+              const measurementRef = await normalizeEvaluation(
+                evaluationConfig,
+                input,
+                execution,
+                partial,
+                context,
+                diagnostic,
+              );
+              throw Object.assign(
+                new Error(
+                  error instanceof Error ? error.message : String(error),
+                  { cause: error },
+                ),
+                {
+                  measurementRef,
+                  status: evaluationStatus(partial, context, true),
+                },
+              );
+            }
             const measurementRef = await normalizeEvaluation(
               evaluationConfig,
               input,
               execution,
-              partial,
+              result,
               context,
-              diagnostic,
             );
-            throw Object.assign(
-              new Error(
-                error instanceof Error ? error.message : String(error),
-                { cause: error },
-              ),
-              {
-                measurementRef,
-                status: evaluationStatus(partial, context, true),
-              },
-            );
-          }
-          const measurementRef = await normalizeEvaluation(
-            evaluationConfig,
+            const raw = object(result);
+            if (raw.snapshot === undefined)
+              throw Object.assign(
+                new Error(
+                  'Evaluator result has no confirmed collected snapshot',
+                ),
+                { measurementRef, status: 'unknown' },
+              );
+            if (context.signal.aborted || raw.exitCode !== 0) {
+              const status = evaluationStatus(raw, context);
+              throw Object.assign(
+                new Error('Evaluator completed with nonzero exitCode'),
+                {
+                  measurementRef,
+                  status,
+                  exitCode: raw.exitCode,
+                },
+              );
+            }
+            return { measurementRef };
+          },
+        );
+      } catch (error) {
+        if (
+          !(error instanceof OperationRejectedError) ||
+          context.signal.aborted
+        )
+          throw error;
+        await context.charge('evaluationRuns', 1);
+        return {
+          measurementRef: await normalizeEvaluation(
+            null,
             input,
-            execution,
-            result,
+            {},
+            null,
             context,
-          );
-          const raw = object(result);
-          if (raw.snapshot === undefined)
-            throw Object.assign(
-              new Error('Evaluator result has no confirmed collected snapshot'),
-              { measurementRef, status: 'unknown' },
-            );
-          if (raw.exitCode !== 0) {
-            const status = evaluationStatus(raw, context);
-            throw Object.assign(
-              new Error('Evaluator completed with nonzero exitCode'),
-              {
-                measurementRef,
-                status,
-                exitCode: raw.exitCode,
-              },
-            );
-          }
-          return { measurementRef };
-        },
-      );
+            { phase: 'startup', message: errorText(error) },
+          ),
+        };
+      }
     },
     async dispose(): Promise<void> {},
   };

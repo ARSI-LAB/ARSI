@@ -302,7 +302,7 @@ export async function archiveItemExecution(
 
 export async function archiveProvenance(
   context: RuntimeContext,
-  native: SdkEvaluatorConfig,
+  native: SdkEvaluatorConfig | null,
   result: JsonObject,
   snapshot: JsonObject | null,
   nativeResultRef: string,
@@ -322,7 +322,7 @@ export async function archiveProvenance(
     runIdentity: run.identity ?? null,
     solverProvenance: run.solverProvenance ?? null,
     source: run.source ?? null,
-    configuration: object(redact(native)),
+    configuration: native === null ? null : object(redact(native)),
     collectedAt: new Date().toISOString(),
     metricsRevision:
       typeof metricsEnvelope?.revision === 'number'

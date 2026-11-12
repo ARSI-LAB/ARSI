@@ -26,6 +26,7 @@ export { bindingDeclarationSchema, recipeDeclarationSchema } from './recipe.js';
 export type { Candidate } from './models/candidate.js';
 export * from './models/measurement.js';
 export * from './models/file-tree.js';
+export { OperationRejectedError } from './runtime/errors.js';
 export { RuntimeContext } from './runtime/context.js';
 export type { BudgetScope } from './runtime/execution.js';
 export type {

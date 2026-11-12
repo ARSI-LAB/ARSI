@@ -28,7 +28,7 @@ Choose a built-in Policy for your optimization needs; see its README for configu
 
 Agent, Grid, and Optuna each evaluate the initial configuration once before search. Supply a configuration that can start the service and reserve one evaluation run for the baseline. A baseline evaluation failure stops the experiment.
 
-`parameter.agent` invokes `evaluator.inferencebench` directly for each candidate, serially. A startup or evaluation failure stops the experiment and triggers instance cleanup. With its default `selector.inference`, the Policy can retain an improved candidate before all performance targets are met. Its output keeps the incumbent `candidateRef` and `measurementRef`; `candidateFeasible` reports whether it satisfies the configured constraints, including when `status` is `no-feasible-configuration`.
+`parameter.agent` invokes `evaluator.inferencebench` directly for each candidate, serially. A confirmed, cleaned startup failure records a failed Measurement and rejects that candidate. SDK measurement failures, cancellation, incomplete collection or unconfirmed cleanup stop the experiment. A failed baseline cannot seed the search. With its default `selector.inference`, the Policy can retain an improved candidate before all performance targets are met. Its output keeps the incumbent `candidateRef` and `measurementRef`; `candidateFeasible` reports whether it satisfies the configured constraints, including when `status` is `no-feasible-configuration`.
 
 ## Loop components
 
@@ -102,3 +102,36 @@ Reflection requires an explicit execution step in the Policy. Specify the guidan
 - **Harness²**: Authorizes changes to the Invariant Proposer and Domain Proposer's `guidance` files. Its `improve_guidance` step is commented out by default; enabling it in a custom Policy allows these files to be updated for later Proposer calls to use when generating proposals.
 
 Runtime activates validated changes within the current experiment for later plugin calls to read and use. Follow the [Reflection guide](reflection.md) for configuration, resource authorization, and reuse across experiments.
+
+
+### Inference configuration candidates
+
+Remote inference reads one JSON candidate from `remote.parametersFile` (default
+`tuning.json`). `parameter.agent` edits only `config.parameterFile`; the launcher
+remains fixed. The Policy accepts a configurable `goal` and `selection` description
+for the proposer. Nested options and environment settings can be interpreted by
+the launcher without uploading engine source or build scripts.
+
+The framework reserves service endpoint options (`host`, `port`,
+`served_model_name`, `data_parallel_rpc_port`); other engine choices are validated
+by the launcher and engine. Memory utilization is tunable unless startup
+calibration owns it. Quality, precision and context preservation remain prompt
+requirements, not an automated accuracy guarantee.
+
+Metric constraints support `exclusiveMax: true` for a strict upper bound.
+`selector.inference` can accept reduced constraint violations before feasibility,
+without worsening another violation. Once feasible, `minRelativeImprovement`
+controls primary-metric gains. Metric names, bounds and optimization direction
+belong to Recipe configuration, not hardcoded selector goals. Failed candidates
+can be rejected without fabricated scores; unknown or cancelled outcomes remain
+errors. Training-summary proposers receive public metric values and units in
+`context/metrics.json`, independently of bounded evidence previews.
+
+Inference measurements also attach a public environment summary. Training-summary
+proposals receive it in `context/metrics.json` beside exact metrics and units,
+with the originating artifact reference. It includes reported engine software,
+device identifiers, verification status, SDK/runtime identity and scalar workload
+settings; credentials, host names, endpoints and private native configuration are
+excluded. Missing fields remain unknown. Reported versions do not prove that a
+candidate option was activated; inspect runtime evidence separately. Older
+measurements without this extension remain readable and have no environment summary.

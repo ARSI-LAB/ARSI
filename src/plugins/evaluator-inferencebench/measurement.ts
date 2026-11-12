@@ -6,6 +6,7 @@ import type {
 } from '../../contracts/index.js';
 import {
   measurementEvidenceSchema,
+  environmentSummarySchema,
   measurementItemsSchema,
   typedArtifact,
   validateMeasurement,
@@ -33,7 +34,7 @@ import {
   agentxWorkloadSchema,
   conditionsSchema,
 } from '../shared/evaluator-adapter/schemas/index.js';
-import { conditions } from './conditions.js';
+import { conditions, environmentSummary } from './conditions.js';
 import { agentxMetrics, aisbenchPoint } from './metrics.js';
 import {
   aisbenchWorkloadSchema,
@@ -60,14 +61,14 @@ function adapterIdentity(): Promise<string> {
   ]));
 }
 export async function normalizeEvaluation(
-  native: SdkEvaluatorConfig,
+  native: SdkEvaluatorConfig | null,
   input: JsonObject,
   execution: JsonObject,
   resultValue: unknown,
   context: RuntimeContext,
   failure: JsonObject | null = null,
 ): Promise<string> {
-  const aisbench = object(native.benchmark).name === 'aisbench';
+  const aisbench = object(native?.benchmark ?? {}).name === 'aisbench';
   const result = object(redact(resultValue ?? {}));
   const snapshot = await snapshotOf(result);
   const run = snapshot ? plain(snapshot.run) : {};
@@ -251,7 +252,11 @@ export async function normalizeEvaluation(
     : null;
   const profile = await typed(
     context,
-    aisbench ? 'measurement.aisbench/v1' : 'measurement.agentx/v1',
+    native === null
+      ? 'measurement.inference/v1'
+      : aisbench
+        ? 'measurement.aisbench/v1'
+        : 'measurement.agentx/v1',
     inferenceProfileSchema,
     {
       run: nativeRun,
@@ -284,7 +289,12 @@ export async function normalizeEvaluation(
       typeof run.startedAt === 'string'
         ? run.startedAt
         : new Date().toISOString(),
-    finishedAt: typeof run.finishedAt === 'string' ? run.finishedAt : null,
+    finishedAt:
+      typeof run.finishedAt === 'string'
+        ? run.finishedAt
+        : native === null && failure
+          ? new Date().toISOString()
+          : null,
     status,
     coverage:
       taskIds.length && completedPoints === taskIds.length
@@ -307,7 +317,14 @@ export async function normalizeEvaluation(
     evidenceIndexRef,
     profile,
     diagnosticsRef: failure ? await context.artifacts.putJson(failure) : null,
-    extensions: [],
+    extensions: [
+      await typed(
+        context,
+        'measurement.environment-summary/v1',
+        environmentSummarySchema,
+        object(redact(environmentSummary(condition))),
+      ),
+    ],
   };
   validateMeasurement(measurement);
   return context.recordMeasurement(measurement);

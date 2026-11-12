@@ -141,6 +141,7 @@ test('a complete mutation round uses sampled evidence, admits strict improvement
       'candidate/b.md',
       'context/input.json',
       'context/measurements.json',
+      'context/metrics.json',
     ]);
     assert.match(
       request.projectFiles['AGENTS.md']!,

@@ -221,3 +221,26 @@ test('inference selection keeps eligibility hard and rejects incomparable measur
     /min exceeds max/,
   );
 });
+
+test('configurable strict bounds and cleaned failed candidates', async () => {
+  const f = await selectionFixture();
+  const config = {
+    constraints: [{ metric: 'ttft', max: 100, exclusiveMax: true }],
+  };
+  await f.measured('before', { throughput: 100, ttft: 99 });
+  await f.measured('after', { throughput: 200, ttft: 100 });
+  assert.equal((await f.select(config)).accepted, false);
+  await f.measured('before', { throughput: 100, ttft: 120 });
+  await f.measured('after', { throughput: 200, ttft: 119.99 });
+  assert.equal((await f.select(config)).accepted, true);
+  await f.measured('after', { throughput: 90, ttft: 110 });
+  assert.equal((await f.select(config)).accepted, true);
+  await f.measured(
+    'after',
+    {},
+    { status: 'failed', coverage: 'none', comparisonKey: null },
+  );
+  const rejected = await f.select(config);
+  assert.equal(rejected.accepted, false);
+  assert.equal(rejected.candidateValue, null);
+});

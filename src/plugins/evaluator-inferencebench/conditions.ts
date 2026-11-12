@@ -7,10 +7,27 @@ import {
   plain,
 } from '../shared/evaluator-adapter/data.js';
 export function conditions(
-  config: SdkEvaluatorConfig,
+  config: SdkEvaluatorConfig | null,
   snapshot: JsonObject | null,
   execution: JsonObject,
 ): JsonObject {
+  if (config === null)
+    return {
+      protocol: 1,
+      kind: 'inferencebench',
+      known: false,
+      reasons: ['Instance acquisition failed before evaluation'],
+      fixed: {
+        config: null,
+        source: null,
+        identity: null,
+        solver: null,
+        taskIds: [],
+        serviceResources: null,
+        environments: [],
+      },
+      candidateFactors: [],
+    };
   const run = snapshot ? plain(snapshot.run) : {};
   const source = run.source ?? null;
   const identity = run.identity ?? null;
@@ -137,4 +154,40 @@ function environmentConditions(raw: JsonObject): JsonObject {
     };
   }
   return result;
+}
+
+/** Public search context excludes credentials, endpoints, host names and native configuration. */
+export function environmentSummary(condition: JsonObject): JsonObject {
+  const fixed = object(condition.fixed);
+  const resources = nullableObject(fixed.serviceResources);
+  const config = nullableObject(fixed.config);
+  const benchmark = nullableObject(config?.benchmark);
+  const workload = nullableObject(nullableObject(benchmark?.config)?.workload);
+  const load: JsonObject = {};
+  for (const key of [
+    'dataset',
+    'inputLength',
+    'outputLength',
+    'dataCount',
+    'concurrency',
+    'requestRate',
+    'warmups',
+    'testType',
+  ]) {
+    const value = workload?.[key];
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    )
+      load[key] = value;
+  }
+  return {
+    software: resources?.software ?? null,
+    devices: resources?.devices ?? null,
+    resourcesVerified: resources?.verified === true,
+    workload: load,
+    benchmark: benchmark?.name ?? null,
+    identity: fixed.identity ?? null,
+  };
 }

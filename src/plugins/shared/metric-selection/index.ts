@@ -131,11 +131,13 @@ async function metricChecks(
       definitionRef: values.definitionRef,
       min,
       max,
+      exclusiveMax: constraint.exclusiveMax ?? false,
       incumbentValue: values.before,
       candidateValue: values.after,
       passed:
         (min === null || values.after >= min) &&
-        (max === null || values.after <= max),
+        (max === null ||
+          (constraint.exclusiveMax ? values.after < max : values.after <= max)),
     });
   }
   return checks;
@@ -159,6 +161,7 @@ export async function createMetricSelection(
   rawConfig: MetricSelectorConfig,
   services: RuntimeContext,
   decide: (comparison: MetricComparison) => MetricAcceptance,
+  rejectFailedCandidates = false,
 ): Promise<Operation<MetricSelectorInput, MetricSelectorOutput>> {
   const config = parseConfig<ResolvedMetricSelectorConfig>(
     configSchema,
@@ -166,9 +169,12 @@ export async function createMetricSelection(
     'metric selector config',
   );
   const constraints = config.constraints;
-  for (const c of [...config.eligibility, ...constraints])
+  for (const c of [...config.eligibility, ...constraints]) {
+    if (c.exclusiveMax && c.max === undefined)
+      throw new Error(`Constraint ${c.metric} exclusiveMax requires max`);
     if (c.min !== undefined && c.max !== undefined && c.min > c.max)
       throw new Error(`Constraint ${c.metric} min exceeds max`);
+  }
   return {
     async execute(input, context: RuntimeContext) {
       validate(
@@ -195,6 +201,55 @@ export async function createMetricSelection(
         throw new Error(
           'Measurement identity or experiment ownership mismatch',
         );
+      if (
+        rejectFailedCandidates &&
+        after.status === 'failed' &&
+        after.finishedAt !== null &&
+        refs[0] !== refs[1]
+      ) {
+        assertComparable(before, before, 'Incumbent measurements');
+        const incumbent = await scope(services, before, config.itemId);
+        const value = await comparableValues(
+          services,
+          incumbent,
+          incumbent,
+          config.metric,
+          config.statistic,
+        );
+        const reason =
+          'Candidate evaluation failed; retain the measured incumbent';
+        const decision = {
+          kind: 'metric-decision',
+          measurementRefs: refs,
+          itemId: config.itemId ?? null,
+          metric: config.metric,
+          statistic: config.statistic ?? null,
+          direction: config.direction,
+          definitionRef: value.definitionRef,
+          incumbentValue: value.before,
+          candidateValue: null,
+          minRelativeImprovement: config.minRelativeImprovement,
+          constraints: [],
+          eligibility: [],
+          accepted: false,
+          tieBreak: config.tieBreak,
+          reason,
+        };
+        validate(metricDecisionSchema, decision, 'Metric decision');
+        const decisionRef = await services.artifacts.putJson(decision);
+        return {
+          accepted: false,
+          candidateFeasible: false,
+          selectedCandidateRef: string(before.candidateRef),
+          measurementRef: refs[0]!,
+          decisionRef,
+          reason,
+          metric: config.metric,
+          incumbentValue: value.before,
+          selectedValue: value.before,
+          candidateValue: null,
+        };
+      }
       const hasEligibility = config.eligibility.length > 0;
       if (hasEligibility) {
         assertComparable(before, before, 'Incumbent measurements');
@@ -239,7 +294,10 @@ export async function createMetricSelection(
         eligibilityChecks.some(
           (check) =>
             (check.min !== null && check.incumbentValue < check.min) ||
-            (check.max !== null && check.incumbentValue > check.max),
+            (check.max !== null &&
+              (check.exclusiveMax
+                ? check.incumbentValue >= check.max
+                : check.incumbentValue > check.max)),
         )
       )
         throw new Error('Incumbent does not satisfy metric eligibility');

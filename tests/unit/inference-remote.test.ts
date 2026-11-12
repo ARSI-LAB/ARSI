@@ -854,3 +854,154 @@ test('remote discovery gives the proposer installed choices and treats memory as
     await f.close();
   }
 });
+
+test('a handled startup rejection leaves the real Manager alive for later trials', async () => {
+  const f = await fixture(undefined, 'start');
+  const registry = new Registry();
+  const manager = new Manager({ registry, rootDirectory: f.root });
+  try {
+    registry.registerOperation(inferenceDefinition);
+    registry.registerOperation({
+      id: 'test.inference-evaluator',
+      contract: inferencebenchContract,
+      configSchema: { type: 'object' },
+      async create() {
+        return {
+          async execute(input, context) {
+            try {
+              return await context.withInstance(
+                String(object(input).candidateRef),
+                'inference-endpoint',
+                async () => assert.fail('Rejected instance cannot run'),
+              );
+            } catch (error) {
+              assert.ok(error instanceof Error);
+              assert.equal(error.name, 'InferenceStartupError');
+              context.signal.throwIfAborted();
+              return { measurementRef: 'measurement-rejected-startup' };
+            }
+          },
+          async dispose() {},
+        };
+      },
+    });
+    const policyPath = join(f.root, 'policy.yaml');
+    await writeFile(
+      policyPath,
+      stringify({
+        schemaVersion: 'rsi.policy/v1',
+        id: 'test.inference-evaluation',
+        input_schema: { type: 'object' },
+        output_schema: { type: 'object' },
+        require: {
+          evaluator: { contract: inferencebenchContract.id },
+        },
+        steps: [
+          {
+            id: 'check',
+            type: 'invoke',
+            use: 'evaluator',
+            with: {
+              candidateRef: '${{ application.initialCandidate }}',
+            },
+          },
+          {
+            id: 'next-trial',
+            type: 'invoke',
+            use: 'evaluator',
+            with: {
+              candidateRef: '${{ application.initialCandidate }}',
+            },
+          },
+        ],
+        output: '${{ steps.check.output }}',
+      }),
+    );
+    registry.registerPolicy('test.inference-evaluation', policyPath);
+    const recipePath = join(f.root, 'recipe.yaml');
+    await writeFile(
+      recipePath,
+      stringify({
+        schemaVersion: 'rsi.recipe/v1',
+        id: 'trial',
+        application: {
+          plugin: inferenceDefinition.id,
+          config: {
+            ...f.config,
+            remote: {
+              script: f.config.remote.script,
+              executable: process.execPath,
+            },
+          },
+        },
+        policy: { id: 'test.inference-evaluation', config: {}, input: {} },
+        bindings: {
+          evaluator: { plugin: 'test.inference-evaluator', config: {} },
+        },
+        budget: { operations: 10, elapsedWallMs: 10000 },
+      }),
+    );
+    await manager.run(recipePath, { id: 'trial' });
+    const result = await manager.get('trial');
+    assert.equal(result.status, 'succeeded');
+    const instances = await manager.facts.list('instances');
+    assert.deepEqual(
+      instances.map((record) => record.status),
+      ['released', 'released'],
+    );
+  } finally {
+    await manager.dispose();
+    await registry.dispose();
+    await f.close();
+  }
+});
+
+test('configuration candidates allow engine options and nested values without discovery', async () => {
+  const f = await fixture();
+  const services = servicesFor(f.root);
+  const parameters = {
+    tensor_parallel_size: 4,
+    max_model_len: 393216,
+    dtype: 'auto',
+    enable_prefix_caching: true,
+    gpu_memory_utilization: 0.91,
+    'attention_config.indexer_kv_dtype': 'int8',
+    compilation_config: { cudagraph_mode: 'FULL_DECODE_ONLY' },
+    environment: { OMP_NUM_THREADS: '20' },
+  };
+  await writeFile(
+    join(f.root, 'baseline/tuning.json'),
+    JSON.stringify(parameters),
+  );
+  const backend = await createRemoteBackend(
+    {
+      ...f.config,
+      remote: { script: f.config.remote.script, executable: process.execPath },
+    },
+    services,
+  );
+  try {
+    const identity = await backend.verify(
+      join(f.root, 'baseline'),
+      call(services),
+    );
+    assert.deepEqual(identity.parameters, parameters);
+    for (const key of [
+      'host',
+      'port',
+      'served_model_name',
+      'data_parallel_rpc_port',
+    ]) {
+      await writeFile(
+        join(f.root, 'baseline/tuning.json'),
+        JSON.stringify({ [key]: 'changed' }),
+      );
+      await assert.rejects(
+        backend.verify(join(f.root, 'baseline'), call(services)),
+        /owned by deployment/,
+      );
+    }
+  } finally {
+    await f.close();
+  }
+});

@@ -352,7 +352,7 @@ export function register(registry) {
   );
   assert.equal(
     catalog.plugins.length,
-    18,
+    19,
     'all built-in plugin definitions ship in the archive',
   );
   for (const id of [
@@ -360,6 +360,7 @@ export function register(registry) {
     'evaluator.operatorbench',
     'selector.inference',
     'proposer.operator',
+    'summarizer.operator',
   ])
     assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
   assert.ok(!catalog.plugins.includes('agent.scripted'));
@@ -457,7 +458,7 @@ export function register(registry) {
        import {readFile} from 'node:fs/promises';
        const sdk = await import('ember-evaluator');
        for (const name of ['Evaluator','parseUserConfig','parseKernelTimingEvidence','auditKernelTimingSample']) assert.equal(typeof sdk[name], 'function');
-       const helper = await readFile(new URL('adapters/kernel/timing_evidence.py', import.meta.resolve('ember-evaluator')), 'utf8');
+       const helper = await readFile(new URL('plugins/benchmarks/operator/kernel/runtime/timing_evidence.py', import.meta.resolve('ember-evaluator')), 'utf8');
        assert.match(helper, /def collect_flow_timing/);`,
     ],
     {
@@ -486,7 +487,7 @@ import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import * as publicApi from 'ember-rsi';
-import {createRuntime,Recipe,Policy,Binding,proposerContract,operatorProposerContract,gridProposerContract,iterativeProposerContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
+import {createRuntime,Recipe,Policy,Binding,proposerContract,operatorProposerContract,operatorSummarizerContract,gridProposerContract,iterativeProposerContract,applicationContract,defineContract,RuntimeContext,prepareAgentProject} from 'ember-rsi';
 import {RuntimeContext as ContractContext,iterativeProposerContract as ContractsIterativeProposerContract} from 'ember-rsi/contracts';
 assert.equal(RuntimeContext,ContractContext);
 assert.equal(iterativeProposerContract,ContractsIterativeProposerContract);
@@ -544,13 +545,16 @@ try {
  assert.equal(operatorProposerContract.id,'contract.proposer-operator');
  const firstProposal={action:'propose',phase:'static',entryCandidateRef:'entry',baselineMeasurementRef:'baseline',attempt:1,goal:'Improve',analysisRef:null,historyRef:null};
  const repairProposal={action:'repair',phase:'static',failedCandidateRef:'failed',measurementRef:'measurement',analysisRef:'analysis',historyRef:null,attempt:1,repairIndex:1,goal:'Repair'};
- const attemptSummary={action:'summarize',phase:'static',entryCandidateRef:'entry',analysisRef:'analysis',historyRef:null,attempt:1,candidateRefs:['candidate'],measurementRefs:[],decisionRef:null,outcome:'no-change'};
- for(const action of [firstProposal,repairProposal,attemptSummary])validate(operatorProposerContract.input_schema,action,'installed operator action');
+ const attemptSummary={action:'summarize',phase:'static',entryCandidateRef:'entry',analysisRef:'analysis',historyRef:null,attempt:1,candidateRefs:['entry'],measurementRefs:[],decisionRef:null,outcome:'no-change',actions:[{action:'propose',status:'no-change',candidateRef:'entry',analysisRef:'analysis',diffRef:null,reasonCode:'no-supported-change',rationale:'Same source'}]};
+ for(const action of [firstProposal,repairProposal])validate(operatorProposerContract.input_schema,action,'installed operator action');
+ validate(operatorSummarizerContract.input_schema,attemptSummary,'installed summarizer');
+ assert.throws(()=>validate(operatorProposerContract.input_schema,attemptSummary));
  assert.throws(()=>validate(operatorProposerContract.input_schema,{...firstProposal,action:'diagnose'}));
  assert.throws(()=>validate(operatorProposerContract.input_schema,{...firstProposal,baselineMeasurementRef:undefined}));
  const operatorDirectory=await realpath(fileURLToPath(new URL('plugins/proposer-operator/',installed)));
  for(const directory of ['knowledge','python','prompts'])await assert.rejects(stat(resolve(operatorDirectory,directory)),{code:'ENOENT'});
  assert.deepEqual(runtime.registry.get('proposer.operator').contract,operatorProposerContract);
+ assert.deepEqual(runtime.registry.get('summarizer.operator').contract,operatorSummarizerContract);
  const {prepareDocumentPreviews}=await import(new URL('plugins/reflection-agent/document-previews.js',installed));
  const {validateReflection}=await import(new URL('runtime/revisions/validation.js',installed));
  const require=createRequire(await realpath(fileURLToPath(new URL('./node_modules/ember-rsi/package.json',import.meta.url))));
@@ -604,8 +608,10 @@ try {
   }
   if(id==='policy.operator-search'){
    for(const resource of ['schemas/config.yaml','schemas/result.yaml'])assert.ok((await readFile(await packageResource(resolve(dirname(path),resource)),'utf8')).length);
+   assert.deepEqual(policy.requirements.summarizer,operatorSummarizerContract);
+   assert.ok((await readFile(await packageResource(resolve(dirname(path),bindings.summarizer.config.promptFile)),'utf8')).trim().length);
    const promptsDirectory=await packageResource(resolve(dirname(path),bindings.proposer.config.promptsDirectory));
-   for(const prompt of ['diagnose.md','generate.md','diagnose-metrics.md','generate-metrics.md','repair.md','summarize.md'])assert.ok((await readFile(await packageResource(resolve(promptsDirectory,prompt)),'utf8')).trim().length);
+   for(const prompt of ['diagnose.md','generate.md','diagnose-metrics.md','generate-metrics.md','repair.md'])assert.ok((await readFile(await packageResource(resolve(promptsDirectory,prompt)),'utf8')).trim().length);
   }
  }
  const lifecycle=[],deliveries=[],admissions=[];
@@ -679,7 +685,7 @@ console.log('Installed resources and managed ctx.event subscriptions, publishing
     `
 import type { Context, Events } from '@deepseek-ai/cordis';
 import { Registry } from 'ember-rsi';
-import { defineContract, RuntimeContext, type JsonObject, type Operation, type OperationDefinition, type EventPipeline, type OperatorbenchInput, type OperatorbenchOutput, type OperatorProposerInput, type OperatorProposerOutput, type MetricSelectorOutput } from 'ember-rsi/contracts';
+import { defineContract, RuntimeContext, type JsonObject, type Operation, type OperationDefinition, type EventPipeline, type OperatorbenchInput, type OperatorbenchOutput, type OperatorProposerInput, type OperatorProposerOutput, type OperatorSummarizerInput, type OperatorSummarizerOutput, type MetricSelectorOutput } from 'ember-rsi/contracts';
 declare module 'ember-rsi/contracts' {
  interface RuntimeContext { traceId?: string; }
 }
@@ -703,8 +709,10 @@ type Notice=Parameters<typeof pipeline.on<'consumer/notice'>>[1];
 export type PublicChecks=[
  Check<Equal<OperatorbenchInput,{action:'evaluate';candidateRef:string;caseIds:string[]}|{action:'profile';candidateRef:string;caseIds:string[];assessmentMeasurementRef:string}>>,
  Check<Equal<OperatorbenchOutput,{action:'evaluate';measurementRef:string}|{action:'profile';measurementRef:string;collectionStatus:'completed'|'unavailable'}>>,
- Check<Equal<OperatorProposerInput['action'],'propose'|'repair'|'summarize'>>,
- Check<Equal<OperatorProposerOutput['action'],'propose'|'repair'|'summarize'>>,
+ Check<Equal<OperatorProposerInput['action'],'propose'|'repair'>>,
+ Check<Equal<OperatorProposerOutput['action'],'propose'|'repair'>>,
+ Check<Equal<OperatorSummarizerInput['actions'],OperatorProposerOutput[]>>,
+ Check<Equal<OperatorSummarizerOutput['historyRef'],string>>,
  Check<Equal<Extract<OperatorProposerInput,{action:'propose';phase:'static'}>['baselineMeasurementRef'],string>>,
  Check<Equal<Extract<OperatorProposerOutput,{action:'propose';status:'created'}>['diffRef'],string>>,
  Check<Equal<MetricSelectorOutput['candidateValue'],number|null>>,

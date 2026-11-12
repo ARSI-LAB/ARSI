@@ -125,3 +125,12 @@ export function isResourceUrl(value: string): boolean {
     !/^[A-Za-z]:[\\/]/.test(value) && /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)
   );
 }
+
+/** Persisted digests need the same path order in every locale. */
+export function compareFilePaths(
+  a: { path: string },
+  b: { path: string },
+): number {
+  if (a.path === b.path) return 0;
+  return a.path < b.path ? -1 : 1;
+}

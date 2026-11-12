@@ -110,6 +110,7 @@ async function modelFixture(
   const charges: number[] = [];
   const controller = new AbortController();
   const timers = new Set<ReturnType<typeof setTimeout>>();
+  const responseCloses: Promise<void>[] = [];
   let disconnected = 0;
   let chargeAttempts = 0;
   const server = createServer(async (request, response) => {
@@ -117,9 +118,14 @@ async function modelFixture(
     for await (const chunk of request) body += String(chunk);
     requests.push(JSON.parse(body));
     const reply = replies[Math.min(requests.length - 1, replies.length - 1)]!;
-    response.once('close', () => {
-      disconnected++;
-    });
+    responseCloses.push(
+      new Promise<void>((resolve) => {
+        response.once('close', () => {
+          disconnected++;
+          resolve();
+        });
+      }),
+    );
     if (reply.stall) return;
     const timer = setTimeout(() => {
       timers.delete(timer);
@@ -208,6 +214,28 @@ async function modelFixture(
     controller,
     services,
     disconnected: () => disconnected,
+    async waitForResponseClose(requestIndex: number): Promise<void> {
+      const closed = responseCloses[requestIndex];
+      if (!closed)
+        throw new Error(`Fixture request ${requestIndex} was not received`);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          closed,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new Error(`Fixture response ${requestIndex} did not close`),
+                ),
+              4000,
+            );
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    },
     chargeAttempts: () => chargeAttempts,
     run: () =>
       operation.execute(
@@ -312,6 +340,39 @@ test(
   },
 );
 
+test('Pi direct bash uses the project cwd and the host account permissions', async () => {
+  const f = await modelFixture(
+    [
+      {
+        tool: {
+          name: 'bash',
+          arguments: JSON.stringify({
+            command: 'pwd; cat sample; cat ../sibling.txt',
+          }),
+        },
+      },
+      { content: '{"ok":true}' },
+    ],
+    { bashMode: 'direct' },
+  );
+  try {
+    await writeFile(
+      join(f.directory, 'sibling.txt'),
+      'DIRECT_HOST_READ_MARKER',
+    );
+    assert.deepEqual(await f.run(), { ok: true });
+    const messages = f.requests[1]!.messages as JsonObject[];
+    const result = JSON.stringify(
+      messages.find((message) => message.role === 'tool'),
+    );
+    assert.match(result, /workspace/);
+    assert.match(result, /authorized evidence/);
+    assert.match(result, /DIRECT_HOST_READ_MARKER/);
+  } finally {
+    await f.close();
+  }
+});
+
 test('Pi sends configured reasoning and output limits with final JSON', async () => {
   const f = await modelFixture([{}], {
     contextWindow: 262144,
@@ -359,6 +420,7 @@ test('Pi rejects invalid settings at creation before resolving credentials or in
     const definition: OperationDefinition = piDefinition;
     const invalidConfigs: JsonObject[] = [
       { thinkingLevel: 'invalid' },
+      { bashMode: 'invalid' },
       { modelEnv: 'OLD_MODEL' },
       { contextWindow: 0 },
       { contextWindow: 8192, maxTokens: 32768 },
@@ -371,7 +433,7 @@ test('Pi rejects invalid settings at creation before resolving credentials or in
     for (const invalid of invalidConfigs) {
       await assert.rejects(
         definition.create(invalid, f.services),
-        /thinkingLevel|contextWindow|retries|retryBaseDelayMs|maxTokens|additional properties/,
+        /thinkingLevel|bashMode|contextWindow|retries|retryBaseDelayMs|maxTokens|additional properties/,
       );
     }
     assert.equal(f.requests.length, 0);
@@ -588,7 +650,7 @@ test('Pi timeout closes a stalled request without retry and permits a fresh exec
     await assert.rejects(f.run(), /timeout|timed out|aborted/i);
     assert.equal(f.requests.length, 1);
     assert.deepEqual(f.charges, [1]);
-    await new Promise<void>((done) => setImmediate(done));
+    await f.waitForResponseClose(0);
     assert.equal(f.disconnected(), 1);
     assert.deepEqual(await f.run(), { ok: true });
     assert.equal(f.requests.length, 2);
@@ -625,7 +687,7 @@ test('Pi execution timeout closes stalled requests without retry and permits a f
     assert.equal(f.requests.length, 1);
     assert.deepEqual(f.charges, [1]);
     assert.equal(f.controller.signal.aborted, false);
-    await new Promise<void>((done) => setImmediate(done));
+    await f.waitForResponseClose(0);
     assert.equal(f.disconnected(), 1);
     assert.deepEqual(await f.run(), { ok: true });
     assert.equal(f.requests.length, 2);

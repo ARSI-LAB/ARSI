@@ -49,6 +49,7 @@ if (!source.includes('fixture:profile-unavailable')) {
     JSON.stringify({
       seed: request.seeds[0],
       warmup: request.warmup,
+      inputUnmodified: request.inputUnmodified,
       requestedLogicalDevice: 0,
       logicalDevice: 0,
       deviceCount: 1,

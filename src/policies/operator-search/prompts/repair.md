@@ -17,7 +17,7 @@ limitations under the License.
 
 # Repair the last failed operator candidate
 
-Use the latest failed input.py and its corresponding Evaluator feedback. The task,
+Use the latest failed candidate source and its corresponding Evaluator feedback. The task,
 analysis, comparison sources and previous summaries are read-only. Infer the
 implementation language, backend and API constraints from the supplied source
 and environment.
@@ -51,7 +51,7 @@ Return exactly one JSON object matching outputSchema:
 {
   "edits": [
     {
-      "path": "input.py",
+      "path": "<one exact path from editablePaths in context/input.json>",
       "content": "The complete repaired Python source, JSON-escaped"
     }
   ],
@@ -59,8 +59,27 @@ Return exactly one JSON object matching outputSchema:
 }
 ```
 
-A supported repair replaces input.py completely in one edit. Do not edit task or
+A supported repair supplies one complete replacement per changed file from editablePaths. Do not edit task or
 comparison files, introduce tests, timing code or external writes, or emit
 placeholders. When no supported repair exists, return an empty edits array and
 an explicit reason. Uncertainty is not a successful repair. Return JSON only,
 without fences or surrounding prose; the Policy decides whether to continue.
+
+## Use history without turning uncertainty into a ban
+
+Program-owned `facts` and `measurementRefs` record formal Evaluator results. Each
+lesson, avoid pattern and try pattern has `text` and `basis`:
+
+- `evaluation`: an observation backed by this attempt's formal measurements.
+- `agent-report`: an Agent's account of local probes or other unverified observations.
+- `hypothesis`: a static inference or an untested explanation or next experiment.
+
+Only formal results establish measured candidate outcomes. Agent reports and
+hypotheses remain advisory. Do not turn a failed concrete candidate into a ban on
+an entire technique, require proven speedup before proposing, or accumulate
+prerequisites that block every next experiment. Avoid repeating the same measured
+losing transformation unless a changed assumption or mechanism makes the new
+experiment distinct; explain that difference.
+
+Repair correctness first. A repair need not prove speedup before it is submitted
+for formal evaluation; do not use local timing as a promotion decision.

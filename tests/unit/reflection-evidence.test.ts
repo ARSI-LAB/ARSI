@@ -64,7 +64,6 @@ async function fixture(t: TestContext) {
       capturedAt: at(second),
       policyScopeId: 'root',
       moduleKey: 'module',
-      maxBytes: 32 * 1024 * 1024,
       directory: root,
       isAgentBinding: (binding) => binding === 'agent',
       ...extra,
@@ -90,9 +89,44 @@ test('Reflection respects the supplied evidence byte limit and reports omitted c
   assert.match(content, /truncated: Reflection evidence byte limit/);
   assert.doesNotMatch(content, /END_OF_OBSERVATION/);
   assert.ok(Buffer.byteLength(content) < 512);
+  assert.ok(
+    Object.values(object(snapshot.files)).reduce<number>(
+      (sum, file) =>
+        sum + (typeof file === 'string' ? Buffer.byteLength(file) : 0),
+      0,
+    ) <= 256,
+  );
   assert.match(
     JSON.stringify(object(snapshot.index).diagnostics),
     /virtual-file-truncated/,
+  );
+});
+
+test('Reflection retains deep observations and all relationships without fixed metadata limits', async (t) => {
+  const f = await fixture(t);
+  let nested: JsonObject = {
+    text: 'DEEP_OBSERVATION_END',
+    feedback: 'PRIVATE_FEEDBACK',
+  };
+  for (let index = 0; index < 96; index++) nested = { next: nested };
+  await f.call('deep', 'proposer', 1, {
+    input: {
+      sources: Array.from({ length: 130 }, (_, index) => ({
+        candidateRef: `candidate-${index}`,
+      })),
+    },
+    output: nested,
+  });
+  const { snapshot } = await f.collect('unbounded', 2);
+  const content = JSON.stringify(snapshot);
+  assert.match(content, /DEEP_OBSERVATION_END/);
+  assert.doesNotMatch(content, /PRIVATE_FEEDBACK|omitted-depth-or-size/);
+  const entry = (object(snapshot.index).calls as JsonObject[]).find(
+    (call) => call.callId === 'deep',
+  )!;
+  assert.equal(
+    (object(entry.relationships).sources as JsonObject[]).length,
+    130,
   );
 });
 
@@ -415,7 +449,8 @@ test('execution filters scoring inputs while training-summary supplies only auth
       {
         kind: 'hint',
         code: null,
-        message: 'authorized returned hint',
+        message:
+          'authorized returned hint ' + 'x'.repeat(1024 * 1024) + ' HINT_END',
         source,
         truncated: false,
       },
@@ -495,9 +530,11 @@ test('execution filters scoring inputs while training-summary supplies only auth
   const training = await f.collect('training', 2, {
     moduleKey: 'training-module',
     view: 'training-summary',
+    maxBytes: 4 * 1024 * 1024,
   });
   const delivered = JSON.stringify(training.snapshot.files);
   assert.equal(delivered.includes('authorized returned hint'), true);
+  assert.equal(delivered.includes('HINT_END'), true);
   assert.equal(delivered.includes('private verifier marker'), false);
   assert.equal(delivered.includes('public execution'), true);
   assert.equal(delivered.includes('scoring input marker'), false);

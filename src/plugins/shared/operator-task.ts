@@ -9,24 +9,26 @@ import { validate } from '../../shared/schema.js';
 const text: JsonObject = { type: 'string', minLength: 1 };
 const shape = {
   type: 'array',
-  minItems: 1,
   items: { type: 'integer', minimum: 1 },
 };
-const tensorSchema = recordSchema({ shape, dtype: { const: 'float16' } });
+const dtype = { enum: ['float16', 'bfloat16', 'float32'] };
+const tensorSchema = recordSchema(
+  { shape, dtype, contiguous: { type: 'boolean', default: true } },
+  ['shape', 'dtype'],
+);
 const taskSchema = recordSchema({
   schemaVersion: { const: 'rsi.kernel-task/v1' },
   id: text,
   cases: {
     type: 'array',
     minItems: 1,
-    maxItems: 100,
     items: recordSchema({ id: text, seed: { type: 'integer', minimum: 0 } }),
   },
   contract: recordSchema({
     inputs: { type: 'array', minItems: 1, items: tensorSchema },
     output: recordSchema({
       shape,
-      dtype: { const: 'float16' },
+      dtype,
       contiguous: { type: 'boolean' },
       independent: { type: 'boolean' },
     }),
@@ -36,20 +38,21 @@ const taskSchema = recordSchema({
 
 const sha = (bytes: Uint8Array): string =>
   createHash('sha256').update(bytes).digest('hex');
+async function readTaskFile(directory: string, name: string): Promise<Buffer> {
+  const path = join(directory, name);
+  if (!(await lstat(path)).isFile())
+    throw new Error(`Operator task ${name} must be an ordinary file`);
+  return readFile(path);
+}
+
 export async function loadOperatorTask(directory: string): Promise<{
   definition: JsonObject;
+  reference: Buffer;
   taskDigest: string;
   cases: { id: string; seed: number }[];
 }> {
-  const files: JsonObject = {};
-  for (const name of ['task.json', 'problem.py', 'test.py']) {
-    const path = join(directory, name);
-    if (!(await lstat(path)).isFile())
-      throw new Error(`Operator task ${name} must be an ordinary file`);
-    files[name] = sha(await readFile(path));
-  }
   const definition = object(
-    JSON.parse(await readFile(join(directory, 'task.json'), 'utf8')),
+    JSON.parse((await readTaskFile(directory, 'task.json')).toString('utf8')),
   );
   validate(taskSchema, definition, 'operator task');
   const cases = (definition.cases as JsonObject[]).map((c) => ({
@@ -58,6 +61,15 @@ export async function loadOperatorTask(directory: string): Promise<{
   }));
   if (new Set(cases.map((c) => c.id)).size !== cases.length)
     throw new Error('Operator task case IDs must be unique');
-  delete files['task.json'];
-  return { definition, cases, taskDigest: digest({ definition, files }) };
+  const reference = await readTaskFile(directory, 'problem.py');
+  const files = {
+    'problem.py': sha(reference),
+    'test.py': sha(await readTaskFile(directory, 'test.py')),
+  };
+  return {
+    definition,
+    cases,
+    reference,
+    taskDigest: digest({ definition, files }),
+  };
 }

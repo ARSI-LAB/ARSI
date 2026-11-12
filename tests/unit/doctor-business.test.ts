@@ -220,14 +220,14 @@ test('proposer.grid constructs a valid grid and rejects repeated axes', async (t
   assert.deepEqual(await broken.runtime.facts.list('candidates'), []);
 });
 
-test('selector.metric constructs a valid selector and checks both bound collections', async (t) => {
+test('selector.metric checks ordinary and prerequisite constraint bounds', async (t) => {
   const f = await fixture(t);
   const working = f.probe('selector.metric', { direction: 'minimize' });
   const workingResult = await working.binding.definition.doctor!(working);
   assert.equal(workingResult.checks[0]!.status, 'passed');
-  for (const field of ['eligibility', 'constraints']) {
+  for (const prerequisite of [false, true]) {
     const broken = f.probe('selector.metric', {
-      [field]: [{ metric: 'latency', min: 2, max: 1 }],
+      constraints: [{ metric: 'latency', prerequisite, min: 2, max: 1 }],
     });
     const brokenResult = await broken.binding.definition.doctor!(broken);
     assert.match(brokenResult.checks[0]!.reason!, /min exceeds max/);

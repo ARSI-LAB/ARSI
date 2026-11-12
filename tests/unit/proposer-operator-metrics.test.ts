@@ -1,16 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { operatorProposerContract } from '../../src/contracts/plugin-types/proposer-operator.js';
+import { operatorEditOutputSchema } from '../../src/plugins/proposer-operator/schema.js';
+import { parseMetricsDiagnosis as parse } from '../../src/plugins/shared/operator-attempt/service.js';
 import { validate } from '../../src/shared/schema.js';
+import { summaryResponseSchema } from '../../src/plugins/shared/operator-attempt/schema.js';
 
-test('metrics proposal contract supports a current parent and diagnostic through round ten', () => {
+test('metrics proposal contract requires current evidence and a positive round', () => {
   const input = {
     action: 'propose',
     phase: 'metrics',
     parentCandidateRef: 'parent',
     incumbentMeasurementRef: 'assessment',
     diagnosticMeasurementRef: 'profile',
-    round: 10,
+    round: 11,
     historyRef: 'history',
     staticHistoryRef: null,
     goal: 'Optimize the measured bottleneck',
@@ -19,7 +23,7 @@ test('metrics proposal contract supports a current parent and diagnostic through
     validate(operatorProposerContract.input_schema, input),
   );
   assert.throws(() =>
-    validate(operatorProposerContract.input_schema, { ...input, round: 11 }),
+    validate(operatorProposerContract.input_schema, { ...input, round: 0 }),
   );
   assert.throws(() =>
     validate(operatorProposerContract.input_schema, {
@@ -44,21 +48,10 @@ test('invalid model output is an explicit business failure with retained analysi
   );
 });
 
-async function metricAnalysisModule(): Promise<Record<string, unknown>> {
-  const loaded: unknown = await import(
-    new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
-      .href
-  );
-  assert.ok(loaded && typeof loaded === 'object');
-  return loaded as Record<string, unknown>;
-}
 test('metric analysis requires measured numeric evidence and keeps model inference distinct', async () => {
-  const loaded = await metricAnalysisModule();
-  const parse = loaded.parseMetricsBottleneck;
-  assert.equal(typeof parse, 'function');
-  if (typeof parse !== 'function') throw new Error('Missing metrics parser');
   const profile = { kernels: [{ metrics: { '0': { aiv_vec_ratio: 0.8 } } }] };
   const reply = {
+    status: 'hypothesis',
     category: 'vector',
     summary: 'Vector pipe is busy',
     reasoning: 'Optimize the vector work',
@@ -90,35 +83,62 @@ test('metric analysis requires measured numeric evidence and keeps model inferen
   );
 });
 
-test('operator edits reject unauthorized paths and oversized UTF-8 output as model data', async () => {
-  const loaded: unknown = await import(
-    new URL('../../src/plugins/proposer-operator/service.ts', import.meta.url)
-      .href
-  );
-  assert.ok(loaded && typeof loaded === 'object');
-  const parse: unknown = Reflect.get(loaded, 'validateOperatorEdits');
-  if (typeof parse !== 'function')
-    throw new Error('Missing operator edit validation');
+test('operator edits accept complete source only at the literal Target path', () => {
+  const sourcePath = 'kernels/transpose[0].py';
+  const schema = operatorEditOutputSchema([sourcePath]);
   assert.doesNotThrow(() =>
-    parse({
-      edits: [{ path: 'input.py', content: 'valid code' }],
-      reason: 'One measured hypothesis',
+    validate(schema, {
+      edits: [{ path: sourcePath, content: '\u20ac'.repeat(12000) }],
+      reason: 'Complete source subject to the Application Target',
     }),
   );
-  assert.throws(
-    () =>
-      parse({
-        edits: [{ path: 'context/task/test.py', content: 'weaken' }],
-        reason: 'Invalid change',
+  for (const path of ['input.py', 'kernels/transpose0.py', 'context/source.py'])
+    assert.throws(() =>
+      validate(schema, {
+        edits: [{ path, content: 'invalid replacement' }],
+        reason: 'Outside the Target',
       }),
-    /operator.*edit|path/i,
+    );
+});
+
+test('metric diagnosis distinguishes an unsupported search direction from an invalid diagnosis', () => {
+  const reply = {
+    status: 'no-new-hypothesis',
+    reason: 'All supported distinct edits have been considered',
+  };
+  assert.deepEqual(parse(reply, {}), reply);
+  for (const invalid of [
+    { status: 'no-new-hypothesis', reason: '' },
+    { ...reply, recommendedFix: 'Invent another fix' },
+    { status: 'hypothesis', reason: 'No metric citations' },
+  ])
+    assert.throws(() => parse(invalid, {}));
+  const output = {
+    action: 'propose',
+    status: 'no-change',
+    candidateRef: 'parent',
+    analysisRef: 'analysis',
+    rationale: reply.reason,
+    diffRef: null,
+    reasonCode: 'no-new-hypothesis',
+  };
+  validate(operatorProposerContract.output_schema, output);
+  assert.throws(() =>
+    validate(operatorProposerContract.output_schema, {
+      ...output,
+      action: 'repair',
+    }),
   );
-  assert.throws(
-    () =>
-      parse({
-        edits: [{ path: 'input.py', content: '\u20ac'.repeat(12000) }],
-        reason: 'Too many bytes',
-      }),
-    /byte/i,
-  );
+});
+
+test('packaged and example summary JSON examples satisfy the model response contract', async () => {
+  for (const path of [
+    'src/policies/operator-search/prompts/summarize.md',
+    'examples/artifacts/kernel/transpose-copy/prompts/summarize.md',
+  ]) {
+    const prompt = await readFile(path, 'utf8');
+    const example = prompt.match(/```json\n([\s\S]*?)\n```/);
+    assert.ok(example, path);
+    validate(summaryResponseSchema, JSON.parse(example[1]), path);
+  }
 });

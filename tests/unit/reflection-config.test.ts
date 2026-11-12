@@ -22,6 +22,7 @@ import { Policy } from '../../src/runtime/policy/index.js';
 import { createRuntime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { object } from '../../src/shared/json.js';
+import { parseLockedReflection } from '../../src/runtime/manager/definition-lock.js';
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-reflection-config-'));
   const registry = new Registry();
@@ -167,6 +168,25 @@ test('Reflection budgets apply only when explicitly configured', async (t) => {
   ];
   for (const budget of invalid)
     await assert.rejects(load({ ...definition, budget }), /budget/);
+});
+
+test('Reflection loads and locks an optional positive safe evidence byte budget', async (t) => {
+  const { definition, load } = await fixture(t);
+  const parsed = await load({
+    ...definition,
+    budget: { evidenceBytes: 64 * 1024 * 1024 },
+  });
+  assert.equal(parsed.budget.evidenceBytes, 64 * 1024 * 1024);
+  assert.deepEqual(
+    parseLockedReflection(JSON.parse(JSON.stringify(parsed))).budget,
+    parsed.budget,
+  );
+  for (const evidenceBytes of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    await assert.rejects(
+      load({ ...definition, budget: { evidenceBytes } }),
+      /budget.evidenceBytes/,
+    );
+  }
 });
 test('Reflection goal files resolve from the selected config and lock UTF-8 contents', async (t) => {
   const { root, definition, load } = await fixture(t);

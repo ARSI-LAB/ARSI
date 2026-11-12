@@ -5,9 +5,13 @@ import type {
 } from '../../../contracts/index.js';
 import { object, canonical, string } from '../../../shared/json.js';
 import { parseConfig, validate } from '../../../shared/schema.js';
-import { measurementItemsSchema } from '../../../contracts/models/measurement.js';
+import {
+  measurementItemsSchema,
+  recordSchema,
+} from '../../../contracts/models/measurement.js';
 
 type ConstraintCheck = {
+  prerequisite: boolean;
   metric: string;
   statistic: string | null;
   definitionRef: string;
@@ -28,8 +32,7 @@ type MetricDecision = {
   definitionRef: string;
   incumbentValue: number;
   candidateValue: number | null;
-  eligibility?: ConstraintCheck[];
-  minRelativeImprovement?: number;
+  minRelativeImprovement: number;
   constraints: ConstraintCheck[];
   accepted: boolean;
   tieBreak: 'retain-incumbent';
@@ -38,19 +41,11 @@ type MetricDecision = {
 const ref = { type: 'string', minLength: 1 };
 const statistic = { enum: ['mean', 'p50', 'p95', 'p99', null] };
 const bound = { type: ['number', 'null'] };
-const shape = (
-  properties: JsonObject,
-  optional: string[] = [],
-): JsonObject => ({
-  type: 'object',
-  additionalProperties: false,
-  properties,
-  required: Object.keys(properties).filter((key) => !optional.includes(key)),
-});
 const checks = {
   type: 'array',
-  items: shape(
+  items: recordSchema(
     {
+      prerequisite: { type: 'boolean' },
       metric: ref,
       statistic,
       definitionRef: ref,
@@ -61,30 +56,35 @@ const checks = {
       candidateValue: { type: 'number' },
       passed: { type: 'boolean' },
     },
-    ['exclusiveMax'],
+    [
+      'prerequisite',
+      'metric',
+      'statistic',
+      'definitionRef',
+      'min',
+      'max',
+      'incumbentValue',
+      'candidateValue',
+      'passed',
+    ],
   ),
 };
-export const metricDecisionSchema: JsonSchema = shape(
-  {
-    kind: { const: 'metric-decision' },
-    measurementRefs: { type: 'array', minItems: 2, maxItems: 2, items: ref },
-    itemId: { type: ['string', 'null'] },
-    metric: ref,
-    statistic,
-    direction: { enum: ['maximize', 'minimize'] },
-    definitionRef: ref,
-    incumbentValue: { type: 'number' },
-    candidateValue: bound,
-    eligibility: checks,
-    minRelativeImprovement: { type: 'number', minimum: 0, exclusiveMaximum: 1 },
-    constraints: checks,
-    accepted: { type: 'boolean' },
-    tieBreak: { const: 'retain-incumbent' },
-    reason: { type: 'string' },
-  },
-  // Decisions persisted before operator eligibility was added omit these fields.
-  ['eligibility', 'minRelativeImprovement'],
-);
+export const metricDecisionSchema: JsonSchema = recordSchema({
+  kind: { const: 'metric-decision' },
+  measurementRefs: { type: 'array', minItems: 2, maxItems: 2, items: ref },
+  itemId: { type: ['string', 'null'] },
+  metric: ref,
+  statistic,
+  direction: { enum: ['maximize', 'minimize'] },
+  definitionRef: ref,
+  incumbentValue: { type: 'number' },
+  candidateValue: bound,
+  minRelativeImprovement: { type: 'number', minimum: 0, exclusiveMaximum: 1 },
+  constraints: checks,
+  accepted: { type: 'boolean' },
+  tieBreak: { const: 'retain-incumbent' },
+  reason: { type: 'string' },
+});
 
 async function point(
   measurement: JsonObject,
@@ -166,8 +166,7 @@ export async function readDecisionFeedback(
   )
     throw new Error('Decision objective does not match measurement');
   const constraints: number[] = [];
-  const checks = [...(decision.eligibility ?? []), ...decision.constraints];
-  for (const check of checks) {
+  for (const check of decision.constraints) {
     if (check.min === null && check.max === null)
       throw new Error('Decision constraint requires a bound');
     if (check.min !== null && check.max !== null && check.min > check.max)
@@ -205,7 +204,8 @@ export async function readDecisionFeedback(
       direction: decision.direction,
       itemId: decision.itemId,
       definitionRef: decision.definitionRef,
-      constraints: checks.map((c) => ({
+      constraints: decision.constraints.map((c) => ({
+        prerequisite: c.prerequisite,
         metric: c.metric,
         statistic: c.statistic,
         definitionRef: c.definitionRef,

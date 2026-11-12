@@ -57,12 +57,13 @@ budget:
 
 ### Limit the cost of one Reflection call
 
-The entire `budget` object is optional, and either field can also be omitted independently:
+The entire `budget` object is optional, and each field can also be omitted independently:
 
 | Field                   | Purpose                                                    | How to fill it                                                                                                         |
 | ----------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `budget.modelCalls`     | Cap new model calls made by one Reflection invocation.     | A nonnegative integer, such as `10`. `0` prevents new model calls. Omit it to apply no local limit for this dimension. |
 | `budget.timeoutSeconds` | Cap the duration of one Reflection invocation, in seconds. | A positive integer, such as `3600` for 60 minutes. Omit it to apply no local limit for this dimension.                 |
+| `budget.evidenceBytes` | Limits collected evidence content and document previews. | Optional positive safe integer. Index and provenance metadata are excluded. |
 
 Experiment budgets and the Agent's own limits still apply, such as `agent.pi`'s `executionTimeoutMs`.
 

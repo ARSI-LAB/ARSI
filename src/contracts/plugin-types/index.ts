@@ -11,3 +11,4 @@ export * from './selector-artifacts.js';
 export * from './selector-metrics.js';
 export * from './proposer-iterative.js';
 export * from './proposer-operator.js';
+export * from './summarizer-operator.js';

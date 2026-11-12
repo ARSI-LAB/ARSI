@@ -133,6 +133,36 @@ test('inference selection accepts 120 to 105 progress toward a 100 limit and rec
   assert.equal(feedback.loss, -90);
 });
 
+test('passing prerequisites retain inference progress and unified constraint evidence', async () => {
+  const fixture = await selectionFixture();
+  await fixture.measured('before', { throughput: 100, ttft: 120, valid: 1 });
+  await fixture.measured('after', { throughput: 90, ttft: 105, valid: 1 });
+  const result = await fixture.select({
+    constraints: [
+      { metric: 'ttft', max: 100 },
+      { metric: 'valid', min: 1, prerequisite: true },
+    ],
+  });
+  assert.equal(result.accepted, true);
+  assert.equal(result.candidateFeasible, false);
+  assert.equal(result.candidateValue, 90);
+  const decision = object(
+    await fixture.context.artifacts.readJson(result.decisionRef),
+  );
+  assert.equal(Object.hasOwn(decision, 'eligibility'), false);
+  assert.ok(Array.isArray(decision.constraints));
+  assert.deepEqual(
+    decision.constraints.map((check) => {
+      const value = object(check);
+      return [value.metric, value.prerequisite, value.passed];
+    }),
+    [
+      ['valid', true, true],
+      ['ttft', false, false],
+    ],
+  );
+});
+
 test('inference selection never trades a worse constraint violation for another improvement', async () => {
   const fixture = await selectionFixture();
   await fixture.measured('before', {
@@ -194,7 +224,7 @@ test('equal feasibility uses the strict objective improvement threshold in eithe
   }
 });
 
-test('inference selection keeps eligibility hard and rejects incomparable measurements', async () => {
+test('inference selection keeps prerequisites hard and rejects incomparable measurements', async () => {
   const fixture = await selectionFixture();
   await fixture.measured('before', { throughput: 100, ttft: 120, valid: 1 });
   await fixture.measured(
@@ -203,12 +233,12 @@ test('inference selection keeps eligibility hard and rejects incomparable measur
     { coverage: 'partial', comparisonKey: null },
   );
   const rejected = await fixture.select({
-    eligibility: [{ metric: 'valid', min: 1 }],
+    constraints: [{ metric: 'valid', min: 1, prerequisite: true }],
   });
   assert.equal(rejected.accepted, false);
   assert.equal(rejected.candidateFeasible, false);
   assert.equal(rejected.candidateValue, null);
-  assert.match(rejected.reason, /eligibility/);
+  assert.match(rejected.reason, /prerequisites/);
   await fixture.measured(
     'after',
     { throughput: 110, ttft: 105 },

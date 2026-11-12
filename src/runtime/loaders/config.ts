@@ -4,7 +4,7 @@ import type {
   JsonSchema,
   JsonValue,
 } from '../../contracts/json.js';
-import { configPathFields, isResourceUrl } from '../../shared/config-paths.js';
+import { configPathFields, isResourceUrl } from '../../shared/paths.js';
 import { object, string } from '../../shared/json.js';
 
 /** Resolve only Schema-marked fields, using each field's declaration directory. */

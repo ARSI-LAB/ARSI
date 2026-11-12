@@ -45,6 +45,19 @@ export function safePath(value: unknown): string {
     throw new Error(`path must be normalized and relative: ${path}`);
   return path;
 }
+export function literalPathPattern(path: string): string {
+  // Node expands braces before parsing character classes, even in `[{]a,b[}]`.
+  // Complement ranges represent braces exactly without triggering expansion;
+  // backslash escapes cannot be used because Windows normalizes them as separators.
+  return path.replace(/[*?[\]{}()+@]/g, (character) =>
+    character === '{'
+      ? '[^\u0000-z|-\uffff]'
+      : character === '}'
+        ? '[^\u0000-|~-\uffff]'
+        : `[${character}]`,
+  );
+}
+
 function integer(
   value: JsonValue | undefined,
   label: string,
@@ -136,7 +149,7 @@ export function parseTarget(value: unknown): Target {
   };
 }
 export async function scanTree(directory: string): Promise<FileTree> {
-  const files: FileTree = {};
+  const files: FileTree = Object.create(null);
   async function visit(relative: string): Promise<void> {
     for (const name of (await readdir(join(directory, relative))).sort()) {
       const path = relative ? `${relative}/${name}` : name;
@@ -156,6 +169,27 @@ export async function scanTree(directory: string): Promise<FileTree> {
   }
   await visit('');
   return files;
+}
+
+export function targetEntry(
+  target: Target,
+  path: string,
+): TargetEntry | undefined {
+  return target.entries.find((entry) =>
+    entry.kind === 'file'
+      ? entry.path === path
+      : path.startsWith(`${entry.path}/`) &&
+        entry.include.some((pattern) =>
+          matchesGlob(path.slice(entry.path.length + 1), pattern),
+        ),
+  );
+}
+
+export function canModifyTargetFile(target: Target, path: string): boolean {
+  return (
+    !target.protected.some((pattern) => matchesGlob(path, pattern)) &&
+    (targetEntry(target, path)?.changes.includes('modify') ?? false)
+  );
 }
 export function checkTarget(
   before: FileTree,
@@ -195,14 +229,7 @@ export function checkTarget(
           : 'modify';
     if (target.protected.some((pattern) => matchesGlob(path, pattern)))
       throw new Error(`protected path: ${path}`);
-    const entry = target.entries.find((e) =>
-      e.kind === 'file'
-        ? e.path === path
-        : path.startsWith(`${e.path}/`) &&
-          e.include.some((pattern) =>
-            matchesGlob(path.slice(e.path.length + 1), pattern),
-          ),
-    );
+    const entry = targetEntry(target, path);
     if (!entry || !entry.changes.includes(change))
       throw new Error(`change is not authorized: ${change} ${path}`);
     if (allowed && !allowed.some((pattern) => matchesGlob(path, pattern)))

@@ -8,18 +8,26 @@ import type {
   Operation,
   RuntimeContext,
 } from '../../contracts/index.js';
-import { parseKernelExecution } from '../application-kernel/schema.js';
+import {
+  kernelBundleDigest,
+  parseKernelExecution,
+} from '../application-kernel/schema.js';
 import {
   operatorbenchContract,
   type OperatorbenchInput,
   type OperatorbenchOutput,
 } from '../../contracts/plugin-types/operatorbench.js';
 import { digest, object, string } from '../../shared/json.js';
+import { compareFilePaths } from '../../shared/paths.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { sourceIdentity } from '../shared/evaluator-adapter/identity.js';
 import { archiveItemExecution } from '../shared/evaluator-adapter/measurement.js';
 import { prepareOperatorCase } from './kernel-input.js';
 import { loadOperatorTask } from '../shared/operator-task.js';
+import {
+  canModifyTargetFile,
+  parseTarget,
+} from '../shared/file-application/target.js';
 import { EvaluatorRunError } from 'ember-evaluator';
 import {
   sdkRunner,
@@ -49,7 +57,7 @@ export async function createOperatorbench(
     'operatorbench config',
   );
   const taskDirectory = config.task.directory;
-  const task = await loadOperatorTask(taskDirectory);
+  const { cases, taskDigest } = await loadOperatorTask(taskDirectory);
   const adapterDigest = await sourceIdentity(import.meta.url, [
     './service',
     './schema',
@@ -62,6 +70,7 @@ export async function createOperatorbench(
     '../shared/evaluator-adapter/configuration',
     '../shared/evaluator-adapter/data',
     '../application-kernel/schema',
+    '../../shared/paths',
   ]);
   const sdkBuildDigest = await sdkBuildIdentity();
   return {
@@ -73,7 +82,7 @@ export async function createOperatorbench(
       );
       if (input.caseIds.length !== 1)
         throw new Error('M1 SDK supports exactly one case per call');
-      const selected = task.cases.find((c) => c.id === input.caseIds[0]);
+      const selected = cases.find((c) => c.id === input.caseIds[0]);
       if (!selected) throw new Error('Unknown SDK operator case');
       const manifest = join(context.directory, 'sdk-input', 'manifest.json');
       const evaluationConfig = prepareEvaluationConfig(config, {
@@ -92,7 +101,7 @@ export async function createOperatorbench(
               input.assessmentMeasurementRef,
               input.candidateRef,
               {
-                taskDigest: task.taskDigest,
+                taskDigest,
                 sdkBuildDigest,
                 adapterDigest,
                 caseId: selected.id,
@@ -102,9 +111,8 @@ export async function createOperatorbench(
             )
           : null;
       context.signal.throwIfAborted();
-      if (
-        (await loadOperatorTask(taskDirectory)).taskDigest !== task.taskDigest
-      )
+      const task = await loadOperatorTask(taskDirectory);
+      if (task.taskDigest !== taskDigest)
         throw new Error('Operator task changed after loading');
       return context.withInstance(
         input.candidateRef,
@@ -112,17 +120,29 @@ export async function createOperatorbench(
         async (raw) => {
           context.signal.throwIfAborted();
           const execution = parseKernelExecution(raw);
-          if (assessment && assessment.sourceDigest !== execution.sourceDigest)
+          const sourceBundleDigest = kernelBundleDigest(
+            execution.sourcePath,
+            execution.sourceFiles,
+          );
+          if (
+            assessment &&
+            assessment.sourceBundleDigest !== sourceBundleDigest
+          )
             throw new Error(
               'Diagnostic source differs from its precision assessment',
             );
+          const target = parseTarget(
+            (await context.applicationMetadata()).target,
+          );
           const prepared = await prepareOperatorCase({
-            taskDirectory,
-            rawContract: task.definition.contract,
+            task,
             selected,
             execution,
             manifest,
             operation: input.action,
+            editablePaths: execution.sourceFiles
+              .map((file) => file.path)
+              .filter((path) => canModifyTargetFile(target, path)),
           });
           const configPath = join(context.directory, 'sdk-config.json');
           await writeFile(configPath, JSON.stringify(evaluationConfig), {
@@ -196,17 +216,15 @@ export async function createOperatorbench(
               diagnostics: [
                 {
                   code: 'SDK_ASSESSMENT_UNCONFIRMED',
-                  message: (error instanceof Error
-                    ? error.message
-                    : String(error)
-                  ).slice(0, 4000),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               ],
             };
           }
           const conditions = {
             mode: 'sdk',
-            taskDigest: task.taskDigest,
+            taskDigest,
             adapterDigest,
             sdkBuildDigest,
             evaluation: result.conditions,
@@ -215,7 +233,11 @@ export async function createOperatorbench(
             result,
             input.candidateRef,
             selected.id,
-            execution,
+            {
+              artifactRef: execution.artifactRef,
+              sourceDigest: prepared.candidateSha256,
+              sourceBundleDigest,
+            },
             conditions,
             entries,
             context,
@@ -340,5 +362,5 @@ async function sdkBuildIdentity(): Promise<string> {
     }
   };
   await walk('');
-  return digest(files.sort((a, b) => a.path.localeCompare(b.path)));
+  return digest(files.sort(compareFilePaths));
 }

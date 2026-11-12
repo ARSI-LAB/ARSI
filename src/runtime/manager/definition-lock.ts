@@ -8,7 +8,7 @@ import type {
 } from '../../contracts/index.js';
 import { object, string, strings, digest } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { configPathFields, isResourceUrl } from '../../shared/config-paths.js';
+import { configPathFields, isResourceUrl } from '../../shared/paths.js';
 import type { Recipe } from '../loaders/recipe.js';
 import type { Registry } from '../registry/index.js';
 import type { ReflectionConfig } from '../revisions/validation.js';
@@ -60,6 +60,11 @@ export function parseLockedReflection(value: JsonValue): ReflectionConfig {
           properties: {
             modelCalls: { type: 'integer', minimum: 0 },
             elapsedWallMs: { type: 'integer', minimum: 1 },
+            evidenceBytes: {
+              type: 'integer',
+              minimum: 1,
+              maximum: Number.MAX_SAFE_INTEGER,
+            },
           },
           additionalProperties: false,
         },
@@ -94,6 +99,9 @@ export function parseLockedReflection(value: JsonValue): ReflectionConfig {
       ...(budget.elapsedWallMs === undefined
         ? {}
         : { elapsedWallMs: Number(budget.elapsedWallMs) }),
+      ...(budget.evidenceBytes === undefined
+        ? {}
+        : { evidenceBytes: Number(budget.evidenceBytes) }),
     },
   };
 }

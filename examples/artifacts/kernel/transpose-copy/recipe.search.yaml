@@ -3,6 +3,7 @@ id: operator-transpose-copy-metrics-search
 application:
   plugin: application.kernel
   config:
+    entryFile: input.py
     target:
       schema: ./target.yaml
     baseline:
@@ -20,6 +21,7 @@ policy:
     metricsEnabled: true
     maxRounds: 10
     maxNoImprovement: 5
+    maxConsecutiveNoChange: 3
 bindings:
   agent:
     plugin: agent.pi
@@ -28,12 +30,13 @@ bindings:
       base_url: ${MODEL_ENDPOINT}
       api_key: ${MODEL_API_KEY}
       retries: 0
+      timeoutMs: 1800000
   proposer:
     plugin: proposer.operator
     config:
       promptsDirectory: ./prompts
       hardwareContextFile: ./hardware-context.md
-      modelRequestTimeoutMs: 120000
+      modelRequestTimeoutMs: 0
       agentRef: agent
       task:
         directory: ./task
@@ -46,6 +49,12 @@ bindings:
         similarityThreshold: 0.6
         resourcesDirectory: REPLACE_WITH_EXTERNAL_KNOWLEDGE_BUNDLE
         retrievalScript: REPLACE_WITH_EXTERNAL_RETRIEVAL_WORKER
+  summarizer:
+    plugin: summarizer.operator
+    config:
+      agentRef: agent
+      modelRequestTimeoutMs: 0
+      promptFile: ./prompts/summarize.md
   evaluator:
     plugin: evaluator.operatorbench
     config:
@@ -77,13 +86,14 @@ bindings:
     config:
       metric: latencyMeanMs
       direction: minimize
-      eligibility:
+      constraints:
         - metric: candidateValid
+          prerequisite: true
           min: 1
       minRelativeImprovement: 0.02
 budget:
-  operations: 1024
+  operations: 4096
   evaluationRuns: 65
-  modelCalls: 152
-  elapsedWallMs: 7200000
+  modelCalls: 2048
+  elapsedWallMs: 43200000
   cleanupReserveMs: 60000

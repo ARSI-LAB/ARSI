@@ -8,11 +8,11 @@ import type {
   MeasurementSummary,
   MetricRecord,
 } from '../../api/observation-client.js';
-import { executionPathIterations } from '../../../src/shared/execution-path.js';
+import { readIterationScopes } from '../../../src/shared/iterations.js';
 import { evaluationOrdinals } from './record-identifiers.js';
 
 export function roundLabel(path: string | null | undefined): string | null {
-  const rounds = executionPathIterations(path).map(
+  const rounds = readIterationScopes(path).map(
     (iteration) => iteration.index + 1,
   );
   return rounds.length

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { constants } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { JsonSchema, JsonValue } from '../../contracts/index.js';
-import { configPathFields, isResourceUrl } from '../../shared/config-paths.js';
+import { configPathFields, isResourceUrl } from '../../shared/paths.js';
 import { runDoctorCheck } from '../../shared/doctor-check.js';
 import { errorText } from '../../shared/errors.js';
 import { json, object } from '../../shared/json.js';

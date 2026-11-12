@@ -33,7 +33,6 @@ properties:
       - type: 'null'
   attempts:
     type: array
-    maxItems: 3
     items:
       type: object
       additionalProperties: false
@@ -41,18 +40,15 @@ properties:
         attempt:
           type: integer
           minimum: 1
-          maximum: 3
         candidateRefs:
           type: array
           minItems: 1
-          maxItems: 4
           uniqueItems: true
           items:
             type: string
             minLength: 1
         measurementRefs:
           type: array
-          maxItems: 4
           uniqueItems: true
           items:
             type: string
@@ -80,7 +76,6 @@ properties:
         repairCount:
           type: integer
           minimum: 0
-          maximum: 3
       required:
         - attempt
         - candidateRefs
@@ -98,6 +93,8 @@ properties:
       - no-static-issues
       - max-rounds
       - no-improvement
+      - no-new-hypothesis
+      - consecutive-no-change
       - profiling-unavailable
   staticHistoryRef:
     anyOf:
@@ -106,7 +103,6 @@ properties:
       - type: 'null'
   metricsRounds:
     type: array
-    maxItems: 10
     items:
       type: object
       additionalProperties: false
@@ -114,20 +110,17 @@ properties:
         round:
           type: integer
           minimum: 1
-          maximum: 10
         parentCandidateRef:
           type: string
           minLength: 1
         candidateRefs:
           type: array
           minItems: 1
-          maxItems: 4
           items:
             type: string
             minLength: 1
         measurementRefs:
           type: array
-          maxItems: 4
           items:
             type: string
             minLength: 1
@@ -164,7 +157,6 @@ properties:
         repairCount:
           type: integer
           minimum: 0
-          maximum: 3
       required:
         - round
         - parentCandidateRef
@@ -180,14 +172,15 @@ properties:
         - repairCount
   diagnosticRefs:
     type: array
-    maxItems: 11
     items:
       type: string
       minLength: 1
   noImprovementCount:
     type: integer
     minimum: 0
-    maximum: 10
+  consecutiveNoChangeCount:
+    type: integer
+    minimum: 0
   phase:
     enum:
       - static
@@ -207,4 +200,5 @@ required:
   - metricsRounds
   - diagnosticRefs
   - noImprovementCount
+  - consecutiveNoChangeCount
   - phase

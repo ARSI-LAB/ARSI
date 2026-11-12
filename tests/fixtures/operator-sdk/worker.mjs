@@ -33,7 +33,7 @@ const ids = [
   'numerical',
 ];
 const result = {
-  schemaVersion: 1,
+  operation: request.operation,
   candidateSha256: request.candidateSha256,
   referenceKind: request.referenceKind,
   timingScope: 'all-device-kernels',
@@ -51,7 +51,6 @@ const result = {
   referenceMs: incorrect || unavailable ? null : 16,
   speedup: incorrect || unavailable ? null : 16 / latency,
   assessment: {
-    schemaVersion: 1,
     contractSha256: request.contractSha256,
     checks: request.seeds.flatMap((seed) =>
       [0, 1].flatMap((call) =>

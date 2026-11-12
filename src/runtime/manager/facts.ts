@@ -165,16 +165,13 @@ export class ExperimentFacts {
       }
       return result;
     }
-    const maxBytes = Math.min(
-      evidenceLimit,
-      requestedBytes === undefined ? 60000 : 80000,
-    );
+    const maxBytes = Math.min(evidenceLimit, requestedBytes ?? 60000);
     const result = await projectEvidence({
       measurements,
       artifacts: this.artifacts,
       view,
       maxBytes: summaries.length
-        ? Math.max(256, Math.floor(maxBytes * 0.7))
+        ? Math.max(1, Math.floor(maxBytes * 0.7))
         : maxBytes,
     });
     const output = object(result);

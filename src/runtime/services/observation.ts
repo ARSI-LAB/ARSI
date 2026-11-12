@@ -33,7 +33,7 @@ import { redactText, secretValues } from '../../shared/secrets.js';
 import { validate } from '../../shared/schema.js';
 import { measurementItemsSchema } from '../../contracts/models/measurement.js';
 import { parseFileTree } from '../../contracts/models/file-tree.js';
-import { executionPathIterations } from '../../shared/execution-path.js';
+import { readIterationScopes } from '../../shared/iterations.js';
 import { safeId } from '../storage/index.js';
 
 function restrictedFile(path: string): boolean {
@@ -750,7 +750,7 @@ export class ObservationQueries {
         }
         seen.add(callId);
         const recordedPath = optionalText(call.path);
-        if (recordedPath && executionPathIterations(recordedPath).length) {
+        if (recordedPath && readIterationScopes(recordedPath).length) {
           path = recordedPath;
           break;
         }

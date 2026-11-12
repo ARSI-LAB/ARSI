@@ -198,7 +198,7 @@ test('Manager resumes after a committed loop boundary without replaying calls', 
 });
 
 test('resource URLs exclude Windows drive paths while preserving actual URL schemes', async () => {
-  const { isResourceUrl } = await import('../../src/shared/config-paths.js');
+  const { isResourceUrl } = await import('../../src/shared/paths.js');
   for (const local of [
     'C:/data/prompt.md',
     'D:\\data\\prompt.md',

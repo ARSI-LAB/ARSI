@@ -15,6 +15,10 @@ async function run(
   options: {
     values?: Array<number | null>;
     maxRounds?: number;
+    maxNoImprovement?: number;
+    maxConsecutiveNoChange?: number;
+    noChangeRounds?: number[];
+    noHypothesisRound?: number;
     profileFailure?: number;
     infrastructureFailure?: boolean;
   } = {},
@@ -85,7 +89,7 @@ async function run(
         selectedValue: accepted ? candidate.value : incumbent.value,
       };
     }
-    if (input.action === 'summarize')
+    if (binding === 'summarizer')
       return {
         action: 'summarize',
         historyRef: `h${input.round ?? input.attempt}`,
@@ -112,6 +116,22 @@ async function run(
         reasonCode: 'created',
       };
     modelRound++;
+    if (
+      options.noChangeRounds?.includes(modelRound) ||
+      options.noHypothesisRound === modelRound
+    )
+      return {
+        action: 'propose',
+        status: 'no-change',
+        candidateRef: string(input.parentCandidateRef),
+        diffRef: null,
+        rationale: 'No new testable hypothesis',
+        analysisRef: 'metrics-analysis',
+        reasonCode:
+          options.noHypothesisRound === modelRound
+            ? 'no-new-hypothesis'
+            : 'no-supported-change',
+      };
     if (options.values?.[modelRound - 1] === null)
       return {
         action: 'propose',
@@ -150,7 +170,10 @@ async function run(
     repairLimit: 3,
     metricsEnabled: true,
     maxRounds: options.maxRounds ?? 10,
-    maxNoImprovement: 5,
+    maxNoImprovement: options.maxNoImprovement ?? 5,
+    ...(options.maxConsecutiveNoChange === undefined
+      ? {}
+      : { maxConsecutiveNoChange: options.maxConsecutiveNoChange }),
   };
   try {
     const output = object(
@@ -170,6 +193,52 @@ async function run(
     await registry.dispose();
   }
 }
+
+test('no new metric hypothesis records its summary, stops search and still assesses the incumbent', async () => {
+  const { output, calls } = await run({ noHypothesisRound: 1 });
+  assert.equal(output.stopReason, 'no-new-hypothesis');
+  assert.equal((output.metricsRounds as JsonValue[]).length, 1);
+  assert.equal(calls.filter((c) => c.binding === 'summarizer').length, 1);
+  assert.equal(calls.filter((c) => c.input.action === 'evaluate').length, 2);
+  assert.equal(output.finalValidity, 'valid');
+});
+
+test('three consecutive empty metric proposals stop without inventing candidate measurements', async () => {
+  const { output, calls } = await run({ noChangeRounds: [1, 2, 3, 4] });
+  assert.equal(output.stopReason, 'consecutive-no-change');
+  assert.equal(output.consecutiveNoChangeCount, 3);
+  assert.equal(output.noImprovementCount, 0);
+  assert.equal((output.metricsRounds as JsonValue[]).length, 3);
+  assert.equal(calls.filter((c) => c.input.action === 'evaluate').length, 2);
+});
+
+test('a measured candidate resets consecutive empty proposals even when it is not promoted', async () => {
+  const { output } = await run({ noChangeRounds: [1, 2, 4, 5, 6] });
+  assert.equal(output.stopReason, 'consecutive-no-change');
+  assert.equal(output.consecutiveNoChangeCount, 3);
+  assert.equal(output.noImprovementCount, 1);
+  assert.equal((output.metricsRounds as JsonValue[]).length, 6);
+});
+
+test('the consecutive empty proposal limit is configurable', async () => {
+  const { output } = await run({
+    noChangeRounds: [1, 2, 3],
+    maxConsecutiveNoChange: 2,
+  });
+  assert.equal(output.stopReason, 'consecutive-no-change');
+  assert.equal((output.metricsRounds as JsonValue[]).length, 2);
+});
+
+test('a failed proposal breaks a consecutive empty streak without claiming an evaluation', async () => {
+  const { output } = await run({
+    values: [10, null, 10, 10],
+    noChangeRounds: [1, 3, 4],
+    maxConsecutiveNoChange: 2,
+  });
+  assert.equal(output.stopReason, 'consecutive-no-change');
+  assert.equal((output.metricsRounds as JsonValue[]).length, 4);
+  assert.equal(output.noImprovementCount, 0);
+});
 
 test('metrics Greedy continues after promotion, reuses unchanged diagnostics, and supplies current best and history', async () => {
   const { output, calls } = await run({ values: [8, 9, 9], maxRounds: 3 });
@@ -219,9 +288,34 @@ test('invalid proposals consume rounds without incrementing or resetting the no-
   assert.equal((output.metricsRounds as JsonValue[]).length, 6);
 });
 
+test('configured metrics search completes eleven rounds and restores its recorded output', async () => {
+  const { output } = await run({ maxRounds: 11, maxNoImprovement: 11 });
+  assert.equal(output.stopReason, 'no-improvement');
+  assert.equal((output.metricsRounds as JsonValue[]).length, 11);
+  assert.equal(output.noImprovementCount, 11);
+});
+
 test('failed verification exhausts three repairs and proceeds to another round', async () => {
   const { output, calls } = await run({ values: [0, 10], maxRounds: 2 });
   assert.equal(calls.filter((c) => c.input.action === 'repair').length, 3);
+  const summaries = calls.filter((call) => call.binding === 'summarizer');
+  assert.deepEqual(
+    summaries.map(({ input }) =>
+      (input.actions as JsonObject[]).map(({ action, candidateRef }) => [
+        action,
+        candidateRef,
+      ]),
+    ),
+    [
+      [
+        ['propose', 'c1'],
+        ['repair', 'bad1'],
+        ['repair', 'bad2'],
+        ['repair', 'bad3'],
+      ],
+      [['propose', 'c2']],
+    ],
+  );
   assert.equal((output.metricsRounds as JsonValue[]).length, 2);
   assert.equal(
     object((output.metricsRounds as JsonObject[])[0]).outcome,

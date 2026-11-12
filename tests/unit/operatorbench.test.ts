@@ -4,6 +4,8 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validate } from '../../src/shared/schema.js';
+import { operatorbenchConfigSchema as configSchema } from '../../src/plugins/evaluator-operatorbench/schema.js';
 import { RuntimeContext } from '../../src/contracts/index.js';
 import { createOperatorbench } from '../../src/plugins/evaluator-operatorbench/service.js';
 
@@ -78,4 +80,37 @@ test('operatorbench rejects invalid bound configs before acquiring a candidate, 
     }
   }
   assert.deepEqual(await readdir(directory), []);
+});
+
+test('operatorbench accepts native SDK configuration without redundant mode and timing settings', () => {
+  validate(
+    configSchema,
+    {
+      task: { directory: '/fixture/task' },
+      benchmark: { name: 'kernel', config: { profiling: { roundNum: 0 } } },
+    },
+    'operatorbench config',
+  );
+});
+
+test('operatorbench accepts configured timing counts and SDK resource controls above former ceilings', () => {
+  validate(
+    configSchema,
+    {
+      task: { directory: '/fixture/task' },
+      benchmark: {
+        name: 'kernel',
+        config: {
+          warmup: 10001,
+          repeat: 4097,
+          outputLimitBytes: 4 * 1024 * 1024,
+          cleanupGraceMs: 500,
+          cleanupTimeoutMs: 5000,
+          profiling: { enabled: false, cacheMaxEntries: 1024, retryDelayMs: 0 },
+        },
+      },
+      run: { timeoutSeconds: 60 },
+    },
+    'operatorbench config',
+  );
 });

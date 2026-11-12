@@ -90,12 +90,9 @@ for (const sdkStatus of ['completed', 'cancelled', 'unknown'] as const)
       'candidate',
       'fixed',
       {
-        kind: 'kernel-source',
-        format: 'triton-ascend',
-        entryPoint: 'kernel_function',
-        directory: dir,
-        sourceDigest: 'a'.repeat(64),
         artifactRef: 'source',
+        sourceDigest: 'a'.repeat(64),
+        sourceBundleDigest: 'b'.repeat(64),
       },
       {
         mode: 'sdk',
@@ -159,7 +156,7 @@ test('a passing assessment cannot certify a different case or seed of the same t
   });
   const provenanceRef = await artifacts.putJson({
     cleanup: 'confirmed',
-    sourceDigest: 'source',
+    sourceBundleDigest: 'bundle',
   });
   const context = new RuntimeContext().extend({
     experimentId: 'exp',
@@ -290,13 +287,30 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
       measurements.set(ref, measurement);
       return ref;
     },
+    async applicationMetadata() {
+      return {
+        target: {
+          schemaVersion: 'rsi.target/v1',
+          id: 'kernel',
+          entries: [
+            {
+              path: 'input.py',
+              kind: 'file',
+              description: 'entry',
+              changes: ['modify'],
+            },
+          ],
+        },
+      };
+    },
     async withInstance(_ref, _capability, use) {
       return use({
         kind: 'kernel-source',
         format: 'triton-ascend',
         entryPoint: 'kernel_function',
+        sourcePath: 'input.py',
         directory: sourceDirectory,
-        sourceDigest: sha256(source),
+        sourceFiles: [{ path: 'input.py', sha256: sha256(source) }],
         artifactRef: await artifacts.capture(sourceDirectory),
       });
     },
@@ -333,7 +347,7 @@ test('a rebuilt SDK cannot profile an assessment from the previous build', async
     context,
   );
   const distribution = join(modules, 'ember-evaluator/dist');
-  const replay = 'adapters/kernel/msprof_replay.py';
+  const replay = 'plugins/benchmarks/operator/kernel/runtime/msprof_replay.py';
   await appendFile(
     join(distribution, replay),
     '\n# A rebuilt diagnostic runtime after the precision assessment\n',

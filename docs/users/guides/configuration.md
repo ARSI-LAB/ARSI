@@ -72,11 +72,33 @@ InferenceBench runs the SDK locally for AgentX and AISBench. The AISBench solver
 
 OperatorBench takes an SDK `kernel` benchmark and an RSI `task.directory`. After selecting the case, RSI builds and checks the final SDK configuration before acquiring the candidate. RSI supplies the service required for kernel replay. Omit `services` entirely, including empty maps. Put kernel options such as `repeat`, `python`, and `profiling` under `benchmark.config`. RSI builds the manifest from the candidate and reference, binds the selected case and seed, and stores the run index and output in the call directory. A `profile` action enables profiling and disables its cache. See the [operator Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml).
 
+### Choose and configure an Agent backend
+
+Configure just one of the four backends below. Pi uses the model settings in your Recipe; Codex, Claude Code and DSH call a CLI installed on the computer running RSI.
+
+The YAML examples are **fragments of an existing Recipe**: replace `bindings.agent`, keeping your Application, Policy and other bindings. If a custom Policy uses a different Agent binding name, use that name instead. Agent settings do not configure the Evaluator's model.
+
+Replace `your-model`, endpoint URLs and keys with your own values. Set environment variables in **the same terminal that starts RSI**; RSI does not load `.env` automatically. The `export NAME='value'` examples use Bash/Zsh; in Windows PowerShell, write `$env:NAME = 'value'` instead.
+
 ### Pi backend
 
-`agent.pi` executes Agent tasks in the optimization flow through Pi, with an explicitly configured model endpoint, model name, and credentials.
+No separate Pi CLI installation is needed. With an OpenAI Chat Completions endpoint available, set:
 
-This fragment adds explicit request and invocation deadlines to a Policy that declares an `agent` binding:
+```sh
+export MODEL_NAME='your-model'
+export MODEL_ENDPOINT='https://api.example.com/v1'
+export MODEL_API_KEY='your-api-key'
+```
+
+Windows PowerShell:
+
+```powershell
+$env:MODEL_NAME = 'your-model'
+$env:MODEL_ENDPOINT = 'https://api.example.com/v1'
+$env:MODEL_API_KEY = 'your-api-key'
+```
+
+In your Recipe:
 
 ```yaml
 bindings:
@@ -86,12 +108,9 @@ bindings:
       model: ${MODEL_NAME}
       base_url: ${MODEL_ENDPOINT}
       api_key: ${MODEL_API_KEY}
-      thinkingLevel: low
-      timeoutMs: 1800000
-      executionTimeoutMs: 3600000
 ```
 
-The [Pi Schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` for a per-request output limit; it must fit `contextWindow` and the endpoint's capabilities.
+[Pi Schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` for a per-request output limit; it must fit `contextWindow` and the endpoint's capabilities.
 
 - `api_key` must be an environment-variable reference, not a literal key.
 
@@ -102,47 +121,144 @@ The [Pi Schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLe
 
 ### Native CLI backends: Codex, Claude Code and DSH
 
-Install the CLI on the computer running RSI, then sign in or configure API access. RSI calls that CLI and uses its model and authentication settings.
+#### Codex
 
-| Backend | Command | Model configuration | Optional Recipe settings |
-| --- | --- | --- | --- |
-| `agent.codex` | `codex` | `~/.codex/config.toml` and native login | `model`, `thinkingLevel` |
-| `agent.claudecode` | `claude` | Native login or gateway environment | `model`, `effort` |
-| `agent.dsh` | `dsh` | Headless profile under `$DSH_HOME/profiles/headless` (default `~/.dsh/profiles/headless`) | None |
+Install the CLI (requires Node.js and npm):
 
-Choose a backend in your Recipe. This example uses DSH; to use Codex or Claude Code, change only `plugin`:
+```sh
+npm install -g @openai/codex
+codex --version
+```
+
+**Account sign-in**: run `codex login` and follow the prompts. If Codex is already configured, reuse that configuration.
+
+**Custom model API**: configure the service in `~/.codex/config.toml` (`$HOME\.codex\config.toml` on Windows). Update the relevant entries without overwriting other settings:
+
+```toml
+model = "your-model"
+model_provider = "custom"
+
+[model_providers.custom]
+name = "My model API"
+base_url = "https://api.example.com/v1"
+env_key = "MODEL_API_KEY"
+wire_api = "responses"
+```
+
+Set `export MODEL_API_KEY='your-api-key'` in the terminal that starts RSI. This example requires a Responses API endpoint; a Chat Completions-only endpoint cannot use this configuration directly. See the [official Codex configuration guide](https://developers.openai.com/codex/config-advanced/) for more options.
+
+In your Recipe:
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.codex
+    config: {}
+```
+
+The model comes from your Codex configuration. To override it for this experiment, add `model: your-model` and optionally `thinkingLevel: low` under `config`. Keep the API address and credentials in Codex configuration and environment variables.
+
+#### Claude Code
+
+Install the CLI using the [official instructions](https://code.claude.com/docs/en/setup). Bash/Zsh:
+
+```sh
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://claude.ai/install.ps1 | iex
+```
+
+Open a new terminal and run `claude --version` to verify the command is available, then choose one authentication method:
+
+- **Account sign-in**: run `claude auth login` and follow the prompts.
+- **Anthropic API key**: set `export ANTHROPIC_API_KEY='your-api-key'`.
+- **API gateway**: set its address, credential and model name as shown below.
+
+```sh
+export ANTHROPIC_BASE_URL='https://gateway.example.com'
+export ANTHROPIC_AUTH_TOKEN='your-gateway-token'
+export ANTHROPIC_MODEL='your-model'
+```
+
+This example uses the Anthropic Messages API. The base URL usually omits `/v1`; follow your gateway's instructions. If it requires `x-api-key`, replace `ANTHROPIC_AUTH_TOKEN` with `ANTHROPIC_API_KEY` rather than setting both. See the [official gateway guide](https://code.claude.com/docs/en/llm-gateway-connect).
+
+In your Recipe:
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.claudecode
+    config: {}
+```
+
+You can add `model: your-model` under `config` to override the default model, and `effort: low` to adjust reasoning effort. RSI disables user/project settings, ordinary Hooks and MCP when starting Claude Code. **API settings stored only in the `env` block of `.claude/settings.json` do not apply**; use the shell environment above or native sign-in.
+
+#### DSH
+
+Install the CLI (requires Node.js and npm):
+
+```sh
+npm install -g @deepseek-ai/dsh
+dsh --version
+```
+
+Create `~/.dsh/profiles/headless/cordis.patch.yml`, including any missing directories. On Windows, use `$HOME\.dsh\profiles\headless\cordis.patch.yml`. If you set `DSH_HOME`, use `profiles/headless/cordis.patch.yml` under that directory instead.
+
+This example uses an OpenAI Chat Completions endpoint. Replace **both** occurrences of `your-model` with the same model name and set `baseURL` to your endpoint. Merge the relevant entries if you already have a configuration:
+
+```yaml
+- id: agent-default-model
+  config:
+    provider: custom
+    model: your-model
+- id: llm-pi-ai
+  config:
+    providers:
+      custom:
+        api: openai-completions
+        baseURL: https://api.example.com/v1
+        apiKeyEnv: MODEL_API_KEY
+        models:
+          - id: your-model
+            contextWindow: 131072
+            maxTokens: 4096
+```
+
+`contextWindow` is the model's context capacity; `maxTokens` is the output limit per request. Adjust both for your model. In the terminal that starts RSI, set:
+
+```sh
+export MODEL_API_KEY='your-api-key'
+```
+
+In your Recipe:
 
 ```yaml
 bindings:
   agent:
     plugin: agent.dsh
-    config:
-      timeoutMs: 180000
+    config: {}
 ```
 
-`timeoutMs: 180000` gives each Agent task up to 3 minutes. Use `config: {}` if you do not need a timeout. If RSI cannot find the CLI, set `executable` to its full path under `config`. Codex and Claude Code also accept the model options listed above.
+RSI always uses DSH's **headless** profile; configuring only the Web UI is not enough. The Recipe does not accept DSH `model`, `base_url` or `api_key` fields. Use the profile and environment variables above.
 
-Install DSH:
+### Check and start
 
-```sh
-npm install -g @deepseek-ai/dsh
-```
-
-Configure model access in DSH’s **headless** profile; configuring only the Web UI is not enough. Keep models and API keys in DSH configuration or environment variables, not in Recipe `model`, `base_url` or `api_key` fields.
-
-Check your Recipe before starting:
+After configuring your chosen backend, replace the path below with your complete Recipe file and run these commands in the same terminal:
 
 ```sh
 ember-rsi doctor path/to/recipe.yaml
 ember-rsi run path/to/recipe.yaml
 ```
 
-See [Doctor](doctor.md) for interpreting results. Claude Code checks CLI compatibility and authentication; DSH checks CLI compatibility and headless configuration composition. `model-access: unchecked` means model access still needs verification.
+Resolve Doctor failures before running the experiment. `model-access: unchecked` does not confirm a working model connection: actual calls may still fail due to permissions, model names or API compatibility. See [Doctor](doctor.md) for check coverage.
 
-- The Agent reads task files and proposes changes; RSI checks and applies them.
-- Claude Code disables user/project settings, ordinary Hooks and MCP. Configure authentication through native login or the launch environment.
-- Configure prompts and Skills in the calling component, such as the Proposer.
-- These backends cannot limit model requests with `budget.modelCalls`; use `timeoutMs` or an experiment duration budget to limit running time.
+When running from the source repository, replace `ember-rsi` with `pnpm ember-rsi`. If the native CLI cannot be found, open a new terminal or set `executable` to its full path under the binding's `config`.
+
+For native CLI backends, add `timeoutMs: 180000` to limit each Agent task to 3 minutes; omitting it leaves that deadline unset. These backends cannot enforce `budget.modelCalls`. The Agent proposes changes for RSI to check and apply; configure prompts and Skills in the calling component, such as the Proposer.
 
 ## Inference optimization
 

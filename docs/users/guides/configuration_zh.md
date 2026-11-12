@@ -72,11 +72,33 @@ InferenceBench 在本地通过 SDK 运行 AgentX 或 AISBench。AISBench solver 
 
 OperatorBench 使用 SDK 的 `kernel` benchmark 和 RSI 的 `task.directory`。选定 case 后，RSI 会在获取候选实例前生成并校验本次评测的完整 SDK 配置。kernel replay 所需的服务由 RSI 提供。Recipe 必须省略整个 `services` 字段，填写空对象也会报错。`repeat`、`python`、`profiling` 等算子参数直接写在 `benchmark.config` 下。RSI 用候选源码和参考实现生成清单，绑定选定的 case 和 seed，并在调用目录内保存索引和结果。执行 `profile` 时会开启采集并禁用缓存。要保留原有运行设置，请配置 `run.onError: abort`，并将 `run.timeoutSeconds` 设为原算子超时加 30 秒。参见[算子 Recipe](../../../examples/artifacts/kernel/transpose-copy/recipe.search.yaml)。
 
+### 选择并配置 Agent 后端
+
+只需配置下面四种后端中的一种。Pi 直接使用 Recipe 中的模型配置；Codex、Claude Code 和 DSH 调用本机已安装的 CLI。
+
+以下 YAML 都是**已有 Recipe 的局部配置**：替换 `bindings.agent`，保留 Application、Policy 和其他绑定。自定义 Policy 如果使用其他 Agent 绑定名，请使用对应名称。Agent 配置不会替你配置 Evaluator 的模型。
+
+示例中的 `your-model`、服务地址和密钥都要换成你自己的值。环境变量须在**启动 RSI 的同一个终端**设置；RSI 不会自动读取 `.env`。下方 `export NAME='value'` 是 Bash/Zsh 写法，Windows PowerShell 改写为 `$env:NAME = 'value'`。
+
 ### Pi 后端
 
-`agent.pi` 通过 Pi 执行优化流程中的 Agent 任务，适合直接指定模型服务地址、模型名称和凭据。
+无需单独安装 Pi CLI。准备支持 OpenAI Chat Completions 的模型服务，在终端设置：
 
-对声明了 `agent` 绑定的 Policy，下面的片段显式配置请求和整次调用期限：
+```sh
+export MODEL_NAME='your-model'
+export MODEL_ENDPOINT='https://api.example.com/v1'
+export MODEL_API_KEY='your-api-key'
+```
+
+Windows PowerShell：
+
+```powershell
+$env:MODEL_NAME = 'your-model'
+$env:MODEL_ENDPOINT = 'https://api.example.com/v1'
+$env:MODEL_API_KEY = 'your-api-key'
+```
+
+在 Recipe 中填写：
 
 ```yaml
 bindings:
@@ -86,9 +108,6 @@ bindings:
       model: ${MODEL_NAME}
       base_url: ${MODEL_ENDPOINT}
       api_key: ${MODEL_API_KEY}
-      thinkingLevel: low
-      timeoutMs: 1800000
-      executionTimeoutMs: 3600000
 ```
 
 [Pi Schema](../../../src/plugins/agent-pi/schema.ts) 的默认值为 `thinkingLevel: low`、`contextWindow: 262144`、`retries: 0`。通过 `maxTokens` 设置单次请求的输出上限，取值须适配 `contextWindow` 和端点能力。
@@ -102,47 +121,144 @@ bindings:
 
 ### 原生 CLI 后端：Codex、Claude Code 和 DSH
 
-先在运行 RSI 的电脑上安装 CLI，并完成登录或 API 配置。RSI 会调用这个 CLI，沿用它的模型和认证配置。
+#### Codex
 
-| 后端 | 命令 | 模型配置位置 | Recipe 可选设置 |
-| --- | --- | --- | --- |
-| `agent.codex` | `codex` | `~/.codex/config.toml` 和原生登录 | `model`、`thinkingLevel` |
-| `agent.claudecode` | `claude` | 原生登录或网关环境变量 | `model`、`effort` |
-| `agent.dsh` | `dsh` | `$DSH_HOME/profiles/headless`（默认 `~/.dsh/profiles/headless`） | 无 |
+安装 CLI（需要 Node.js 和 npm）：
 
-在 Recipe 中选择后端。下面使用 DSH；换成 Codex 或 Claude Code 时，只需修改 `plugin`：
+```sh
+npm install -g @openai/codex
+codex --version
+```
+
+**使用账号登录**：执行 `codex login`，按提示完成登录。已配置好 Codex 的用户可直接复用现有配置。
+
+**使用自定义模型 API**：在 `~/.codex/config.toml`（Windows 为 `$HOME\.codex\config.toml`）中配置服务。已有文件时修改对应项，不要覆盖其他设置：
+
+```toml
+model = "your-model"
+model_provider = "custom"
+
+[model_providers.custom]
+name = "My model API"
+base_url = "https://api.example.com/v1"
+env_key = "MODEL_API_KEY"
+wire_api = "responses"
+```
+
+在启动 RSI 的终端设置 `export MODEL_API_KEY='your-api-key'`。此示例要求服务支持 Responses API；只有 Chat Completions 接口的服务不能直接使用这份配置。更多选项见 [Codex 官方配置说明](https://developers.openai.com/codex/config-advanced/)。
+
+在 Recipe 中填写：
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.codex
+    config: {}
+```
+
+模型沿用 Codex 的配置。需要为本次实验覆盖时，在 `config` 中添加 `model: your-model` 和可选的 `thinkingLevel: low`；API 地址和密钥仍放在 Codex 配置及环境变量中。
+
+#### Claude Code
+
+按[官方安装说明](https://code.claude.com/docs/en/setup)安装 CLI。Bash/Zsh：
+
+```sh
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+Windows PowerShell：
+
+```powershell
+irm https://claude.ai/install.ps1 | iex
+```
+
+重新打开终端，运行 `claude --version` 确认可以找到命令，再选择一种认证方式：
+
+- **账号登录**：执行 `claude auth login`，按提示完成登录。
+- **Anthropic API key**：设置 `export ANTHROPIC_API_KEY='your-api-key'`。
+- **API 网关**：按下面的示例设置地址、凭据和网关提供的模型名称。
+
+```sh
+export ANTHROPIC_BASE_URL='https://gateway.example.com'
+export ANTHROPIC_AUTH_TOKEN='your-gateway-token'
+export ANTHROPIC_MODEL='your-model'
+```
+
+此示例使用 Anthropic Messages 接口；地址通常不带 `/v1`，以网关说明为准。网关如果要求 `x-api-key`，将 `ANTHROPIC_AUTH_TOKEN` 换成 `ANTHROPIC_API_KEY`，不要同时设置两者。参见[官方网关说明](https://code.claude.com/docs/en/llm-gateway-connect)。
+
+在 Recipe 中填写：
+
+```yaml
+bindings:
+  agent:
+    plugin: agent.claudecode
+    config: {}
+```
+
+可在 `config` 中添加 `model: your-model` 覆盖默认模型，以及 `effort: low` 调整推理强度。RSI 启动 Claude Code 时禁用用户/项目设置、普通 Hooks 和 MCP，**仅写在 `.claude/settings.json` 的 `env` 中的 API 配置不会生效**；请使用上述终端环境变量或原生登录。
+
+#### DSH
+
+安装 CLI（需要 Node.js 和 npm）：
+
+```sh
+npm install -g @deepseek-ai/dsh
+dsh --version
+```
+
+创建 `~/.dsh/profiles/headless/cordis.patch.yml`，不存在的目录也需创建。Windows 对应 `$HOME\.dsh\profiles\headless\cordis.patch.yml`；设置过 `DSH_HOME` 时，使用该目录下的 `profiles/headless/cordis.patch.yml`。
+
+下面使用 OpenAI Chat Completions 服务。将**两处** `your-model` 改成同一个模型名称，`baseURL` 改为服务地址；已有配置时合并对应项：
+
+```yaml
+- id: agent-default-model
+  config:
+    provider: custom
+    model: your-model
+- id: llm-pi-ai
+  config:
+    providers:
+      custom:
+        api: openai-completions
+        baseURL: https://api.example.com/v1
+        apiKeyEnv: MODEL_API_KEY
+        models:
+          - id: your-model
+            contextWindow: 131072
+            maxTokens: 4096
+```
+
+`contextWindow` 和 `maxTokens` 分别是模型上下文容量和单次输出上限，请按所用模型调整。在启动 RSI 的终端设置：
+
+```sh
+export MODEL_API_KEY='your-api-key'
+```
+
+在 Recipe 中填写：
 
 ```yaml
 bindings:
   agent:
     plugin: agent.dsh
-    config:
-      timeoutMs: 180000
+    config: {}
 ```
 
-`timeoutMs: 180000` 表示一次 Agent 任务最多运行 3 分钟；不需要限制时可改成 `config: {}`。如果 RSI 找不到 CLI，可在 `config` 中用 `executable` 指定完整路径。Codex 和 Claude Code 还可以添加表中的模型选项。
+RSI 固定使用 DSH 的 **headless** profile；只配置 Web 界面不够。Recipe 不接受 DSH 的 `model`、`base_url` 或 `api_key`，请在上面的 profile 和环境变量中配置。
 
-安装 DSH：
+### 检查并启动
 
-```sh
-npm install -g @deepseek-ai/dsh
-```
-
-DSH 需要配置 **headless** profile 的模型服务；只配置 Web 界面还不够。模型和密钥放在 DSH 配置或环境变量中，不要在 Recipe 中填写 `model`、`base_url` 或 `api_key`。
-
-启动前检查 Recipe：
+完成所选后端的配置后，将下面的路径换成你的完整 Recipe 文件路径，在同一个终端运行：
 
 ```sh
 ember-rsi doctor path/to/recipe.yaml
 ember-rsi run path/to/recipe.yaml
 ```
 
-结果说明见 [Doctor](doctor_zh.md)。Claude Code 检查 CLI 兼容性和认证状态；DSH 检查 CLI 兼容性及 headless 配置组合。`model-access: unchecked` 表示仍需确认模型访问可用。
+先处理 Doctor 的失败项，再运行实验。`model-access: unchecked` 不代表模型连接成功，实际调用仍可能因权限、模型名称或接口兼容性失败。检查范围见 [Doctor](doctor_zh.md)。
 
-- Agent 读取任务文件并返回修改建议，由 RSI 检查后写入。
-- Claude Code 禁用用户/项目设置、普通 Hooks 和 MCP；认证使用原生登录或启动环境变量。
-- 在 Proposer 等调用组件中配置提示词和 Skills。
-- 这些后端不能按 `budget.modelCalls` 限制模型请求次数；请用 `timeoutMs` 或实验时长预算控制运行时间。
+使用源码仓库时，将 `ember-rsi` 换为 `pnpm ember-rsi`。如果找不到原生 CLI，重新打开终端，或在绑定的 `config` 中用 `executable` 指定 CLI 完整路径。
+
+原生 CLI 后端可加 `timeoutMs: 180000`，将每次 Agent 任务限制为 3 分钟；省略则不设此期限。它们不支持用 `budget.modelCalls` 限制模型请求次数。Agent 返回修改建议，由 RSI 检查并应用；提示词和 Skills 在 Proposer 等调用组件中配置。
 
 ## 推理优化
 

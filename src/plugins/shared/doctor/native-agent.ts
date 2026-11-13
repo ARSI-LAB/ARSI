@@ -51,6 +51,7 @@ export async function runNativeAgentCommand(
   args: string[],
   signal: AbortSignal,
   acceptedExitCodes: readonly number[] = [0],
+  env?: NodeJS.ProcessEnv,
 ): Promise<string> {
   try {
     const launch = await nativeAgentCommand(
@@ -63,6 +64,7 @@ export async function runNativeAgentCommand(
         signal,
         cwd: context.directory,
         acceptedExitCodes,
+        env,
       },
     );
     return stdout;

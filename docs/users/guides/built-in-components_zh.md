@@ -49,9 +49,10 @@ Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供�
 | Selector    | `selector.inference`                            | 先改善约束违反程度，再在目标范围内优化主指标。                        | 优化推理性能，并保留逐步接近延迟目标的有效进展。 |
 | Selector    | `selector.artifact`                             | 让模型按评审标准比较匿名展示的报告等交付内容。                        | 按内容质量选择候选。                         |
 | Agent 后端  | [`agent.pi`](configuration_zh.md#pi-后端)       | 通过 Pi 执行提案生成、内容评审和经验总结等任务。                      | 使用自选模型服务驱动优化流程。               |
-| Agent 后端  | [`agent.codex`](configuration_zh.md#原生-cli-后端codexclaude-code-和-dsh) | 通过本机 Codex 执行提案生成、内容评审和经验总结等任务。               | 复用已有的 Codex 登录和配置。                |
-| Agent 后端  | [`agent.claudecode`](configuration_zh.md#原生-cli-后端codexclaude-code-和-dsh) | 通过本机 Claude Code CLI 执行 Agent 任务。                            | 原生 Skills、子 Agent、结构化输出与只读工具。 |
-| Agent 后端  | [`agent.dsh`](configuration_zh.md#原生-cli-后端codexclaude-code-和-dsh)     | 通过官方 DSH headless CLI 执行优化 Agent 任务。                       | 复用 DSH 原生配置和工具。                    |
+| Agent 后端  | [`agent.codex`](configuration_zh.md#原生-cli-后端) | 通过本机 Codex 执行提案生成、内容评审和经验总结等任务。               | 复用已有的 Codex 登录和配置。                |
+| Agent 后端  | [`agent.claudecode`](configuration_zh.md#原生-cli-后端) | 通过本机 Claude Code CLI 执行 Agent 任务。                            | 原生 Skills、子 Agent、结构化输出与只读工具。 |
+| Agent 后端  | [`agent.dsh`](configuration_zh.md#原生-cli-后端)     | 通过官方 DSH headless CLI 执行优化 Agent 任务。                       | 复用 DSH 原生配置和工具。                    |
+| Agent 后端 | [`agent.opencode`](configuration_zh.md#原生-cli-后端) | 通过本机 OpenCode V2 CLI 执行 Agent 任务。 | 复用原生模型配置，使用独立实例返回只读提案。 |
 
 `selector.inference` 与 `selector.metric` 使用相同的 `contract.selector-metrics` 接口和配置字段。尚有约束未满足时，只要所有约束的违反程度都不增加，且至少一项减小，就可以接受候选。违反程度完全相同时，主指标必须改善并超过配置的门槛。已满足的约束必须保持满足；全部达标后，在保持达标的前提下优化主指标，不再退回未达标候选。标记 `prerequisite: true` 的约束始终是硬性要求，并在目标值比较前执行。只有完整、可比较且包含所需指标的测量才能用于选择。
 

@@ -74,7 +74,7 @@ OperatorBench takes an SDK `kernel` benchmark and an RSI `task.directory`. After
 
 ### Choose and configure an Agent backend
 
-Configure just one of the four backends below. Pi uses the model settings in your Recipe; Codex, Claude Code and DSH call a CLI installed on the computer running RSI.
+Configure just one of the backends below. Pi uses the model settings in your Recipe; Codex, Claude Code, DSH and OpenCode call a CLI installed on the computer running RSI.
 
 The YAML examples are **fragments of an existing Recipe**: replace `bindings.agent`, keeping your Application, Policy and other bindings. If a custom Policy uses a different Agent binding name, use that name instead. Agent settings do not configure the Evaluator's model.
 
@@ -117,7 +117,7 @@ bindings:
 - `timeoutMs` limits each model request. The underlying HTTP client uses a ten-minute request timeout when `timeoutMs` is omitted. Both timeout fields accept integer milliseconds from 1 to 2,147,483,647.
 - `executionTimeoutMs` limits the complete Agent invocation, including model requests, tools, output correction, context compaction, retry waits, and awaited subagents. It does not reset between requests.
 
-### Native CLI backends: Codex, Claude Code and DSH
+### Native CLI backends
 
 - **You prepare the environment**: install or update your chosen CLI and select its Agent backend in the Recipe. Sign in or configure model access as the same system user that starts RSI, then verify the model through the CLI. Reuse existing settings without duplicating API addresses or keys in the Recipe.
 - **RSI handles invocation**: start the CLI, prepare the task workspace, prompt and session, use native tools to read task files, validate the result, and clean up processes and temporary invocation files when the call ends. The Agent returns proposed changes for RSI to check and apply.
@@ -127,6 +127,7 @@ bindings:
 | Codex | [Official guide](https://developers.openai.com/codex/cli/) | Sign in with `codex login`, check with `codex login status`, then verify the model in `codex` | `agent.codex` |
 | Claude Code | [Official guide](https://code.claude.com/docs/en/setup) | Sign in with `claude auth login`, check with `claude auth status`, then verify the model in `claude` | `agent.claudecode` |
 | DSH | [Official guide](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | Configure the headless profile, then verify with `dsh --profile headless "Reply with OK."` | `agent.dsh` |
+| OpenCode V2 | [Official guide](https://opencode.ai/docs/cli/); `npm install -g @opencode/cli` | Run `opencode` to configure and verify model access | `agent.opencode` |
 
 For a custom model service, follow the CLI's official configuration instructions instead of account sign-in. Authentication status alone does not confirm model access: verify that the CLI can answer a message. DSH requires a working **headless** profile, not just Web UI configuration.
 
@@ -147,6 +148,7 @@ bindings:
 | Codex | `model`, `thinkingLevel` |
 | Claude Code | `model`, `effort` |
 | DSH | Configure the model in the native headless profile |
+| OpenCode | `model`: `provider/model`, optionally followed by `#variant` |
 
 RSI keeps native model and authentication settings while limiting tasks to read-only proposals with no interactive approvals. Claude Code Hooks and MCP are disabled for RSI calls.
 

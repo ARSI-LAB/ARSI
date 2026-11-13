@@ -6,6 +6,20 @@ Reflection improves target plugins using execution evidence so later calls adopt
 
 - The built-in Harness² Policy configures Reflection to improve the Invariant and Domain Proposers, currently authorizing changes to their `guidance`. Its `improve_guidance` step is commented out by default. See the [Harness² Policy](../../../src/policies/harness2/policy.yaml) and its [Reflection configuration](../../../src/policies/harness2/reflection.yaml).
 
+The built-in `parameter.agent` Policy declares a [configuration-search Reflection
+module](../../../src/policies/parameter/agent/reflection.yaml). Set
+`policy.config.reflection: true` to invoke it after measured batches while another
+trial remains; the default is `false`, independently of Memory. It reads proposal,
+evaluation, selector and available Memory records using `training-summary`, and
+can revise only the Proposer's `guidance`. It cannot change selection rules,
+workload or candidate parameters. The next proposal loads the activated revision;
+there is no final Reflection call after the trial limit or a no-change proposal.
+RSI provides a generic Reflection goal and default Proposer guidance. Scenarios
+can copy these resources, set `bindings.proposer.config.guidance` to their own
+directory and select a local `reflection.configFile`. The switch only controls
+calls: the existing Runtime validates the selected Reflection configuration and
+resources during Recipe loading, even when `policy.config.reflection` is false.
+
 ## 1. Configure a Reflection module
 
 `reflection.yaml` specifies which execution records to consult, which plugins to improve, which parts of those plugins may change, and which Reflection plugin and Agent perform the reflection. Put it beside the Policy. This example uses binding names declared by Harness²; adjust them to match your own Policy:
@@ -104,7 +118,7 @@ defaults:
     configFile: ./reflection.yaml
 ```
 
-The Runtime validates this configuration when loading the Policy. The Reflection step added in step 2 determines when it runs.
+The Runtime validates the selected configuration when loading the Recipe. The Reflection step added in step 2 determines when it runs.
 
 #### Override the file from a Recipe
 
@@ -117,6 +131,9 @@ reflection:
 ```
 
 This `reflection.configFile` resolves relative to the Recipe file. The selected file follows section 1 and completely replaces the Policy's default configuration, so the Policy must already declare `defaults.reflection`. The Policy still determines when Reflection runs.
+To specialize `parameter.agent`, copy its `reflection.yaml` and `reflection.md` into the scenario,
+edit the local goal, and select that YAML file here. The generic goal, implementation
+and orchestration stay in RSI; the scenario owns its specialized copies.
 
 ### Step 2: Choose when to invoke Reflection
 

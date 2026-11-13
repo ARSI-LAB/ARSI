@@ -6,6 +6,17 @@ Reflection 根据执行证据改进目标插件，使后续调用采用改进后
 
 - 内置 Harness² Policy 已配置 Reflection 来改进 Invariant Proposer 和 Domain Proposer，目前允许修改它们的 `guidance`。`improve_guidance` 步骤默认处于注释状态。参见 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 和 [Reflection 配置](../../../src/policies/harness2/reflection.yaml)。
 
+内置 `parameter.agent` Policy 声明了[配置搜索 Reflection
+模块](../../../src/policies/parameter/agent/reflection.yaml)。设置
+`policy.config.reflection: true` 后，在每批完成评测且仍有后续试验时调用；默认关闭，
+与 Memory 开关独立。它通过 `training-summary` 读取提案、评测、selector 和已有
+Memory 调用记录，仅可修订 Proposer 的 `guidance`，不能修改选择规则、负载或候选参数。
+下一次提案加载已激活的版本；达到候选上限或收到无修改提案后不再进行收尾 Reflection。
+RSI 提供通用 Reflection 目标和默认 Proposer 指引。场景可复制这些资源，通过
+`bindings.proposer.config.guidance` 选择自己的指引目录，并通过本地
+`reflection.configFile` 选择配置副本。开关只控制调用；沿用现有 Runtime 行为，
+即使 `policy.config.reflection` 为 false，Recipe 加载时仍会校验选中的配置和资源。
+
 ## 1. 配置 Reflection 模块
 
 `reflection.yaml` 指定参考哪些执行记录、改进哪些插件、允许修改插件的哪些内容，以及由哪个 Reflection 插件和 Agent 完成反思。将文件放在 Policy 旁；下面使用 Harness² 已声明的绑定名，接入自己的 Policy 时按实际绑定名调整：
@@ -104,7 +115,7 @@ defaults:
     configFile: ./reflection.yaml
 ```
 
-Runtime 加载 Policy 时会校验这份配置，实际执行由第二步添加的 Reflection 步骤触发。
+Runtime 加载 Recipe 时会校验选中的配置，实际执行由第二步添加的 Reflection 步骤触发。
 
 #### 通过 Recipe 替换文件
 
@@ -117,6 +128,9 @@ reflection:
 ```
 
 这里的 `reflection.configFile` 相对于 Recipe 文件解析，选择的文件仍按第 1 节编写。它会完整替换 Policy 声明的默认配置，因此 Policy 需要先声明 `defaults.reflection`。调用时机仍由 Policy 决定。
+适配 `parameter.agent` 时，可将
+它的 `reflection.yaml` 和 `reflection.md` 复制到场景目录，修改本地目标，再在此处
+选择该 YAML 文件。通用目标、组件和编排仍留在 RSI，场景维护自己的特化副本。
 
 ### 第二步：指定 Reflection 调用时机
 

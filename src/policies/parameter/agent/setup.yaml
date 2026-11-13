@@ -5,6 +5,7 @@ state_schema:
     incumbent: { type: [string, 'null'] }
     incumbentMeasurement: { type: [string, 'null'] }
     incumbentFeasible: { type: boolean }
+    memoryRef: { type: [string, 'null'] }
     stopReason: { enum: [max-trials, no-change] }
     sources: { type: array, items: { type: object } }
     trials:
@@ -33,6 +34,7 @@ state_schema:
       incumbent,
       incumbentMeasurement,
       incumbentFeasible,
+      memoryRef,
       stopReason,
       trials,
       sources,
@@ -41,6 +43,7 @@ state:
   incumbent: null
   incumbentMeasurement: null
   incumbentFeasible: false
+  memoryRef: null
   stopReason: max-trials
   trials: []
   sources: []
@@ -49,12 +52,20 @@ require:
   evaluator: { contract: contract.inferencebench }
   selector: { contract: contract.selector-metrics }
   agent: { contract: contract.agent }
+  memoryUpdater: { contract: contract.memory }
 defaults:
+  reflection: { configFile: ./reflection.yaml }
   bindings:
     agent: { plugin: agent.codex }
     proposer:
       plugin: proposer.agent
-      config: { agentRef: agent }
+      config: { agentRef: agent, prompt: ./prompt.md, guidance: ./guidance }
+    memoryUpdater:
+      plugin: memory.agent
+      config:
+        agentRef: agent
+        prompt: ./memory.md
+        evidenceView: training-summary
     selector:
       plugin: selector.inference
       config: { metric: requestThroughput, direction: maximize }

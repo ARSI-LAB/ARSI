@@ -173,6 +173,24 @@ ember-rsi run path/to/recipe.yaml
 
 对于 `parameter.agent`，`policy.config.candidatesPerRound` 默认为 4，可设为 1 至 6。调优 Proposer 基于同一个当前最优版本生成候选，按优先级排序，每批最多返回该数量。Policy 按顺序直接调用 `evaluator.inferencebench`，再用更新后的当前最优版本生成下一批。`maxTrials` 限制所有批次的候选尝试总数。已确认且完成清理的启动失败记为失败 Measurement，并拒绝该候选；SDK 评测失败、取消、收集不完整或清理状态不明会停止实验。失败基线不能启动搜索。
 
+`parameter.agent` 还支持独立的 `policy.config.memory` 和
+`policy.config.reflection` 开关，默认均为 `false`。Memory 在每批完成评测后整理经验，
+将保存的 `memoryRef` 传给后续提案；Reflection 在仍可继续试验的批次之间仅修订
+Proposer 的 `guidance`。两者复用配置的 `agent` 绑定和 `training-summary` 证据视图。
+Policy 提供通用 Proposer、Memory 和 Reflection 提示词，以及默认
+[指导文档](../../../src/policies/parameter/agent/guidance/search.md)。场景可将指引复制到
+独立目录，再通过 `bindings.proposer.config.guidance` 选择副本。Reflection 开关只控制
+调用；即使关闭，Recipe 加载时仍会校验其配置和资源。自定义 Proposer 需暴露所配置的
+Reflection 目标资源，或在 Recipe 中选择与它兼容的 Reflection 配置文件。
+场景可通过 `bindings.proposer.config.prompt`、`bindings.memoryUpdater.config.prompt`
+和 `reflection.configFile` 指向各自的提示词副本，无需复制 Policy。
+结果包含 `memoryRef`，没有经验时为 `null`。存储与激活行为见
+[Memory](memory_zh.md) 和 [Reflection](reflection_zh.md)。
+
+这是可复用的单文件配置搜索编排；目标、研究方法和专家角色由 Recipe 及其资源提供。
+Evaluator 绑定仍要求 `contract.inferencebench`，selector 要求
+`contract.selector-metrics`；其他评测契约需使用兼容适配器或另一个 Policy。
+
 默认的 `selector.inference` 用 `metric` 和 `direction` 定义主优化指标，用 `constraints` 定义性能目标，并通过 `prerequisite: true` 标记在目标值比较前执行的硬性要求。它允许在全部达标前接受约束违反程度减小的候选，同时防止已满足的约束退步。选择规则见[内置组件](built-in-components_zh.md#loop-组件)。Policy 保留当前最优版本，并用 `candidateFeasible` 单独报告是否达标，不将其等同于候选是否被接受。
 
 设置 `application.inference.config.remote.discoverParameters: true` 后，启动器会在初始化时报告当前安装版本的参数目录。Agent 可在 `context/input.json` 的 `target.parameterCatalog` 中读取。vLLM Ascend 示例已启用此功能，并将目录限制为明确列出的性能参数；精度、量化、投机解码和结构化配置均不开放。

@@ -1,10 +1,87 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  RuntimeContext,
+  applicationContract,
+  inferencebenchContract,
+  type JsonObject,
+} from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Policy } from '../../src/runtime/policy/index.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { object } from '../../src/shared/json.js';
+
+test('parameter.agent loads default learning resources with either Reflection switch value', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-defaults-'));
+  const registry = new Registry();
+  t.after(async () => {
+    await registry.dispose();
+    await rm(root, { recursive: true, force: true });
+  });
+  await registerBuiltins(registry);
+  for (const [id, contract] of [
+    ['custom.application', applicationContract],
+    ['custom.evaluator', inferencebenchContract],
+  ] as const) {
+    registry.registerOperation({
+      id,
+      contract,
+      configSchema: { type: 'object', additionalProperties: false },
+      async create() {
+        throw new Error('Loading must not execute plugins');
+      },
+    });
+  }
+  await writeFile(join(root, 'prompt.md'), 'User supplied prompt');
+  const declaration = {
+    schemaVersion: 'rsi.recipe/v1',
+    id: 'parameter-defaults',
+    application: { plugin: 'custom.application' },
+    policy: { id: 'parameter.agent', config: {} as JsonObject },
+    bindings: {
+      proposer: { config: { prompt: './prompt.md' } },
+      evaluator: { plugin: 'custom.evaluator' },
+    },
+  };
+  const options = { sourcePath: join(root, 'recipe.yaml') };
+  const standard = await Recipe.fromJSON(declaration, registry, options);
+  assert.equal(standard.policyConfig.memory, false);
+  assert.equal(standard.policyConfig.reflection, false);
+  assert.equal(
+    standard.bindings.proposer!.config.prompt,
+    join(root, 'prompt.md'),
+  );
+  assert.ok(standard.reflection);
+  const guidance = standard.bindings.proposer!.config.guidance;
+  assert.equal(typeof guidance, 'string');
+  assert.match(
+    await readFile(join(String(guidance), 'search.md'), 'utf8'),
+    /Configuration search guidance/,
+  );
+  for (const reflection of [false, true]) {
+    declaration.policy.config = { reflection };
+    const loaded = await Recipe.fromJSON(declaration, registry, options);
+    assert.ok(loaded.reflection);
+    const reloaded = await Recipe.fromJSON(loaded.toJSON(), registry, options);
+    assert.deepEqual(reloaded.reflection, loaded.reflection);
+  }
+  declaration.policy.config = { reflection: false };
+  const missingGuidance = {
+    ...declaration,
+    bindings: {
+      ...declaration.bindings,
+      proposer: { config: { guidance: './missing-guidance' } },
+    },
+  };
+  await assert.rejects(
+    Recipe.fromJSON(missingGuidance, registry, options),
+    /guidance.*cannot read resource/,
+  );
+});
 
 test('parameter.agent follows selector decisions and returns the measured incumbent before constraints are met', async () => {
   const registry = new Registry();
@@ -33,6 +110,7 @@ test('parameter.agent follows selector decisions and returns the measured incumb
             return { measurementRef: `m-${input.candidateRef}` };
           }
           if (binding === 'proposer') {
+            assert.equal(input.memoryRef, null);
             if (input.parent === 'baseline') {
               assert.equal(input.maxCandidates, 2);
               assert.deepEqual(input.evidenceRefs, ['m-baseline']);
@@ -124,6 +202,7 @@ test('parameter.agent follows selector decisions and returns the measured incumb
     ]);
     assert.equal(result.status, 'no-feasible-configuration');
     assert.equal(result.candidateFeasible, false);
+    assert.equal(result.memoryRef, null);
     assert.equal(result.stopReason, 'no-change');
     assert.equal(result.baselineCandidateRef, 'baseline');
     assert.equal(result.baselineMeasurementRef, 'm-baseline');

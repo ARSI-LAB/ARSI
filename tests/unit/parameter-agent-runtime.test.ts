@@ -274,6 +274,7 @@ test('Manager runs the Agent Policy with direct evaluation, bounded search, and 
 
     const cappedRecipe = join(root, 'capped.json');
     const capped = object(JSON.parse(await readFile(recipe, 'utf8')));
+    object(object(capped.policy).config).candidatesPerRound = 3;
     capped.budget = { ...object(capped.budget), evaluationRuns: 2 };
     await writeFile(cappedRecipe, JSON.stringify(capped));
     launches.length = 0;
@@ -288,6 +289,7 @@ test('Manager runs the Agent Policy with direct evaluation, bounded search, and 
     assert.equal(stopped.stopReason, 'budget-exhausted');
     assert.equal(stopped.budgetMetric, 'evaluationRuns');
     const partial = object(stopped.partialOutput);
+    assert.equal(partial.stopReason, null);
     assert.equal(partial.status, 'selected');
     assert.ok(Array.isArray(partial.trials));
     assert.equal(partial.trials.length, 1);

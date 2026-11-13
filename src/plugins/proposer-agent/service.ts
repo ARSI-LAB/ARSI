@@ -100,11 +100,14 @@ export const createProposerAgent: OperationDefinition<
         ProposerOutput,
         { status: 'batch' }
       >['candidates'] = [];
+      const noChangeReasons: string[] = [];
       for (const proposal of response.proposals as JsonObject[]) {
         const result = await commitProposal(proposal);
         if (result.status === 'created') {
           const { candidateRef, diffRef, rationale } = result;
           candidates.push({ candidateRef, diffRef, rationale });
+        } else {
+          noChangeReasons.push(result.rationale);
         }
       }
       if (candidates.length) return { status: 'batch', candidates };
@@ -112,7 +115,8 @@ export const createProposerAgent: OperationDefinition<
         status: 'no-change',
         candidateRef: parent.ref,
         diffRef: null,
-        rationale: 'No candidate changes were proposed.',
+        rationale:
+          noChangeReasons.join('\n\n') || 'No candidate changes were proposed.',
       };
 
       async function commitProposal(

@@ -45,7 +45,7 @@ steps:
   - id: search
     type: loop
     maxIterations: ${{ config.maxTrials }}
-    while: ${{ state.stopReason != 'no-change' && length(state.trials) < config.maxTrials }}
+    while: ${{ length(state.trials) < config.maxTrials }}
     steps:
       - id: propose
         type: invoke
@@ -65,6 +65,7 @@ steps:
             incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
             trials: ${{ state.trials }}
             selection: ${{ config.selection }}
+            previousNoChangeReason: ${{ state.previousNoChangeReason }}
           editConstraints:
             allowedPaths: ['${{ config.parameterFile }}']
             maxChangedFiles: 1
@@ -75,10 +76,14 @@ steps:
           steps:
             - id: no_change
               type: state
-              state: { stopReason: no-change }
+              state:
+                previousNoChangeReason: ${{ steps.propose.output.rationale }}
           output: []
         else:
-          steps: []
+          steps:
+            - id: clear_no_change
+              type: state
+              state: { previousNoChangeReason: null }
           output: >-
             ${{ if(steps.propose.output.status == 'batch',
             pluck(steps.propose.output.candidates, 'candidateRef'),
@@ -114,9 +119,13 @@ steps:
               type: state
               state:
                 memoryRef: ${{ steps.remember.output.memoryRef }}
+      - id: finish_round
+        type: state
+        state:
+          proposalRounds: ${{ state.proposalRounds + 1 }}
       - id: reflect_if_enabled
         type: if
-        if: ${{ config.reflection && length(steps.candidates.output) > 0 && length(state.trials) < config.maxTrials }}
+        if: ${{ config.reflection && length(state.trials) < config.maxTrials && state.proposalRounds < config.maxTrials }}
         then:
           steps:
             - id: improve_guidance
@@ -125,7 +134,9 @@ steps:
 # output
 output:
   status: ${{ if(state.incumbentFeasible, 'selected', 'no-feasible-configuration') }}
-  stopReason: ${{ state.stopReason }}
+  stopReason: >-
+    ${{ if(length(state.trials) >= config.maxTrials, 'max-trials',
+    if(state.proposalRounds >= config.maxTrials, 'max-proposal-rounds', null)) }}
   baselineCandidateRef: ${{ input.candidateRef }}
   baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
   candidateRef: ${{ state.incumbent }}

@@ -15,4 +15,12 @@ ideas only with new evidence or changed applicability conditions.
 If specialist roles are configured, delegate focused unresolved questions and
 reconcile their evidence before submitting. The main Agent owns the final
 proposal. Use only outputSchema and authorized edits; the selector owns
-acceptance. Return no change when no justified candidate remains.
+acceptance. Seek at least one concrete, valid configuration change on every call.
+A hypothesis need not already be proven: explain how measurement could falsify it.
+If one direction is blocked, investigate another supported direction or a justified
+interaction before responding. Do not invent evidence or submit an equivalent
+configuration to fill a batch. If no valid edit can be justified, report the
+specific blocker truthfully. A no-change response can be retried within the
+configured limits; read observations.previousNoChangeReason when supplied and
+address that gap rather than repeating the same conclusion. Runtime owns budgets
+and cancellation.

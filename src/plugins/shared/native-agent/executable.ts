@@ -12,12 +12,14 @@ export async function nativeAgentCommand(
   if (process.platform !== 'win32' || !/\.(cmd|bat)$/i.test(path))
     return { command: path, args: [] };
   const launcher = await readFile(path, 'utf8');
-  const match = /"%dp0%[\\/]([^"\r\n]+\.(?:cjs|mjs|js))"/i.exec(launcher);
+  const match = /"%dp0%[\\/]([^"\r\n]+\.(?:cjs|mjs|js|exe))"/i.exec(launcher);
   if (!match)
     throw new Error(
       'Unsupported Windows CLI launcher; configure a native executable or JavaScript entrypoint.',
     );
   const entrypoint = resolve(dirname(path), match[1]);
   await access(entrypoint);
-  return { command: process.execPath, args: [entrypoint] };
+  return /\.exe$/i.test(entrypoint)
+    ? { command: entrypoint, args: [] }
+    : { command: process.execPath, args: [entrypoint] };
 }

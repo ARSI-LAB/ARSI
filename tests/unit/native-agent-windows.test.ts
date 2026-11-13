@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { nativeAgentCommand } from '../../src/plugins/shared/native-agent/executable.js';
@@ -55,5 +55,27 @@ test(
       if (previous === undefined) delete process.env.PATH;
       else process.env.PATH = previous;
     }
+  },
+);
+
+test(
+  'Windows npm binary launcher runs the native executable without a shell',
+  { skip: process.platform !== 'win32' },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), 'native binary launcher '));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const binary = join(root, 'opencode.exe');
+    await copyFile(process.execPath, binary);
+    const shim = join(root, 'opencode.cmd');
+    await writeFile(shim, '@ECHO off\r\n"%dp0%\\opencode.exe" %*\r\n');
+    const launch = await nativeAgentCommand(shim);
+    assert.deepEqual(launch, { command: binary, args: [] });
+    const values = ['literal & value', '%PATH%', '中文'];
+    const result = await runCommand(
+      launch.command,
+      ['-e', 'console.log(JSON.stringify(process.argv.slice(1)))', ...values],
+      { signal: AbortSignal.timeout(10000) },
+    );
+    assert.deepEqual(JSON.parse(result.stdout), values);
   },
 );

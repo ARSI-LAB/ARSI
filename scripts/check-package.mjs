@@ -352,10 +352,13 @@ export function register(registry) {
   );
   assert.equal(
     catalog.plugins.length,
-    19,
+    22,
     'all built-in plugin definitions ship in the archive',
   );
   for (const id of [
+    'agent.claudecode',
+    'agent.dsh',
+    'agent.opencode',
     'application.kernel',
     'evaluator.operatorbench',
     'selector.inference',

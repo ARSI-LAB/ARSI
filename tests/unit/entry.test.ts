@@ -20,6 +20,7 @@ test('HTTP catalog exposes the registered kernel plugins and operator search Pol
       'agent.claudecode',
       'agent.codex',
       'agent.dsh',
+      'agent.opencode',
       'agent.pi',
       'application.agentbundle',
       'application.inference',

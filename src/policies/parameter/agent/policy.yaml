@@ -44,9 +44,8 @@ steps:
         - candidateRef: ${{ input.candidateRef }}
   - id: search
     type: loop
-    # The DSL requires a finite loop bound; trial limits and Runtime budgets govern search.
-    maxIterations: 9007199254740991
-    while: ${{ config.maxTrials == null || length(state.trials) < config.maxTrials }}
+    maxIterations: ${{ config.maxTrials }}
+    while: ${{ length(state.trials) < config.maxTrials }}
     steps:
       - id: propose
         type: invoke
@@ -56,7 +55,7 @@ steps:
           memoryRef: ${{ state.memoryRef }}
           goal: ${{ config.goal }}
           maxCandidates: >-
-            ${{ if(config.maxTrials == null || config.candidatesPerRound < config.maxTrials - length(state.trials),
+            ${{ if(config.candidatesPerRound < config.maxTrials - length(state.trials),
             config.candidatesPerRound, config.maxTrials - length(state.trials)) }}
           evidenceRefs: ${{ compact(concat(append(range(0, 0), steps.baseline.output.measurementRef), pluck(state.trials, 'measurementRef'))) }}
           sources: ${{ state.sources }}
@@ -92,7 +91,7 @@ steps:
       - id: evaluate_batch
         type: loop
         maxIterations: ${{ length(steps.candidates.output) }}
-        while: ${{ config.maxTrials == null || length(state.trials) < config.maxTrials }}
+        while: ${{ length(state.trials) < config.maxTrials }}
         steps:
           $ref: ./trial-steps.yaml#/evaluate
       - id: remember_if_enabled
@@ -120,9 +119,13 @@ steps:
               type: state
               state:
                 memoryRef: ${{ steps.remember.output.memoryRef }}
+      - id: finish_round
+        type: state
+        state:
+          proposalRounds: ${{ state.proposalRounds + 1 }}
       - id: reflect_if_enabled
         type: if
-        if: ${{ config.reflection && (config.maxTrials == null || length(state.trials) < config.maxTrials) }}
+        if: ${{ config.reflection && length(state.trials) < config.maxTrials && state.proposalRounds < config.maxTrials }}
         then:
           steps:
             - id: improve_guidance
@@ -131,7 +134,9 @@ steps:
 # output
 output:
   status: ${{ if(state.incumbentFeasible, 'selected', 'no-feasible-configuration') }}
-  stopReason: ${{ if(config.maxTrials != null && length(state.trials) >= config.maxTrials, 'max-trials', null) }}
+  stopReason: >-
+    ${{ if(length(state.trials) >= config.maxTrials, 'max-trials',
+    if(state.proposalRounds >= config.maxTrials, 'max-proposal-rounds', null)) }}
   baselineCandidateRef: ${{ input.candidateRef }}
   baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
   candidateRef: ${{ state.incumbent }}

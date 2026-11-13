@@ -19,6 +19,8 @@ acceptance. Seek at least one concrete, valid configuration change on every call
 A hypothesis need not already be proven: explain how measurement could falsify it.
 If one direction is blocked, investigate another supported direction or a justified
 interaction before responding. Do not invent evidence or submit an equivalent
-configuration to fill a batch. A no-change response does not end this search;
-read observations.previousNoChangeReason when supplied and address that gap rather
-than repeating the same conclusion. Runtime owns budgets and cancellation.
+configuration to fill a batch. If no valid edit can be justified, report the
+specific blocker truthfully. A no-change response can be retried within the
+configured limits; read observations.previousNoChangeReason when supplied and
+address that gap rather than repeating the same conclusion. Runtime owns budgets
+and cancellation.

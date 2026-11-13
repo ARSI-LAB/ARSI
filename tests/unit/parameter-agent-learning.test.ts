@@ -274,7 +274,7 @@ implementation:
         policy: {
           id: 'parameter.agent',
           config: {
-            maxTrials: 3,
+            maxTrials: 4,
             candidatesPerRound: 1,
             memory: true,
             reflection: true,
@@ -303,6 +303,8 @@ implementation:
     const result = await runtime.manager.run(recipe, { id: 'learning' });
     assert.equal(result.status, 'succeeded');
     const output = object(result.output);
+    assert.equal(output.stopReason, 'max-proposal-rounds');
+    assert.equal(Array.isArray(output.trials) && output.trials.length, 3);
     assert.equal(typeof output.memoryRef, 'string');
     assert.notEqual(output.candidateRef, output.baselineCandidateRef);
     assert.deepEqual(events, [

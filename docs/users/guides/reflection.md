@@ -9,12 +9,13 @@ Reflection improves target plugins using execution evidence so later calls adopt
 The built-in `parameter.agent` Policy declares a [configuration-search Reflection
 module](../../../src/policies/parameter/agent/reflection.yaml). Set
 `policy.config.reflection: true` to invoke it after proposal rounds, including empty proposals, while another
-trial remains; the default is `false`, independently of Memory. It reads proposal,
+round and candidate attempt remain; the default is `false`, independently of Memory. It reads proposal,
 evaluation, selector and available Memory records using `training-summary`, and
 can revise only the Proposer's `guidance`. It cannot change selection rules,
 workload or candidate parameters. The next proposal loads the activated revision;
-An empty proposal continues search; there is no final Reflection call after the
-configured trial limit. With `maxTrials: null`, Runtime budgets govern termination.
+an empty proposal continues search within finite limits. There is no final
+Reflection call after the candidate or proposal-round limit (`maxTrials`). Runtime
+budgets and cancellation can stop the experiment earlier.
 RSI provides a generic Reflection goal and default Proposer guidance. Scenarios
 can copy these resources, set `bindings.proposer.config.guidance` to their own
 directory and select a local `reflection.configFile`. The switch only controls

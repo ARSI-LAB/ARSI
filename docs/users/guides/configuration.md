@@ -173,17 +173,18 @@ For inference optimization, `evaluator.inferencebench` supports `benchmark.name:
 
 For `parameter.agent`, `policy.config.candidatesPerRound` defaults to 4 and accepts 1 through 6. The tuning Proposer returns that many candidates at most, ordered by priority and based on the same incumbent. The Policy invokes `evaluator.inferencebench` directly and serially, then uses the latest incumbent when requesting the next batch. `maxTrials` caps candidate attempts across all batches. Confirmed, cleaned startup failures reject the candidate; SDK measurement failures, cancellation or uncertain cleanup stop the experiment.
 
-Set `policy.config.maxTrials: null` to remove the candidate-count cap and let
-Runtime budgets and cancellation govern the search. Set `budget.elapsedWallMs`
-for a time-bounded run; omit other experiment budgets if they should not stop it
-earlier. The DSL retains its maximum safe integer loop bound. A no-change proposal
-preserves its reason in `observations.previousNoChangeReason` and requests another
-proposal from the same incumbent. It does not consume a candidate attempt or
-restart the baseline. Enabled Reflection also runs after an empty proposal;
-Memory remains tied to measured batches. Errors and unconfirmed cleanup still
-propagate. Policy `stopReason` is `max-trials` only when the configured candidate
-limit is reached, otherwise `null`; budget exhaustion is recorded at experiment
-level and preserves the last committed incumbent in `partialOutput`.
+`policy.config.maxTrials` must be a positive integer (default 8). It also bounds
+proposal rounds so repeated empty responses cannot create an unbounded loop.
+A no-change proposal preserves its reason in `observations.previousNoChangeReason`
+and requests another proposal from the same incumbent while limits permit. It
+consumes a proposal round, not a candidate attempt, and does not restart the
+baseline. Enabled Reflection also runs after an empty proposal when another
+round and candidate attempt remain; Memory stays tied to measured batches.
+Runtime time, operation and evaluation budgets, cancellation, errors and
+unconfirmed cleanup remain independent stopping conditions. Policy `stopReason`
+is `max-trials` when the candidate limit is reached, `max-proposal-rounds` when
+the round limit is reached first, otherwise `null`. Budget exhaustion is recorded
+at experiment level and preserves the last committed incumbent in `partialOutput`.
 
 `parameter.agent` also supports independent `policy.config.memory` and
 `policy.config.reflection` switches, both `false` by default. Memory consolidates

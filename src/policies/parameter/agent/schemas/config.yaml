@@ -3,10 +3,10 @@ additionalProperties: false
 properties:
   parameterFile: { type: string, minLength: 1, default: tuning.json }
   maxTrials:
-    type: [integer, 'null']
+    type: integer
     minimum: 1
     default: 8
-    description: Candidate limit; null delegates termination to Runtime budgets and cancellation.
+    description: Maximum candidate attempts and proposal rounds; empty proposals consume a round.
   candidatesPerRound: { type: integer, minimum: 1, maximum: 6, default: 4 }
   memory: { type: boolean, default: false }
   reflection: { type: boolean, default: false }

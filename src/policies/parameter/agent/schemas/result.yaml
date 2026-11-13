@@ -2,7 +2,7 @@ type: object
 additionalProperties: false
 properties:
   status: { enum: [selected, no-feasible-configuration] }
-  stopReason: { enum: [max-trials, null] }
+  stopReason: { enum: [max-trials, max-proposal-rounds, null] }
   baselineCandidateRef: { type: string, minLength: 1 }
   baselineMeasurementRef: { type: string, minLength: 1 }
   candidateRef: { type: string, minLength: 1 }

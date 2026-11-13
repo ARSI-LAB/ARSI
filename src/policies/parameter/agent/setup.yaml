@@ -7,6 +7,7 @@ state_schema:
     incumbentFeasible: { type: boolean }
     memoryRef: { type: [string, 'null'] }
     previousNoChangeReason: { type: [string, 'null'] }
+    proposalRounds: { type: integer, minimum: 0 }
     sources: { type: array, items: { type: object } }
     trials:
       type: array
@@ -36,6 +37,7 @@ state_schema:
       incumbentFeasible,
       memoryRef,
       previousNoChangeReason,
+      proposalRounds,
       trials,
       sources,
     ]
@@ -45,6 +47,7 @@ state:
   incumbentFeasible: false
   memoryRef: null
   previousNoChangeReason: null
+  proposalRounds: 0
   trials: []
   sources: []
 require:

@@ -274,7 +274,6 @@ test('Manager runs the Agent Policy with direct evaluation, bounded search, and 
 
     const cappedRecipe = join(root, 'capped.json');
     const capped = object(JSON.parse(await readFile(recipe, 'utf8')));
-    object(object(capped.policy).config).maxTrials = null;
     object(object(capped.policy).config).candidatesPerRound = 3;
     capped.budget = { ...object(capped.budget), evaluationRuns: 2 };
     await writeFile(cappedRecipe, JSON.stringify(capped));

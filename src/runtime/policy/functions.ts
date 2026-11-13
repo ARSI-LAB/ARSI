@@ -7,20 +7,6 @@ class ProtocolError extends Error {
 function isPlainObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
-export const dataFunctionArity: Readonly<Record<string, number>> =
-  Object.freeze({
-    get: 3,
-    length: 1,
-    size: 1,
-    flatten: 1,
-    append: 2,
-    concat: 2,
-    pluck: 2,
-    range: 2,
-    some: 3,
-    if: 3,
-    compact: 1,
-  });
 
 function array(value: JsonValue): JsonValue[] {
   if (!Array.isArray(value))

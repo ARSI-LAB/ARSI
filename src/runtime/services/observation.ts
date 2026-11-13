@@ -35,6 +35,8 @@ import { measurementItemsSchema } from '../../contracts/models/measurement.js';
 import { parseFileTree } from '../../contracts/models/file-tree.js';
 import { readIterationScopes } from '../../shared/iterations.js';
 import { safeId } from '../storage/index.js';
+import type { PolicyStructure } from '../../shared/observation/policy-structure.js';
+import { queryPolicyStructure } from './policy-structure-query.js';
 
 function restrictedFile(path: string): boolean {
   return /(^|\/)(\.env(?:\..*)?|\.npmrc|\.?netrc|credentials(?:\.json|\.ya?ml|\.toml)?|secrets?\.(?:json|ya?ml|toml)|id_(?:rsa|ed25519|ecdsa|dsa)|private[-_]?key(?:\.pem|\.key)?|[^/]+\.(?:p12|pfx))$/i.test(
@@ -107,6 +109,19 @@ export class ObservationQueries {
     return { directory: this.directory ? resolve(this.directory) : null };
   }
 
+  /** The initial saved declaration only: no source files, artifact reads or resource restoration. */
+  async policyStructure(id: string): Promise<PolicyStructure> {
+    await this.experiment(id);
+    return queryPolicyStructure(id, {
+      readDefinition: () => this.facts.read('definitions', id),
+      collectSecrets: async (locked) =>
+        this.payloadSecrets(locked, await this.secrets(id)),
+      clean: (value, secrets, redactKeys) =>
+        this.clean(value, secrets, redactKeys),
+      isSecretField: (field) => secretField.test(field),
+    });
+  }
+
   private async experiment(id: string): Promise<JsonObject> {
     return this.facts.read('experiments', safeId(id));
   }
@@ -131,17 +146,30 @@ export class ObservationQueries {
     visit(await this.experiment(id));
     return values;
   }
-  private clean(value: JsonValue, secrets: string[]): JsonValue {
+  private clean(
+    value: JsonValue,
+    secrets: string[],
+    redactKeys = false,
+  ): JsonValue {
     if (typeof value === 'string') return redactText(value, secrets);
     if (Array.isArray(value))
-      return value.map((item) => this.clean(item, secrets));
-    if (value && typeof value === 'object')
+      return value.map((item) => this.clean(item, secrets, redactKeys));
+    if (value && typeof value === 'object') {
+      const keys = new Set<string>();
       return Object.fromEntries(
-        Object.entries(value).map(([key, item]) => [
-          key,
-          secretField.test(key) ? '[REDACTED]' : this.clean(item, secrets),
-        ]),
+        Object.entries(value).map(([key, item], index) => {
+          let label = redactKeys ? redactText(key, secrets) : key;
+          while (keys.has(label)) label += ` (${index})`;
+          keys.add(label);
+          return [
+            label,
+            secretField.test(key)
+              ? '[REDACTED]'
+              : this.clean(item, secrets, redactKeys),
+          ];
+        }),
       );
+    }
     return value;
   }
   private preview(

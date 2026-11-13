@@ -350,25 +350,34 @@ export function register(registry) {
       timeout: 30000,
     }),
   );
-  assert.equal(
-    catalog.plugins.length,
-    22,
+  assert.deepEqual(
+    [...catalog.plugins].sort(),
+    [
+      'agent.claudecode',
+      'agent.codex',
+      'agent.dsh',
+      'agent.opencode',
+      'agent.pi',
+      'application.agentbundle',
+      'application.inference',
+      'application.kernel',
+      'evaluator.agentbench',
+      'evaluator.inferencebench',
+      'evaluator.operatorbench',
+      'memory.agent',
+      'proposer.agent',
+      'proposer.grid',
+      'proposer.operator',
+      'proposer.optuna',
+      'proposer.pareto-evolution',
+      'reflection.agent',
+      'selector.artifact',
+      'selector.inference',
+      'selector.metric',
+      'summarizer.operator',
+    ],
     'all built-in plugin definitions ship in the archive',
   );
-  for (const id of [
-    'agent.claudecode',
-    'agent.dsh',
-    'agent.opencode',
-    'application.kernel',
-    'evaluator.operatorbench',
-    'selector.inference',
-    'proposer.operator',
-    'summarizer.operator',
-  ])
-    assert.ok(catalog.plugins.includes(id), `${id} ships in the archive`);
-  assert.ok(!catalog.plugins.includes('agent.scripted'));
-  assert.ok(catalog.plugins.includes('agent.codex'));
-  assert.ok(catalog.plugins.includes('proposer.pareto-evolution'));
   assert.deepEqual(
     [...catalog.policies].sort(),
     [

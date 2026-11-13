@@ -1,7 +1,9 @@
 import type { JsonObject } from '../../contracts/index.js';
 import {
   gymActivationSchema,
+  gymPublisherSchema,
   type GymActivation,
+  type GymPublisher,
 } from '../shared/gym/schema.js';
 
 export type GymReleaseMetric = 'successRate' | 'meanReward';
@@ -18,6 +20,9 @@ export type GymReleaseConfig = {
   poll?: { intervalMs?: number; timeoutMs?: number };
   minDelta?: number;
   metric?: GymReleaseMetric;
+  /** Harness-owned surface that receives each holdout candidate. */
+  publish?: GymPublisher;
+  /** @deprecated Use publish. */
   activation?: GymActivation;
 };
 
@@ -35,7 +40,11 @@ export const releaseConfigSchema: JsonObject = {
       type: 'object',
       additionalProperties: false,
       properties: {
-        adapter: text,
+        adapter: {
+          ...text,
+          description:
+            'Gym harness adapter. Gym owns harness selection; RSI only names it.',
+        },
         benchmark: text,
         seed: { type: 'integer' },
         datasetVersion: text,
@@ -65,7 +74,15 @@ export const releaseConfigSchema: JsonObject = {
       description:
         'Effective holdout objective; successRate uses pass_rate and meanReward uses reward_mean.',
     },
-    activation: gymActivationSchema,
+    publish: {
+      ...gymPublisherSchema,
+      description:
+        'Harness-owned surface that receives each holdout candidate before Gym starts a rollout.',
+    },
+    activation: {
+      ...gymActivationSchema,
+      description: 'Compatibility alias for publish.',
+    },
   },
   required: ['baseUrl', 'promotionDefaults'],
 };

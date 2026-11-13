@@ -1,7 +1,9 @@
 import type { JsonObject } from '../../contracts/index.js';
 import {
   gymActivationSchema,
+  gymPublisherSchema,
   type GymActivation,
+  type GymPublisher,
 } from '../shared/gym/schema.js';
 
 export type GymSplit = 'train_probe' | 'train_full';
@@ -25,9 +27,12 @@ export type GymConfig = {
   budget?: { maxRollouts?: number; timeoutS?: number };
   /**
    * Publish the acquired candidate before Gym starts its rollout. Gym has no
-   * candidate-path request field, so a fixed activation surface is required.
-   * Omit only when the adapter already reads a candidate published externally.
+   * candidate-path request field, so a harness-owned publishing surface is
+   * required. Omit only when the adapter already reads a candidate published
+   * externally.
    */
+  publish?: GymPublisher;
+  /** @deprecated Use publish. */
   activation?: GymActivation;
 };
 
@@ -47,7 +52,11 @@ function schema(split: JsonObject): JsonObject {
         type: 'object',
         additionalProperties: false,
         properties: {
-          adapter: text,
+          adapter: {
+            ...text,
+            description:
+              'Gym harness adapter. Gym owns harness selection; RSI only names it.',
+          },
           benchmark: text,
           split,
           tier: { enum: ['probe', 'screen', 'full'] },
@@ -72,7 +81,15 @@ function schema(split: JsonObject): JsonObject {
           timeoutS: { type: 'integer', minimum: 1 },
         },
       },
-      activation: gymActivationSchema,
+      publish: {
+        ...gymPublisherSchema,
+        description:
+          'Harness-owned surface that receives each candidate before Gym starts a rollout.',
+      },
+      activation: {
+        ...gymActivationSchema,
+        description: 'Compatibility alias for publish.',
+      },
     },
     required: ['baseUrl', 'requestDefaults'],
   };

@@ -7,10 +7,11 @@ import type {
 } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { activateCandidate } from '../shared/gym/activation.js';
+import { publishCandidate } from '../shared/gym/publish.js';
 import {
   expandGymEnvironment,
-  resolveGymActivation,
+  gymPublisherFingerprint,
+  resolveGymPublisher,
 } from '../shared/gym/config.js';
 import {
   gymReleaseAttemptKey,
@@ -53,13 +54,24 @@ export function resolveReleaseConfig(
   config: GymReleaseConfig,
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ResolvedReleaseConfig {
-  return {
+  if (config.publish !== undefined && config.activation !== undefined)
+    throw new Error(
+      'gym release config must set either publish or activation, not both',
+    );
+  const publish = resolveGymPublisher(
+    config.publish ?? config.activation,
+    environment,
+  );
+  const resolved: ResolvedReleaseConfig = {
     ...config,
     baseUrl: expandGymEnvironment(config.baseUrl, 'baseUrl', environment),
     minDelta: config.minDelta ?? 0,
     metric: config.metric ?? 'successRate',
-    activation: resolveGymActivation(config.activation, environment),
   };
+  delete resolved.activation;
+  if (publish === undefined) delete resolved.publish;
+  else resolved.publish = publish;
+  return resolved;
 }
 
 export async function createGymRelease(
@@ -112,6 +124,25 @@ export async function createGymRelease(
 
       await persistAttempt('running', true, null);
       try {
+        if (candidateRef === incumbentRef) {
+          const reason =
+            'candidate did not advance beyond validation; holdout was not run';
+          const releaseRef = await context.artifacts.putJson({
+            schemaVersion: 'rsi.gym-release/v1',
+            generatedAt: new Date().toISOString(),
+            decision: 'keep-incumbent',
+            reason,
+            reasons: [],
+            metric: settings.metric,
+            minDelta: settings.minDelta,
+            candidate: skippedRole('candidate', candidateRef, settings),
+            incumbent: skippedRole('incumbent', incumbentRef, settings),
+            comparison: null,
+            holdoutSkipped: true,
+          });
+          await persistAttempt('completed', false, null);
+          return { decision: 'keep-incumbent', reason, releaseRef };
+        }
         const candidate = await evaluateRole(
           'candidate',
           candidateRef,
@@ -126,22 +157,20 @@ export async function createGymRelease(
         );
         const candidateIssues = reportIssues(candidate, 'candidate', settings);
         const incumbent =
-          candidateRef === incumbentRef
-            ? candidate
-            : candidateIssues.length === 0
-              ? await evaluateRole(
-                  'incumbent',
-                  incumbentRef,
-                  settings,
-                  client,
-                  context,
-                  async () => {
-                    if (!promotionRoles.includes('incumbent'))
-                      promotionRoles.push('incumbent');
-                    await persistAttempt('submitting', true, null);
-                  },
-                )
-              : null;
+          candidateIssues.length === 0
+            ? await evaluateRole(
+                'incumbent',
+                incumbentRef,
+                settings,
+                client,
+                context,
+                async () => {
+                  if (!promotionRoles.includes('incumbent'))
+                    promotionRoles.push('incumbent');
+                  await persistAttempt('submitting', true, null);
+                },
+              )
+            : null;
         const comparison = compare(
           candidate,
           incumbent,
@@ -247,18 +276,21 @@ async function evaluateRole(
       );
       const directory =
         typeof execution.directory === 'string' ? execution.directory : null;
-      if (settings.activation !== undefined) {
+      const bundleKind =
+        typeof execution.bundleKind === 'string'
+          ? execution.bundleKind
+          : undefined;
+      if (settings.publish !== undefined) {
         if (directory === null)
           throw new Error(
-            `${role} activation requires the acquired bundle directory`,
+            `${role} publish requires the acquired bundle directory`,
           );
-        await activateCandidate(
-          settings.activation,
-          context,
-          ref,
+        await publishCandidate(settings.publish, context, {
+          candidateRef: ref,
           directory,
-          digest,
-        );
+          bundleDigest: digest,
+          ...(bundleKind === undefined ? {} : { bundleKind }),
+        });
       }
       await onPromotion();
       const defaults = settings.promotionDefaults;
@@ -292,7 +324,7 @@ async function activateChosen(
   settings: ResolvedReleaseConfig,
   context: RuntimeContext,
 ): Promise<void> {
-  if (settings.activation === undefined) return;
+  if (settings.publish === undefined) return;
   await context.withInstance(
     ref,
     'agentbundle',
@@ -303,15 +335,18 @@ async function activateChosen(
       );
       const directory = string(
         execution.directory,
-        'release activation execution.directory',
+        'release publish execution.directory',
       );
-      await activateCandidate(
-        settings.activation,
-        context,
-        ref,
+      const bundleKind =
+        typeof execution.bundleKind === 'string'
+          ? execution.bundleKind
+          : undefined;
+      await publishCandidate(settings.publish, context, {
+        candidateRef: ref,
         directory,
-        digest,
-      );
+        bundleDigest: digest,
+        ...(bundleKind === undefined ? {} : { bundleKind }),
+      });
     },
     { instanceKey: 'activate' },
   );
@@ -324,7 +359,7 @@ async function restoreIncumbentOnFailure(
   context: RuntimeContext,
   cause: unknown,
 ): Promise<unknown> {
-  if (settings.activation === undefined || candidateRef === incumbentRef)
+  if (settings.publish === undefined || candidateRef === incumbentRef)
     return cause;
   const restoreContext = context.extend({
     signal: AbortSignal.timeout(30_000),
@@ -610,6 +645,26 @@ function summarize(
   };
 }
 
+function skippedRole(
+  role: RoleName,
+  ref: string,
+  settings: ResolvedReleaseConfig,
+): JsonObject {
+  return {
+    role,
+    candidateRef: ref,
+    candidateDigest: null,
+    promotionId: null,
+    promotionState: 'skipped',
+    reused: false,
+    report: null,
+    errorCode: null,
+    errorMessage: null,
+    metric: settings.metric,
+    minDelta: settings.minDelta,
+  };
+}
+
 function releaseFingerprint(settings: ResolvedReleaseConfig): JsonObject {
   return {
     baseUrl: settings.baseUrl,
@@ -621,7 +676,9 @@ function releaseFingerprint(settings: ResolvedReleaseConfig): JsonObject {
     timeoutS: settings.promotionDefaults.budget?.timeoutS ?? null,
     minDelta: settings.minDelta,
     metric: settings.metric,
-    activation: settings.activation ?? null,
+    // Keep the legacy key spelling so release attempts stay resumable across
+    // the activation -> publish rename.
+    activation: gymPublisherFingerprint(settings.publish),
   };
 }
 

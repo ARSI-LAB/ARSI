@@ -7,10 +7,11 @@ import type {
 } from '../../contracts/index.js';
 import { object, string, strings } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { activateCandidate } from '../shared/gym/activation.js';
+import { publishCandidate } from '../shared/gym/publish.js';
 import {
   expandGymEnvironment,
-  resolveGymActivation,
+  gymPublisherFingerprint,
+  resolveGymPublisher,
 } from '../shared/gym/config.js';
 import {
   GymEvaluationClient,
@@ -32,17 +33,22 @@ export function resolveGymConfig(
   config: GymConfig,
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): GymConfig {
-  const resolvedActivation = resolveGymActivation(
-    config.activation,
+  if (config.publish !== undefined && config.activation !== undefined)
+    throw new Error(
+      'gym config must set either publish or activation, not both',
+    );
+  const publish = resolveGymPublisher(
+    config.publish ?? config.activation,
     environment,
   );
-  return {
+  const resolved: GymConfig = {
     ...config,
     baseUrl: expandGymEnvironment(config.baseUrl, 'baseUrl', environment),
-    ...(resolvedActivation === undefined
-      ? {}
-      : { activation: resolvedActivation }),
   };
+  delete resolved.activation;
+  if (publish === undefined) delete resolved.publish;
+  else resolved.publish = publish;
+  return resolved;
 }
 
 export async function createGym(
@@ -81,9 +87,13 @@ export async function createGym(
             typeof execution.directory === 'string'
               ? execution.directory
               : null;
-          if (settings.activation !== undefined && directory === null)
+          const bundleKind =
+            typeof execution.bundleKind === 'string'
+              ? execution.bundleKind
+              : undefined;
+          if (settings.publish !== undefined && directory === null)
             throw new Error(
-              'gym activation requires the acquired bundle directory',
+              'gym publish requires the acquired bundle directory',
             );
 
           const key = submissionKey(candidateRef, settings, taskIds);
@@ -95,16 +105,15 @@ export async function createGym(
           let outcome: GymEvalOutcome | null = null;
           let failure: JsonObject | null = null;
           try {
-            if (settings.activation !== undefined)
-              await activateCandidate(
-                settings.activation,
-                context,
+            if (settings.publish !== undefined)
+              await publishCandidate(settings.publish, context, {
                 candidateRef,
-                directory!,
+                directory: directory!,
                 bundleDigest,
-              );
+                ...(bundleKind === undefined ? {} : { bundleKind }),
+              });
           } catch (error) {
-            failure = failureRecord(error, 'activation');
+            failure = failureRecord(error, 'publish');
           }
 
           if (failure === null) {
@@ -266,7 +275,9 @@ function submissionKey(
     maxRollouts: settings.budget?.maxRollouts ?? null,
     timeoutS: settings.budget?.timeoutS ?? null,
     harnessManifest: settings.requestDefaults.harnessManifest ?? null,
-    activation: settings.activation ?? null,
+    // Keep the legacy key spelling so already-submitted evaluations remain
+    // resumable across the activation -> publish rename.
+    activation: gymPublisherFingerprint(settings.publish),
   });
 }
 

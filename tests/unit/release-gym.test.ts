@@ -313,7 +313,7 @@ function harness(): {
 
 function config(
   baseUrl: string,
-  activation?: GymReleaseConfig['activation'],
+  publish?: GymReleaseConfig['publish'],
 ): GymReleaseConfig {
   return {
     baseUrl,
@@ -323,7 +323,7 @@ function config(
       seed: 43,
     },
     poll: { intervalMs: 100, timeoutMs: 5000 },
-    ...(activation === undefined ? {} : { activation }),
+    ...(publish === undefined ? {} : { publish }),
   };
 }
 
@@ -397,7 +397,7 @@ test('release.gym compares candidate and incumbent holdout reports without task 
   }
 });
 
-test('release.gym reuses the candidate report when the incumbent is the same bundle', async () => {
+test('release.gym skips holdout when the candidate did not advance', async () => {
   const gym = await gymFixture({ [CANDIDATE_DIGEST]: 1 });
   try {
     const { context, artifacts, charges, instances } = harness();
@@ -415,15 +415,15 @@ test('release.gym reuses the candidate report when the incumbent is the same bun
       context,
     );
     assert.equal(output.decision, 'keep-incumbent');
-    assert.equal(gym.posted.length, 1);
-    assert.deepEqual(charges, ['evaluationRuns']);
-    assert.deepEqual(instances, [
-      { ref: 'candidate:final', instanceKey: 'candidate' },
-      { ref: 'candidate:final', instanceKey: 'activate' },
-    ]);
+    assert.match(output.reason, /did not advance beyond validation/);
+    assert.equal(gym.posted.length, 0);
+    assert.deepEqual(charges, []);
+    assert.deepEqual(instances, []);
     const record = artifacts.get(output.releaseRef)!;
     assert.equal(record.decision, 'keep-incumbent');
-    assert.equal(object(record.comparison).delta, 0);
+    assert.equal(record.holdoutSkipped, true);
+    assert.equal(record.comparison, null);
+    assert.equal(object(record.candidate).promotionState, 'skipped');
   } finally {
     await gym.close();
   }

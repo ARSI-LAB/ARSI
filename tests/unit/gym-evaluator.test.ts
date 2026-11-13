@@ -26,7 +26,11 @@ import {
 } from '../../src/contracts/models/measurement.js';
 import { projectEvidence } from '../../src/runtime/services/facts/evidence.js';
 import { validate } from '../../src/shared/schema.js';
-import { activateCandidate } from '../../src/plugins/shared/gym/activation.js';
+import {
+  activateCandidate,
+  publishCandidate,
+} from '../../src/plugins/shared/gym/activation.js';
+import { gymPublisherFingerprint } from '../../src/plugins/shared/gym/config.js';
 import {
   createGym,
   resolveGymConfig,
@@ -65,15 +69,34 @@ test('gym config resolves environment references at the plugin boundary', () => 
       RSI_DSH_BASE_PATCH: '/tmp/base.patch.yml',
     }),
     {
-      ...config,
       baseUrl: 'http://127.0.0.1:8399',
-      activation: {
+      requestDefaults: config.requestDefaults,
+      publish: {
         kind: 'dsh-user-layer',
         dshHome: '/tmp/dsh',
         profileName: 'headless',
         basePatch: '/tmp/base.patch.yml',
       },
     },
+  );
+});
+
+test('gym config rejects setting both publish and its legacy activation alias', () => {
+  const config: GymConfig = {
+    baseUrl: 'http://127.0.0.1:8399',
+    requestDefaults: {
+      adapter: 'dsh_candidate',
+      benchmark: 'gaia_text_validation',
+      split: 'train_full',
+      tier: 'screen',
+      seed: 42,
+    },
+    publish: { kind: 'directory', directory: '/tmp/a' },
+    activation: { kind: 'directory', directory: '/tmp/b' },
+  };
+  assert.throws(
+    () => resolveGymConfig(config, {}),
+    /either publish or activation, not both/,
   );
 });
 
@@ -91,6 +114,17 @@ test('gym config rejects a missing environment reference', () => {
   assert.throws(
     () => resolveGymConfig(config, {}),
     /gym baseUrl references missing environment variable MISSING_GYM_URL/,
+  );
+});
+
+test('publisher fingerprints ignore the local bundleKinds guard', () => {
+  assert.deepEqual(
+    gymPublisherFingerprint({
+      kind: 'directory',
+      directory: '/slot',
+      bundleKinds: ['dsh-agent-bundle'],
+    }),
+    gymPublisherFingerprint({ kind: 'directory', directory: '/slot' }),
   );
 });
 
@@ -395,7 +429,7 @@ function config(baseUrl: string, root: string): GymConfig {
       seed: 42,
     },
     poll: { intervalMs: 100, timeoutMs: 5_000 },
-    activation: { kind: 'directory', directory: join(root, 'slot') },
+    publish: { kind: 'directory', directory: join(root, 'slot') },
   };
 }
 
@@ -899,6 +933,93 @@ test('a prepared submission remains retryable when eval-id persistence fails', a
     );
   } finally {
     await gym.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('directory publish writes an activation sidecar inside the published slot', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-gym-directory-publish-'));
+  try {
+    const source = join(root, 'bundle');
+    await mkdir(source, { recursive: true });
+    const bundleManifest =
+      'schemaVersion: 1\nname: fixture\nkind: pi-agent-bundle\n';
+    await writeFile(join(source, 'bundle.yaml'), bundleManifest);
+    const slot = join(root, 'slot');
+    const execution = {
+      directory: source,
+      bundleDigest: BUNDLE_DIGEST,
+      artifactDigest: 'a',
+    };
+    const { services } = harness(root, execution);
+    await publishCandidate(
+      {
+        kind: 'directory',
+        directory: slot,
+        manifestPath: '.rsi-gym-activation.json',
+        bundleKinds: ['pi-agent-bundle'],
+      },
+      context(root, services),
+      {
+        candidateRef: 'candidate:pi',
+        directory: source,
+        bundleDigest: BUNDLE_DIGEST,
+        bundleKind: 'pi-agent-bundle',
+      },
+    );
+    assert.equal(
+      await readFile(join(slot, 'bundle.yaml'), 'utf8'),
+      bundleManifest,
+    );
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(join(slot, '.rsi-gym-activation.json'), 'utf8'),
+      ),
+      {
+        candidate_id: 'candidate:pi',
+        candidate_digest: BUNDLE_DIGEST,
+        bundle_kind: 'pi-agent-bundle',
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('publish rejects an AgentBundle kind outside the publisher declaration', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-gym-kind-mismatch-'));
+  try {
+    const source = join(root, 'bundle');
+    await mkdir(source, { recursive: true });
+    await writeFile(
+      join(source, 'bundle.yaml'),
+      'schemaVersion: 1\nname: fixture\nkind: pi-agent-bundle\n',
+    );
+    const execution = {
+      directory: source,
+      bundleDigest: BUNDLE_DIGEST,
+      artifactDigest: 'a',
+    };
+    const { services } = harness(root, execution);
+    await assert.rejects(
+      publishCandidate(
+        {
+          kind: 'directory',
+          directory: join(root, 'slot'),
+          bundleKinds: ['dsh-agent-bundle'],
+        },
+        context(root, services),
+        {
+          candidateRef: 'candidate:pi',
+          directory: source,
+          bundleDigest: BUNDLE_DIGEST,
+          bundleKind: 'pi-agent-bundle',
+        },
+      ),
+      /does not accept AgentBundle kind pi-agent-bundle/,
+    );
+    await assert.rejects(stat(join(root, 'slot')), { code: 'ENOENT' });
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -17,7 +17,7 @@ proposer evidence, or candidate selection.
 ## End-to-end flow
 
 1. RSI materializes the baseline or proposed AgentBundle and publishes it to
-   the fixed DSH user layer configured by `activation.kind: dsh-user-layer`.
+   the fixed DSH user layer configured by `publish.kind: dsh-user-layer`.
 2. `evaluator.gym` submits a `train_full` evaluation to Gym
    `POST /gym_evaluate`.
 3. Gym runs DSH rollouts with the `dsh_candidate` adapter and returns reward
@@ -26,15 +26,19 @@ proposer evidence, or candidate selection.
    and compares the proposal with the incumbent on the pinned validation
    tasks. A strictly worse proposal is rejected; a tie advances the candidate
    to the holdout gate.
-5. When the search loop ends, `release.gym` activates the frozen final
+5. When the search loop ends, `release.gym` publishes the frozen final
    candidate and calls Gym `POST /promotion`. The request carries
    `candidate_id`, `candidate_digest`, adapter, benchmark and seed; it cannot
    express `split` or `task_ids`.
+   If validation rejected every proposal, the frozen candidate is still the
+   original incumbent. `release.gym` then writes a `keep-incumbent` audit
+   artifact without calling `POST /promotion`; a bundle is never compared with
+   itself on holdout.
 6. `release.gym` polls `GET /promotion/{promotion_id}` until the holdout report
    is terminal. Gym serializes these runs, and a bundle+benchmark report is
    reused rather than executed twice.
 7. `release.gym` repeats the same flow for the original incumbent, compares
-   the two completed reports, and writes a release artifact. It then activates
+   the two completed reports, and writes a release artifact. It then publishes
    the winning bundle (`promote`) or the incumbent (`keep-incumbent` /
    `reject`).
 
@@ -44,6 +48,28 @@ the best validation candidate; `effectiveRef` is the bundle that remains
 active after release. The release artifact contains aggregate scores and
 environment identities, but not holdout task rows. The policy ends after
 release, so these values cannot feed another search round.
+
+## Harness and publisher contract
+
+The Gym-RSI core is harness-agnostic. `evaluator.gym` and `release.gym` call
+the same `publishCandidate()` port; they never branch on a harness name or a
+manifest kind. A recipe chooses two independent things:
+
+- `requestDefaults.adapter` / `promotionDefaults.adapter`: the Gym harness
+  adapter that runs rollouts. Gym owns this selection.
+- `publish`: how RSI puts the candidate where that adapter can read it.
+
+| Publisher        | Use when                                                                     | Harness coupling                                |
+| ---------------- | ---------------------------------------------------------------------------- | ----------------------------------------------- |
+| `directory`      | The Gym adapter reads a fixed directory, optionally with a sidecar manifest. | None; works for any AgentBundle kind.           |
+| `dsh-user-layer` | The adapter runs DSH from `DSH_HOME` and reads `profiles/<name>`.            | DSH only.                                       |
+| `remote-http`    | A harness control plane installs the bundle over HTTP.                       | None in RSI; the endpoint owns harness details. |
+
+Switching to another AgentBundle kind therefore changes the recipe's adapter
+and publisher (plus the Gym-side adapter), not `evaluator.gym`, `release.gym`,
+`policy.gym-rsi`, `application.agentbundle`, or the selector. Set
+`publish.bundleKinds` to fail fast when a recipe is paired with the wrong
+bundle kind. `activation` remains a compatibility alias for `publish`.
 
 ## Search versus release
 
@@ -61,8 +87,8 @@ release, so these values cannot feed another search round.
 - `testTaskIds` is empty because Gym owns the release split.
 
 Both lists in `recipe.yaml` are disjoint subsets of Gym's `train_full` split.
-No holdout task ID may appear in any RSI list. The example pins twelve training
-tasks and six validation tasks to keep the demo affordable; RSI still
+No holdout task ID may appear in any RSI list. The example pins thirty-six
+training tasks and twelve validation tasks; RSI still
 evaluates them under `split: train_full`, not `train_probe`.
 
 Validation intentionally uses text-only tasks; video URL tasks are excluded
@@ -71,17 +97,17 @@ validation tasks are excluded when they can exhaust the DSH timeout.
 The University of Leicester fish-bag task is also excluded from training because
 it requires downloading an external paper and can stall in network-isolated runs.
 
-`maxRounds: 1` demonstrates one complete mutation and selection round. Raise it
-for a longer search. `tier: screen` is the search-side Gym rollout budget;
+`maxRounds: 1` demonstrates one complete mutation and selection round. The policy
+schema defaults to three rounds, but this recipe explicitly overrides it to one;
+raise it for a longer search. `tier: screen` is the search-side Gym rollout budget
+and runs up to 36 task rows, each repeated twice (72 rollouts), at concurrency 12;
 `release.gym` always requests Gym's `full` tier for holdout. It compares
 effective `successRate` by default; set `metric: meanReward` when a dense-reward
 benchmark should use Gym's `reward_mean` objective instead.
 
-The GAIA profile's `full` tier currently caps rollouts at 64 with one repeat per
-task.
-Covering every training row therefore requires raising that limit (or setting
-`limit: null`) in `eval_service/profiles/rsi_v1_gaia.yaml`. The example keeps
-the smaller pinned subsets so a first end-to-end run stays affordable.
+The GAIA profile's `full` tier caps 64 task rows with two repeats per task.
+The locked 26-row holdout therefore produces 52 rollouts. Repeat 2 reduces
+binary-reward variance at the cost of roughly doubling rollout time and tokens.
 
 ## Prerequisites
 
@@ -108,8 +134,8 @@ mkdir -p "$RUN_ROOT"
 
 `RSI_DSH_BASE_PATCH` is a host-owned DSH patch list. Put model-provider,
 credential-reference, and search-route entries there. RSI merges this list
-before the candidate's patch when it activates a bundle, so candidate
-activation cannot silently remove the host's model route. Start from a known
+before the candidate's patch when it publishes a bundle, so candidate
+publication cannot silently remove the host's model route. Start from a known
 working profile layer and keep the file outside `profiles/<name>/`:
 
 ```bash
@@ -189,8 +215,9 @@ of spending a second holdout run.
 - `release.gym` cannot express a split or task IDs; Gym always evaluates the
   complete locked holdout split.
 - Promotion is loopback-only and is not an MCP tool.
-- DSH activation atomically writes `.rsi-gym-activation.json` beside the active
-  profile; Gym rejects holdout when its candidate id or digest does not match.
+- The DSH publisher atomically writes `.rsi-gym-activation.json` beside the
+  active profile; Gym rejects holdout when its candidate id or digest does not
+  match.
 - Holdout output is terminal evidence only. It must not be written back into
   Wiki memory, proposer evidence, training summaries, or search selection.
 - Validation ties advance the candidate to release; only a strictly worse

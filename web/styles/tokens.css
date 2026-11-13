@@ -27,24 +27,28 @@
 @layer base {
   :root {
     color-scheme: light;
-    --background: #fafafa;
-    --foreground: #202124;
+    --background: #f5f7fb;
+    --foreground: #202d42;
     --card: #fff;
-    --card-foreground: #202124;
+    --card-foreground: #202d42;
     --popover: #fff;
     --popover-foreground: #202124;
-    --primary: #176b52;
+    --primary: #315cbd;
+    --primary-hover: #24478f;
     --primary-foreground: #fff;
-    --secondary: #e9f2ed;
-    --secondary-foreground: #215640;
-    --muted: #f4f4f5;
-    --muted-foreground: #646b68;
-    --accent: #edf6f1;
-    --accent-foreground: #16573e;
+    --secondary: #eaf0fc;
+    --secondary-foreground: #294f9f;
+    --muted: #f4f6fa;
+    --muted-foreground: #607087;
+    --accent: #edf2ff;
+    --accent-foreground: #294f9f;
     --destructive: #b91c1c;
-    --border: #e4e4e7;
-    --input: #d4d4d8;
-    --ring: #176b52;
+    --success: #176b45;
+    --success-soft: #edf8f1;
+    --success-border: #b5ddc4;
+    --border: #e1e7f0;
+    --input: #ccd5e3;
+    --ring: #315cbd;
     --brand: var(--primary);
     --radius: 0.625rem;
     --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
@@ -64,7 +68,7 @@
     --card-padding: var(--space-5);
     --field-gap: var(--space-4);
     --control-gap: var(--space-2);
-    --sidebar-width: 208px;
+    --sidebar-width: 224px;
     --content-width: 1600px;
 
     /* Shared aliases used by feature views. Values are owned here. */
@@ -74,9 +78,7 @@
     --ink: var(--foreground);
     --line: var(--border);
     --line-strong: var(--input);
-    --green: var(--primary);
-    --green-dark: #10513e;
-    --accent-hover: var(--green-dark);
+    --accent-hover: var(--primary-hover);
     --accent-soft: var(--accent);
     --warning: #81580d;
     --warning-soft: #fcf7e9;

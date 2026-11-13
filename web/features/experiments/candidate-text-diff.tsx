@@ -92,6 +92,7 @@ export function CandidateTextDiff({
                   <button
                     key={change.path}
                     className="diff-file-option"
+                    data-kind={change.kind}
                     aria-pressed={change.path === currentFile?.path}
                     onClick={() => setSelected(change.path)}
                   >

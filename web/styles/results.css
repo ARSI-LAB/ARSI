@@ -1,0 +1,99 @@
+.results-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.results-heading h2 {
+  font-size: 22px;
+  letter-spacing: -0.025em;
+}
+.results-heading p {
+  color: var(--muted-foreground);
+  margin-top: 5px;
+  font-size: 13px;
+}
+.results-heading .quiet-button {
+  background: var(--card);
+}
+.harness-stage-summary > div {
+  border-top: 3px solid var(--input);
+  padding: 20px;
+}
+.harness-stage-summary > div:last-child {
+  border-top-color: var(--primary);
+}
+.harness-stage-summary strong {
+  font-size: 32px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.harness-stage-summary small {
+  color: var(--muted-foreground);
+}
+.policy-results-table-content {
+  padding: 0;
+}
+.policy-results-table-content th {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.policy-results-table-content td {
+  padding-block: 16px;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+.policy-results-table-content th:first-child,
+.policy-results-table-content td:first-child {
+  padding-left: 24px;
+}
+.policy-results-table-content tr:hover td {
+  background: var(--muted);
+}
+.policy-results-table-content .harness-average-row {
+  background: var(--accent);
+}
+.harness-score-link {
+  text-decoration: underline;
+  text-decoration-color: var(--input);
+  text-underline-offset: 4px;
+  font-weight: 600;
+}
+.harness-score-link:hover {
+  color: var(--primary);
+  text-decoration-color: currentColor;
+}
+.policy-results .result-stats {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: var(--space-6);
+}
+.policy-results .result-stats > .final-score-summary {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.policy-results .final-score-main strong {
+  color: var(--primary);
+  font-size: 32px;
+}
+.policy-results .overview-metrics strong {
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 540px) {
+  .policy-results .final-score-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .policy-results .final-score-main {
+    grid-column: 1 / -1;
+  }
+  .policy-results .final-score-metrics > div:nth-child(2) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .harness-stage-summary > div {
+    padding: 16px;
+  }
+}

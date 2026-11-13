@@ -1,5 +1,6 @@
 import React from 'react';
 import type { MeasurementSummary } from '../../api/observation-client';
+import { primaryMetric, metricLabel } from './measurement-score';
 import { scoreLabel } from './record-identifiers';
 
 export function MeasurementMetrics({
@@ -7,16 +8,7 @@ export function MeasurementMetrics({
 }: {
   metrics: MeasurementSummary['metrics'];
 }): React.JSX.Element {
-  const primary =
-    [
-      'meanReward',
-      'score',
-      'reward.reward',
-      'reward.overall',
-      'reward.test_pass_rate',
-    ]
-      .map((name) => metrics.find((metric) => metric.name === name))
-      .find(Boolean) ?? metrics[0];
+  const primary = primaryMetric(metrics);
   const passed = metrics.find(
     (metric) => metric.name === 'reward.tests_passed',
   );
@@ -40,20 +32,20 @@ export function MeasurementMetrics({
   if (!primary) return <p className="muted">No metrics recorded.</p>;
   return (
     <dl className="measurement-metrics">
-      <div>
-        <dt>
-          {primary.name === 'meanReward'
-            ? 'Average score'
-            : ['score', 'reward.reward', 'reward.overall'].includes(
-                  primary.name,
-                )
-              ? 'Score'
-              : primary.name === 'reward.test_pass_rate'
-                ? 'Pass rate'
-                : primary.name}
-        </dt>
-        <dd>{value(primary)}</dd>
-      </div>
+      {[
+        primary,
+        ...metrics.filter(
+          (metric) =>
+            metric !== primary && metric !== passed && metric !== total,
+        ),
+      ].map((metric) => (
+        <div
+          key={JSON.stringify([metric.name, metric.definitionRef, metric.unit])}
+        >
+          <dt>{metricLabel(metric)}</dt>
+          <dd>{value(metric)}</dd>
+        </div>
+      ))}
       {passed || total ? (
         <div>
           <dt>Tests passed</dt>

@@ -86,3 +86,34 @@ test('training and test results stay separate; absent or missing outputs never s
     { candidates: [], scores: [], missingMeasurements: ['missing'] },
   );
 });
+
+test('explicit parameter-search deliveries exclude baseline and historical trial references', () => {
+  const references: ResultReference[] = [
+    { kind: 'candidate', ref: 'baseline', path: '/baselineCandidateRef' },
+    { kind: 'measurement', ref: 'base', path: '/baselineMeasurementRef' },
+    { kind: 'candidate', ref: 'selected', path: '/candidateRef' },
+    { kind: 'measurement', ref: 'chosen', path: '/measurementRef' },
+    { kind: 'candidate', ref: 'historical', path: '/trials/0/candidateRef' },
+    { kind: 'measurement', ref: 'trial', path: '/trials/0/measurementRef' },
+  ];
+  const result = finalResults(references, [
+    measurement('base', 'baseline', 1),
+    measurement('chosen', 'selected', 2),
+    measurement('trial', 'historical', 3),
+  ]);
+  assert.deepEqual(result.candidates, ['selected']);
+  assert.deepEqual(
+    result.scores.map(({ measurement }) => measurement.ref),
+    ['chosen'],
+  );
+  assert.deepEqual(
+    finalResults(
+      [
+        { kind: 'candidate', ref: 'baseline', path: '/baselineCandidateRef' },
+        { kind: 'candidate', ref: 'best', path: '/bestCandidateRef' },
+      ],
+      [],
+    ).candidates,
+    ['best'],
+  );
+});

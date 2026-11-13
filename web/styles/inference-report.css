@@ -1,0 +1,294 @@
+@layer components {
+  .inference-scoreboard {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr 1fr;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .inference-best,
+  .inference-stat {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 12px;
+    padding: 26px;
+    min-width: 0;
+  }
+  .inference-best {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  .inference-best > span {
+    color: #e2eaff;
+    font-size: 13px;
+  }
+  .inference-value {
+    font-size: clamp(28px, 3vw, 42px);
+    line-height: 1.15;
+    font-weight: 650;
+    letter-spacing: -0.045em;
+    font-variant-numeric: tabular-nums;
+  }
+  .inference-value small {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: #e2eaff;
+  }
+  .inference-best a {
+    font-size: 12px;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .inference-stat + .inference-stat {
+    border-left: 1px solid var(--border);
+  }
+  .inference-stat > span {
+    font-size: 13px;
+    color: var(--muted-foreground);
+  }
+  .inference-stat strong {
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.035em;
+    font-variant-numeric: tabular-nums;
+  }
+  .inference-stat strong[data-trend='improved'] {
+    color: var(--success);
+  }
+  .inference-stat strong[data-trend='regressed'] {
+    color: var(--danger);
+  }
+  .inference-stat strong small {
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--muted-foreground);
+  }
+  .inference-stat > small {
+    color: var(--muted-foreground);
+  }
+  .inference-analysis {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    gap: var(--section-gap);
+    align-items: stretch;
+  }
+  .inference-chart {
+    width: 100%;
+    height: auto;
+    display: block;
+    overflow: visible;
+  }
+  .inference-chart text {
+    fill: var(--muted-foreground);
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .inference-grid {
+    stroke: var(--border);
+    stroke-dasharray: 3 5;
+  }
+  .inference-baseline {
+    stroke: var(--muted-foreground);
+    stroke-dasharray: 6 5;
+    opacity: 0.7;
+  }
+  .inference-line {
+    stroke: var(--primary);
+    stroke-width: 2.5;
+  }
+  .inference-dot {
+    fill: var(--card);
+    stroke: var(--primary);
+    stroke-width: 2;
+  }
+  .inference-dot.is-best {
+    fill: var(--primary);
+    stroke-width: 3;
+  }
+  .inference-chart-note {
+    font-size: 12px;
+    color: var(--muted-foreground);
+    line-height: 1.6;
+    margin-top: 14px;
+    max-width: 80ch;
+  }
+  .inference-legend {
+    font-size: 12px;
+    color: var(--muted-foreground);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .inference-legend i {
+    width: 16px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--primary);
+  }
+  .inference-evidence dl {
+    display: grid;
+    gap: 17px;
+  }
+  .inference-evidence dl > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .inference-evidence dt {
+    font-size: 13px;
+    color: var(--muted-foreground);
+  }
+  .inference-evidence dd {
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .inference-delivery {
+    border-top: 1px solid var(--border);
+    margin-block: 22px;
+    padding-top: 20px;
+    display: grid;
+    gap: 10px;
+  }
+  .inference-delivery p {
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .inference-delivery a {
+    font-size: 13px;
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .inference-output-references {
+    min-width: 0;
+  }
+  .inference-output-references summary {
+    padding-block: 8px;
+  }
+  .inference-output-references > div {
+    display: grid;
+    gap: 12px;
+    max-height: 240px;
+    overflow: auto;
+    margin-top: 10px;
+  }
+  .inference-output-references a {
+    display: grid;
+    gap: 2px;
+  }
+  .inference-output-references code {
+    font-size: 10px;
+    color: var(--muted-foreground);
+  }
+  .inference-evidence .text-link {
+    font-size: 12px;
+  }
+  .inference-table-content {
+    padding: 0;
+  }
+  .inference-table-content th:first-child,
+  .inference-table-content td:first-child {
+    padding-left: 24px;
+  }
+  .inference-table-content th {
+    background: var(--muted);
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .inference-table-content td {
+    font-size: 13px;
+    padding-block: 15px;
+    vertical-align: middle;
+    font-variant-numeric: tabular-nums;
+  }
+  .inference-table-content tbody tr:hover {
+    background: var(--muted);
+  }
+  .inference-best-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 6px;
+    color: var(--primary);
+    background: var(--accent);
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .inference-count {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .inference-condition {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .inference-condition select {
+    padding: 10px;
+    max-width: 100%;
+    border: 1px solid var(--input);
+    border-radius: 6px;
+    background: var(--card);
+  }
+  @media (max-width: 1100px) {
+    .inference-analysis {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .inference-evidence .ui-card-content {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .inference-evidence dl {
+      flex: 1;
+      min-width: 180px;
+    }
+    .inference-delivery {
+      border-top: 0;
+      border-left: 1px solid var(--border);
+      padding: 0 0 0 24px;
+      max-width: 240px;
+    }
+    .inference-best,
+    .inference-stat {
+      padding: 22px;
+    }
+  }
+  @media (max-width: 760px) {
+    .inference-scoreboard {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .inference-best {
+      grid-column: 1 / -1;
+    }
+    .inference-best,
+    .inference-stat {
+      padding: 20px;
+    }
+    .inference-stat strong {
+      font-size: 25px;
+    }
+    .inference-condition {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .inference-delivery {
+      border-left: 0;
+      padding: 0;
+      margin: 0;
+    }
+    .inference-chart {
+      min-width: 510px;
+    }
+    .inference-trajectory .ui-card-content {
+      overflow-x: auto;
+    }
+  }
+}

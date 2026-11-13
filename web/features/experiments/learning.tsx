@@ -183,7 +183,7 @@ function ApplyRevision({
             setOpen(true);
           }}
         >
-          Preview application
+          Preview local changes
         </button>
       </div>
       {result ? (
@@ -206,12 +206,12 @@ function ApplyRevision({
         }}
       >
         <div className="section-heading">
-          <h2 id="learning-apply-title">Apply to source files</h2>
+          <h2 id="learning-apply-title">Apply local changes</h2>
           <button
             className="quiet-button"
             disabled={pending}
             onClick={close}
-            aria-label="Close application preview"
+            aria-label="Close local changes preview"
           >
             ×
           </button>
@@ -330,7 +330,7 @@ function ApplyRevision({
               }
               onClick={() => void apply()}
             >
-              {pending ? 'Applying…' : 'Apply changes'}
+              {pending ? 'Applying…' : 'Apply local changes'}
             </button>
           ) : null}
         </div>
@@ -361,7 +361,10 @@ function Detail({
       <div className="ui-card-header">
         <div className="section-heading">
           <h2>{title(record, records)}</h2>
-          <span className="status-badge">
+          <span
+            className="status-badge"
+            data-status={memory ? record.status : undefined}
+          >
             {memory
               ? record.status
               : record.kind === 'initial'

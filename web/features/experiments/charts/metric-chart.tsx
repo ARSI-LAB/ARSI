@@ -27,6 +27,7 @@ import {
 import { format } from './chart-controls';
 import { route } from '../../../app/routing';
 import { useRoute, replaceRouteSelection } from '../../../app/use-route';
+import { primaryMetric as selectPrimaryMetric } from '../measurement-score';
 import { scoreLabel } from '../record-identifiers';
 import { scoreGroups, scorePoints, type ScorePoint } from './metric-data';
 const scoreConfig = {
@@ -86,7 +87,11 @@ export function ScorePlot({
   const metrics = [
     ...new Map(scopedGroups.map((item) => [metricKey(item), item])).entries(),
   ];
+  const preferredName = selectPrimaryMetric(
+    filteredMeasurements.flatMap((item) => item.metrics),
+  )?.name;
   const primaryMetric =
+    metrics.find(([, item]) => item.name === preferredName) ??
     metrics.find(([, item]) => item.name === 'meanReward') ??
     metrics.find(([, item]) => item.name === 'score') ??
     metrics.find(([, item]) => item.statistics.includes('value')) ??
@@ -95,8 +100,7 @@ export function ScorePlot({
     ? primaryMetric?.[0]
     : metrics.some(([key]) => key === metric)
       ? metric
-      : (metrics.find(([, item]) => item.statistics.includes('value'))?.[0] ??
-        metrics[0]?.[0]);
+      : primaryMetric?.[0];
   const conditions = scopedGroups.filter(
     (item) => metricKey(item) === activeMetric,
   );

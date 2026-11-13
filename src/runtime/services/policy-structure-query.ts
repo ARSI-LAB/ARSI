@@ -223,6 +223,7 @@ interface PolicyStructureQuery {
     redactKeys?: boolean,
   ) => JsonValue;
   isSecretField: (field: string) => boolean;
+  pluginDescriptions?: () => (id: string) => string | undefined;
 }
 
 /** Project the initial saved declaration through the same redaction as other observations. */
@@ -233,6 +234,7 @@ export async function queryPolicyStructure(
     collectSecrets,
     clean,
     isSecretField,
+    pluginDescriptions,
   }: PolicyStructureQuery,
 ): Promise<PolicyStructure> {
   let locked: JsonObject;
@@ -301,15 +303,29 @@ export async function queryPolicyStructure(
   for (const binding of model.bindings)
     binding.configuration = clean(binding.configuration, secrets, true);
   const redacted = redactStructureStrings(model, secrets);
-  if (
-    Buffer.byteLength(JSON.stringify(redacted), 'utf8') >
-    policyStructureLimits.bytes
-  )
+  const bytes = Buffer.byteLength(JSON.stringify(redacted), 'utf8');
+  if (bytes > policyStructureLimits.bytes)
     return unavailablePolicyStructure(
       redacted.source.experimentId,
       'oversized',
       'The redacted structure exceeds the 4 MiB visualization limit.',
       redacted.source,
     );
+  if (pluginDescriptions && model.bindings.some((binding) => binding.plugin)) {
+    const describe = pluginDescriptions();
+    let remaining = policyStructureLimits.bytes - bytes;
+    for (const [index, { plugin }] of model.bindings.entries()) {
+      if (!plugin) continue;
+      const description = describe(plugin);
+      if (!description?.trim()) continue;
+      const pluginDescription = redactText(description, secrets).trim();
+      // Appending the field replaces the closing brace with a comma and a field.
+      const extra =
+        Buffer.byteLength(JSON.stringify({ pluginDescription })) - 1;
+      if (extra > remaining) continue;
+      redacted.bindings[index]!.pluginDescription = pluginDescription;
+      remaining -= extra;
+    }
+  }
   return redacted;
 }

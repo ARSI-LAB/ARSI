@@ -81,6 +81,11 @@ test('parameter.agent loads default learning resources with either Reflection sw
     Recipe.fromJSON(missingGuidance, registry, options),
     /guidance.*cannot read resource/,
   );
+  declaration.policy.config = { maxTrials: null };
+  await assert.rejects(
+    Recipe.fromJSON(declaration, registry, options),
+    /maxTrials/,
+  );
 });
 
 test('parameter.agent follows selector decisions and returns the measured incumbent before constraints are met', async () => {
@@ -100,7 +105,7 @@ test('parameter.agent follows selector decisions and returns the measured incumb
         application: {},
         checkpoint: async () => {},
         input: { candidateRef: 'baseline' },
-        config: { maxTrials: 4, candidatesPerRound: 2 },
+        config: { maxTrials: 3, candidatesPerRound: 2 },
         async invoke(binding, raw): Promise<JsonObject> {
           const input = object(raw);
           events.push(
@@ -131,8 +136,8 @@ test('parameter.agent follows selector decisions and returns the measured incumb
                 ],
               };
             }
-            if (input.maxCandidates === 2) {
-              assert.equal(input.parent, 'progress');
+            if (input.parent === 'progress') {
+              assert.equal(input.maxCandidates, 1);
               assert.deepEqual(input.evidenceRefs, [
                 'm-baseline',
                 'm-rejected',
@@ -145,24 +150,7 @@ test('parameter.agent follows selector decisions and returns the measured incumb
                 rationale: 'Try one more parameter set',
               };
             }
-            assert.equal(input.parent, 'single');
-            assert.equal(input.maxCandidates, 1);
-            assert.deepEqual(input.sources, [
-              { candidateRef: 'baseline' },
-              { candidateRef: 'rejected' },
-              { candidateRef: 'progress' },
-              { candidateRef: 'single' },
-            ]);
-            assert.match(
-              JSON.stringify(input.observations),
-              /Constraints improved/,
-            );
-            return {
-              status: 'no-change',
-              candidateRef: 'single',
-              diffRef: null,
-              rationale: 'No untried options',
-            };
+            throw new Error('Unexpected extra proposal');
           }
           assert.equal(binding, 'selector');
           const candidate = String(input.candidateMeasurementRef).slice(2);
@@ -198,12 +186,11 @@ test('parameter.agent follows selector decisions and returns the measured incumb
       'proposer:progress',
       'evaluator:single',
       'selector:m-single',
-      'proposer:single',
     ]);
     assert.equal(result.status, 'no-feasible-configuration');
     assert.equal(result.candidateFeasible, false);
     assert.equal(result.memoryRef, null);
-    assert.equal(result.stopReason, 'no-change');
+    assert.equal(result.stopReason, 'max-trials');
     assert.equal(result.baselineCandidateRef, 'baseline');
     assert.equal(result.baselineMeasurementRef, 'm-baseline');
     assert.equal(result.candidateRef, 'single');
@@ -221,3 +208,107 @@ test('parameter.agent follows selector decisions and returns the measured incumb
     await registry.dispose();
   }
 });
+
+for (const scenario of ['empty', 'recover', 'cancel'] as const) {
+  test(`parameter.agent bounds empty proposal retries: ${scenario}`, async () => {
+    const registry = new Registry();
+    const abort = new AbortController();
+    const stopped = new Error('Experiment cancelled');
+    let proposals = 0;
+    let evaluations = 0;
+    try {
+      await registerBuiltins(registry);
+      const policy = await Policy.load(
+        registry.policy('parameter.agent'),
+        registry,
+      );
+      const execution = policy.execute({
+        context: new RuntimeContext().extend({ signal: abort.signal }),
+        application: {},
+        checkpoint: async () => {},
+        input: { candidateRef: 'baseline' },
+        config: { maxTrials: 4, candidatesPerRound: 2 },
+        async invoke(binding, raw): Promise<JsonObject> {
+          const input = object(raw);
+          if (binding === 'evaluator') {
+            evaluations++;
+            return { measurementRef: `m-${input.candidateRef}` };
+          }
+          if (binding === 'selector')
+            return {
+              accepted: true,
+              candidateFeasible: true,
+              selectedCandidateRef:
+                evaluations === 1 ? 'baseline' : 'candidate',
+              measurementRef: input.candidateMeasurementRef,
+              reason: 'Measured improvement',
+              decisionRef: 'decision',
+              metric: 'score',
+              incumbentValue: 1,
+              candidateValue: 2,
+              selectedValue: 2,
+            };
+          assert.equal(binding, 'proposer');
+          proposals++;
+          assert.equal(input.maxCandidates, 2);
+          const previous = object(input.observations).previousNoChangeReason;
+          if (proposals === 2 && scenario !== 'empty') {
+            assert.equal(previous, 'Research another mechanism');
+            return {
+              status: 'created',
+              candidateRef: 'candidate',
+              diffRef: 'diff',
+              rationale: 'A testable change',
+            };
+          }
+          if (proposals === 3) {
+            assert.equal(
+              input.parent,
+              scenario === 'empty' ? 'baseline' : 'candidate',
+            );
+            assert.equal(
+              previous,
+              scenario === 'empty' ? 'Research another mechanism' : null,
+            );
+          }
+          if (proposals === 4) {
+            assert.equal(
+              input.parent,
+              scenario === 'empty' ? 'baseline' : 'candidate',
+            );
+            assert.equal(previous, 'Research another mechanism');
+            if (scenario === 'cancel') abort.abort(stopped);
+          }
+          return {
+            status: 'no-change',
+            candidateRef: input.parent,
+            diffRef: null,
+            rationale: 'Research another mechanism',
+          };
+        },
+      });
+      if (scenario === 'cancel') {
+        await assert.rejects(execution, (error: unknown) => error === stopped);
+      } else {
+        const result = object(await execution);
+        assert.equal(result.stopReason, 'max-proposal-rounds');
+        assert.equal(
+          result.candidateRef,
+          scenario === 'empty' ? 'baseline' : 'candidate',
+        );
+        assert.equal(
+          result.measurementRef,
+          scenario === 'empty' ? 'm-baseline' : 'm-candidate',
+        );
+        assert.equal(
+          Array.isArray(result.trials) && result.trials.length,
+          scenario === 'empty' ? 0 : 1,
+        );
+      }
+      assert.equal(proposals, 4);
+      assert.equal(evaluations, scenario === 'empty' ? 1 : 2);
+    } finally {
+      await registry.dispose();
+    }
+  });
+}

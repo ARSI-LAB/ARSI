@@ -682,6 +682,17 @@
   .policy-type-help-tooltip {
   visibility: visible;
 }
+.policy-value-row:has(.policy-type-help[data-placement='above-field']) {
+  position: relative;
+}
+.policy-type-help[data-placement='above-field'] {
+  position: static;
+}
+.policy-type-help[data-placement='above-field'] .policy-type-help-tooltip {
+  inset-block-start: auto;
+  inset-block-end: 100%;
+  inset-inline-end: 8px;
+}
 .policy-value-branch-with-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

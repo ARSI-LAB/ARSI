@@ -108,6 +108,8 @@ export interface StructureBinding {
   name: string;
   contract: string | null;
   plugin: string | null;
+  /** Description from the current registry for the saved plugin ID, when available. */
+  pluginDescription?: string;
   configuration: JsonValue;
 }
 export interface PolicyStructure {

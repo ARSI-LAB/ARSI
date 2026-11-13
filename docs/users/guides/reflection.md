@@ -250,7 +250,7 @@ ember-rsi reflection apply <revisionID>
 - `show` displays the selected content, recorded target paths, and files that application would create, replace, or delete without writing them.
 - `apply` restores the complete snapshot to its recorded original user-resource paths. Future experiments that select those paths can read it.
 
-Alternatively, open the experiment details in the [dashboard](running-experiments.md#dashboard), go to **Reflection & Memory → Reflection**, select a revision, and click `Preview local changes`. In the `Apply local changes` dialog, review the destination paths and files to create, replace, or delete, select the confirmation checkbox, and click `Apply local changes`.
+Alternatively, open the experiment details in the [dashboard](running-experiments.md#dashboard), go to **Reflection & Memory → Reflection**, select a revision, and click `Preview application`. In the `Apply to source files` dialog, review the destination paths and files to create, replace, or delete, select the confirmation checkbox, and click `Apply changes`.
 
 Both CLI and dashboard application follow these rules; see [application validation and writes](../../../src/runtime/revisions/application.ts):
 

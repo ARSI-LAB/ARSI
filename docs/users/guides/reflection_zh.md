@@ -246,7 +246,7 @@ ember-rsi reflection apply <revisionID>
 - `show` 展示所选内容、记录的目标路径及应用时会新增、覆盖、删除的文件，不执行写入。
 - `apply` 将完整快照恢复到记录的原始用户资源路径，后续选用这些路径的新实验即可读取。
 
-也可在[工作台](running-experiments_zh.md#工作台)打开实验详情，进入 **Reflection & Memory → Reflection**，选择版本后点击 `Preview local changes`。在 `Apply local changes` 对话框中检查目标路径及将新增、覆盖、删除的文件，勾选确认后点击 `Apply local changes`。
+也可在[工作台](running-experiments_zh.md#工作台)打开实验详情，进入 **Reflection & Memory → Reflection**，选择版本后点击 `Preview application`。在 `Apply to source files` 对话框中检查目标路径及将新增、覆盖、删除的文件，勾选确认后点击 `Apply changes`。
 
 CLI 和工作台应用时都遵循以下规则，源码见[应用校验与写入](../../../src/runtime/revisions/application.ts)：
 

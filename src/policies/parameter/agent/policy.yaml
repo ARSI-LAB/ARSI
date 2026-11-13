@@ -44,8 +44,9 @@ steps:
         - candidateRef: ${{ input.candidateRef }}
   - id: search
     type: loop
-    maxIterations: ${{ config.maxTrials }}
-    while: ${{ state.stopReason != 'no-change' && length(state.trials) < config.maxTrials }}
+    # The DSL requires a finite loop bound; trial limits and Runtime budgets govern search.
+    maxIterations: 9007199254740991
+    while: ${{ config.maxTrials == null || length(state.trials) < config.maxTrials }}
     steps:
       - id: propose
         type: invoke
@@ -55,7 +56,7 @@ steps:
           memoryRef: ${{ state.memoryRef }}
           goal: ${{ config.goal }}
           maxCandidates: >-
-            ${{ if(config.candidatesPerRound < config.maxTrials - length(state.trials),
+            ${{ if(config.maxTrials == null || config.candidatesPerRound < config.maxTrials - length(state.trials),
             config.candidatesPerRound, config.maxTrials - length(state.trials)) }}
           evidenceRefs: ${{ compact(concat(append(range(0, 0), steps.baseline.output.measurementRef), pluck(state.trials, 'measurementRef'))) }}
           sources: ${{ state.sources }}
@@ -65,6 +66,7 @@ steps:
             incumbentMeasurementRef: ${{ state.incumbentMeasurement }}
             trials: ${{ state.trials }}
             selection: ${{ config.selection }}
+            previousNoChangeReason: ${{ state.previousNoChangeReason }}
           editConstraints:
             allowedPaths: ['${{ config.parameterFile }}']
             maxChangedFiles: 1
@@ -75,10 +77,14 @@ steps:
           steps:
             - id: no_change
               type: state
-              state: { stopReason: no-change }
+              state:
+                previousNoChangeReason: ${{ steps.propose.output.rationale }}
           output: []
         else:
-          steps: []
+          steps:
+            - id: clear_no_change
+              type: state
+              state: { previousNoChangeReason: null }
           output: >-
             ${{ if(steps.propose.output.status == 'batch',
             pluck(steps.propose.output.candidates, 'candidateRef'),
@@ -86,7 +92,7 @@ steps:
       - id: evaluate_batch
         type: loop
         maxIterations: ${{ length(steps.candidates.output) }}
-        while: ${{ length(state.trials) < config.maxTrials }}
+        while: ${{ config.maxTrials == null || length(state.trials) < config.maxTrials }}
         steps:
           $ref: ./trial-steps.yaml#/evaluate
       - id: remember_if_enabled
@@ -116,7 +122,7 @@ steps:
                 memoryRef: ${{ steps.remember.output.memoryRef }}
       - id: reflect_if_enabled
         type: if
-        if: ${{ config.reflection && length(steps.candidates.output) > 0 && length(state.trials) < config.maxTrials }}
+        if: ${{ config.reflection && (config.maxTrials == null || length(state.trials) < config.maxTrials) }}
         then:
           steps:
             - id: improve_guidance
@@ -125,7 +131,7 @@ steps:
 # output
 output:
   status: ${{ if(state.incumbentFeasible, 'selected', 'no-feasible-configuration') }}
-  stopReason: ${{ state.stopReason }}
+  stopReason: ${{ if(config.maxTrials != null && length(state.trials) >= config.maxTrials, 'max-trials', null) }}
   baselineCandidateRef: ${{ input.candidateRef }}
   baselineMeasurementRef: ${{ steps.baseline.output.measurementRef }}
   candidateRef: ${{ state.incumbent }}

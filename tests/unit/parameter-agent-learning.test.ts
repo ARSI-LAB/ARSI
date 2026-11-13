@@ -168,6 +168,24 @@ for (const customized of [false, true]) {
             if (proposals === 1) {
               assert.equal(metadata.memory, null);
               assert.match(instructions, /Initial research method/);
+              return {
+                proposals: [
+                  {
+                    edits: [],
+                    reason: 'Need a different supported mechanism.',
+                  },
+                ],
+              };
+            } else if (proposals === 2) {
+              assert.equal(metadata.memory, null);
+              assert.equal(
+                object(metadata.observations).previousNoChangeReason,
+                'Need a different supported mechanism.',
+              );
+              assert.match(
+                instructions,
+                /Revised method: distinguish graph coverage/,
+              );
             } else {
               assert.equal(
                 object(metadata.memory)['index.md'],
@@ -185,7 +203,7 @@ for (const customized of [false, true]) {
                     {
                       op: 'replace',
                       path: 'tuning.json',
-                      content: JSON.stringify({ batch: proposals + 1 }),
+                      content: JSON.stringify({ batch: proposals }),
                     },
                   ],
                   reason: 'Test a discriminating configuration',
@@ -290,6 +308,8 @@ implementation:
     assert.deepEqual(events, [
       'evaluate:1',
       'propose',
+      'reflection',
+      'propose',
       'evaluate:2',
       'memory',
       'reflection',
@@ -307,9 +327,9 @@ implementation:
     );
     const calls = await runtime.manager.facts.list('calls');
     const proposerCalls = calls.filter((call) => call.bindingId === 'proposer');
-    assert.equal(proposerCalls.length, 3);
+    assert.equal(proposerCalls.length, 4);
     const initial = proposerCalls.find(
-      (call) => object(call.input).parent === output.baselineCandidateRef,
+      (call) => object(call.output).status === 'no-change',
     );
     assert.ok(initial);
     const subsequent = proposerCalls.filter((call) => call !== initial);

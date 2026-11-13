@@ -8,10 +8,11 @@ Reflection 根据执行证据改进目标插件，使后续调用采用改进后
 
 内置 `parameter.agent` Policy 声明了[配置搜索 Reflection
 模块](../../../src/policies/parameter/agent/reflection.yaml)。设置
-`policy.config.reflection: true` 后，在每批完成评测且仍有后续试验时调用；默认关闭，
+`policy.config.reflection: true` 后，在每轮提案后（包括空提案）且仍有后续试验时调用；默认关闭，
 与 Memory 开关独立。它通过 `training-summary` 读取提案、评测、selector 和已有
 Memory 调用记录，仅可修订 Proposer 的 `guidance`，不能修改选择规则、负载或候选参数。
-下一次提案加载已激活的版本；达到候选上限或收到无修改提案后不再进行收尾 Reflection。
+下一次提案加载已激活的版本；空提案继续搜索，达到候选上限后不再进行收尾 Reflection。
+设置 `maxTrials: null` 时由 Runtime 预算控制结束。
 RSI 提供通用 Reflection 目标和默认 Proposer 指引。场景可复制这些资源，通过
 `bindings.proposer.config.guidance` 选择自己的指引目录，并通过本地
 `reflection.configFile` 选择配置副本。开关只控制调用；沿用现有 Runtime 行为，

@@ -6,7 +6,7 @@ state_schema:
     incumbentMeasurement: { type: [string, 'null'] }
     incumbentFeasible: { type: boolean }
     memoryRef: { type: [string, 'null'] }
-    stopReason: { enum: [max-trials, no-change] }
+    previousNoChangeReason: { type: [string, 'null'] }
     sources: { type: array, items: { type: object } }
     trials:
       type: array
@@ -35,7 +35,7 @@ state_schema:
       incumbentMeasurement,
       incumbentFeasible,
       memoryRef,
-      stopReason,
+      previousNoChangeReason,
       trials,
       sources,
     ]
@@ -44,7 +44,7 @@ state:
   incumbentMeasurement: null
   incumbentFeasible: false
   memoryRef: null
-  stopReason: max-trials
+  previousNoChangeReason: null
   trials: []
   sources: []
 require:

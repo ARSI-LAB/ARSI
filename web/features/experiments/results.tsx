@@ -14,6 +14,8 @@ import { comparableBaseline } from './experiment-summary';
 import { useAllObservations, useObservation } from './use-observation';
 import { InferenceReport } from './inference-report';
 import { inferenceSummary } from './inference-summary';
+import { Measurements } from './measurements';
+import { metricValue } from './measurement-score';
 
 export function Results({ id }: { id: string }): React.JSX.Element {
   const labels = useRoundLabels();
@@ -95,7 +97,8 @@ export function Results({ id }: { id: string }): React.JSX.Element {
       {details.data ? (
         !details.data.result ? (
           <p className="empty-state">
-            No final result was recorded for this experiment.
+            No final result is recorded yet. Recorded evaluations are shown
+            below.
           </p>
         ) : (
           <>
@@ -162,10 +165,9 @@ export function Results({ id }: { id: string }): React.JSX.Element {
                         )
                       : null;
                     const baselineValue = baseline?.values.value;
-                    const finalValue =
-                      metric?.status === 'available'
-                        ? metric.values.value
-                        : null;
+                    const finalValue = metric
+                      ? metricValue(measurement, metric)
+                      : null;
                     const delta =
                       typeof finalValue === 'number' &&
                       typeof baselineValue === 'number'
@@ -227,7 +229,8 @@ export function Results({ id }: { id: string }): React.JSX.Element {
                             {metric.reason ?? metric.status}
                           </p>
                         ) : null}
-                        {metric?.status === 'available' &&
+                        {measurement.status === 'succeeded' &&
+                        metric?.status === 'available' &&
                         finalValue == null ? (
                           <p className="muted">
                             {Object.entries(metric.values)
@@ -279,6 +282,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
           </>
         )
       ) : null}
+      <Measurements id={id} />
     </div>
   );
 }

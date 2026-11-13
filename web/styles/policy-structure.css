@@ -87,7 +87,7 @@
   display: grid;
   place-items: center;
   border-left: 1px solid var(--border);
-  background: #f5f8f6;
+  background: var(--muted);
   cursor: col-resize;
   touch-action: none;
   user-select: none;
@@ -97,7 +97,7 @@
   width: 3px;
   height: 28px;
   border-radius: 2px;
-  background: #a4b7ae;
+  background: var(--input);
 }
 .policy-resizer:is(:hover, :active, :focus-visible) {
   background: var(--accent);
@@ -139,8 +139,8 @@
   position: relative;
   overflow: hidden;
   height: clamp(420px, 65dvh, 780px);
-  background-color: #fafcfb;
-  background-image: radial-gradient(#d9e4de 1px, transparent 1px);
+  background-color: var(--background);
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
   background-size: 20px 20px;
   touch-action: none;
   user-select: none;
@@ -170,13 +170,13 @@
   position: absolute;
 }
 .policy-container {
-  background: #f4f8f6;
-  border: 1px solid #bccfc4;
+  background: var(--muted);
+  border: 1px solid var(--input);
   border-radius: 9px;
   pointer-events: none;
 }
 .policy-region {
-  border: 1px dashed #cfdbd4;
+  border: 1px dashed var(--input);
   border-radius: 6px;
   pointer-events: none;
 }
@@ -186,8 +186,6 @@
   left: 12px;
   color: var(--muted-foreground);
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 .policy-region > small {
   position: absolute;
@@ -200,7 +198,7 @@
 .policy-step,
 .policy-data-node {
   background: var(--policy-node-background, var(--card));
-  border: 1px solid #b9cfc3;
+  border: 1px solid var(--input);
   border-radius: 7px;
   box-shadow: 0 2px 4px #203d2b08;
 }
@@ -337,7 +335,7 @@
 }
 .policy-edge path {
   fill: none;
-  stroke: #91a79b;
+  stroke: var(--muted-foreground);
   stroke-width: 1.4;
 }
 .policy-edge[data-active='true'] path {
@@ -374,8 +372,8 @@
   stroke: var(--primary);
 }
 .policy-anchor {
-  border: 1px solid #a9bcb0;
-  background: #e9f2ec;
+  border: 1px solid var(--input);
+  background: var(--muted);
   border-radius: 20px;
   pointer-events: none;
 }
@@ -397,8 +395,8 @@
   color: var(--danger);
 }
 .policy-flow-endpoint {
-  --policy-endpoint-border: #83a395;
-  --policy-endpoint-fill: #eef7f1;
+  --policy-endpoint-border: var(--input);
+  --policy-endpoint-fill: var(--card);
   position: absolute;
   isolation: isolate;
   display: grid;
@@ -425,7 +423,7 @@
 :where(.policy-canvas:not([data-panning='true'])) .policy-flow-endpoint:hover,
 .policy-flow-endpoint[aria-pressed='true'] {
   --policy-endpoint-border: var(--primary);
-  --policy-endpoint-fill: #dcefe4;
+  --policy-endpoint-fill: var(--accent);
 }
 .policy-flow-endpoint[aria-pressed='true']::after {
   inset: 2px 3px;
@@ -439,7 +437,7 @@
   gap: 8px;
   position: relative;
   padding: 0 12px;
-  border-bottom: 1px solid var(--policy-port-divider, #f0f3f1);
+  border-bottom: 1px solid var(--policy-port-divider, var(--border));
 }
 .policy-port code {
   font-size: 11px;
@@ -451,7 +449,7 @@
   position: absolute;
   width: 6px;
   height: 6px;
-  border: 1px solid var(--policy-port-border, #91a79b);
+  border: 1px solid var(--policy-port-border, var(--input));
   border-radius: 50%;
   background: var(--card);
   left: -4px;
@@ -461,7 +459,7 @@
   right: -4px;
 }
 .policy-port[data-highlighted='true'] {
-  background: #e0efe6;
+  background: var(--accent);
   color: var(--primary);
   font-weight: 600;
 }
@@ -550,7 +548,7 @@
 .policy-detail-section > .policy-value-list {
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fbfcfb;
+  background: var(--muted);
 }
 .policy-value-list > li + li {
   border-top: 1px solid var(--border);

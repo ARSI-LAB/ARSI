@@ -1,5 +1,5 @@
 import { MeasurementMetrics } from './measurement-metrics';
-import { primaryScore } from './measurement-score';
+import { metricValue, primaryMetric, metricLabel } from './measurement-score';
 import { scoreLabel } from './record-identifiers';
 import { useRoundLabels } from './round-labels';
 import React, { useState } from 'react';
@@ -64,6 +64,10 @@ export function Measurements({
     selected ? `/${encodeURIComponent(id)}/metric-observations` : null,
     parseMetricRecords,
   );
+  const metric = primaryMetric(
+    result.data?.items.flatMap((item) => item.metrics) ?? [],
+  );
+  const inference = metric?.name === 'outputThroughput';
   const rounds = [
     ...new Set(result.data?.items.map((item) => roundName(item.ref))),
   ];
@@ -162,10 +166,14 @@ export function Measurements({
                   <TableHead>
                     {labels.isHarness ? 'Version' : 'Candidate'}
                   </TableHead>
-                  {labels.isHarness ? (
+                  {labels.isHarness ? <TableHead>Task</TableHead> : null}
+                  <TableHead>
+                    {metric ? metricLabel(metric) : 'Score'}
+                  </TableHead>
+                  {inference ? (
                     <>
-                      <TableHead>Task</TableHead>
-                      <TableHead>Score</TableHead>
+                      <TableHead>TPOT P90 (ms)</TableHead>
+                      <TableHead>TTFT P90 (ms)</TableHead>
                     </>
                   ) : null}
                   <TableHead>Status</TableHead>
@@ -201,13 +209,30 @@ export function Measurements({
                           ?.replace(/^workbuddy\//, '') ?? '—'}
                       </TableCell>
                     ) : null}
-                    {labels.isHarness ? (
-                      <TableCell>
-                        {primaryScore(measurement) === null
-                          ? '—'
-                          : scoreLabel(primaryScore(measurement)!)}
-                      </TableCell>
-                    ) : null}
+                    <TableCell>
+                      {!metric || metricValue(measurement, metric) === null
+                        ? '—'
+                        : scoreLabel(metricValue(measurement, metric)!)}
+                    </TableCell>
+                    {inference
+                      ? ['tpotP90', 'ttftP90'].map((name) => {
+                          const metric = measurement.metrics.find(
+                            (item) => item.name === name,
+                          );
+                          const value =
+                            measurement.status === 'succeeded' &&
+                            metric?.status === 'available'
+                              ? metric.values.value
+                              : null;
+                          return (
+                            <TableCell key={name}>
+                              {typeof value === 'number'
+                                ? scoreLabel(value)
+                                : '—'}
+                            </TableCell>
+                          );
+                        })
+                      : null}
                     <TableCell>
                       <Status value={measurement.status} />
                     </TableCell>
@@ -264,9 +289,11 @@ export function Measurements({
                 </CardHeader>
                 <CardContent>
                   <MeasurementMetrics metrics={measurement.metrics} />
-                  <h3>Task scores</h3>
+                  <h3>Task metrics</h3>
                   <Feedback {...taskRecords} />
-                  {taskRecords.data ? (
+                  {taskRecords.data?.items.some(
+                    (item) => item.ref === measurement.ref && item.item,
+                  ) ? (
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -296,6 +323,11 @@ export function Measurements({
                           ))}
                       </TableBody>
                     </Table>
+                  ) : taskRecords.data ? (
+                    <p className="muted">
+                      No per-task metrics were recorded. Aggregate metrics are
+                      shown above.
+                    </p>
                   ) : null}
                 </CardContent>
               </Card>

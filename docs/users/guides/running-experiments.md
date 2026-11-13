@@ -109,6 +109,10 @@ Run from an experiment workspace that already contains `.rsi/`. The web dashboar
 - Start, resume, and cancel experiments through the CLI.
 - The development frontend proxies `/api` to port 4317 by default.
 
+Inference experiments display output throughput, TPOT P90, and TTFT P90 in Measurements. Candidate throughput and parent deltas use the same recorded metric definition, unit, and comparison conditions. Missing or failed measurements remain unavailable. The performance report separates the highest measured throughput from the saved result; a single peak does not establish repeatability. Explicit delivery references take precedence over baseline and trial-history references when marking final candidates.
+
+Harness² results show Base, Invariant, Domain, and Composed averages with the number of scored rounds. Each round contributes equally, and individual scores link to their measurement details. Success and added diff lines use green; failures and removed lines use red, independently of the navigation accent color.
+
 ![rsi-studio-wikiskill-compact](../assets/rsi-studio-wikiskill-compact.gif)
 
 ## Troubleshooting

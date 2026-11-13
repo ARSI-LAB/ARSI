@@ -12,6 +12,8 @@ import React, {
 } from 'react';
 import { readObservationSource } from '../api/observation-client';
 import emberRsiLogo from '../../docs/users/assets/ember-rsi-logo.png';
+import { useRoute } from './use-route';
+import { viewRoute } from './view-memory';
 
 export function WorkspaceLayout({
   children,
@@ -22,6 +24,7 @@ export function WorkspaceLayout({
   routeKey: string;
   isList: boolean;
 }): React.JSX.Element {
+  const navigation = useRoute();
   const disconnected = useSyncExternalStore(
     subscribeConnection,
     connectionSnapshot,
@@ -129,15 +132,48 @@ export function WorkspaceLayout({
           <img src={emberRsiLogo} className="brand-mark" alt="ember-rsi" />
         </a>
         <nav className="studio-nav" aria-label="Workspace">
-          <span className="nav-caption">WORKSPACE</span>
+          <span className="nav-caption">Workspace</span>
           <a
             href="#"
-            className="active"
+            className={isList ? 'active' : undefined}
             aria-current={isList ? 'page' : undefined}
           >
             Experiments
           </a>
         </nav>
+        {navigation.id ? (
+          <nav
+            className="studio-nav experiment-sidebar-nav"
+            aria-label="Current experiment"
+          >
+            <span className="nav-caption">Experiment analysis</span>
+            {(
+              [
+                ['overview', 'Overview'],
+                ['results', 'Performance & results'],
+                ['candidates', 'Candidates'],
+                ['measurements', 'Measurements'],
+                ['learning', 'Reflection & Memory'],
+                ['calls', 'Call history'],
+                ['policy', 'Policy'],
+                ['recipe', 'Recipe'],
+              ] as const
+            ).map(([view, label]) => (
+              <a
+                key={view}
+                href={viewRoute(navigation.id!, view)}
+                aria-current={navigation.view === view ? 'page' : undefined}
+                className={navigation.view === view ? 'active' : undefined}
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
+        ) : null}
+        <div className="studio-sidebar-footer">
+          <span className="studio-record-dot" /> Recorded experiment data
+          <p>Ember RSI · Experiment lab</p>
+        </div>
       </aside>
       {sidebarOpen ? (
         <button
@@ -172,12 +208,12 @@ export function WorkspaceLayout({
           <a href="#" className="breadcrumbs">
             RSI / Experiments
           </a>
-          <span className="workspace-source" title={source ?? undefined}>
-            <span>Data directory</span>
+          <details className="workspace-source">
+            <summary>Data source</summary>
             <code>
               {source ?? (sourceError ? 'Unavailable' : 'Not provided')}
             </code>
-          </span>
+          </details>
         </header>
         <main id="main" ref={main} tabIndex={-1} className="studio-main">
           {disconnected ? (

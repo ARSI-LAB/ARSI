@@ -3,7 +3,7 @@ import type {
   ResultReference,
 } from '../../api/observation-client.js';
 
-/** Use only returned references; ordering, score direction and Policy field names do not select a winner. */
+/** Use only returned references; scores and ordering never select a winner; explicit deliveries take precedence over history. */
 export function finalResults(
   references: readonly ResultReference[],
   measurements: readonly MeasurementSummary[],
@@ -12,8 +12,22 @@ export function finalResults(
   scores: { measurement: MeasurementSummary; paths: string[] }[];
   missingMeasurements: string[];
 } {
+  // Built-in Policies return deliveries at these explicit top-level paths.
+  // Their baseline and search-history references are evidence, not deliveries.
+  const deliveryPaths = new Set([
+    '/candidateRef',
+    '/measurementRef',
+    '/testMeasurementRef',
+    '/bestCandidateRef',
+    '/bestMeasurementRef',
+    '/finalMeasurementRef',
+  ]);
+  const explicit = references.filter((reference) =>
+    deliveryPaths.has(reference.path),
+  );
+  const deliveries = explicit.length ? explicit : references;
   const returned = new Map<string, string[]>();
-  for (const reference of references) {
+  for (const reference of deliveries) {
     if (reference.kind !== 'measurement') continue;
     const paths = returned.get(reference.ref) ?? [];
     paths.push(reference.path);
@@ -35,7 +49,7 @@ export function finalResults(
     ...new Set(
       returned.size
         ? scores.map(({ measurement }) => measurement.candidateRef)
-        : references
+        : deliveries
             .filter((reference) => reference.kind === 'candidate')
             .map((reference) => reference.ref),
     ),

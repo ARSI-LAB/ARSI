@@ -6,7 +6,8 @@ import {
 import { useObservation } from './use-observation';
 import { finalResults } from './final-results';
 import { Feedback, Pagination } from '../../components/observation-feedback';
-import { scoreGroups, scorePoints } from './charts/metric-data';
+import { candidateScores } from './candidate-scores';
+import { metricLabel } from './measurement-score';
 import { scoreLabel } from './record-identifiers';
 import { useRoundLabels, useCallRecords } from './round-labels';
 import { route } from '../../app/routing';
@@ -40,28 +41,11 @@ export function CandidateRelations({
   const validation = all.filter((item) =>
     /Validation|Baseline evaluation/.test(labels.evaluation(item.ref)),
   );
-  const records = validation.length ? validation : all;
-  const availableGroups = scoreGroups(records);
-  const primaryName = availableGroups.some((item) => item.name === 'meanReward')
-    ? 'meanReward'
-    : availableGroups.some((item) => item.name === 'score')
-      ? 'score'
-      : availableGroups[0]?.name;
-  const groups = availableGroups.filter(
-    (item) => item.name === primaryName || item.name === 'successRate',
+  const { group, scores } = candidateScores(
+    all,
+    new Set(validation.map((item) => item.ref)),
   );
-  const group = groups.find((item) => item.name === 'meanReward') ?? groups[0];
-  const statistic = group?.statistics.includes('value')
-    ? 'value'
-    : (group?.statistics[0] ?? 'value');
-  const scores = new Map(
-    group
-      ? scorePoints(records, group, statistic, all).map((point) => [
-          point.candidateRef,
-          point,
-        ])
-      : [],
-  );
+  const primaryName = group?.name;
 
   const delivered = finalResults(
     details.data?.resultReferences ?? [],
@@ -108,7 +92,9 @@ export function CandidateRelations({
               <TableRow>
                 <TableHead>Version</TableHead>
                 <TableHead>From</TableHead>
-                <TableHead>Score</TableHead>
+                <TableHead title={group ? metricLabel(group) : undefined}>
+                  {primaryName === 'outputThroughput' ? 'Throughput' : 'Score'}
+                </TableHead>
                 <TableHead title="Change compared with parent">Δ</TableHead>
               </TableRow>
             </TableHeader>
@@ -195,7 +181,8 @@ export function CandidateRelations({
             <p className="empty-state">No matching versions.</p>
           ) : null}
           <p className="muted">
-            From: parent version · Δ: score change from parent.
+            From: parent version · Δ: change from parent.
+            {group ? ` Metric: ${metricLabel(group)}.` : ''}
           </p>
           <Pagination
             page={{

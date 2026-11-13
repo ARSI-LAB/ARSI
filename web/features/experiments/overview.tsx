@@ -9,6 +9,8 @@ import { useAllObservations } from './use-observation';
 import { Feedback } from '../../components/observation-feedback';
 import { recordedDuration } from './experiment-summary';
 import { Card, CardContent, CardHeader } from '../../components/ui/card';
+import { InferenceReport } from './inference-report';
+import { inferenceSummary } from './inference-summary';
 import {
   Table,
   TableBody,
@@ -34,8 +36,19 @@ export function Overview({
     `/${encodeURIComponent(data.id)}/measurements`,
     parseMeasurements,
   );
+  const inference = inferenceSummary(
+    measurements.data?.items ?? [],
+    candidates.data?.items ?? [],
+  );
   return (
     <div className="section-stack">
+      {inference ? (
+        <InferenceReport
+          id={data.id}
+          measurements={measurements.data!.items}
+          candidates={candidates.data?.items ?? []}
+        />
+      ) : null}
       <div className="overview-metrics">
         <div>
           <span>Duration</span>
@@ -72,7 +85,7 @@ export function Overview({
       </div>
       <Feedback {...candidates} loading={false} />
       <Feedback {...measurements} loading={false} />
-      {children}
+      {inference ? null : children}
       <Card>
         <CardHeader>
           <h2>Resource usage</h2>

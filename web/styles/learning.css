@@ -59,10 +59,10 @@
     border-color: var(--primary);
   }
   .quiet-button.learning-primary:hover:not(:disabled) {
-    background: var(--green-dark);
+    background: var(--primary-hover);
   }
   .learning-success {
-    color: var(--primary);
+    color: var(--success);
     margin-top: var(--space-3);
   }
   .learning-dialog {

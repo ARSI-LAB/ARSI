@@ -12,6 +12,8 @@ import { Card, CardContent, CardHeader } from '../../components/ui/card';
 import { finalResults } from './final-results';
 import { comparableBaseline } from './experiment-summary';
 import { useAllObservations, useObservation } from './use-observation';
+import { InferenceReport } from './inference-report';
+import { inferenceSummary } from './inference-summary';
 
 export function Results({ id }: { id: string }): React.JSX.Element {
   const labels = useRoundLabels();
@@ -26,10 +28,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
   );
   const references = details.data?.resultReferences ?? [];
   const measurements = useAllObservations(
-    labels.isHarness ||
-      references.some((reference) => reference.kind === 'measurement')
-      ? `/${encodeURIComponent(id)}/measurements`
-      : null,
+    `/${encodeURIComponent(id)}/measurements`,
     parseMeasurements,
   );
   const final = finalResults(references, measurements.data?.items ?? []);
@@ -51,6 +50,25 @@ export function Results({ id }: { id: string }): React.JSX.Element {
     metrics.find(([, metric]) => 'value' in metric.values) ??
     metrics[0])?.[0];
   if (!records.calls.data) return <Feedback {...records.calls} />;
+  if (
+    inferenceSummary(
+      measurements.data?.items ?? [],
+      candidates.data?.items ?? [],
+    )
+  )
+    return (
+      <div className="section-stack">
+        <Feedback {...details} />
+        <Feedback {...measurements} />
+        <Feedback {...candidates} />
+        <InferenceReport
+          id={id}
+          measurements={measurements.data!.items}
+          candidates={candidates.data?.items ?? []}
+          resultReferences={references}
+        />
+      </div>
+    );
   if (labels.isHarness)
     return (
       <div className="section-stack">
@@ -58,6 +76,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
         <Feedback {...measurements} />
         {measurements.data && details.data ? (
           <HarnessResults
+            id={id}
             measurements={measurements.data.items}
             references={references}
           />
@@ -65,7 +84,13 @@ export function Results({ id }: { id: string }): React.JSX.Element {
       </div>
     );
   return (
-    <div className="section-stack">
+    <div className="section-stack policy-results">
+      <div className="results-heading">
+        <div>
+          <h2>Saved results</h2>
+          <p>Review returned candidates and recorded evaluation metrics.</p>
+        </div>
+      </div>
       <Feedback {...details} />
       {details.data ? (
         !details.data.result ? (

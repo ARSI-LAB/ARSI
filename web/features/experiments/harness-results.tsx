@@ -17,11 +17,16 @@ import { Status } from '../../components/observation-feedback';
 import { useRoundLabels } from './round-labels';
 import { finalResults } from './final-results';
 import { scoreLabel } from './record-identifiers';
+import { route } from '../../app/routing';
+
+const variants = ['Base', 'Invariant', 'Domain', 'Composed'] as const;
 
 export function HarnessResults({
+  id,
   measurements,
   references,
 }: {
+  id: string;
   measurements: MeasurementSummary[];
   references: ResultReference[];
 }): React.JSX.Element {
@@ -36,56 +41,88 @@ export function HarnessResults({
       ]);
   }
   const deliveries = finalResults(references, measurements);
+  const averages = variants.map((variant) => {
+    const rounds = [...groups.values()].map((items) =>
+      items.filter((item) => labels.harness(item.ref)?.variant === variant),
+    );
+    return {
+      variant,
+      value: roundAverage(rounds),
+      count: rounds.filter((items) =>
+        items.some((item) => primaryScore(item) !== null),
+      ).length,
+    };
+  });
   return (
-    <Card>
-      <CardHeader>
-        <div className="section-heading">
-          <h2>Results by round</h2>
-          <span className="muted">{groups.size} rounds</span>
+    <div className="section-stack policy-results">
+      <div className="results-heading">
+        <div>
+          <h2>Harness comparison</h2>
+          <p>Compare each harness stage across recorded task rounds.</p>
         </div>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Round</TableHead>
-              <TableHead>Task</TableHead>
-              {['Base', 'Invariant', 'Domain', 'Composed'].map((variant) => (
-                <TableHead key={variant}>{variant}</TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {[...groups]
-              .sort(([a], [b]) =>
-                a.localeCompare(b, undefined, { numeric: true }),
-              )
-              .map(([round, records]) => {
-                const tasks = [
-                  ...new Set(
-                    records
-                      .map((item) => labels.task(item.ref))
-                      .filter((name): name is string => name !== null),
-                  ),
-                ];
-                return (
-                  <TableRow key={round}>
-                    <TableCell>
-                      <strong className="harness-round-label">{round}</strong>
-                    </TableCell>
-                    <TableCell>
-                      <div className="harness-result-task">
-                        {tasks.length
-                          ? tasks.map((task) => (
-                              <span key={task} title={task}>
-                                {task.replace(/^workbuddy\//, '')}
-                              </span>
-                            ))
-                          : '—'}
-                      </div>
-                    </TableCell>
-                    {['Base', 'Invariant', 'Domain', 'Composed'].map(
-                      (variant) => (
+      </div>
+      <div
+        className="overview-metrics harness-stage-summary"
+        aria-label="Average scores by harness stage"
+      >
+        {averages.map(({ variant, value, count }) => (
+          <div key={variant}>
+            <span>{variant}</span>
+            <strong>{value === null ? '—' : scoreLabel(value)}</strong>
+            <small>
+              Average score · {count}/{groups.size} rounds
+            </small>
+          </div>
+        ))}
+      </div>
+      <Card>
+        <CardHeader>
+          <div className="section-heading">
+            <h2>Results by round</h2>
+            <span className="muted">{groups.size} rounds</span>
+          </div>
+        </CardHeader>
+        <CardContent className="policy-results-table-content">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Round</TableHead>
+                <TableHead>Task</TableHead>
+                {variants.map((variant) => (
+                  <TableHead key={variant}>{variant}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {[...groups]
+                .sort(([a], [b]) =>
+                  a.localeCompare(b, undefined, { numeric: true }),
+                )
+                .map(([round, records]) => {
+                  const tasks = [
+                    ...new Set(
+                      records
+                        .map((item) => labels.task(item.ref))
+                        .filter((name): name is string => name !== null),
+                    ),
+                  ];
+                  return (
+                    <TableRow key={round}>
+                      <TableCell>
+                        <strong className="harness-round-label">{round}</strong>
+                      </TableCell>
+                      <TableCell>
+                        <div className="harness-result-task">
+                          {tasks.length
+                            ? tasks.map((task) => (
+                                <span key={task} title={task}>
+                                  {task.replace(/^workbuddy\//, '')}
+                                </span>
+                              ))
+                            : '—'}
+                        </div>
+                      </TableCell>
+                      {variants.map((variant) => (
                         <TableCell key={variant}>
                           <div className="harness-score-list">
                             {records
@@ -97,9 +134,19 @@ export function HarnessResults({
                                 const score = primaryScore(item);
                                 return (
                                   <div key={item.ref}>
-                                    <span>
+                                    <a
+                                      className="harness-score-link"
+                                      href={route(
+                                        id,
+                                        'measurements',
+                                        undefined,
+                                        undefined,
+                                        { measurement: item.ref },
+                                      )}
+                                      aria-label={`${round} · ${variant} · ${score === null ? 'Score unavailable' : scoreLabel(score)}`}
+                                    >
                                       {score === null ? '—' : scoreLabel(score)}
-                                    </span>
+                                    </a>
                                     {attempts.length > 1 ? (
                                       <small className="muted">
                                         {' '}
@@ -126,54 +173,45 @@ export function HarnessResults({
                               : null}
                           </div>
                         </TableCell>
-                      ),
-                    )}
-                  </TableRow>
-                );
-              })}
-            {groups.size ? (
-              <TableRow className="harness-average-row">
-                <TableCell>
-                  <strong>Average</strong>
-                </TableCell>
-                <TableCell />
-                {['Base', 'Invariant', 'Domain', 'Composed'].map((variant) => {
-                  const rounds = [...groups.values()].map((items) =>
-                    items.filter(
-                      (item) => labels.harness(item.ref)?.variant === variant,
-                    ),
-                  );
-                  const value = roundAverage(rounds);
-                  const count = rounds.filter((items) =>
-                    items.some((item) => primaryScore(item) !== null),
-                  ).length;
-                  return (
-                    <TableCell key={variant}>
-                      <strong>
-                        {value === null ? '—' : scoreLabel(value)}
-                      </strong>
-                      {count < groups.size ? (
-                        <small className="muted">
-                          {' '}
-                          · {count}/{groups.size} rounds
-                        </small>
-                      ) : null}
-                    </TableCell>
+                      ))}
+                    </TableRow>
                   );
                 })}
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-        {!groups.size ? (
-          <p className="empty-state">No round evaluations recorded.</p>
-        ) : null}
-        {deliveries.missingMeasurements.length ? (
-          <p className="filter-note">
-            Some returned evaluations are unavailable.
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
+              {groups.size ? (
+                <TableRow className="harness-average-row">
+                  <TableCell>
+                    <strong>Average</strong>
+                  </TableCell>
+                  <TableCell />
+                  {averages.map(({ variant, value, count }) => {
+                    return (
+                      <TableCell key={variant}>
+                        <strong>
+                          {value === null ? '—' : scoreLabel(value)}
+                        </strong>
+                        {count < groups.size ? (
+                          <small className="muted">
+                            {' '}
+                            · {count}/{groups.size} rounds
+                          </small>
+                        ) : null}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+          {!groups.size ? (
+            <p className="empty-state">No round evaluations recorded.</p>
+          ) : null}
+          {deliveries.missingMeasurements.length ? (
+            <p className="filter-note">
+              Some returned evaluations are unavailable.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

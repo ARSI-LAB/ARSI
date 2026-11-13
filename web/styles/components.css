@@ -141,8 +141,9 @@
     background: var(--warning-soft);
   }
   .status-badge[data-status='succeeded'] {
-    color: var(--primary);
-    background: var(--accent);
+    color: var(--success);
+    background: var(--success-soft);
+    border-color: var(--success-border);
   }
   .status-badge[data-status='failed'],
   .status-badge[data-status='unknown'] {

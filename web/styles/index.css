@@ -9,3 +9,7 @@
 
 @import './learning.css';
 @import './policy-structure.css';
+
+@import './inference-report.css';
+
+@import './results.css';

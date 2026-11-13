@@ -109,6 +109,10 @@ ember-rsi dashboard --port <端口号>
 - 当前界面只读，启动、恢复和取消通过 CLI 进行。
 - 默认将 `/api` 代理到 4317 端口。
 
+推理实验在 Measurements 中展示输出吞吐、TPOT P90 和 TTFT P90。候选吞吐及相对父版本的差值使用相同的指标定义、单位和评测条件；缺失或失败的测量仍标为不可用。性能报告区分最高测量吞吐和保存的结果，单次峰值不能证明可重复性。标记最终候选时，明确的交付引用优先于基线和 trial 历史引用。
+
+Harness² 结果展示 Base、Invariant、Domain、Composed 的均分和已计分轮数。各轮等权，单项分数可跳转到测量详情。成功状态和 diff 新增行使用绿色，失败与删除行使用红色，与导航强调色分开。
+
 ![rsi-studio-wikiskill-compact](../assets/rsi-studio-wikiskill-compact.gif)
 
 ## 排障

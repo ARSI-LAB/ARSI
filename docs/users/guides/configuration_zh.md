@@ -152,8 +152,6 @@ bindings:
 
 RSI 保留原生模型和认证配置，但限制任务为只读提案，不接受交互式审批。Claude Code 的 Hooks 和 MCP 在 RSI 调用中禁用。
 
-OpenCode 使用独立实例，不连接用户正在使用的后台服务。其 RSI 只读 Agent 支持文件读取和 Skills，不执行 Shell、MCP 工具或子 Agent 委派。用户模型和认证配置仍由原生 CLI 加载；返回结果须通过 RSI 的 JSON 校验。
-
 ### 检查并启动
 
 完成所选后端的配置后，将下面的路径换成你的完整 Recipe 文件路径，在同一个终端运行：

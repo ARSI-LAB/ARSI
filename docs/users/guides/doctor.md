@@ -94,7 +94,7 @@ The following built-in implementations declare their own `doctor` callback. Doct
 | `agent.codex`             | 1. Check that the Codex command is available and supports native diagnostics.<br>2. Run native diagnostics in an isolated project using the configured model and reasoning level, then read the results.                                                             |
 | `agent.claudecode` | Check CLI options and native JSON authentication status. Text-only installation diagnostics remain `unchecked`; run `claude doctor` manually. Model access is not verified. |
 | `agent.dsh` | Check CLI options and compose the headless configuration to detect composition errors. This may refresh native caches; dynamic model routes, stored credentials and model access are not verified. |
-| `agent.opencode` | Check the V2 CLI version, required options, and composition of native configuration with the RSI read-only Agent. Uses a private instance and may refresh native caches; credential validity and model access are not verified. |
+| `agent.opencode` | Check the V2 CLI version, required options, and composition of native configuration with the RSI read-only Agent. Uses a private instance and may refresh native caches. |
 
 ### Proposers, Memory, Reflection and Selectors
 

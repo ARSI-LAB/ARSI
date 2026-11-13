@@ -152,8 +152,6 @@ bindings:
 
 RSI keeps native model and authentication settings while limiting tasks to read-only proposals with no interactive approvals. Claude Code Hooks and MCP are disabled for RSI calls.
 
-OpenCode runs in a private instance rather than connecting to your shared background service. Its RSI read-only Agent supports file reads and Skills, but not Shell, MCP tools or subagent delegation. The native CLI still loads your model and authentication settings; RSI validates the returned JSON.
-
 ### Check and start
 
 After configuring your chosen backend, replace the path below with your complete Recipe file and run these commands in the same terminal:

@@ -103,6 +103,9 @@ export class ObservationQueries {
     private readonly facts: Pick<FactStore, 'read' | 'list' | 'scan'>,
     private readonly artifacts: Pick<ArtifactStore, 'readJson'>,
     private readonly directory?: string,
+    private readonly pluginDescriptions?: () => (
+      id: string,
+    ) => string | undefined,
   ) {}
 
   source(): ObservationSource {
@@ -119,6 +122,7 @@ export class ObservationQueries {
       clean: (value, secrets, redactKeys) =>
         this.clean(value, secrets, redactKeys),
       isSecretField: (field) => secretField.test(field),
+      pluginDescriptions: this.pluginDescriptions,
     });
   }
 

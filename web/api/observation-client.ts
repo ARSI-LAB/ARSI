@@ -534,6 +534,9 @@ export function parsePolicyStructure(raw: unknown): PolicyStructure {
         name: text(item.name),
         contract: nullable(item.contract),
         plugin: nullable(item.plugin),
+        ...(item.pluginDescription === undefined
+          ? {}
+          : { pluginDescription: text(item.pluginDescription) }),
         configuration: jsonValue(item.configuration),
       };
     }),

@@ -771,9 +771,11 @@ const stepTypeDescriptions: Record<StructureStep['type'], string> = {
 function PolicyValueHelp({
   label,
   text,
+  placement,
 }: {
   label: string;
   text: string;
+  placement?: 'above-field';
 }): React.JSX.Element {
   const tooltipId = useId();
   const [dismissed, setDismissed] = useState(false);
@@ -781,6 +783,7 @@ function PolicyValueHelp({
     <span
       className="policy-type-help"
       data-dismissed={dismissed}
+      data-placement={placement}
       onMouseEnter={() => setDismissed(false)}
     >
       <button
@@ -880,16 +883,24 @@ function PolicyExpressionOperands({
   );
 }
 
+interface PolicyFieldHelp {
+  field: string;
+  label: string;
+  text: string;
+}
+
 function PolicyValueList({
   value,
   location,
   itemSourceLocation,
   actions,
+  fieldHelp,
 }: {
   value: JsonValue;
   location: string | undefined;
   itemSourceLocation?: string;
   actions: PolicyDeclarationActions | undefined;
+  fieldHelp?: PolicyFieldHelp;
 }): React.JSX.Element {
   const array = Array.isArray(value);
   const hasEntries = value !== null && typeof value === 'object';
@@ -983,7 +994,13 @@ function PolicyValueList({
             ? preview.value
             : (preview?.label ?? rawValue);
         const help =
-          (preview || description) && typeof rawValue === 'string' ? (
+          fieldHelp?.field === key ? (
+            <PolicyValueHelp
+              label={fieldHelp.label}
+              text={fieldHelp.text}
+              placement="above-field"
+            />
+          ) : (preview || description) && typeof rawValue === 'string' ? (
             <PolicyValueHelp
               label={`Original expression for ${name}`}
               text={rawValue}
@@ -1130,6 +1147,7 @@ function PolicyValueSection({
   itemSourceLocation,
   actions,
   headingRef,
+  fieldHelp,
 }: {
   title: string;
   value: JsonValue | undefined;
@@ -1137,6 +1155,7 @@ function PolicyValueSection({
   itemSourceLocation?: string;
   actions?: PolicyDeclarationActions;
   headingRef?: React.Ref<HTMLHeadingElement>;
+  fieldHelp?: PolicyFieldHelp;
 }): React.JSX.Element {
   return (
     <section className="policy-detail-section">
@@ -1157,6 +1176,7 @@ function PolicyValueSection({
           location={location}
           itemSourceLocation={itemSourceLocation}
           actions={actions}
+          fieldHelp={fieldHelp}
         />
       )}
     </section>
@@ -1329,6 +1349,15 @@ function PolicyDetails({
               <PolicyValueSection
                 title="Saved effective binding"
                 headingRef={bindingHeading}
+                fieldHelp={
+                  binding.pluginDescription
+                    ? {
+                        field: 'Plugin',
+                        label: 'Plugin description',
+                        text: binding.pluginDescription,
+                      }
+                    : undefined
+                }
                 value={{
                   Binding: binding.name,
                   Contract: binding.contract ?? 'Unavailable',

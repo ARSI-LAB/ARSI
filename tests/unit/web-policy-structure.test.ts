@@ -4,7 +4,11 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { JsonObject } from '../../src/contracts/index.js';
-import { createServer } from '../../src/entries/web/server.js';
+import {
+  createServer,
+  type ServerRuntime,
+} from '../../src/entries/web/server.js';
+import { Registry } from '../../src/runtime/registry/index.js';
 import { FileArtifacts, FileFacts } from '../../src/runtime/storage/index.js';
 import { digest, object } from '../../src/shared/json.js';
 import { parsePolicyStructure } from '../../web/api/observation-client.js';
@@ -83,7 +87,14 @@ function relock(lock: JsonObject): JsonObject {
   return { ...content, digest: digest(content) };
 }
 
-async function fixture(t: TestContext): Promise<{
+async function fixture(
+  t: TestContext,
+  registry: ServerRuntime['registry'] = {
+    catalog: () => {
+      throw new Error('A structure read must not load the current catalog');
+    },
+  },
+): Promise<{
   directory: string;
   facts: FileFacts;
   artifacts: FileArtifacts;
@@ -115,11 +126,7 @@ async function fixture(t: TestContext): Promise<{
         throw new Error('A structure read must not cancel an experiment');
       },
     },
-    registry: {
-      catalog: () => {
-        throw new Error('A structure read must not load the current catalog');
-      },
-    },
+    registry,
   });
   t.after(async () => {
     await server.close();
@@ -198,6 +205,72 @@ test('Policy structure HTTP reads only the saved definition and redacts all proj
   await rm(join(directory, 'policy.yaml'));
   await rm(join(directory, 'recipe.yaml'));
   assert.deepEqual((await server.inject(endpoint)).json(), response.json());
+});
+
+test('Policy structure HTTP describes saved effective plugin IDs when registered', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  const experimentSecret = 'experiment-private-key';
+  const contract = {
+    id: 'contract.saved',
+    input_schema: true,
+    output_schema: true,
+  };
+  for (const [id, description] of [
+    [
+      'worker.saved',
+      `  Evaluate candidates with ${privateValue} and ${experimentSecret}.  `,
+    ],
+    ['worker.default', 'Default plugin description'],
+    ['worker.undescribed', undefined],
+    ['worker.blank', ' \t\n '],
+    ['worker.oversized', 'x'.repeat(4 * 1024 * 1024)],
+  ] as const) {
+    registry.registerOperation({
+      id,
+      description,
+      contract,
+      configSchema: true,
+      async create() {
+        throw new Error('A description lookup must not instantiate plugins');
+      },
+    });
+  }
+  const { directory, facts, server } = await fixture(t, registry);
+  await facts.write('experiments', experimentId, {
+    id: experimentId,
+    status: 'interrupted',
+    config: { apiKey: experimentSecret },
+  });
+  const lock = savedDefinition(directory);
+  const bindings = object(object(lock.recipe).bindings);
+  const policy = object(lock.policy);
+  const requirements = object(policy.require);
+  const steps = policy.steps;
+  assert.ok(Array.isArray(steps));
+  for (const name of ['undescribed', 'blank', 'missing', 'oversized']) {
+    bindings[name] = { plugin: `worker.${name}`, config: {} };
+    requirements[name] = { contract: 'contract.saved' };
+    steps.push({ id: name, type: 'invoke', use: name, with: {} });
+  }
+  await facts.write('definitions', experimentId, relock(lock));
+
+  const response = await server.inject(endpoint);
+  assert.equal(response.statusCode, 200, response.body);
+  const model = parsePolicyStructure(response.json());
+  assert.equal(model.availability.overall, 'complete');
+  assert.equal(model.steps.length, 5);
+  const worker = model.bindings.find((binding) => binding.name === 'worker');
+  assert.equal(worker?.plugin, 'worker.saved');
+  assert.equal(
+    worker?.pluginDescription,
+    'Evaluate candidates with [REDACTED] and [REDACTED].',
+  );
+  assert.ok(!response.body.includes(privateValue));
+  assert.ok(!response.body.includes(experimentSecret));
+  assert.ok(!response.body.includes('Default plugin description'));
+  for (const binding of model.bindings.filter((entry) => entry !== worker))
+    assert.ok(!Object.hasOwn(binding, 'pluginDescription'), binding.name);
 });
 
 test('Policy structure HTTP distinguishes missing, unsupported and corrupt snapshots without fallback', async (t) => {

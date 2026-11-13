@@ -15,7 +15,7 @@ export interface ServerRuntime {
     Manager,
     'list' | 'get' | 'run' | 'cancel' | 'facts' | 'artifacts' | 'reflection'
   > & { readonly directory?: string };
-  registry: Pick<Registry, 'catalog'>;
+  registry: Pick<Registry, 'catalog'> & Partial<Pick<Registry, 'get'>>;
 }
 /** HTTP adapts Runtime calls; jobs survive the lifetime of an individual browser request. */
 export async function createServer(
@@ -55,6 +55,15 @@ export async function createServer(
     runtime.manager.facts,
     runtime.manager.artifacts,
     runtime.manager.directory,
+    runtime.registry.get
+      ? () => {
+          const plugins = new Set(runtime.registry.catalog().plugins);
+          return (id) =>
+            plugins.has(id)
+              ? runtime.registry.get?.(id).description
+              : undefined;
+        }
+      : undefined,
   );
   registerObservationRoutes(app, queries);
   registerLearningRoutes(app, runtime.manager, queries);

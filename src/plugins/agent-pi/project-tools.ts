@@ -117,7 +117,7 @@ export async function projectTools(
       createBashToolDefinition(root, {
         operations:
           bashMode === 'direct'
-            ? createLocalBashOperations({ shellPath: '/bin/bash' })
+            ? createLocalBashOperations()
             : projectBash(
                 root,
                 writable.map((path) => join(root, path)),

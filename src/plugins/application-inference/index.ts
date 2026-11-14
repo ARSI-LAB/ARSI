@@ -1,3 +1,4 @@
+import { checkStaticFileApplication } from '../shared/file-application/doctor.js';
 import type {
   ApplicationInput,
   ApplicationOutput,
@@ -17,6 +18,7 @@ export const inferenceDefinition: OperationDefinition<
     'Manage inference configuration candidates and inference instances.',
   contract: applicationContract,
   configSchema,
+  staticDoctor: checkStaticFileApplication,
   create: createApplicationInference,
   doctor: checkInferenceApplication,
 };

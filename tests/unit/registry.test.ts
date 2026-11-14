@@ -75,12 +75,14 @@ test('managed creation rejects unknown and unregistered plugins', async (t) => {
 test('doctor is an optional function capability and registration never invokes it', async (t) => {
   const registry = new Registry();
   t.after(() => registry.dispose());
-  const invalid = definition('invalid');
-  Object.defineProperty(invalid, 'doctor', { value: true });
-  assert.throws(
-    () => registry.registerOperation(invalid),
-    /doctor must be a function/,
-  );
+  for (const capability of ['doctor', 'staticDoctor']) {
+    const invalid = definition('invalid');
+    Object.defineProperty(invalid, capability, { value: true });
+    assert.throws(
+      () => registry.registerOperation(invalid),
+      new RegExp(capability + ' must be a function'),
+    );
+  }
   assert.deepEqual(registry.catalog().plugins, []);
   let calls = 0;
   const worker = definition('worker');
@@ -90,8 +92,13 @@ test('doctor is an optional function capability and registration never invokes i
       calls++;
       return { checks: [] };
     },
+    async staticDoctor() {
+      calls++;
+      return { checks: [] };
+    },
   });
   assert.equal(typeof registry.get(worker.id).doctor, 'function');
+  assert.equal(typeof registry.get(worker.id).staticDoctor, 'function');
   const context = new RuntimeContext();
   const operation = await registry.get(worker.id).create({}, context);
   try {

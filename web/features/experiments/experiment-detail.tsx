@@ -105,6 +105,11 @@ export function Experiment({
         ))}
       </nav>
       <Feedback {...result} />
+      {result.data?.error ? (
+        <p className="error-notice" role="alert">
+          {result.data.error}
+        </p>
+      ) : null}
       {selected === 'policy' ? (
         <Suspense fallback={<p role="status">Loading Policy structure…</p>}>
           <PolicyStructure id={id} />
@@ -119,12 +124,9 @@ export function Experiment({
             ) : selected === 'recipe' ? (
               <Recipe id={id} />
             ) : selected === 'results' ? (
-              <Results id={id} />
+              <Results id={id} experiment={result.data} />
             ) : selected === 'overview' ? (
               <>
-                {result.data.error ? (
-                  <p className="error-notice">{result.data.error}</p>
-                ) : null}
                 <Overview data={result.data}>
                   <ChartBoundary key={selected}>
                     <Suspense fallback={<p role="status">Loading charts…</p>}>

@@ -83,14 +83,18 @@ export class Registry {
           'implementationDigest',
           'create',
           'doctor',
+          'staticDoctor',
         ].includes(key),
     );
     if (unknown) throw new Error(`Plugin definition: unknown field ${unknown}`);
-    if (
-      definition.doctor !== undefined &&
-      typeof definition.doctor !== 'function'
-    )
-      throw new Error(`Plugin ${definition.id}: doctor must be a function`);
+    for (const capability of ['doctor', 'staticDoctor'] as const)
+      if (
+        definition[capability] !== undefined &&
+        typeof definition[capability] !== 'function'
+      )
+        throw new Error(
+          `Plugin ${definition.id}: ${capability} must be a function`,
+        );
     if (
       this.registrations.has(definition.id) ||
       this.policyFiles.has(definition.id)
@@ -101,30 +105,30 @@ export class Registry {
       validate(definition.configSchema, config, 'plugin config');
       return definition.create(config as C, services);
     };
-    const { doctor, ...capabilities } = definition;
+    const wrapDoctor =
+      (diagnostic: NonNullable<OperationDefinition<I, O, C>['doctor']>) =>
+      async (context: DoctorContext): Promise<DoctorResult> => {
+        validate(
+          definition.configSchema,
+          context.binding.config,
+          'plugin doctor config',
+        );
+        return diagnostic.call(definition, {
+          ...context,
+          binding: {
+            name: context.binding.name,
+            pluginId: context.binding.pluginId,
+            definition: context.binding.definition,
+            config: context.binding.config as C,
+          },
+        });
+      };
+    const { doctor, staticDoctor, ...capabilities } = definition;
     const registered: OperationDefinition = {
       ...capabilities,
       contract,
-      ...(doctor
-        ? {
-            async doctor(context: DoctorContext): Promise<DoctorResult> {
-              validate(
-                definition.configSchema,
-                context.binding.config,
-                'plugin doctor config',
-              );
-              return doctor.call(definition, {
-                ...context,
-                binding: {
-                  name: context.binding.name,
-                  pluginId: context.binding.pluginId,
-                  definition: context.binding.definition,
-                  config: context.binding.config as C,
-                },
-              });
-            },
-          }
-        : {}),
+      ...(doctor ? { doctor: wrapDoctor(doctor) } : {}),
+      ...(staticDoctor ? { staticDoctor: wrapDoctor(staticDoctor) } : {}),
       async create(config, services) {
         const operation = await create(config, services);
         return {

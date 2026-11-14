@@ -1,3 +1,4 @@
+import { checkStaticFileApplication } from '../shared/file-application/doctor.js';
 import type {
   ApplicationInput,
   ApplicationOutput,
@@ -17,6 +18,7 @@ export const agentbundleDefinition: OperationDefinition<
     'Manage file-based agent bundles and isolated execution instances.',
   contract: applicationContract,
   configSchema,
+  staticDoctor: checkStaticFileApplication,
   create: createApplicationAgentbundle,
   doctor: checkAgentbundleApplication,
 };

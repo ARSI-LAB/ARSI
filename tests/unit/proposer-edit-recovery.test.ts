@@ -1,3 +1,4 @@
+import { CandidateValidationError } from '../../src/shared/errors.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
@@ -17,7 +18,7 @@ import { createFileApplication } from '../../src/plugins/shared/file-application
 import { createProposerAgent } from '../../src/plugins/proposer-agent/service.js';
 import { resourceFiles } from '../../src/plugins/shared/agent-editing/index.js';
 
-async function fixture(responses: JsonObject[]) {
+async function fixture(responses: JsonObject[], verificationError?: Error) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-proposer-recovery-'));
   const artifacts = new FileArtifacts(join(root, 'artifacts'));
   const workspaces = new FileWorkspaces(join(root, 'workspaces'), artifacts);
@@ -93,6 +94,7 @@ async function fixture(responses: JsonObject[]) {
     {
       capability: 'test',
       verify: async (directory) => {
+        if (verificationError) throw verificationError;
         await readFile(join(directory, 'skill.md'), 'utf8');
         return {};
       },
@@ -127,6 +129,7 @@ async function fixture(responses: JsonObject[]) {
   );
   return {
     root,
+    proposer,
     initial,
     execution,
     controller,
@@ -337,6 +340,99 @@ test('edit operations enforce parent file existence and reject mixed edits to th
     await assert.rejects(f.execute(), /Cannot create skill\.md/);
     await assert.rejects(f.execute(), /Duplicate edit path: skill\.md/);
     assert.equal(f.commits(), 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test('invalid candidate content preserves the parent without retrying the model or publishing a candidate', async () => {
+  const f = await fixture(
+    [
+      {
+        edits: [{ op: 'replace', path: 'skill.md', content: 'invalid skill' }],
+        reason: 'Improve instructions',
+      },
+    ],
+    new CandidateValidationError('Skill frontmatter is missing'),
+  );
+  try {
+    const result = await f.execute();
+    assert.equal(result.status, 'no-change');
+    assert.equal(result.candidateRef, 'base');
+    assert.equal(result.diffRef, null);
+    assert.match(result.rationale, /Invalid candidate content/);
+    assert.equal(f.requests(), 1);
+    assert.equal(f.commits(), 1);
+    assert.deepEqual(
+      await resourceFiles(
+        (await f.execution.readCandidate('base')).artifactRef,
+        f.execution,
+      ),
+      f.initial,
+    );
+    assert.deepEqual(await readdir(join(f.root, 'workspaces')), []);
+  } finally {
+    await f.close();
+  }
+});
+
+test('candidate rejection handling never swallows infrastructure errors', async () => {
+  const f = await fixture(
+    [
+      {
+        edits: [{ op: 'replace', path: 'skill.md', content: 'changed' }],
+        reason: 'Improve instructions',
+      },
+    ],
+    new Error('Storage is unavailable'),
+  );
+  try {
+    await assert.rejects(f.execute(), /Storage is unavailable/);
+    assert.equal(f.requests(), 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test('Proposer recovery only replays confirmed rejected candidate commits', async () => {
+  const f = await fixture([]);
+  try {
+    for (const [status, action, error, expected] of [
+      [
+        'failed',
+        'commit',
+        'Skill frontmatter is missing: plugins/base/skills/example/SKILL.md',
+        true,
+      ],
+      ['failed', 'commit', 'Invalid candidate content: bad metadata', true],
+      ['failed', 'commit', 'Storage is unavailable', false],
+      ['running', 'commit', 'Invalid candidate content: bad metadata', false],
+      ['succeeded', 'commit', 'Invalid candidate content: bad metadata', false],
+      ['failed', 'acquire', 'Invalid candidate content: bad metadata', false],
+    ] as const) {
+      const ctx = f.execution.extend({
+        facts: {
+          ...f.execution.facts,
+          list: async () => [
+            {
+              parentCallId: 'prior',
+              bindingId: '_application',
+              status,
+              input: { action },
+              error,
+            },
+          ],
+        },
+      });
+      assert.equal(
+        await f.proposer.canRetry!(
+          { parent: 'base', goal: 'Improve', evidenceRefs: [] },
+          { callId: 'prior' },
+          ctx,
+        ),
+        expected,
+      );
+    }
   } finally {
     await f.close();
   }

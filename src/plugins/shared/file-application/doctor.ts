@@ -13,6 +13,26 @@ import { object, string } from '../../../shared/json.js';
 import { parseConfig } from '../../../shared/schema.js';
 import { readTarget, type FileApplicationConfig } from './files.js';
 
+/** Validate target content without initializing the application or acquiring an instance. */
+export async function checkStaticFileApplication(
+  context: DoctorContext,
+): Promise<DoctorResult> {
+  const check = await runDoctorCheck(
+    'target-schema',
+    async (signal) => {
+      const config = parseConfig<FileApplicationConfig>(
+        context.binding.definition.configSchema,
+        context.binding.config,
+        `${context.binding.name}.config`,
+      );
+      await readTarget(config, context.runtime.rootDirectory);
+      signal.throwIfAborted();
+    },
+    { signal: context.signal },
+  );
+  return { checks: [check] };
+}
+
 function missing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }

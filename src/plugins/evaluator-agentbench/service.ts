@@ -1,3 +1,4 @@
+import { canRestartBootstrap } from './bootstrap-recovery.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
@@ -53,7 +54,8 @@ export async function createAgentbench(
       );
       if (
         !measurementRef &&
-        !(await canRestartPreparation(input, receipt, context))
+        !(await canRestartPreparation(input, receipt, context)) &&
+        !(await canRestartBootstrap(input, receipt, context))
       )
         return false;
       reconciled.set(key, {

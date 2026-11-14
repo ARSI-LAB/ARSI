@@ -1,3 +1,4 @@
+import { checkStaticFileApplication } from '../shared/file-application/doctor.js';
 import type {
   ApplicationInput,
   ApplicationOutput,
@@ -19,6 +20,7 @@ export const kernelApplicationDefinition: OperationDefinition<
   id: 'application.kernel',
   contract: applicationContract,
   configSchema,
+  staticDoctor: checkStaticFileApplication,
   create: createApplicationKernel,
   doctor: checkKernelApplication,
 };

@@ -24,14 +24,10 @@ export function comparisonPolicy(
     if (!value || typeof value !== 'object' || !('policy' in value))
       return null;
     const policy = value.policy;
-    if (
-      !policy ||
-      typeof policy !== 'object' ||
-      !('ref' in policy) ||
-      typeof policy.ref !== 'string' ||
-      !policies.has(policy.ref) ||
-      !('config' in policy)
-    )
+    if (!policy || typeof policy !== 'object') return null;
+    // Current Recipe snapshots use id; ref remains readable in saved historical observations.
+    const id = 'id' in policy ? policy.id : 'ref' in policy ? policy.ref : null;
+    if (typeof id !== 'string' || !policies.has(id) || !('config' in policy))
       return null;
     const config = policy.config;
     if (!config || typeof config !== 'object' || !('dataset' in config))

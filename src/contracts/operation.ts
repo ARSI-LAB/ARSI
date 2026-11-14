@@ -32,5 +32,7 @@ export interface OperationDefinition<
   configSchema: JsonSchema;
   /** Optional diagnostic capability, called only by doctor with validated effective configuration. */
   doctor?(context: DoctorContext<C>): Promise<DoctorResult>;
+  /** Local configuration/content checks only; no processes, network, or plugin execution. */
+  staticDoctor?(context: DoctorContext<C>): Promise<DoctorResult>;
   create(config: C, context: RuntimeContext): Promise<Operation<I, O>>;
 }

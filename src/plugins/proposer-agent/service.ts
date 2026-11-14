@@ -1,3 +1,8 @@
+import {
+  CandidateValidationError,
+  errorText,
+  isCandidateValidationFailure,
+} from '../../shared/errors.js';
 import type { AgentEditingConfig } from './schema.js';
 import type {
   JsonObject,
@@ -31,10 +36,18 @@ export const createProposerAgent: OperationDefinition<
     async canRetry(_input, receipt, context) {
       // Agent replay is checked by its own operation. A candidate commit must
       // be reconciled separately because its workspace is specific to the attempt.
-      return !(await context.facts.list('calls')).some(
+      const commits = (await context.facts.list('calls')).filter(
         (call) =>
           call.parentCallId === receipt.callId &&
           call.bindingId === '_application',
+      );
+      // Only a rejected pre-publication commit is safe to replay. Acquisitions,
+      // successful commits and unknown failures retain the original protection.
+      return commits.every(
+        (call) =>
+          call.status === 'failed' &&
+          object(call.input).action === 'commit' &&
+          isCandidateValidationFailure(call.error),
       );
     },
     async execute(input, context) {
@@ -185,6 +198,15 @@ export const createProposerAgent: OperationDefinition<
             candidateRef,
             diffRef: null,
             rationale,
+          };
+        } catch (error) {
+          if (!(error instanceof CandidateValidationError)) throw error;
+          context.signal.throwIfAborted();
+          return {
+            status: 'no-change',
+            candidateRef: parent.ref,
+            diffRef: null,
+            rationale: errorText(error),
           };
         } finally {
           await services.workspaces.release(edit.ref);

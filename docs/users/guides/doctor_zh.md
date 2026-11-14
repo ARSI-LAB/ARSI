@@ -13,7 +13,7 @@ ember-rsi doctor my-experiment/recipe.yaml
 - 在源码仓库中，完成 `pnpm build` 后使用 `pnpm ember-rsi doctor my-experiment/recipe.yaml`，运行前设置所选组件需要的环境变量。
 - `doctor` 将 Recipe 校验与组件专用检查结合起来，可以发现提示词或基线缺失、绑定不兼容、提案侧模型连接失败，以及 SDK 报告的评测配置、运行前提或下载路线问题。
 
-- 只需快速检查生效配置和已声明的本地路径时，可以加上 `--static`。
+- 快速检查生效配置、已声明的本地路径和受支持的本地内容时，可以加上 `--static`。文件型 Application 会在初始化前校验目标内容，包括条目必填的描述。
 
 ## 2. doctor 的机制简介
 
@@ -31,8 +31,8 @@ flowchart TD
     F -- 否 --> G["记录 recipe.validate 失败"]
     F -- 是 --> H["准备隔离临时 Runtime<br/>遍历 Application、绑定和 Reflection"]
     H --> I["检查当前组件声明的本地路径"]
-    I --> J{"执行完整检查且组件<br/>声明了 doctor 回调？"}
-    J -- 是 --> K["执行 doctor 回调"]
+    I --> J{"当前检查模式是否有<br/>已声明的诊断回调？"}
+    J -- 是 --> K["执行所选诊断回调"]
     K --> Q["返回 DoctorResult 或记录脚本失败"]
     J -- 否 --> L["将该组件的 plugin 检查<br/>记为 unchecked"]
     Q --> M["补充绑定信息并汇集结果"]
@@ -50,7 +50,7 @@ flowchart TD
    - 探测使用合并 Policy 默认配置与 Recipe 覆盖后的配置。
    - 加载失败时输出失败诊断，不再执行组件探测。
 3. **检查已声明的本地路径。** 对 Application、每个生效绑定及已配置的 Reflection 实现，检查 Schema 中用 `x-rsi-path` 标记的本地文件或目录是否存在、类型是否正确、是否可读。
-4. **执行组件检查。** 默认情况下，框架调用组件定义上声明的 `doctor` 函数并收集它返回的 `DoctorResult`。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。`--static` 跳过所有回调，省去回调中的模型访问、实例准备和 SDK 探测。使用该选项或组件省略回调时，报告将 `<binding>.plugin` 记为 `unchecked` 并说明原因。
+4. **执行组件检查。** 默认情况下，框架调用组件定义上声明的 `doctor` 函数并收集它返回的 `DoctorResult`。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。`--static` 仅执行显式声明的 `staticDoctor` 本地配置与内容检查，跳过完整 `doctor` 回调中的模型访问、实例准备和 SDK 探测。内置文件型 Application 对内联及文件目标均报告 `application.target-schema` 检查。所选模式没有对应回调时，报告将 `<binding>.plugin` 记为 `unchecked` 并说明未执行的检查。
 5. **清理并输出。** RSI 检查使用隔离临时存储，传递取消信号，释放自己创建的实例与进程，并删除临时文件。原有 artifacts 可作为输入读取，RSI 产生的捕获与写入留在临时 Runtime 内。
 
 ### 运行结果
@@ -92,9 +92,9 @@ flowchart TD
 | `application.inference`   | 1. 检查目标定义和基线输入。<br>2. 检查本地启动命令、工作目录和资源，或远程控制脚本的解释器、脚本及参数文件。<br>3. 检查凭据所需的环境变量和启动配置是否合法。 |
 | `agent.pi`                | 1. 校验模型、服务地址、密钥和 token 限制的配置。<br>2. 从 RSI 进程连接模型服务，确认模型列表包含所选模型。                                                    |
 | `agent.codex`             | 1. 检查 Codex 命令是否可用、是否支持原生诊断。<br>2. 按所配模型和思考等级，在隔离项目中运行原生诊断并读取结果。                                               |
-| `agent.claudecode` | 检查 CLI 参数和原生 JSON 认证状态。安装诊断仅有文本输出，标为 `unchecked`，可自行运行 `claude doctor`；不验证模型访问。 |
-| `agent.dsh` | 检查 CLI 参数，并展开 headless 配置以发现配置组合错误。可能刷新原生缓存；不验证动态模型路由、存储凭据或模型访问。 |
-| `agent.opencode` | 检查 V2 CLI 版本、必要参数，以及原生配置能否与 RSI 只读 Agent 组合。使用独立实例，可能刷新原生缓存。 |
+| `agent.claudecode`        | 检查 CLI 参数和原生 JSON 认证状态。安装诊断仅有文本输出，标为 `unchecked`，可自行运行 `claude doctor`；不验证模型访问。                                       |
+| `agent.dsh`               | 检查 CLI 参数，并展开 headless 配置以发现配置组合错误。可能刷新原生缓存；不验证动态模型路由、存储凭据或模型访问。                                             |
+| `agent.opencode`          | 检查 V2 CLI 版本、必要参数，以及原生配置能否与 RSI 只读 Agent 组合。使用独立实例，可能刷新原生缓存。                                                          |
 
 ### Proposer、Memory、Reflection 与 Selector
 
@@ -125,6 +125,8 @@ flowchart TD
 - SDK 的 `not-checked` 和网络汇总的 `incomplete` 映射为 `unchecked`。SDK 可以因覆盖不完整而返回退出码 `1`。收到有效报告后，RSI 根据检查结果决定自己的退出码。
 
 ## 4. 自定义组件如何接入 doctor
+
+组件可另行声明可选的 `staticDoctor`，沿用 `doctor` 的上下文和结果契约，用于 `--static` 本地检查；该回调不得启动进程、请求网络或执行插件。
 
 按[编写插件](writing-plugins_zh.md)定义并注册组件。在组件定义上添加可选的 `doctor` 函数，检测能力会随 `registry.registerOperation(definition)` 一起注册。
 
@@ -197,15 +199,15 @@ ember-rsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension
 
 doctor 按顺序检查各个绑定。命令总耗时取决于各项检查与清理。RSI 检查和 Evaluator SDK 探针各自计时。
 
-| 操作或检查 ID                           | 时限                                               | 计时范围                                                                         |
-| --------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
-| 通用 `runDoctorCheck` 检查              | 默认每项 60 秒                                     | 本地路径、配置、Application 验证与获取各自计时，同一项内的多个操作共用时限。     |
-| `agent.codex` 的 `executable`、`doctor` | 各 60 秒                                           | CLI 帮助与原生 doctor 帮助共用 `executable` 时限，原生 JSON 诊断另算一项。       |
-| `agent.claudecode` / `agent.dsh` / `agent.opencode` | 每项 60 秒 | CLI 兼容性、Claude 认证及 DSH/OpenCode 配置。 |
-| Pi 的 `model-access` HTTP 请求          | 每次请求 10 秒                                     | 包含 HTTP 请求和完整响应正文读取，位于外层 60 秒检查内。                         |
-| Optuna 的 `python-dependencies`         | 外层 60 秒，同时受已配置的 `python.timeoutMs` 约束 | 更短的 worker 时限可提前结束，更长的值不能延长外层 RSI 检查。                    |
-| Evaluator SDK 的连通性与下载探针        | 按 SDK 单项计时                                    | 当前固定 SDK 给可执行程序检查与 Ray TCP/TLS 检查 5 秒，每项下载网络探针 180 秒。 |
-| Evaluator SDK 的 Ray 下载诊断           | 节点进程 3000 秒，协调端等待 3100 秒               | 节点进程的计时覆盖该节点的探测，协调端计时覆盖结果收集。                         |
+| 操作或检查 ID                                       | 时限                                               | 计时范围                                                                         |
+| --------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 通用 `runDoctorCheck` 检查                          | 默认每项 60 秒                                     | 本地路径、配置、Application 验证与获取各自计时，同一项内的多个操作共用时限。     |
+| `agent.codex` 的 `executable`、`doctor`             | 各 60 秒                                           | CLI 帮助与原生 doctor 帮助共用 `executable` 时限，原生 JSON 诊断另算一项。       |
+| `agent.claudecode` / `agent.dsh` / `agent.opencode` | 每项 60 秒                                         | CLI 兼容性、Claude 认证及 DSH/OpenCode 配置。                                    |
+| Pi 的 `model-access` HTTP 请求                      | 每次请求 10 秒                                     | 包含 HTTP 请求和完整响应正文读取，位于外层 60 秒检查内。                         |
+| Optuna 的 `python-dependencies`                     | 外层 60 秒，同时受已配置的 `python.timeoutMs` 约束 | 更短的 worker 时限可提前结束，更长的值不能延长外层 RSI 检查。                    |
+| Evaluator SDK 的连通性与下载探针                    | 按 SDK 单项计时                                    | 当前固定 SDK 给可执行程序检查与 Ray TCP/TLS 检查 5 秒，每项下载网络探针 180 秒。 |
+| Evaluator SDK 的 Ray 下载诊断                       | 节点进程 3000 秒，协调端等待 3100 秒               | 节点进程的计时覆盖该节点的探测，协调端计时覆盖结果收集。                         |
 
 嵌套时限以先到期者为准。Pi 请求自己的 10 秒包含在外层 60 秒中，不能额外相加。CLI 没有 doctor 专用的超时参数，这些时限也不取自 Recipe 的实验预算。Pi/Codex/Claude Code/DSH 的 `config.timeoutMs` 用于真实 Agent 执行，参见[配置 Recipe、Target 与组件](configuration_zh.md)。
 

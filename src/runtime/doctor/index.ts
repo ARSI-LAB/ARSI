@@ -303,8 +303,10 @@ export async function doctorRecipe(
             checksNotRun: [],
           });
       }
-      const doctor = binding.definition.doctor;
-      if (options.staticOnly || !doctor) {
+      const doctor = options.staticOnly
+        ? binding.definition.staticDoctor
+        : binding.definition.doctor;
+      if (!doctor) {
         addCheck({
           id: 'plugin',
           status: 'unchecked',

@@ -35,3 +35,22 @@ export class InferenceStartupError extends OperationRejectedError {
     );
   }
 }
+
+/** Candidate content was rejected before publication or acquisition. */
+export class CandidateValidationError extends OperationRejectedError {
+  override readonly name = 'CandidateValidationError';
+  constructor(reason: unknown) {
+    super('Invalid candidate content: ' + errorText(reason));
+  }
+}
+
+/** Known pre-publication validation failures, including the original Skill receipt. */
+export function isCandidateValidationFailure(error: unknown): boolean {
+  return (
+    typeof error === 'string' &&
+    (error.startsWith('Invalid candidate content: ') ||
+      /^Skill frontmatter is missing: [^\r\n]+\/skills\/[^\r\n]+\/SKILL\.md$/.test(
+        error,
+      ))
+  );
+}

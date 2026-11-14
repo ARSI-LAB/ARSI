@@ -107,7 +107,9 @@ ember-rsi dashboard --port <port>
 Run from an experiment workspace that already contains `.rsi/`. The web dashboard displays experiments, summaries, candidates, diffs, measurements, calls, Agent traces, results, and charts, as shown below.
 
 - Start, resume, and cancel experiments through the CLI.
-- The development frontend proxies `/api` to port 4317 by default.
+- The development frontend proxies HTTP API routes to port 4317 by default; JavaScript and TypeScript client modules under `web/api/` are served locally by Vite.
+
+- **Results** shows progress and recorded evaluations while an experiment is running, and retains available evaluations after failure or cancellation. Complete scores, failed/cancelled records and incomplete coverage are counted separately; unavailable or partial scores are never shown as zero. Final Policy output remains distinct from intermediate observations. Errors remain visible in every experiment view.
 
 ![rsi-studio-wikiskill-compact](../assets/rsi-studio-wikiskill-compact.gif)
 

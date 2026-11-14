@@ -78,7 +78,10 @@ export function parseCommand(argv: string[]): ParsedCommand {
   program
     .command('doctor <recipe.yaml>')
     .description('Check experiment configuration and runtime prerequisites')
-    .option('--static', 'Check configuration and declared local paths only')
+    .option(
+      '--static',
+      'Check configuration, local paths and supported local content',
+    )
     .action((file: string, _opts: unknown, cmd: Command) =>
       capture('doctor', [file], cmd),
     );

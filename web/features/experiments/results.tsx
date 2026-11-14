@@ -1,3 +1,5 @@
+import type { ExperimentOverview } from '../../api/observation-client';
+import { ResultProgress } from './result-progress';
 import { HarnessResults } from './harness-results';
 import { useRoundLabels, useCallRecords } from './round-labels';
 import React from 'react';
@@ -15,7 +17,13 @@ import { useAllObservations, useObservation } from './use-observation';
 import { InferenceReport } from './inference-report';
 import { inferenceSummary } from './inference-summary';
 
-export function Results({ id }: { id: string }): React.JSX.Element {
+export function Results({
+  id,
+  experiment,
+}: {
+  id: string;
+  experiment: ExperimentOverview;
+}): React.JSX.Element {
   const labels = useRoundLabels();
   const records = useCallRecords();
   const candidates = useAllObservations(
@@ -49,7 +57,20 @@ export function Results({ id }: { id: string }): React.JSX.Element {
     metrics.find(([, metric]) => metric.name === 'score') ??
     metrics.find(([, metric]) => 'value' in metric.values) ??
     metrics[0])?.[0];
-  if (!records.calls.data) return <Feedback {...records.calls} />;
+  const progress = (
+    <ResultProgress
+      experiment={experiment}
+      measurements={measurements.data?.items ?? []}
+      hasFinalOutput={details.data?.result != null}
+    />
+  );
+  if (!records.calls.data)
+    return (
+      <>
+        {progress}
+        <Feedback {...records.calls} />
+      </>
+    );
   if (
     inferenceSummary(
       measurements.data?.items ?? [],
@@ -58,6 +79,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
   )
     return (
       <div className="section-stack">
+        {progress}
         <Feedback {...details} />
         <Feedback {...measurements} />
         <Feedback {...candidates} />
@@ -72,6 +94,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
   if (labels.isHarness)
     return (
       <div className="section-stack">
+        {progress}
         <Feedback {...details} />
         <Feedback {...measurements} />
         {measurements.data && details.data ? (
@@ -85,6 +108,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
     );
   return (
     <div className="section-stack policy-results">
+      {progress}
       <div className="results-heading">
         <div>
           <h2>Saved results</h2>
@@ -95,7 +119,9 @@ export function Results({ id }: { id: string }): React.JSX.Element {
       {details.data ? (
         !details.data.result ? (
           <p className="empty-state">
-            No final result was recorded for this experiment.
+            {['running', 'starting'].includes(experiment.status)
+              ? 'Final results are pending. Recorded evaluations are shown above.'
+              : 'No final result was recorded for this experiment.'}
           </p>
         ) : (
           <>

@@ -15,7 +15,7 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     proxy: {
-      '/api': {
+      '^/api/(?![^/?]+\\.[cm]?[jt]sx?(?:\\?|$))': {
         target: process.env.RSI_WEB_API_URL || 'http://127.0.0.1:4317',
         changeOrigin: true,
         configure(proxy) {

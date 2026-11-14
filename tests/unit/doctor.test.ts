@@ -709,3 +709,125 @@ test('CLI emits one JSON diagnostic for registration/loading errors and reports 
     await f.dispose();
   }
 });
+
+test('static doctor rejects invalid target contents before application initialization', async () => {
+  const f = await fixture();
+  try {
+    const baseline = join(f.root, 'baseline');
+    const targetPath = join(f.root, 'target.yaml');
+    await mkdir(baseline);
+    const target = {
+      schemaVersion: 'rsi.target/v1',
+      id: 'target.fixture',
+      entries: [{ path: 'prompt.md', kind: 'file', changes: ['modify'] }],
+    };
+    await writeFile(targetPath, JSON.stringify(target));
+    const recipe = object(JSON.parse(await readFile(f.path, 'utf8')));
+    recipe.application = {
+      plugin: 'application.agentbundle',
+      config: {
+        target: { schema: './target.yaml' },
+        baseline: { directory: './baseline' },
+      },
+    };
+    await writeFile(f.path, JSON.stringify(recipe));
+    f.doctors({
+      'application.agentbundle': async () => {
+        throw new Error('Full diagnostics must not run in static mode');
+      },
+    });
+    const failed = await doctorRecipe(f.runtime, f.path, { staticOnly: true });
+    const check = failed.checks.find(
+      (item) => item.id === 'application.target-schema',
+    );
+    assert.equal(check?.status, 'failed');
+    assert.match(check?.reason ?? '', /target.entry.description/);
+    assert.deepEqual(await f.runtime.manager.list(), []);
+
+    await writeFile(
+      targetPath,
+      JSON.stringify({
+        ...target,
+        entries: target.entries.map((entry) => ({
+          ...entry,
+          description: 'The editable prompt.',
+        })),
+      }),
+    );
+    const passed = await doctorRecipe(f.runtime, f.path, { staticOnly: true });
+    assert.equal(passed.summary.failed, 0);
+    assert.equal(
+      passed.checks.find((item) => item.id === 'application.target-schema')
+        ?.status,
+      'passed',
+    );
+    assert.deepEqual(await f.runtime.manager.list(), []);
+    assert.deepEqual((await readdir(f.root)).sort(), [
+      'baseline',
+      'policy.yaml',
+      'recipe.yaml',
+      'target.yaml',
+    ]);
+    verifyReport(failed);
+    verifyReport(passed);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('static target checks apply to inline targets across file Applications without launching runtimes', async () => {
+  const f = await fixture();
+  try {
+    await mkdir(join(f.root, 'baseline'));
+    const recipe = object(JSON.parse(await readFile(f.path, 'utf8')));
+    const target = {
+      schemaVersion: 'rsi.target/v1',
+      id: 'inline.target',
+      entries: [
+        {
+          path: 'prompt.md',
+          kind: 'file',
+          changes: ['modify'],
+          description: '',
+        },
+      ],
+    };
+    for (const [plugin, extra] of [
+      ['application.agentbundle', {}],
+      ['application.kernel', { entryFile: 'input.py' }],
+      [
+        'application.inference',
+        {
+          endpoint: { model: 'fixture' },
+          start: { argv: ['must-not-run'] },
+        },
+      ],
+    ] as const) {
+      await writeFile(
+        f.path,
+        JSON.stringify({
+          ...recipe,
+          application: {
+            plugin,
+            config: {
+              target: { schema: target },
+              baseline: { directory: './baseline' },
+              ...extra,
+            },
+          },
+        }),
+      );
+      const report = await doctorRecipe(f.runtime, f.path, {
+        staticOnly: true,
+      });
+      const check = report.checks.find(
+        (item) => item.id === 'application.target-schema',
+      );
+      assert.equal(check?.status, 'failed', plugin);
+      assert.match(check?.reason ?? '', /target.entry.description/);
+      assert.deepEqual(await f.runtime.manager.list(), []);
+    }
+  } finally {
+    await f.dispose();
+  }
+});

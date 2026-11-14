@@ -377,3 +377,29 @@ test('comparison mapping ignores step names and falls back for missing or ambigu
   );
   assert.equal(reused?.evaluations.get('m')?.variant, 'Invariant');
 });
+
+test('comparison views recognize current saved Policy IDs without inferring identity from names', async () => {
+  const { comparisonPolicy } = await import(
+    '../../web/features/experiments/policy-presentation.js'
+  );
+  const preview = (policy: unknown) => ({
+    text: JSON.stringify({ policy }),
+    truncated: false,
+  });
+  const config = { dataset: { taskIds: ['task/one', 'task/two'] } };
+  assert.deepEqual(
+    comparisonPolicy(preview({ id: 'policy.harness2', config })),
+    { taskIds: ['task/one', 'task/two'] },
+  );
+  assert.equal(
+    comparisonPolicy(
+      preview({
+        id: 'policy.custom',
+        ref: 'policy.harness2',
+        config,
+      }),
+    ),
+    null,
+  );
+  assert.equal(comparisonPolicy(preview({ id: '', config })), null);
+});

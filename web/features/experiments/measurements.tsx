@@ -1,4 +1,5 @@
 import { MeasurementMetrics } from './measurement-metrics';
+import { ItemResults } from './item-results';
 import { metricValue, primaryMetric, metricLabel } from './measurement-score';
 import { scoreLabel } from './record-identifiers';
 import { useRoundLabels } from './round-labels';
@@ -289,45 +290,13 @@ export function Measurements({
                 </CardHeader>
                 <CardContent>
                   <MeasurementMetrics metrics={measurement.metrics} />
-                  <h3>Task metrics</h3>
+                  <h3>Item results</h3>
                   <Feedback {...taskRecords} />
-                  {taskRecords.data?.items.some(
-                    (item) => item.ref === measurement.ref && item.item,
-                  ) ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Task</TableHead>
-                          <TableHead>Result</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {taskRecords.data.items
-                          .filter(
-                            (item) => item.ref === measurement.ref && item.item,
-                          )
-                          .map((item) => (
-                            <TableRow
-                              key={JSON.stringify([item.ref, item.item!.id])}
-                            >
-                              <TableCell>
-                                {item.item!.subjectId.replace(
-                                  /^workbuddy\//,
-                                  '',
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <MeasurementMetrics metrics={item.metrics} />
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                      </TableBody>
-                    </Table>
-                  ) : taskRecords.data ? (
-                    <p className="muted">
-                      No per-task metrics were recorded. Aggregate metrics are
-                      shown above.
-                    </p>
+                  {taskRecords.data ? (
+                    <ItemResults
+                      measurementRef={measurement.ref}
+                      records={taskRecords.data.items}
+                    />
                   ) : null}
                 </CardContent>
               </Card>

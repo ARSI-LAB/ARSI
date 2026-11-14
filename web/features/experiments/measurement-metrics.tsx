@@ -13,6 +13,17 @@ export function MeasurementMetrics({
     (metric) => metric.name === 'reward.tests_passed',
   );
   const total = metrics.find((metric) => metric.name === 'reward.tests_total');
+  const displayed = [
+    ...(primary ? [primary] : []),
+    ...metrics.filter(
+      (metric) => metric !== primary && metric !== passed && metric !== total,
+    ),
+  ];
+  const labelCounts = new Map<string, number>();
+  for (const metric of displayed) {
+    const label = metricLabel(metric);
+    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+  }
   const value = (metric: typeof primary | undefined): string => {
     if (!metric) return '—';
     if (metric.status !== 'available') return metric.reason ?? metric.status;
@@ -32,17 +43,16 @@ export function MeasurementMetrics({
   if (!primary) return <p className="muted">No metrics recorded.</p>;
   return (
     <dl className="measurement-metrics">
-      {[
-        primary,
-        ...metrics.filter(
-          (metric) =>
-            metric !== primary && metric !== passed && metric !== total,
-        ),
-      ].map((metric) => (
+      {displayed.map((metric) => (
         <div
           key={JSON.stringify([metric.name, metric.definitionRef, metric.unit])}
         >
-          <dt>{metricLabel(metric)}</dt>
+          <dt>
+            {metricLabel(metric)}
+            {labelCounts.get(metricLabel(metric))! > 1 ? (
+              <span className="muted"> · {metric.name}</span>
+            ) : null}
+          </dt>
           <dd>{value(metric)}</dd>
         </div>
       ))}

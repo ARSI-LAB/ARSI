@@ -112,6 +112,8 @@ bindings:
 
 [Pi Schema](../../../src/plugins/agent-pi/schema.ts) 的默认值为 `thinkingLevel: low`、`contextWindow: 262144`、`retries: 0`。通过 `maxTokens` 设置单次请求的输出上限，取值须适配 `contextWindow` 和端点能力。
 
+默认的 `bashMode: sandbox` 需要 macOS `sandbox-exec` 或 Linux `bubblewrap`。显式配置 `bashMode: direct` 时，Bash 以宿主机账户权限运行，并使用 Pi 按平台发现的 shell，包括 Windows 上的 Git Bash。需要将 Bash 安装在 Pi 能够发现的位置。
+
 - `api_key` 必须是环境变量引用，不能直接填写密钥。
 
 - `timeoutMs` 限制每次模型请求，省略 `timeoutMs` 时底层 HTTP 客户端使用十分钟请求超时。两个字段都接受 1 到 2,147,483,647 的整数毫秒。

@@ -112,6 +112,8 @@ bindings:
 
 [Pi Schema](../../../src/plugins/agent-pi/schema.ts) defaults to `thinkingLevel: low`, `contextWindow: 262144`, and `retries: 0`. Set `maxTokens` for a per-request output limit; it must fit `contextWindow` and the endpoint's capabilities.
 
+The default `bashMode: sandbox` requires macOS `sandbox-exec` or Linux `bubblewrap`. With an explicitly configured `bashMode: direct`, Bash runs with the host account's permissions and uses Pi's platform shell discovery, including Git Bash on Windows. Bash must be installed in a location Pi can discover.
+
 - `api_key` must be an environment-variable reference, not a literal key.
 
 - `timeoutMs` limits each model request. The underlying HTTP client uses a ten-minute request timeout when `timeoutMs` is omitted. Both timeout fields accept integer milliseconds from 1 to 2,147,483,647.

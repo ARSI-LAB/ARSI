@@ -64,7 +64,7 @@ export function EvaluationProgress({
           separately.
         </p>
         {recent.length ? (
-          <Table>
+          <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Recent evaluation</TableHead>
@@ -86,7 +86,7 @@ export function EvaluationProgress({
                       {evaluationLabel(measurement.ref)}
                     </a>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     <Status value={measurement.status} />
                   </TableCell>
                   <TableCell>{measurement.coverage}</TableCell>

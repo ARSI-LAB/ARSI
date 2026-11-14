@@ -1,11 +1,8 @@
 import { HarnessResults } from './harness-results';
 import { useRoundLabels, useCallRecords } from './round-labels';
 import React from 'react';
-import {
-  parseDetails,
-  parseMeasurements,
-  parseCandidates,
-} from '../../api/observation-client';
+import { parseDetails, parseCandidates } from '../../api/observation-client';
+import { EvaluationProgress } from './evaluation-progress';
 import { scoreLabel } from './record-identifiers';
 import { Feedback, Status } from '../../components/observation-feedback';
 import { Card, CardContent, CardHeader } from '../../components/ui/card';
@@ -27,9 +24,18 @@ export function Results({ id }: { id: string }): React.JSX.Element {
     parseDetails,
   );
   const references = details.data?.resultReferences ?? [];
-  const measurements = useAllObservations(
-    `/${encodeURIComponent(id)}/measurements`,
-    parseMeasurements,
+  const measurements = records.measurements;
+  const progress = (
+    <>
+      <Feedback {...measurements} />
+      {measurements.data ? (
+        <EvaluationProgress
+          id={id}
+          measurements={measurements.data.items}
+          evaluationLabel={labels.evaluation}
+        />
+      ) : null}
+    </>
   );
   const final = finalResults(references, measurements.data?.items ?? []);
   const metricKey = (metric: { name: string; unit: string }): string =>
@@ -59,7 +65,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
     return (
       <div className="section-stack">
         <Feedback {...details} />
-        <Feedback {...measurements} />
+        {progress}
         <Feedback {...candidates} />
         <InferenceReport
           id={id}
@@ -73,7 +79,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
     return (
       <div className="section-stack">
         <Feedback {...details} />
-        <Feedback {...measurements} />
+        {progress}
         {measurements.data && details.data ? (
           <HarnessResults
             id={id}
@@ -92,6 +98,7 @@ export function Results({ id }: { id: string }): React.JSX.Element {
         </div>
       </div>
       <Feedback {...details} />
+      {progress}
       {details.data ? (
         !details.data.result ? (
           <p className="empty-state">

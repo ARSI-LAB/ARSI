@@ -106,6 +106,8 @@ ember-rsi dashboard --port <port>
 
 Run from an experiment workspace that already contains `.rsi/`. The web dashboard displays experiments, summaries, candidates, diffs, measurements, calls, Agent traces, results, and charts, as shown below.
 
+The **Results** view also shows recorded evaluation progress before a final output is available, including status, coverage, and the five most recent evaluations. Follow an evaluation to inspect its measurements and evidence, or open **View all evaluations** for the full history. Intermediate evaluations and different evaluation sets are kept separate from final results; incomplete or failed records do not establish a final score.
+
 - Start, resume, and cancel experiments through the CLI.
 - The development frontend proxies `/api` to port 4317 by default.
 

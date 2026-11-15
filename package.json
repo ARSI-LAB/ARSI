@@ -31,7 +31,7 @@
     "ember-rsi": "node dist/src/entries/cli/main.js",
     "typecheck": "tsc --noEmit",
     "typecheck:web": "tsc -p tsconfig.web.json",
-    "test": "node --import tsx --test tests/unit/*.test.ts",
+    "test": "node --import tsx --test tests/unit/*.test.ts tests/unit/*.test.mjs",
     "format": "prettier --write src examples web tests scripts package.json tsconfig*.json pnpm-workspace.yaml",
     "format:check": "prettier --check src examples web tests scripts package.json tsconfig*.json pnpm-workspace.yaml",
     "check": "pnpm format:check && pnpm typecheck && pnpm typecheck:web && pnpm test && pnpm build",

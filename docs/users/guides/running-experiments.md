@@ -107,6 +107,7 @@ ember-rsi dashboard --port <port>
 Run from an experiment workspace that already contains `.rsi/`. The web dashboard displays experiments, summaries, candidates, diffs, measurements, calls, Agent traces, results, and charts, as shown below.
 
 - Start, resume, and cancel experiments through the CLI.
+- The general Results report shows every metric from each returned measurement, including its recorded name and unit. Baseline comparisons use matching measurement conditions and metric definitions; different optimization and test outputs keep their own metrics.
 - The development frontend proxies `/api` to port 4317 by default.
 
 ![rsi-studio-wikiskill-compact](../assets/rsi-studio-wikiskill-compact.gif)

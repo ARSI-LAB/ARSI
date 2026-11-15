@@ -6,11 +6,10 @@ import {
   parseMeasurements,
   parseCandidates,
 } from '../../api/observation-client';
-import { scoreLabel } from './record-identifiers';
 import { Feedback, Status } from '../../components/observation-feedback';
 import { Card, CardContent, CardHeader } from '../../components/ui/card';
 import { finalResults } from './final-results';
-import { comparableBaseline } from './experiment-summary';
+import { FinalMeasurementMetrics } from './final-measurement-metrics';
 import { useAllObservations, useObservation } from './use-observation';
 import { InferenceReport } from './inference-report';
 import { inferenceSummary } from './inference-summary';
@@ -32,23 +31,6 @@ export function Results({ id }: { id: string }): React.JSX.Element {
     parseMeasurements,
   );
   const final = finalResults(references, measurements.data?.items ?? []);
-  const metricKey = (metric: { name: string; unit: string }): string =>
-    JSON.stringify([metric.name, metric.unit]);
-  const metrics = [
-    ...new Map(
-      final.scores.flatMap(({ measurement }) =>
-        measurement.metrics.map(
-          (metric) => [metricKey(metric), metric] as const,
-        ),
-      ),
-    ).entries(),
-  ];
-  const activeMetric = (metrics.find(
-    ([, metric]) => metric.name === 'meanReward',
-  ) ??
-    metrics.find(([, metric]) => metric.name === 'score') ??
-    metrics.find(([, metric]) => 'value' in metric.values) ??
-    metrics[0])?.[0];
   if (!records.calls.data) return <Feedback {...records.calls} />;
   if (
     inferenceSummary(
@@ -150,27 +132,6 @@ export function Results({ id }: { id: string }): React.JSX.Element {
               <CardContent className="section-stack">
                 <div className="result-stats">
                   {final.scores.map(({ measurement }) => {
-                    const metric = measurement.metrics.find(
-                      (item) => metricKey(item) === activeMetric,
-                    );
-                    const baseline = metric
-                      ? comparableBaseline(
-                          measurement,
-                          metric,
-                          measurements.data?.items ?? [],
-                          candidates.data?.items ?? [],
-                        )
-                      : null;
-                    const baselineValue = baseline?.values.value;
-                    const finalValue =
-                      metric?.status === 'available'
-                        ? metric.values.value
-                        : null;
-                    const delta =
-                      typeof finalValue === 'number' &&
-                      typeof baselineValue === 'number'
-                        ? finalValue - baselineValue
-                        : null;
                     return (
                       <div
                         key={measurement.ref}
@@ -192,59 +153,11 @@ export function Results({ id }: { id: string }): React.JSX.Element {
                             {labels.task(measurement.ref)}
                           </p>
                         ) : null}
-                        <div className="final-score-metrics">
-                          <div className="final-score-main">
-                            <span>
-                              {metric?.name === 'meanReward'
-                                ? 'Average score'
-                                : (metric?.name ?? 'Final score')}
-                            </span>
-                            <strong>
-                              {finalValue == null
-                                ? '—'
-                                : scoreLabel(finalValue)}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>Baseline</span>
-                            <strong>
-                              {baselineValue == null
-                                ? '—'
-                                : scoreLabel(baselineValue)}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>Change</span>
-                            <strong>
-                              {delta == null
-                                ? '—'
-                                : `${delta > 0 ? '+' : ''}${scoreLabel(delta)}`}
-                            </strong>
-                          </div>
-                        </div>
-                        {metric && metric.status !== 'available' ? (
-                          <p className="muted">
-                            {metric.reason ?? metric.status}
-                          </p>
-                        ) : null}
-                        {metric?.status === 'available' &&
-                        finalValue == null ? (
-                          <p className="muted">
-                            {Object.entries(metric.values)
-                              .map(
-                                ([name, value]) =>
-                                  `${name}: ${value == null ? 'Not recorded' : scoreLabel(value)}`,
-                              )
-                              .join(' · ') || 'Not recorded'}
-                          </p>
-                        ) : null}
-                        {delta == null &&
-                        candidates.data &&
-                        metric?.status === 'available' ? (
-                          <p className="muted">
-                            No comparable baseline recorded.
-                          </p>
-                        ) : null}
+                        <FinalMeasurementMetrics
+                          measurement={measurement}
+                          measurements={measurements.data?.items ?? []}
+                          candidates={candidates.data?.items ?? []}
+                        />
                         {measurement.coverage !== 'complete' ? (
                           <p className="filter-note">
                             Coverage: {measurement.coverage}

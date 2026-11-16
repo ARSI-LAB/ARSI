@@ -105,6 +105,128 @@ export const configSchema = recordSchema(
 );
 
 export type HardwareContext = { text: string; sha256: string };
+export type OperatorMeasurementEvidence = {
+  schemaVersion: 'rsi.operator-evidence/v1';
+  measurementRef: string;
+  status: string;
+  coverage: string;
+  timing: {
+    deviceMeanMs: number | null;
+    hostMeanMs: number | null;
+    endToEndP50Ms: number | null;
+    wholeNetP50Ms: number | null;
+    launchCount: number | null;
+  };
+  precision: {
+    count: number | null;
+    maxAbs: number | null;
+    maxRel: number | null;
+    p50Abs: number | null;
+    p90Abs: number | null;
+    p99Abs: number | null;
+    mismatch: Record<string, number>;
+  } | null;
+  tolerance: {
+    mode: string;
+    rtol: number;
+    atol: number;
+    source: string | null;
+    observedMaxAbs: number | null;
+  } | null;
+  wholeNet: {
+    candidateP50Ms: number | null;
+    offP50Ms: number | null;
+    deltaPct: number | null;
+  } | null;
+  failure: {
+    type: 'candidate-invalid' | 'infrastructure' | 'timeout';
+    code: string | null;
+    message: string | null;
+    retryable: boolean;
+    checks: {
+      id: string;
+      seed: number;
+      call: number;
+      status: string;
+      message: string;
+    }[];
+  } | null;
+};
+const nullableNumber = { type: ['number', 'null'] };
+export const operatorEvidenceSchema = recordSchema({
+  schemaVersion: { const: 'rsi.operator-evidence/v1' },
+  measurementRef: ref,
+  status: ref,
+  coverage: ref,
+  timing: recordSchema({
+    deviceMeanMs: nullableNumber,
+    hostMeanMs: nullableNumber,
+    endToEndP50Ms: nullableNumber,
+    wholeNetP50Ms: nullableNumber,
+    launchCount: nullableNumber,
+  }),
+  precision: {
+    anyOf: [
+      recordSchema({
+        count: nullableNumber,
+        maxAbs: nullableNumber,
+        maxRel: nullableNumber,
+        p50Abs: nullableNumber,
+        p90Abs: nullableNumber,
+        p99Abs: nullableNumber,
+        mismatch: {
+          type: 'object',
+          additionalProperties: { type: 'number' },
+        },
+      }),
+      { type: 'null' },
+    ],
+  },
+  tolerance: {
+    anyOf: [
+      recordSchema({
+        mode: ref,
+        rtol: { type: 'number', minimum: 0 },
+        atol: { type: 'number', minimum: 0 },
+        source: { type: ['string', 'null'] },
+        observedMaxAbs: nullableNumber,
+      }),
+      { type: 'null' },
+    ],
+  },
+  wholeNet: {
+    anyOf: [
+      recordSchema({
+        candidateP50Ms: nullableNumber,
+        offP50Ms: nullableNumber,
+        deltaPct: nullableNumber,
+      }),
+      { type: 'null' },
+    ],
+  },
+  failure: {
+    anyOf: [
+      recordSchema({
+        type: { enum: ['candidate-invalid', 'infrastructure', 'timeout'] },
+        code: { type: ['string', 'null'] },
+        message: { type: ['string', 'null'] },
+        retryable: { type: 'boolean' },
+        checks: {
+          type: 'array',
+          maxItems: 16,
+          items: recordSchema({
+            id: text,
+            seed: { type: 'integer', minimum: 0 },
+            call: { type: 'integer', minimum: 0 },
+            status: text,
+            message: { type: 'string', maxLength: 4000 },
+          }),
+        },
+      }),
+      { type: 'null' },
+    ],
+  },
+});
 export type OperatorResources = {
   digest: string;
   knowledgeDigest: string;

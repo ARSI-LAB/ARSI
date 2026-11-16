@@ -8,7 +8,7 @@ import {
 } from '../../contracts/index.js';
 import { applicationContract } from '../../contracts/plugin-types/application.js';
 import { operatorProposerContract } from '../../contracts/plugin-types/proposer-operator.js';
-import { string } from '../../shared/json.js';
+import { object, string } from '../../shared/json.js';
 import { parseConfig, validate } from '../../shared/schema.js';
 import { literalPathPattern } from '../shared/file-application/target.js';
 import { applyEdits } from '../shared/agent-editing/index.js';
@@ -21,6 +21,7 @@ import {
 import {
   readOperatorCandidate,
   readOperatorArtifact,
+  readOperatorEvidence,
   readAssessment,
   operatorScalar,
   assertOperatorConditions,
@@ -221,6 +222,16 @@ export const createOperatorProposer: OperationDefinition<
           );
         }
         const stage = input.action === 'propose' ? 'generate' : 'repair';
+        const evidenceView =
+          input.action === 'repair'
+            ? {
+                ...object(prepared.generationContext.evidenceView ?? {}),
+                failed: await readOperatorEvidence(
+                  input.measurementRef,
+                  context,
+                ),
+              }
+            : object(prepared.generationContext.evidenceView ?? {});
         const snapshot = await operatorSnapshot(
           parent,
           config,
@@ -250,6 +261,7 @@ export const createOperatorProposer: OperationDefinition<
             input: {
               stage,
               ...prepared.generationContext,
+              evidenceView,
               evidence:
                 input.action === 'repair'
                   ? await context.readEvidence([input.measurementRef], {

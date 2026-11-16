@@ -479,18 +479,20 @@ test('baseline preflight retries retryable infrastructure failures and stops', a
   const worker = await readFile(f.worker, 'utf8');
   await writeFile(
     f.worker,
-    worker.replace(
-      "const source = await readFile(request.candidate, 'utf8');",
-      `const source = await readFile(request.candidate, 'utf8');
+    worker
+      .replace(
+        "const source = await readFile(request.candidate, 'utf8');",
+        `const source = await readFile(request.candidate, 'utf8');
 const precisionCount = ${JSON.stringify(counter)};
 if (request.operation === 'precision') {
   const seen = Number(await readFile(precisionCount, 'utf8'));
   await writeFile(precisionCount, String(seen + 1));
 }`,
-    ).replace(
-      "const unavailable = source.includes('fixture:infrastructure');",
-      "const unavailable = source.includes('fixture:infrastructure') || request.operation === 'precision';",
-    ),
+      )
+      .replace(
+        "const unavailable = source.includes('fixture:infrastructure');",
+        "const unavailable = source.includes('fixture:infrastructure') || request.operation === 'precision';",
+      ),
   );
   const result = await f.manager.run(f.recipePath, {
     id: 'preflight-infrastructure',

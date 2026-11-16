@@ -45,7 +45,9 @@ export type SdkOperatorResult = {
 };
 
 /** Infrastructure failures are recorded evidence, never candidate data. */
-function infrastructureOf(details: JsonObject | null): SdkInfrastructure | null {
+function infrastructureOf(
+  details: JsonObject | null,
+): SdkInfrastructure | null {
   if (details?.status !== 'infrastructure_error') return null;
   return {
     code: typeof details.code === 'string' ? details.code : 'WORKER_EXIT',
@@ -238,7 +240,9 @@ export function adaptSdkResult(
     [prepared.seed],
   );
   const timing =
-    details.timing === undefined ? null : parseKernelScopeTiming(details.timing);
+    details.timing === undefined
+      ? null
+      : parseKernelScopeTiming(details.timing);
   if (verdict.passed !== true && verdict.passed !== false)
     throw new Error('Missing SDK candidate verdict');
   if (!verdict.passed)

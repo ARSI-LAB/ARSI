@@ -31,6 +31,32 @@ properties:
     type: integer
     minimum: 1
     default: 5
+  baselinePreflight:
+    type: boolean
+    default: false
+  metricsMode:
+    enum:
+      - profiler
+      - measurement
+      - hybrid
+    default: hybrid
+  infraRetry:
+    type: object
+    default:
+      maxAttempts: 1
+      backoffMs: 1000
+    additionalProperties: false
+    properties:
+      maxAttempts:
+        type: integer
+        minimum: 1
+        maximum: 5
+        default: 1
+      backoffMs:
+        type: integer
+        minimum: 0
+        maximum: 60000
+        default: 1000
   maxConsecutiveNoChange:
     type: integer
     minimum: 1

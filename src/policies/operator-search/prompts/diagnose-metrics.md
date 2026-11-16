@@ -29,6 +29,13 @@ profile.kernels[*].metrics[block_id]. Use an RFC 6901 JSON pointer starting with
 value exactly. Do not use unavailable hardware-derived fields or invent values
 to satisfy the output Schema.
 
+When `profile.metadata.evidenceKind` is `measurement`, profiling was unavailable
+and the supplied evidence contains only verified measurement quantities: device,
+host and end-to-end timing, launch count, and reference error. In that mode cite
+those numeric fields (for example `/kernels/0/metrics/timing/endToEndP50Ms`) and
+treat pipeline counters, utilization ratios and per-core coverage as unknown. Do
+not infer a transfer-pipeline category (`mte2`/`mte3`) without profile evidence.
+
 If authorized network tools are available to the bound Agent, official profiling
 or compiler documentation can clarify a field or supported mechanism. Otherwise
 use the supplied and retrieved context and preserve uncertainty. Online material

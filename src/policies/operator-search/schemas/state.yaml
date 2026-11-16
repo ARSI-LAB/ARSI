@@ -127,6 +127,71 @@ properties:
     anyOf:
       - $ref: ./result.yaml#/properties/metricsRounds/items
       - type: 'null'
+  baselinePreflightRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  baselineDiagnostic:
+    anyOf:
+      - $ref: ./result.yaml#/properties/baselineDiagnostic
+      - type: 'null'
+  preflightStopped:
+    type: boolean
+  effectiveTolerance:
+    anyOf:
+      - $ref: ./result.yaml#/properties/effectiveTolerance
+      - type: 'null'
+  frozenTolerance:
+    anyOf:
+      - type: object
+        additionalProperties: false
+        properties:
+          mode:
+            enum:
+              - explicit
+              - dtype
+              - frozen
+          rtol:
+            type: number
+            minimum: 0
+          atol:
+            type: number
+            minimum: 0
+          safetyFactor:
+            type: number
+            exclusiveMinimum: 0
+        required:
+          - mode
+          - rtol
+          - atol
+      - type: 'null'
+  profileUnavailable:
+    type: boolean
+  diagnosticKind:
+    enum:
+      - profiler
+      - measurement
+  finalMeasurementRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  finalDecisionRef:
+    type:
+      - string
+      - 'null'
+    minLength: 1
+  finalValidity:
+    enum:
+      - valid
+      - invalid
+      - unknown
+      - baseline-invalid
+  finalTimingStable:
+    type:
+      - boolean
+      - 'null'
 required:
   - baselineMeasurement
   - bestCandidateRef
@@ -163,4 +228,15 @@ required:
   - candidateDiagnosticMeasurementRef
   - phase
   - metricRound
+  - baselinePreflightRef
+  - baselineDiagnostic
+  - preflightStopped
+  - effectiveTolerance
+  - frozenTolerance
+  - profileUnavailable
+  - diagnosticKind
+  - finalMeasurementRef
+  - finalDecisionRef
+  - finalValidity
+  - finalTimingStable
 additionalProperties: false

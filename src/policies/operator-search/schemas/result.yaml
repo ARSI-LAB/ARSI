@@ -5,22 +5,102 @@ properties:
     type: string
     minLength: 1
   bestMeasurementRef:
-    type: string
-    minLength: 1
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: 'null'
   finalMeasurementRef:
-    type: string
-    minLength: 1
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: 'null'
   finalDecisionRef:
-    type: string
-    minLength: 1
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: 'null'
   finalValidity:
     enum:
       - valid
       - invalid
+      - unknown
+      - baseline-invalid
   finalTimingStable:
     type:
       - boolean
       - 'null'
+  effectiveTolerance:
+    anyOf:
+      - type: object
+        additionalProperties: false
+        properties:
+          mode:
+            enum:
+              - explicit
+              - dtype
+              - observed
+              - frozen
+          rtol:
+            type: number
+            minimum: 0
+          atol:
+            type: number
+            minimum: 0
+          source:
+            type: string
+            minLength: 1
+          observedMaxAbs:
+            type: number
+            minimum: 0
+        required:
+          - mode
+          - rtol
+          - atol
+          - source
+      - type: 'null'
+  baselineDiagnostic:
+    anyOf:
+      - type: object
+        additionalProperties: false
+        properties:
+          dtype:
+            type:
+              - string
+              - 'null'
+          errorStats:
+            anyOf:
+              - type: object
+                additionalProperties:
+                  type: number
+                  minimum: 0
+              - type: 'null'
+          suggestedTolerance:
+            type: object
+            additionalProperties: false
+            properties:
+              mode:
+                enum:
+                  - explicit
+                  - dtype
+                  - frozen
+              rtol:
+                type: number
+                minimum: 0
+              atol:
+                type: number
+                minimum: 0
+              safetyFactor:
+                type: number
+                exclusiveMinimum: 0
+            required:
+              - mode
+              - rtol
+              - atol
+        required:
+          - dtype
+          - errorStats
+          - suggestedTolerance
+      - type: 'null'
   analysisRef:
     anyOf:
       - type: string
@@ -96,6 +176,9 @@ properties:
       - no-new-hypothesis
       - consecutive-no-change
       - profiling-unavailable
+      - metrics-unavailable
+      - baseline-invalid
+      - infra-failure
   staticHistoryRef:
     anyOf:
       - type: string
@@ -183,6 +266,7 @@ properties:
     minimum: 0
   phase:
     enum:
+      - baseline
       - static
       - metrics
 required:

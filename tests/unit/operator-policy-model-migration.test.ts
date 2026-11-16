@@ -9,7 +9,28 @@ import {
   operatorProposerContract,
   operatorSummarizerContract,
   metricSelectorContract,
+  type JsonObject,
 } from '../../src/contracts/index.js';
+import { object } from '../../src/shared/json.js';
+
+function loopIds(steps: readonly JsonObject[]): string[] {
+  const found: string[] = [];
+  for (const step of steps) {
+    if (step.type === 'loop') found.push(String(step.id));
+    if (step.type === 'loop' || step.type === 'foreach') {
+      const inner = step.steps;
+      if (Array.isArray(inner))
+        found.push(...loopIds(inner.map((value) => object(value))));
+    }
+    if (step.type === 'if')
+      for (const branch of [step.then, step.else]) {
+        const inner = object(branch).steps;
+        if (Array.isArray(inner))
+          found.push(...loopIds(inner.map((value) => object(value))));
+      }
+  }
+  return found;
+}
 
 test('the operator Policy loads and round-trip through the unified model', async () => {
   const registry = new Registry();
@@ -42,10 +63,14 @@ test('the operator Policy loads and round-trip through the unified model', async
           '${{ input.candidateRef }}',
         );
         assert.equal(policy.stateInitial.baselineMeasurement, null);
-        assert.equal(
-          policy.steps.filter((step) => step.type === 'loop').length,
-          1,
-        );
+        const loops = loopIds(policy.steps.map((step) => step.toJSON()));
+        for (const id of [
+          'static_search',
+          'repair_loop',
+          'metrics_loop',
+          'metrics_repair_loop',
+        ])
+          assert.ok(loops.includes(id), `missing loop ${id}`);
       }
     }
   } finally {

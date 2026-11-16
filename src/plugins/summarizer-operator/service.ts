@@ -21,6 +21,7 @@ import {
   profile,
   readAnalysis,
   readAssessment,
+  readOperatorEvidence,
   readAttemptFacts,
   readStaticHistory,
   readOperatorCandidate,
@@ -263,6 +264,12 @@ export const createOperatorSummarizer: OperationDefinition<
           {
             analysis,
             facts,
+            evidenceView: {
+              baseline: await readOperatorEvidence(
+                baselineMeasurementRef,
+                context,
+              ),
+            },
           },
           context,
         );
@@ -310,6 +317,16 @@ export const createOperatorSummarizer: OperationDefinition<
         },
         context,
       );
+      const evidenceView: JsonObject = {
+        incumbent: await readOperatorEvidence(
+          input.incumbentMeasurementRef,
+          context,
+        ),
+        diagnostic: await readOperatorEvidence(
+          analysis.diagnosticMeasurementRef,
+          context,
+        ),
+      };
       let candidateProfile: JsonObject | null = null;
       if (input.candidateDiagnosticMeasurementRef !== null) {
         if (!facts.accepted)
@@ -331,6 +348,10 @@ export const createOperatorSummarizer: OperationDefinition<
           context,
           false,
         );
+        evidenceView.candidate = await readOperatorEvidence(
+          input.candidateDiagnosticMeasurementRef,
+          context,
+        );
       }
       const content = await explain(
         input,
@@ -341,6 +362,7 @@ export const createOperatorSummarizer: OperationDefinition<
           facts,
           profile: diagnostic,
           candidateProfile,
+          evidenceView,
         },
         context,
       );

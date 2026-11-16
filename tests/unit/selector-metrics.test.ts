@@ -853,11 +853,17 @@ test('relative constraints bound the candidate against its incumbent', async () 
   assert.equal(lower.candidateFeasible, true);
   fixture.measured('after', 8.4);
   assert.equal(
-    (await fixture.select({
-      constraints: [
-        { metric: 'latencyMs', statistic: 'p50', minRelativeToIncumbent: 0.85 },
-      ],
-    })).candidateFeasible,
+    (
+      await fixture.select({
+        constraints: [
+          {
+            metric: 'latencyMs',
+            statistic: 'p50',
+            minRelativeToIncumbent: 0.85,
+          },
+        ],
+      })
+    ).candidateFeasible,
     false,
   );
 });
@@ -868,7 +874,11 @@ test('relative constraints reject unsupported configs and nonpositive incumbents
     await assert.rejects(
       fixture.select({
         constraints: [
-          { metric: 'latencyMs', statistic: 'p50', maxRelativeToIncumbent: value },
+          {
+            metric: 'latencyMs',
+            statistic: 'p50',
+            maxRelativeToIncumbent: value,
+          },
         ],
       }),
       /metric selector config/,
@@ -921,6 +931,7 @@ test('guards are hard constraints that override an improving candidate', async (
   assert.deepEqual(decision.guards, [
     {
       metric: 'latencyMs',
+      prerequisite: false,
       statistic: 'p95',
       definitionRef: fixture.latency(9.8).definitionRef,
       min: null,

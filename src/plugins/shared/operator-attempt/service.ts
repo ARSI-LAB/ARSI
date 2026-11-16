@@ -16,6 +16,11 @@ import {
 } from '../file-application/target.js';
 import { readDecisionFeedback } from '../metric-decision/index.js';
 import {
+  measurementEvidence,
+  measurementProfile,
+  scalarMetric,
+} from './evidence.js';
+import {
   type StaticIssue,
   type OperatorAnalysisIdentity,
   type OperatorAnalysis,
@@ -159,6 +164,18 @@ export async function readOperatorArtifact(
     await context.artifacts.readJson(
       string(object(measurement[key]).artifactRef),
     ),
+  );
+}
+
+/** Read a measurement that does not need candidate ownership, such as a failed repair input. */
+export async function readOperatorEvidence(
+  ref: string,
+  context: RuntimeContext,
+): Promise<JsonObject> {
+  const measurement = await readOperatorMeasurement(ref, context);
+  return measurementEvidence(
+    measurement,
+    await readOperatorArtifact(measurement, 'profile', context),
   );
 }
 
@@ -357,8 +374,14 @@ export async function readAttemptFacts(
   if (after === null)
     throw new Error('Operator valid summary candidate latency unavailable');
   facts.accepted =
-    after < before - before * Number(decision.minRelativeImprovement) &&
-    feedback.constraints.every((value) => value <= 0);
+    after <
+      before -
+        before *
+          Number(
+            decision.effectiveMinRelativeImprovement ??
+              decision.minRelativeImprovement ??
+              0,
+          ) && feedback.constraints.every((value) => value <= 0);
   if (
     facts.accepted !== decision.accepted ||
     attempt.outcome !== (facts.accepted ? 'adopted' : 'verified-no-gain')
@@ -617,9 +640,9 @@ export async function profile(
   );
   const expected = await readOperatorArtifact(incumbent, 'conditions', context);
   const details = await readOperatorArtifact(measurement, 'profile', context);
-  const result = object(details.profile);
   const evaluation = object(conditions.evaluation);
-  const checks = {
+  const measured = details.operation === 'evaluate';
+  const common = {
     ownership:
       measurement.experimentId === context.experimentId &&
       measurement.candidateRef === parent.ref,
@@ -633,12 +656,34 @@ export async function profile(
       provenance,
       await readOperatorSource(parent, measurement, context),
     ),
-    operation:
-      details.operation === 'profile' && evaluation.operation === 'profile',
     task: conditions.taskDigest === expected.taskDigest,
     environment:
       canonical(evaluation.environment) ===
       canonical(object(expected.evaluation).environment),
+    comparison: measurement.comparisonKey === incumbent.comparisonKey,
+  };
+  if (measured) {
+    const mismatch = Object.entries({
+      ...common,
+      operation:
+        details.operation === 'evaluate' && evaluation.operation !== 'profile',
+    }).find(([, matches]) => !matches);
+    if (mismatch)
+      throw new Error(`Metric diagnostic ${mismatch[0]} identity mismatch`);
+    if (
+      requireUsable &&
+      scalarMetric(object(measurement.metrics), 'candidateValid') !== 1
+    )
+      throw new Error(
+        'Measurement diagnosis requires a confirmed candidate measurement',
+      );
+    return measurementProfile(measurement);
+  }
+  const result = object(details.profile);
+  const checks = {
+    ...common,
+    operation:
+      details.operation === 'profile' && evaluation.operation === 'profile',
     assessment: evaluation.assessmentMeasurementRef === incumbent.ref,
     comparison: evaluation.assessmentComparisonKey === incumbent.comparisonKey,
   };

@@ -18,6 +18,8 @@ type ConstraintCheck = {
   min: number | null;
   max: number | null;
   exclusiveMax?: boolean;
+  minRelativeToIncumbent?: number | null;
+  maxRelativeToIncumbent?: number | null;
   incumbentValue: number;
   candidateValue: number;
   passed: boolean;
@@ -33,7 +35,13 @@ type MetricDecision = {
   incumbentValue: number;
   candidateValue: number | null;
   minRelativeImprovement: number;
+  effectiveMinRelativeImprovement?: number;
+  noise?: {
+    relativeHalfWidth: number | null;
+    samples: number | null;
+  };
   constraints: ConstraintCheck[];
+  guards?: ConstraintCheck[];
   accepted: boolean;
   tieBreak: 'retain-incumbent';
   reason: string;
@@ -52,6 +60,8 @@ const checks = {
       min: bound,
       max: bound,
       exclusiveMax: { type: 'boolean' },
+      minRelativeToIncumbent: bound,
+      maxRelativeToIncumbent: bound,
       incumbentValue: { type: 'number' },
       candidateValue: { type: 'number' },
       passed: { type: 'boolean' },
@@ -69,22 +79,50 @@ const checks = {
     ],
   ),
 };
-export const metricDecisionSchema: JsonSchema = recordSchema({
-  kind: { const: 'metric-decision' },
-  measurementRefs: { type: 'array', minItems: 2, maxItems: 2, items: ref },
-  itemId: { type: ['string', 'null'] },
-  metric: ref,
-  statistic,
-  direction: { enum: ['maximize', 'minimize'] },
-  definitionRef: ref,
-  incumbentValue: { type: 'number' },
-  candidateValue: bound,
-  minRelativeImprovement: { type: 'number', minimum: 0, exclusiveMaximum: 1 },
-  constraints: checks,
-  accepted: { type: 'boolean' },
-  tieBreak: { const: 'retain-incumbent' },
-  reason: { type: 'string' },
-});
+export const metricDecisionSchema: JsonSchema = recordSchema(
+  {
+    kind: { const: 'metric-decision' },
+    measurementRefs: { type: 'array', minItems: 2, maxItems: 2, items: ref },
+    itemId: { type: ['string', 'null'] },
+    metric: ref,
+    statistic,
+    direction: { enum: ['maximize', 'minimize'] },
+    definitionRef: ref,
+    incumbentValue: { type: 'number' },
+    candidateValue: bound,
+    minRelativeImprovement: { type: 'number', minimum: 0, exclusiveMaximum: 1 },
+    effectiveMinRelativeImprovement: { type: 'number', minimum: 0 },
+    noise: recordSchema(
+      {
+        relativeHalfWidth: bound,
+        samples: { type: ['integer', 'null'] },
+      },
+      [],
+    ),
+    constraints: checks,
+    guards: checks,
+    accepted: { type: 'boolean' },
+    tieBreak: { const: 'retain-incumbent' },
+    reason: { type: 'string' },
+  },
+  // Decisions persisted before operator guards and noise were added omit these.
+  [
+    'kind',
+    'measurementRefs',
+    'itemId',
+    'metric',
+    'statistic',
+    'direction',
+    'definitionRef',
+    'incumbentValue',
+    'candidateValue',
+    'minRelativeImprovement',
+    'constraints',
+    'accepted',
+    'tieBreak',
+    'reason',
+  ],
+);
 
 async function point(
   measurement: JsonObject,
@@ -166,10 +204,23 @@ export async function readDecisionFeedback(
   )
     throw new Error('Decision objective does not match measurement');
   const constraints: number[] = [];
-  for (const check of decision.constraints) {
-    if (check.min === null && check.max === null)
+  const checks = [...decision.constraints, ...(decision.guards ?? [])];
+  for (const check of checks) {
+    const minRelative = check.minRelativeToIncumbent ?? null;
+    const maxRelative = check.maxRelativeToIncumbent ?? null;
+    if (
+      check.min === null &&
+      check.max === null &&
+      minRelative === null &&
+      maxRelative === null
+    )
       throw new Error('Decision constraint requires a bound');
-    if (check.min !== null && check.max !== null && check.min > check.max)
+    if (
+      (check.min !== null && check.max !== null && check.min > check.max) ||
+      (minRelative !== null &&
+        maxRelative !== null &&
+        minRelative > maxRelative)
+    )
       throw new Error('Decision constraint bounds conflict');
     if (
       metricValue(
@@ -180,12 +231,27 @@ export async function readDecisionFeedback(
       ) !== check.candidateValue
     )
       throw new Error('Decision constraint does not match measurement');
+    if (
+      (minRelative !== null || maxRelative !== null) &&
+      !(check.incumbentValue > 0)
+    )
+      throw new Error(
+        'Decision relative constraint requires a positive incumbent',
+      );
     if (check.min !== null) constraints.push(check.min - check.candidateValue);
     if (check.max !== null)
       constraints.push(
         check.exclusiveMax && check.candidateValue === check.max
           ? Number.EPSILON
           : check.candidateValue - check.max,
+      );
+    if (minRelative !== null)
+      constraints.push(
+        check.incumbentValue * minRelative - check.candidateValue,
+      );
+    if (maxRelative !== null)
+      constraints.push(
+        check.candidateValue - check.incumbentValue * maxRelative,
       );
   }
   return {
@@ -212,6 +278,14 @@ export async function readDecisionFeedback(
         min: c.min,
         max: c.max,
         ...(c.exclusiveMax ? { exclusiveMax: true } : {}),
+        ...(c.minRelativeToIncumbent !== undefined &&
+        c.minRelativeToIncumbent !== null
+          ? { minRelativeToIncumbent: c.minRelativeToIncumbent }
+          : {}),
+        ...(c.maxRelativeToIncumbent !== undefined &&
+        c.maxRelativeToIncumbent !== null
+          ? { maxRelativeToIncumbent: c.maxRelativeToIncumbent }
+          : {}),
       })),
     },
   };

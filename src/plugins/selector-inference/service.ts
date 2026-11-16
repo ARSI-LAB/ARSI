@@ -18,6 +18,12 @@ function violation(check: MetricCheck, value: number): number {
       : check.exclusiveMax && value === check.max
         ? Number.EPSILON * Math.max(1, Math.abs(check.max))
         : value - check.max,
+    check.minRelativeToIncumbent === null
+      ? 0
+      : check.incumbentValue * check.minRelativeToIncumbent - value,
+    check.maxRelativeToIncumbent === null
+      ? 0
+      : value - check.incumbentValue * check.maxRelativeToIncumbent,
   );
 }
 

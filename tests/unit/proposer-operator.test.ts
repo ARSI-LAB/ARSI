@@ -79,6 +79,7 @@ async function setup(
     promptsDirectory?: string;
     editRejection?: { stage: 'generate' | 'repair'; error: Error };
     invalidEdits?: 'generate' | 'repair';
+    metricEvidence?: { path: string; value: number };
   } = {},
 ) {
   const fixture = await prepareOperatorProposerFixture(options.sourcePath);
@@ -151,7 +152,7 @@ async function setup(
                     rootCause: 'Scalar overhead is a hypothesis',
                     recommendedFix: 'Hoist invariant scalar work',
                     evidence: [
-                      {
+                      options.metricEvidence ?? {
                         path: '/kernels/0/metrics/0/aiv_vec_ratio',
                         value: 0.7,
                       },
@@ -793,6 +794,33 @@ test('operator Proposer repairs a failed multi-file candidate and delivers the m
         requests.map((request) => object(request.input).stage),
         ['diagnose', 'generate', 'repair', 'summarize', 'generate'],
       );
+      const baselineEvidence = object(
+        object(object(requests[1]!.input).evidenceView).baseline,
+      );
+      assert.equal(baselineEvidence.schemaVersion, 'rsi.operator-evidence/v1');
+      assert.equal(object(baselineEvidence.timing).deviceMeanMs, 10);
+      assert.equal(object(baselineEvidence.timing).hostMeanMs, 5);
+      assert.equal(object(baselineEvidence.timing).endToEndP50Ms, 13);
+      assert.equal(object(baselineEvidence.timing).launchCount, 3);
+      assert.equal(object(baselineEvidence.precision).maxAbs, 0.0002);
+      assert.equal(object(baselineEvidence.precision).p99Abs, 0.0002);
+      assert.equal(baselineEvidence.tolerance, null);
+      assert.equal(baselineEvidence.wholeNet, null);
+      assert.equal(baselineEvidence.failure, null);
+      const failedEvidence = object(
+        object(object(requests[2]!.input).evidenceView).failed,
+      );
+      assert.equal(object(failedEvidence.failure).type, 'candidate-invalid');
+      assert.equal(object(failedEvidence.precision).maxAbs, 0.5);
+      assert.equal(object(failedEvidence.timing).deviceMeanMs, null);
+      assert.match(
+        JSON.stringify(failedEvidence.failure),
+        /Test fixture mismatch/,
+      );
+      assert.ok(
+        object(object(object(requests[3]!.input).evidenceView).baseline)
+          .measurementRef,
+      );
       const nextInput = object(requests[4]!.input);
       assert.match(JSON.stringify(nextInput.history), /Use one hypothesis/);
       assert.match(JSON.stringify(nextInput.history), /candidateMs.*12/);
@@ -1046,6 +1074,32 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
       }
       assert.equal(generates.length, 2);
       assert.equal(analyses.length, 2);
+      const incumbentEvidence = object(
+        object(object(analyses[0]!.input).evidenceView).incumbent,
+      );
+      assert.equal(incumbentEvidence.schemaVersion, 'rsi.operator-evidence/v1');
+      assert.equal(object(incumbentEvidence.timing).deviceMeanMs, 10);
+      assert.equal(object(incumbentEvidence.timing).launchCount, 3);
+      assert.equal(incumbentEvidence.failure, null);
+      const diagnosticEvidence = object(
+        object(object(analyses[0]!.input).evidenceView).diagnostic,
+      );
+      assert.equal(object(diagnosticEvidence.timing).deviceMeanMs, null);
+      assert.equal(
+        object(object(generates[0]!.input).evidenceView).diagnostic ===
+          undefined,
+        false,
+      );
+      const metricSummary = requests.find(
+        (request) => object(request.input).stage === 'summarize',
+      );
+      assert.ok(metricSummary);
+      const candidateEvidence = object(
+        object(object(metricSummary.input).evidenceView).candidate,
+      );
+      assert.equal(candidateEvidence.schemaVersion, 'rsi.operator-evidence/v1');
+      assert.equal(object(candidateEvidence.timing).deviceMeanMs, null);
+      assert.equal(candidateEvidence.failure, null);
       assert.equal(object(generates[0]!.input).hardwareContext, hardwareText);
       assert.equal(object(generates[1]!.input).hardwareContext, hardwareText);
       assert.equal(object(analyses[0]!.input).hardwareContext, hardwareText);
@@ -1076,6 +1130,58 @@ test('metric Proposer executes two rounds with measured diagnostics, current bes
   t.after(() => fixture.dispose());
   const result = await fixture.runtime.manager.run(fixture.recipePath, {
     id: 'metrics-two-rounds',
+  });
+  assert.equal(result.status, 'succeeded');
+});
+
+test('metric Proposer diagnoses from an evaluate measurement when profiling is unavailable', async (t) => {
+  const fixture = await setup(
+    async (context, requests) => {
+      const { entry, baselineRef } = await baseline(context);
+      const proposed = object(
+        await context.invoke('proposer', {
+          action: 'propose',
+          phase: 'metrics',
+          parentCandidateRef: entry,
+          incumbentMeasurementRef: baselineRef,
+          diagnosticMeasurementRef: baselineRef,
+          round: 1,
+          historyRef: null,
+          staticHistoryRef: null,
+          goal: 'Optimize measured activity',
+        }),
+      );
+      assert.equal(proposed.status, 'created');
+      const analyses = requests.filter(
+        (request) => object(request.input).stage === 'diagnose-metrics',
+      );
+      assert.equal(analyses.length, 1);
+      const profile = object(object(analyses[0]!.input).profile);
+      assert.equal(object(profile.metadata).evidenceKind, 'measurement');
+      const metrics = object((profile.kernels as JsonObject[])[0]!.metrics);
+      assert.equal(object(metrics.timing).deviceMeanMs, 10);
+      assert.equal(object(metrics.timing).launchCount, 3);
+      const evidence = object(
+        object(object(analyses[0]!.input).evidenceView).diagnostic,
+      );
+      assert.equal(object(evidence.timing).deviceMeanMs, 10);
+      assert.equal(object(evidence.timing).wholeNetP50Ms, null);
+      assert.equal(object(evidence.precision).maxAbs, 0.0002);
+      assert.equal(evidence.failure, null);
+      return proposed;
+    },
+    false,
+    {
+      initialValid: true,
+      metricEvidence: {
+        path: '/kernels/0/metrics/timing/deviceMeanMs',
+        value: 10,
+      },
+    },
+  );
+  t.after(() => fixture.dispose());
+  const result = await fixture.runtime.manager.run(fixture.recipePath, {
+    id: 'measurement-diagnosis',
   });
   assert.equal(result.status, 'succeeded');
 });

@@ -21,6 +21,7 @@ async function run(
     noHypothesisRound?: number;
     profileFailure?: number;
     infrastructureFailure?: boolean;
+    metricsMode?: 'profiler' | 'measurement' | 'hybrid';
   } = {},
 ) {
   const registry = new Registry();
@@ -171,6 +172,7 @@ async function run(
     metricsEnabled: true,
     maxRounds: options.maxRounds ?? 10,
     maxNoImprovement: options.maxNoImprovement ?? 5,
+    ...(options.metricsMode ? { metricsMode: options.metricsMode } : {}),
     ...(options.maxConsecutiveNoChange === undefined
       ? {}
       : { maxConsecutiveNoChange: options.maxConsecutiveNoChange }),
@@ -323,8 +325,12 @@ test('failed verification exhausts three repairs and proceeds to another round',
   );
 });
 
-test('unavailable winner diagnostics preserve the promoted source and finish with independent retest', async () => {
-  const { output, calls } = await run({ values: [8], profileFailure: 2 });
+test('unavailable winner diagnostics under profiler mode preserve the promoted source and finish with independent retest', async () => {
+  const { output, calls } = await run({
+    values: [8],
+    profileFailure: 2,
+    metricsMode: 'profiler',
+  });
   assert.equal(output.bestCandidateRef, 'c1');
   assert.equal(output.stopReason, 'profiling-unavailable');
   assert.equal(
@@ -334,6 +340,19 @@ test('unavailable winner diagnostics preserve the promoted source and finish wit
   );
 });
 
+test('unavailable winner diagnostics under hybrid mode continue on measurement evidence', async () => {
+  const { output } = await run({ values: [8], profileFailure: 2 });
+  assert.equal(output.bestCandidateRef, 'c1');
+  assert.equal(output.stopReason, 'no-improvement');
+  const rounds = output.metricsRounds as JsonObject[];
+  assert.ok(rounds.length > 1);
+  assert.equal(
+    object(rounds[1]).diagnosticMeasurementRef,
+    object(rounds[0]).candidateDiagnosticMeasurementRef,
+  );
+  assert.equal(output.finalValidity, 'valid');
+});
+
 test('unknown profiling cleanup stops before any final device call', async () => {
   await assert.rejects(
     run({ infrastructureFailure: true }),
@@ -341,8 +360,11 @@ test('unknown profiling cleanup stops before any final device call', async () =>
   );
 });
 
-test('unavailable entry diagnostics finish without generating metric candidates', async () => {
-  const { output, calls } = await run({ profileFailure: 1 });
+test('unavailable entry diagnostics under profiler mode finish without generating metric candidates', async () => {
+  const { output, calls } = await run({
+    profileFailure: 1,
+    metricsMode: 'profiler',
+  });
   assert.equal(output.stopReason, 'profiling-unavailable');
   assert.equal((output.metricsRounds as JsonValue[]).length, 0);
   assert.equal(
@@ -351,4 +373,27 @@ test('unavailable entry diagnostics finish without generating metric candidates'
     0,
   );
   assert.equal(calls.filter((c) => c.input.action === 'evaluate').length, 2);
+});
+
+test('unavailable entry diagnostics under hybrid mode degrade to measurement evidence', async () => {
+  const { output, calls } = await run({ profileFailure: 1 });
+  assert.equal(output.stopReason, 'no-improvement');
+  const rounds = output.metricsRounds as JsonObject[];
+  assert.ok(rounds.length > 0);
+  assert.equal(object(rounds[0]).diagnosticMeasurementRef, 'm1');
+  assert.ok(
+    calls.some((c) => c.binding === 'proposer' && c.input.phase === 'metrics'),
+  );
+});
+
+test('measurement mode never probes the profiler', async () => {
+  const { output, calls } = await run({
+    values: [8],
+    metricsMode: 'measurement',
+  });
+  assert.equal(calls.filter((c) => c.input.action === 'profile').length, 0);
+  const rounds = output.metricsRounds as JsonObject[];
+  assert.ok(rounds.length > 0);
+  assert.equal(object(rounds[0]).diagnosticMeasurementRef, 'm1');
+  assert.equal(output.bestCandidateRef, 'c1');
 });

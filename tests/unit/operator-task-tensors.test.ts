@@ -50,7 +50,7 @@ test('operator task loader accepts mixed floating dtypes and scalar shapes', asy
     inputUnmodified: true,
   });
   for (const invalid of [
-    { dtype: 'int32' },
+    { dtype: 'float8' },
     { shape: [0] },
     { contiguous: 'false' },
   ])

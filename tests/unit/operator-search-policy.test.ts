@@ -31,6 +31,8 @@ async function setup(
     repairLimit?: number;
     budget?: JsonObject;
     failSummary?: boolean;
+    baselinePreflight?: boolean;
+    infraRetry?: JsonObject;
   } = {},
 ) {
   const fixture = await prepareOperatorProposerFixture();
@@ -43,6 +45,12 @@ async function setup(
       caseIds: ['fixed'],
       maxAttempts: options.maxAttempts ?? 3,
       repairLimit: options.repairLimit ?? 3,
+      ...(options.baselinePreflight === undefined
+        ? {}
+        : { baselinePreflight: options.baselinePreflight }),
+      ...(options.infraRetry === undefined
+        ? {}
+        : { infraRetry: options.infraRetry }),
     },
   };
   const bindings = object(recipe.bindings);
@@ -415,6 +423,92 @@ test('SDK infrastructure failure stops static search without being treated as a 
     ['diagnose', 'generate'],
   );
 });
+
+test('baseline preflight retries the dtype pair and freezes it for evaluation', async (t) => {
+  const f = await setup(t, { noIssues: true, baselinePreflight: true });
+  const worker = await readFile(f.worker, 'utf8');
+  await writeFile(
+    f.worker,
+    worker.replace(
+      "const incorrect = source.includes('fixture:incorrect');",
+      "const incorrect = source.includes('fixture:incorrect') || (request.operation === 'precision' && request.tolerance?.mode === 'explicit');",
+    ),
+  );
+  const result = await f.manager.run(f.recipePath, {
+    id: 'preflight-freeze',
+  });
+  assert.equal(result.status, 'succeeded');
+  const output = object(result.output);
+  assert.equal(output.stopReason, 'no-static-issues');
+  assert.equal(output.finalValidity, 'valid');
+  const tolerance = object(output.effectiveTolerance);
+  assert.equal(tolerance.mode, 'dtype');
+  assert.equal(tolerance.rtol, 0.001);
+  assert.equal(tolerance.atol, 0.001);
+  assert.equal(typeof tolerance.source, 'string');
+  assert.equal(object(result.usage).evaluationRuns, 4);
+});
+
+test('baseline preflight stops on an invalid baseline with computed error evidence', async (t) => {
+  const f = await setup(t, { baselinePreflight: true });
+  await writeFile(
+    join(f.root, 'example/baseline/input.py'),
+    operatorFixtureSource('fixture:incorrect'),
+  );
+  const result = await f.manager.run(f.recipePath, {
+    id: 'preflight-invalid',
+  });
+  const output = object(result.output);
+  assert.equal(output.stopReason, 'baseline-invalid');
+  assert.equal(output.finalValidity, 'baseline-invalid');
+  assert.equal(output.bestMeasurementRef, null);
+  assert.equal(output.finalMeasurementRef, null);
+  const diagnostic = object(output.baselineDiagnostic);
+  assert.equal(object(diagnostic.errorStats).maxAbs, 0.5);
+  assert.equal(object(diagnostic.suggestedTolerance).mode, 'dtype');
+  assert.equal(experimentRuns(result), 2);
+});
+
+test('baseline preflight retries retryable infrastructure failures and stops', async (t) => {
+  const f = await setup(t, {
+    baselinePreflight: true,
+    infraRetry: { maxAttempts: 2, backoffMs: 0 },
+  });
+  const counter = join(f.root, 'precision-count');
+  await writeFile(counter, '0');
+  const worker = await readFile(f.worker, 'utf8');
+  await writeFile(
+    f.worker,
+    worker
+      .replace(
+        "const source = await readFile(request.candidate, 'utf8');",
+        `const source = await readFile(request.candidate, 'utf8');
+const precisionCount = ${JSON.stringify(counter)};
+if (request.operation === 'precision') {
+  const seen = Number(await readFile(precisionCount, 'utf8'));
+  await writeFile(precisionCount, String(seen + 1));
+}`,
+      )
+      .replace(
+        "const unavailable = source.includes('fixture:infrastructure');",
+        "const unavailable = source.includes('fixture:infrastructure') || request.operation === 'precision';",
+      ),
+  );
+  const result = await f.manager.run(f.recipePath, {
+    id: 'preflight-infrastructure',
+  });
+  const output = object(result.output);
+  assert.equal(output.stopReason, 'infra-failure');
+  assert.equal(output.finalValidity, 'unknown');
+  assert.equal(output.bestMeasurementRef, null);
+  assert.equal(output.baselineDiagnostic, null);
+  assert.equal(await readFile(counter, 'utf8'), '2');
+  assert.equal(experimentRuns(result), 2);
+});
+
+function experimentRuns(result: JsonObject): number {
+  return Number(object(result.usage).evaluationRuns);
+}
 
 test('Manager stops operator search at the shared model budget and releases acquired instances', async (t) => {
   const f = await setup(t, {

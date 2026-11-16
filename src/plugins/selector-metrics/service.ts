@@ -18,7 +18,7 @@ export const createMetricSelector: OperationDefinition<
       improved,
       incumbentValue,
       candidateValue,
-      minRelativeImprovement,
+      effectiveMinRelativeImprovement,
     } = comparison;
     const accepted = feasible && improved;
     const reason = !eligible
@@ -29,7 +29,7 @@ export const createMetricSelector: OperationDefinition<
           ? 'Candidate metric strictly improves'
           : candidateValue === incumbentValue
             ? 'Metrics are equal; retain the incumbent'
-            : minRelativeImprovement > 0
+            : effectiveMinRelativeImprovement > 0
               ? 'Candidate does not exceed the relative improvement threshold; retain the incumbent'
               : 'Candidate does not strictly improve; retain the incumbent';
     return { accepted, reason };

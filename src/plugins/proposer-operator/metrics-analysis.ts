@@ -22,6 +22,7 @@ import {
   readMetricsAnalysis,
   readOperatorSource,
   readOperatorArtifact,
+  readOperatorEvidence,
   readAssessment,
   operatorScalar,
   readHistory,
@@ -117,6 +118,16 @@ export async function prepareMetrics(
     input.staticHistoryRef === null
       ? null
       : await readHistory(input.staticHistoryRef, context);
+  const evidenceView = {
+    incumbent: await readOperatorEvidence(
+      analysis.incumbentMeasurementRef,
+      context,
+    ),
+    diagnostic: await readOperatorEvidence(
+      analysis.diagnosticMeasurementRef,
+      context,
+    ),
+  };
   const metricContext = {
     phase: 'metrics',
     profile: diagnostic,
@@ -140,6 +151,7 @@ export async function prepareMetrics(
           history: metricContext.history,
           staticHistory: metricContext.staticHistory,
           hardwareContext: hardware?.text ?? null,
+          evidenceView,
         },
         outputSchema: metricsDiagnosisSchema,
       },
@@ -196,6 +208,7 @@ export async function prepareMetrics(
       history: metricContext.history,
       staticHistory: metricContext.staticHistory,
       hardwareContext: hardware?.text ?? null,
+      evidenceView,
     },
     generatePrompt: loaded.metricsGenerate,
     noChange:

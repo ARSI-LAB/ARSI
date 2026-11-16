@@ -20,6 +20,26 @@ if (source.includes('fixture:wait')) {
   await new Promise((resolve) => setTimeout(resolve, 30000));
 }
 const latency = Number(/fixture:latency=(\d+)/u.exec(source)?.[1] ?? 10);
+const precision = request.operation === 'precision';
+const timed = !precision;
+const dtypeTolerances = {
+  float16: { rtol: 1e-3, atol: 1e-3 },
+  bfloat16: { rtol: 1e-3, atol: 1e-3 },
+  float32: { rtol: 5e-4, atol: 5e-4 },
+  float64: { rtol: 1e-6, atol: 1e-6 },
+  int32: { rtol: 0, atol: 0 },
+  int64: { rtol: 0, atol: 0 },
+};
+const requestedTolerance = request.tolerance ?? {
+  mode: 'explicit',
+  rtol: request.rtol,
+  atol: request.atol,
+};
+const effectiveTolerance =
+  requestedTolerance.mode === 'dtype'
+    ? (dtypeTolerances[request.contract?.output?.dtype] ??
+      dtypeTolerances.float32)
+    : { rtol: requestedTolerance.rtol, atol: requestedTolerance.atol };
 const incorrect = source.includes('fixture:incorrect');
 const unavailable = source.includes('fixture:infrastructure');
 const ids = [
@@ -47,9 +67,16 @@ const result = {
     : incorrect
       ? 'Test fixture numerical failure'
       : '',
-  candidateMs: incorrect || unavailable ? null : latency,
-  referenceMs: incorrect || unavailable ? null : 16,
-  speedup: incorrect || unavailable ? null : 16 / latency,
+  ...(unavailable
+    ? {
+        code: 'WORKER_TIMEOUT',
+        retryable: true,
+        diagnostics: [{ message: 'Test fixture infrastructure failure' }],
+      }
+    : {}),
+  candidateMs: timed && !incorrect && !unavailable ? latency : null,
+  referenceMs: timed && !incorrect && !unavailable ? 16 : null,
+  speedup: timed && !incorrect && !unavailable ? 16 / latency : null,
   assessment: {
     contractSha256: request.contractSha256,
     checks: request.seeds.flatMap((seed) =>
@@ -70,8 +97,8 @@ const result = {
     ),
     effectiveProtocol: {
       seeds: request.seeds,
-      rtol: request.rtol,
-      atol: request.atol,
+      rtol: effectiveTolerance.rtol,
+      atol: effectiveTolerance.atol,
       warmup: request.warmup,
       repeat: request.repeat,
       timingScope: 'all-device-kernels',
@@ -94,7 +121,48 @@ const result = {
   },
 };
 await mkdir(dirname(output), { recursive: true });
+if (incorrect) {
+  result.errorStats = {
+    count: 4,
+    maxAbs: 0.5,
+    maxRel: 0.25,
+    p50Abs: 0.25,
+    p90Abs: 0.5,
+    p99Abs: 0.5,
+  };
+}
 if (!incorrect && !unavailable) {
+  result.errorStats = {
+    count: 4,
+    maxAbs: 0.0002,
+    maxRel: 0.0001,
+    p50Abs: 0.0001,
+    p90Abs: 0.0002,
+    p99Abs: 0.0002,
+  };
+}
+if (!incorrect && !unavailable && timed) {
+  result.timing = {
+    device: {
+      count: request.repeat,
+      samples: Array.from({ length: request.repeat }, () => latency),
+      meanMs: latency,
+      p50Ms: latency,
+      p95Ms: latency,
+    },
+    host: {
+      count: request.repeat,
+      samples: Array.from({ length: request.repeat }, () => latency / 2),
+      meanMs: latency / 2,
+    },
+    endToEnd: {
+      count: request.repeat,
+      samples: Array.from({ length: request.repeat }, () => latency + 3),
+      meanMs: latency + 3,
+      p50Ms: latency + 3,
+    },
+    launchCount: 3,
+  };
   const samples = {};
   for (const [name, meanMs] of [
     ['reference', 16],

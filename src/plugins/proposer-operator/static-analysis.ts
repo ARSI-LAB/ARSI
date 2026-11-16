@@ -23,6 +23,7 @@ import {
   readOperatorCandidate,
   readOperatorSource,
   readOperatorMeasurement,
+  readOperatorEvidence,
   readAssessment,
   operatorScalar,
   parseStaticDiagnosis,
@@ -220,6 +221,12 @@ export async function prepareStatic(
     throw new OperatorModelOutputError(
       'Static diagnosis did not produce a valid result; no empty-diagnosis claim is available',
     );
+  const evidenceView = {
+    baseline: await readOperatorEvidence(
+      identity.baselineMeasurementRef,
+      context,
+    ),
+  };
   return {
     parent: await readOperatorCandidate(identity.entryCandidateRef, context),
     baseline: await readAssessment(
@@ -235,6 +242,7 @@ export async function prepareStatic(
           ? []
           : (prior?.summaries ?? []).slice(-(config.historyWindow ?? 5)),
       hardwareContext: hardware?.text ?? null,
+      evidenceView,
     },
     generatePrompt: loaded.prompts.generate,
     noChange: analysis.issues.length

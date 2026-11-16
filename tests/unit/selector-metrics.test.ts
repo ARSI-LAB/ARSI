@@ -821,3 +821,199 @@ test('metric decision feedback rejects an ineligible candidate without an object
     /requires an available objective/,
   );
 });
+
+test('relative constraints bound the candidate against its incumbent', async () => {
+  const fixture = await selectionFixture();
+  const guard = {
+    guards: [
+      { metric: 'latencyMs', statistic: 'p50', maxRelativeToIncumbent: 0.9 },
+    ],
+  };
+  const passing = await fixture.select(guard);
+  assert.equal(passing.accepted, true);
+  assert.equal(passing.candidateFeasible, true);
+  const passingDecision = object(await fixture.read(passing.decisionRef));
+  assert.ok(Array.isArray(passingDecision.guards));
+  assert.equal(object(passingDecision.guards[0]).maxRelativeToIncumbent, 0.9);
+  fixture.measured('after', 9.5);
+  const failing = await fixture.select(guard);
+  assert.equal(failing.accepted, false);
+  assert.equal(failing.candidateFeasible, false);
+  assert.match(String(failing.reason), /guard.*latencyMs/i);
+  const failingDecision = object(await fixture.read(failing.decisionRef));
+  assert.ok(Array.isArray(failingDecision.guards));
+  assert.equal(object(failingDecision.guards[0]).passed, false);
+  fixture.measured('after', 8.6);
+  const lower = await fixture.select({
+    constraints: [
+      { metric: 'latencyMs', statistic: 'p50', minRelativeToIncumbent: 0.85 },
+    ],
+  });
+  assert.equal(lower.accepted, true);
+  assert.equal(lower.candidateFeasible, true);
+  fixture.measured('after', 8.4);
+  assert.equal(
+    (
+      await fixture.select({
+        constraints: [
+          {
+            metric: 'latencyMs',
+            statistic: 'p50',
+            minRelativeToIncumbent: 0.85,
+          },
+        ],
+      })
+    ).candidateFeasible,
+    false,
+  );
+});
+
+test('relative constraints reject unsupported configs and nonpositive incumbents', async () => {
+  const fixture = await selectionFixture();
+  for (const value of [0, -1, '0.9'])
+    await assert.rejects(
+      fixture.select({
+        constraints: [
+          {
+            metric: 'latencyMs',
+            statistic: 'p50',
+            maxRelativeToIncumbent: value,
+          },
+        ],
+      }),
+      /metric selector config/,
+    );
+  await assert.rejects(
+    fixture.select({
+      constraints: [
+        {
+          metric: 'latencyMs',
+          statistic: 'p50',
+          minRelativeToIncumbent: 0.95,
+          maxRelativeToIncumbent: 0.9,
+        },
+      ],
+    }),
+    /relative min exceeds max/,
+  );
+  for (const before of [0, -1]) {
+    fixture.measured('before', before);
+    fixture.measured('after', before - 1);
+    await assert.rejects(
+      fixture.select({
+        guards: [
+          {
+            metric: 'latencyMs',
+            statistic: 'p50',
+            maxRelativeToIncumbent: 0.9,
+          },
+        ],
+      }),
+      /positive incumbent/i,
+    );
+  }
+});
+
+test('guards are hard constraints that override an improving candidate', async () => {
+  const fixture = await selectionFixture();
+  fixture.measured('after', 9.8);
+  const result = await fixture.select({
+    guards: [
+      { metric: 'latencyMs', statistic: 'p95', maxRelativeToIncumbent: 0.95 },
+    ],
+  });
+  assert.equal(result.accepted, false);
+  assert.equal(result.candidateFeasible, false);
+  assert.equal(result.candidateValue, 9.8);
+  assert.match(String(result.reason), /guard/i);
+  const decision = object(await fixture.read(result.decisionRef));
+  assert.equal(decision.accepted, false);
+  assert.deepEqual(decision.guards, [
+    {
+      metric: 'latencyMs',
+      prerequisite: false,
+      statistic: 'p95',
+      definitionRef: fixture.latency(9.8).definitionRef,
+      min: null,
+      max: null,
+      minRelativeToIncumbent: null,
+      maxRelativeToIncumbent: 0.95,
+      exclusiveMax: false,
+      incumbentValue: 10,
+      candidateValue: 9.8,
+      passed: false,
+    },
+  ]);
+  const feedback = await readDecisionFeedback(
+    'after',
+    result.decisionRef,
+    'candidate-after',
+    fixture.services,
+  );
+  assert.equal(feedback.constraints.length, 1);
+  assert.ok(Math.abs(feedback.constraints[0]! - 0.3) < 1e-12);
+});
+
+test('noise raises the effective threshold from the incumbent distribution', async () => {
+  const fixture = await selectionFixture();
+  const distribution = (value: number, p95: number, count = 5) => ({
+    metrics: {
+      candidateValid: fixture.validity(1),
+      latencyMs: {
+        ...fixture.latency(value),
+        value: {
+          kind: 'distribution',
+          count,
+          mean: value,
+          p50: value,
+          p95,
+          p99: p95,
+        },
+      },
+    },
+  });
+  fixture.measured('before', 10, 1, distribution(10, 12));
+  fixture.measured('after', 9.5);
+  const noise = {
+    minSamples: 3,
+    statistic: 'p50',
+    confidenceZ: 1.96,
+    minRelativeImprovementFloor: 0,
+  };
+  const result = await fixture.select({ minRelativeImprovement: 0.02, noise });
+  const expected = (1.96 * (2 / 1.6448536269514722)) / Math.sqrt(5) / 10;
+  assert.equal(result.accepted, false);
+  assert.equal(result.candidateFeasible, true);
+  assert.match(String(result.reason), /relative improvement threshold/i);
+  const decision = object(await fixture.read(result.decisionRef));
+  assert.ok(
+    Math.abs(Number(decision.effectiveMinRelativeImprovement) - expected) <
+      1e-12,
+  );
+  const measuredNoise = object(decision.noise);
+  assert.ok(
+    Math.abs(Number(measuredNoise.relativeHalfWidth) - expected) < 1e-12,
+  );
+  assert.equal(measuredNoise.samples, 5);
+  fixture.measured('after', 8.9);
+  assert.equal(
+    (await fixture.select({ minRelativeImprovement: 0.02, noise })).accepted,
+    true,
+  );
+  fixture.measured('after', 9.5);
+  fixture.measured('before', 10, 1, distribution(10, 10));
+  const floor = await fixture.select({
+    minRelativeImprovement: 0.02,
+    noise: { ...noise, minRelativeImprovementFloor: 0.08 },
+  });
+  assert.equal(floor.accepted, false);
+  const floorDecision = object(await fixture.read(floor.decisionRef));
+  assert.equal(floorDecision.effectiveMinRelativeImprovement, 0.08);
+  fixture.measured('before', 10, 1, distribution(10, 12, 2));
+  const sparse = await fixture.select({ minRelativeImprovement: 0.02, noise });
+  assert.equal(sparse.accepted, true);
+  const sparseDecision = object(await fixture.read(sparse.decisionRef));
+  assert.equal(sparseDecision.effectiveMinRelativeImprovement, 0.02);
+  assert.equal(object(sparseDecision.noise).samples, null);
+  assert.equal(object(sparseDecision.noise).relativeHalfWidth, null);
+});

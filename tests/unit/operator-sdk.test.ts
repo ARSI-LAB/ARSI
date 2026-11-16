@@ -377,6 +377,22 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     kind: 'scalar',
     value: 8,
   });
+  assert.deepEqual(object(object(recorded[0]!.metrics).hostMeanMs).value, {
+    kind: 'scalar',
+    value: 4,
+  });
+  assert.deepEqual(object(object(recorded[0]!.metrics).endToEndP50Ms).value, {
+    kind: 'scalar',
+    value: 11,
+  });
+  assert.deepEqual(object(object(recorded[0]!.metrics).launchCount).value, {
+    kind: 'scalar',
+    value: 3,
+  });
+  assert.deepEqual(
+    object(object(recorded[0]!.metrics).referenceErrorMaxAbs).value,
+    { kind: 'scalar', value: 0.0002 },
+  );
   assert.equal(object(recorded[0]!.metrics).latencyMs, undefined);
   const provenance = await artifacts.readJson(
     String(object(recorded[0]!.provenance).artifactRef),
@@ -412,6 +428,18 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   assert.equal(
     object(object(recorded[2]!.metrics).latencyMeanMs).status,
     'unavailable',
+  );
+  assert.equal(
+    object(object(recorded[2]!.metrics).hostMeanMs).status,
+    'unavailable',
+  );
+  assert.equal(
+    object(object(recorded[2]!.metrics).launchCount).status,
+    'unavailable',
+  );
+  assert.deepEqual(
+    object(object(recorded[2]!.metrics).referenceErrorMaxAbs).value,
+    { kind: 'scalar', value: 0.5 },
   );
   source += '# fixture:infrastructure\n';
   await writeFile(join(sourceDirectory, sourcePath), source);
@@ -530,7 +558,8 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
     }
   });
   try {
-    for (let count = 0; count < 200; count++) {
+    const deadline = Date.now() + 10000;
+    while (!profileChild && Date.now() < deadline) {
       try {
         profileChild = Number(await readFile(pidFile, 'utf8'));
         break;
@@ -550,7 +579,8 @@ test('operator SDK configuration runs the actual kernel SDK with only the device
   }
   assert.match(String(await profiling), /assessment cancelled/);
   let running = true;
-  for (let count = 0; count < 50 && running; count++) {
+  const exitDeadline = Date.now() + 10000;
+  while (running && Date.now() < exitDeadline) {
     try {
       process.kill(profileChild!, 0);
       if (process.platform === 'linux')

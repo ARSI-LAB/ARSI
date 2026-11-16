@@ -13,6 +13,7 @@ import { digest, object } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { typed } from '../shared/evaluator-adapter/measurement.js';
 import { definition } from '../shared/evaluator-adapter/metric.js';
+import { kernelMetricDescriptor } from '../shared/evaluator-adapter/kernel-metrics.js';
 import {
   sdkConditionsSchema,
   sdkProvenanceSchema,
@@ -32,12 +33,13 @@ export async function recordSdkMeasurement(
   conditions: JsonObject,
   entries: JsonValue[],
   context: RuntimeContext,
-  operation: 'evaluate' | 'profile',
+  operation: 'evaluate' | 'profile' | 'preflight',
 ): Promise<string> {
   const rawRef = await context.artifacts.putJson(result.native);
   const completed =
     result.status === 'completed' && result.cleanup === 'confirmed';
   const isProfile = operation === 'profile';
+  const isPreflight = operation === 'preflight';
   const valid =
     completed &&
     (isProfile
@@ -52,24 +54,25 @@ export async function recordSdkMeasurement(
         : result.status;
   const scalar = async (
     id: string,
-    unit: string,
     value: number | null,
     pointer: string,
+    reason = 'No confirmed measurement',
   ): Promise<JsonObject> => {
+    const descriptor = kernelMetricDescriptor(id);
     const definitionRef = await definition(
       context.artifacts,
       id,
-      unit,
+      descriptor.unit,
       'scalar',
-      `kernel-v1 ${id}`,
-      'single fixed case; native mean',
+      descriptor.mapping,
+      descriptor.aggregation,
     );
     return value === null
       ? {
           definitionRef,
           status: 'unavailable',
           value: null,
-          reason: 'No confirmed measurement',
+          reason,
           source: { artifactRef: rawRef, pointer },
         }
       : {
@@ -80,32 +83,52 @@ export async function recordSdkMeasurement(
         };
   };
   const pointer = '/snapshot/records/0/verdict/details';
+  const timing = result.timing;
   const metrics = isProfile
     ? {}
     : {
         candidateValid: await scalar(
           'candidateValid',
-          'boolean',
           completed && result.valid !== null ? Number(result.valid) : null,
           pointer + '/assessment/checks',
         ),
         latencyMeanMs: await scalar(
           'latencyMeanMs',
-          'ms',
-          valid ? result.candidateMs : null,
-          pointer + '/candidateMs',
+          valid ? (timing?.device.meanMs ?? result.candidateMs) : null,
+          pointer +
+            (timing === null ? '/candidateMs' : '/timing/device/meanMs'),
         ),
         referenceMeanMs: await scalar(
           'referenceMeanMs',
-          'ms',
           valid ? result.referenceMs : null,
           pointer + '/referenceMs',
         ),
         speedupVsReference: await scalar(
           'speedupVsReference',
-          'ratio',
           valid ? result.speedup : null,
           pointer + '/speedup',
+        ),
+        hostMeanMs: await scalar(
+          'hostMeanMs',
+          valid ? (timing?.host?.meanMs ?? null) : null,
+          pointer + '/timing/host/meanMs',
+        ),
+        endToEndP50Ms: await scalar(
+          'endToEndP50Ms',
+          valid ? (timing?.endToEnd?.p50Ms ?? null) : null,
+          pointer + '/timing/endToEnd/p50Ms',
+        ),
+        launchCount: await scalar(
+          'launchCount',
+          valid && timing !== null ? timing.launchCount : null,
+          pointer + '/timing/launchCount',
+        ),
+        referenceErrorMaxAbs: await scalar(
+          'referenceErrorMaxAbs',
+          completed && result.errorStats !== null
+            ? (result.errorStats.maxAbs ?? null)
+            : null,
+          pointer + '/errorStats/maxAbs',
         ),
       };
   entries.push({
@@ -130,7 +153,7 @@ export async function recordSdkMeasurement(
     executionStatus: result.status,
     scoreStatus: completed ? 'valid' : 'unknown',
     passed: completed ? result.valid : null,
-    primaryReward: isProfile ? null : 'latencyMeanMs',
+    primaryReward: isProfile || isPreflight ? null : 'latencyMeanMs',
     passThreshold: null,
     checks: (result.assessment?.checks ?? []).map((c, i) => ({
       id: `${c.id}/seed-${c.seed}/call-${c.call}`,
@@ -158,12 +181,15 @@ export async function recordSdkMeasurement(
   });
   const details = object({
     mode: 'sdk',
-    operation: isProfile ? 'profile' : 'evaluate',
+    operation: isProfile ? 'profile' : isPreflight ? 'preflight' : 'evaluate',
     sourceDigest: source.sourceDigest,
     sourceBundleDigest: source.sourceBundleDigest,
     caseId,
     assessment: result.assessment,
     profile: result.profile,
+    tolerance: result.tolerance,
+    errorStats: result.errorStats,
+    infrastructure: result.infrastructure,
   });
   const detailRef = await typed(
     context,

@@ -24,10 +24,13 @@ export const sdkProvenanceSchema = recordSchema({
 });
 export const sdkDetailsSchema = recordSchema({
   mode: { const: 'sdk' },
-  operation: { enum: ['evaluate', 'profile'] },
+  operation: { enum: ['evaluate', 'profile', 'preflight'] },
   sourceDigest: hashSchema,
   sourceBundleDigest: hashSchema,
   caseId: text,
   assessment: { type: ['object', 'null'] },
   profile: { type: ['object', 'null'] },
+  tolerance: { type: ['object', 'null'] },
+  errorStats: { type: ['object', 'null'] },
+  infrastructure: { type: ['object', 'null'] },
 });

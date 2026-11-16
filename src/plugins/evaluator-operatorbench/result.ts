@@ -1,4 +1,12 @@
-import { parseKernelAssessment, type KernelAssessment } from 'ember-evaluator';
+import {
+  parseKernelAssessment,
+  parseKernelErrorStats,
+  parseKernelScopeTiming,
+  parseKernelTolerance,
+  type KernelAssessment,
+  type KernelScopeTiming,
+  type KernelTolerance,
+} from 'ember-evaluator';
 import type { JsonObject } from '../../contracts/index.js';
 import { compareFilePaths } from '../../shared/paths.js';
 import { digest, object, string } from '../../shared/json.js';
@@ -6,6 +14,11 @@ import { validateSnapshot } from '../shared/evaluator-adapter/measurement.js';
 import { fixedConditions } from './conditions.js';
 import type { PreparedOperatorCase } from './kernel-input.js';
 
+export type SdkInfrastructure = {
+  code: string;
+  retryable: boolean;
+  message: string;
+};
 export type SdkOperatorResult = {
   status: 'completed' | 'failed' | 'cancelled' | 'unknown';
   cleanup: 'confirmed' | 'unknown';
@@ -13,6 +26,10 @@ export type SdkOperatorResult = {
   candidateMs: number | null;
   referenceMs: number | null;
   speedup: number | null;
+  timing: KernelScopeTiming | null;
+  errorStats: Record<string, number> | null;
+  tolerance: KernelTolerance | null;
+  infrastructure: SdkInfrastructure | null;
   native: JsonObject;
   assessment: KernelAssessment | null;
   conditions: JsonObject | null;
@@ -26,6 +43,19 @@ export type SdkOperatorResult = {
     truncated?: boolean;
   }[];
 };
+
+/** Infrastructure failures are recorded evidence, never candidate data. */
+function infrastructureOf(details: JsonObject | null): SdkInfrastructure | null {
+  if (details?.status !== 'infrastructure_error') return null;
+  return {
+    code: typeof details.code === 'string' ? details.code : 'WORKER_EXIT',
+    retryable: details.retryable === true,
+    message:
+      typeof details.error === 'string'
+        ? details.error.slice(0, 4000)
+        : 'Kernel evaluation infrastructure failed',
+  };
+}
 
 /** Consume the SDK verdict; kernel correctness, timing and capture audits belong to its Benchmark. */
 export function adaptSdkResult(
@@ -56,6 +86,15 @@ export function adaptSdkResult(
     throw new Error('SDK run identity mismatch');
   const details =
     record.verdict === null ? null : object(object(record.verdict).details);
+  const errorStats =
+    details?.errorStats === undefined
+      ? null
+      : parseKernelErrorStats(details.errorStats);
+  const tolerance =
+    details?.tolerance === undefined
+      ? null
+      : parseKernelTolerance(details.tolerance);
+  const infrastructure = infrastructureOf(details);
   const cleanup =
     record.cleanupStatus === 'cleaned' && details?.cleanup !== 'unconfirmed'
       ? 'confirmed'
@@ -83,6 +122,10 @@ export function adaptSdkResult(
     candidateMs: null,
     referenceMs: null,
     speedup: null,
+    timing: null,
+    errorStats,
+    tolerance,
+    infrastructure,
     native,
     assessment: null,
     conditions: null,
@@ -109,6 +152,7 @@ export function adaptSdkResult(
     throw new Error('Incomplete SDK collection');
   const verdict = object(record.verdict);
   const profileOperation = prepared.operation === 'profile';
+  const preflightOperation = prepared.operation === 'preflight';
   if (
     !details ||
     details.protocol !==
@@ -156,12 +200,45 @@ export function adaptSdkResult(
         protocol: object(details.diagnosticProtocol),
       },
     };
+  // The policy preflight measures quality only; chunk timing and speedup are absent by protocol.
+  if (preflightOperation) {
+    if (details.operation !== 'precision')
+      throw new Error('Preflight requires a precision SDK operation');
+    const assessment =
+      details.assessment === undefined
+        ? null
+        : parseKernelAssessment(details.assessment, prepared.contract, [
+            prepared.seed,
+          ]);
+    const valid = verdict.passed === true;
+    return {
+      ...base,
+      status: 'completed',
+      valid,
+      assessment,
+      errorStats,
+      tolerance,
+      conditions:
+        assessment === null
+          ? { ...conditions, mode: 'sdk', operation: 'precision' }
+          : {
+              ...conditions,
+              mode: 'sdk',
+              operation: 'precision',
+              contract: prepared.contract,
+              protocol: assessment.effectiveProtocol,
+              environment: assessment.environment,
+            },
+    };
+  }
   if (record.scoreStatus !== 'valid') return base;
   const assessment = parseKernelAssessment(
     details.assessment,
     prepared.contract,
     [prepared.seed],
   );
+  const timing =
+    details.timing === undefined ? null : parseKernelScopeTiming(details.timing);
   if (verdict.passed !== true && verdict.passed !== false)
     throw new Error('Missing SDK candidate verdict');
   if (!verdict.passed)
@@ -171,6 +248,8 @@ export function adaptSdkResult(
       valid: false,
       conditions,
       assessment,
+      errorStats,
+      tolerance,
       diagnostics: [
         {
           code: 'KERNEL_CONTRACT_FAILED',
@@ -201,6 +280,9 @@ export function adaptSdkResult(
     candidateMs: number('candidateMs'),
     referenceMs: number('referenceMs'),
     speedup: number('speedup'),
+    timing,
+    errorStats,
+    tolerance,
     conditions: {
       ...conditions,
       mode: 'sdk',

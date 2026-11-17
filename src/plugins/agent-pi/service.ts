@@ -81,6 +81,62 @@ export const createAgentPi: OperationDefinition<
     throw new Error('agent.pi maxTokens must not exceed contextWindow');
   const thinkingLevel = config.thinkingLevel;
   return {
+    async canRetry(input, receipt, context) {
+      // Manager restores root projects from this snapshot before replay. Delegates
+      // share their parent's project and cannot independently roll back effects.
+      if (
+        input.role !== undefined ||
+        receipt.status !== 'failed' ||
+        typeof receipt.agentProjectArtifactRef !== 'string' ||
+        !/^artifact:[a-f0-9]{64}$/.test(receipt.agentProjectArtifactRef) ||
+        typeof receipt.error !== 'string' ||
+        !/^(400|401|403|404|422)\b/.test(receipt.error) ||
+        typeof receipt.startedAt !== 'string' ||
+        typeof receipt.finishedAt !== 'string'
+      )
+        return false;
+      const start = Date.parse(receipt.startedAt);
+      const finish = Date.parse(receipt.finishedAt);
+      if (!Number.isFinite(start) || !Number.isFinite(finish) || finish < start)
+        return false;
+      try {
+        const log = await readFile(
+          join(context.directory, 'diagnostics.jsonl'),
+          'utf8',
+        );
+        if (!log.endsWith('\n')) return false;
+        const events: JsonObject[] = [];
+        for (const line of log.trimEnd().split('\n')) {
+          const event = object(JSON.parse(line));
+          const at = typeof event.at === 'string' ? Date.parse(event.at) : NaN;
+          if (!Number.isFinite(at)) return false;
+          if (at >= start && at <= finish) events.push(event);
+        }
+        // Only a complete, empty HTTP rejection is known safe. Tool events,
+        // partial responses, compaction, retries and uncertain logs stay blocked.
+        if (
+          events.length !== 2 ||
+          events[0]?.type !== 'message_end' ||
+          events[1]?.type !== 'error'
+        )
+          return false;
+        const message = object(object(events[0].data).message);
+        const usage = object(message.usage);
+        return (
+          message.role === 'assistant' &&
+          message.stopReason === 'error' &&
+          message.errorMessage === receipt.error &&
+          Array.isArray(message.content) &&
+          message.content.length === 0 &&
+          ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'].every(
+            (key) => usage[key] === 0,
+          ) &&
+          object(events[1].data).message === receipt.error
+        );
+      } catch {
+        return false;
+      }
+    },
     async execute(request, context) {
       json(request);
       const {

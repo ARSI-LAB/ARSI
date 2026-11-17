@@ -98,6 +98,13 @@ Runtime restores locked definitions, budget usage, effective revisions, call rec
 
 - Resume does not reset counters or the experiment's start time; a configured elapsed-wall budget includes downtime.
 
+For `agent.pi`, a failed root call can resume after a permanent HTTP rejection
+(400, 401, 403, 404, or 422) only when its immutable project snapshot and complete
+attempt diagnostics prove that no model output or tools ran. Keep the receipts
+and `diagnostics.jsonl`: missing or incomplete evidence, delegated calls, partial
+output, tool activity, and uncertain outcomes remain blocked for inspection.
+The Manager restores the root project before replay and retains all budget usage.
+
 ## Dashboard
 
 ```sh

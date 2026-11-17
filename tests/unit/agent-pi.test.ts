@@ -200,6 +200,17 @@ async function modelFixture(
   return {
     requests,
     directory,
+    canRetry: (receipt: JsonObject, role?: string) =>
+      operation.canRetry?.(
+        {
+          cwd,
+          goal: 'Return the fixture result.',
+          outputSchema: { type: 'object' },
+          ...(role === undefined ? {} : { role }),
+        },
+        receipt,
+        context.extend(services),
+      ) ?? Promise.resolve(false),
     execute: (cwd: string, role?: string) =>
       operation.execute(
         {
@@ -264,6 +275,114 @@ async function modelFixture(
     },
   };
 }
+
+test('Pi can recover a snapshotted root call rejected before model output or tools', async () => {
+  const fixture = await modelFixture([
+    { status: 400 },
+    { content: '{"ok":true}' },
+  ]);
+  try {
+    const startedAt = new Date().toISOString();
+    let message = '';
+    await assert.rejects(fixture.run(), (error: Error) => {
+      message = error.message;
+      return /^400\b/.test(message);
+    });
+    const receipt = {
+      status: 'failed',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      error: message,
+      agentProjectArtifactRef: `artifact:${'a'.repeat(64)}`,
+    };
+    const diagnostics = join(fixture.directory, 'diagnostics.jsonl');
+    const currentLog = await fixture.log();
+    await writeFile(
+      diagnostics,
+      JSON.stringify({
+        at: '1999-01-01T00:00:00.000Z',
+        type: 'tool_execution_start',
+        data: {},
+      }) +
+        '\n' +
+        currentLog,
+    );
+    assert.equal(await fixture.canRetry(receipt), true);
+    assert.equal(
+      await fixture.canRetry({ ...receipt, status: 'unknown' }),
+      false,
+    );
+    assert.equal(
+      await fixture.canRetry({ ...receipt, status: 'cancelled' }),
+      false,
+    );
+    assert.equal(
+      await fixture.canRetry({ ...receipt, status: 'succeeded' }),
+      false,
+    );
+    assert.equal(
+      await fixture.canRetry({ ...receipt, agentProjectArtifactRef: null }),
+      false,
+    );
+    assert.equal(await fixture.canRetry(receipt, 'reader'), false);
+    assert.equal(
+      await fixture.canRetry({ ...receipt, error: '400 different receipt' }),
+      false,
+    );
+    assert.equal(
+      await fixture.canRetry({ ...receipt, startedAt: 'invalid' }),
+      false,
+    );
+    assert.equal(
+      await fixture.canRetry({
+        ...receipt,
+        finishedAt: '2000-01-01T00:00:00.000Z',
+        startedAt: '2001-01-01T00:00:00.000Z',
+      }),
+      false,
+    );
+    assert.deepEqual(await fixture.run(), { ok: true });
+    assert.equal(fixture.requests.length, 2);
+    assert.equal(fixture.charges.length, 2);
+    await writeFile(join(fixture.directory, 'diagnostics.jsonl'), '{truncated');
+    assert.equal(await fixture.canRetry(receipt), false);
+    await rm(join(fixture.directory, 'diagnostics.jsonl'));
+    assert.equal(await fixture.canRetry(receipt), false);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Pi recovery rejects tool activity, partial output and uncertain server errors', async () => {
+  const cases: Reply[][] = [
+    [{ read: true }, { status: 400 }],
+    [{ content: 'not JSON' }, { status: 400 }],
+    [{ status: 503 }],
+  ];
+  for (const replies of cases) {
+    const fixture = await modelFixture(replies, { retries: 0 });
+    try {
+      const startedAt = new Date().toISOString();
+      let message = '';
+      await assert.rejects(fixture.run(), (error: Error) => {
+        message = error.message;
+        return true;
+      });
+      assert.equal(
+        await fixture.canRetry({
+          status: 'failed',
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          error: message,
+          agentProjectArtifactRef: `artifact:${'a'.repeat(64)}`,
+        }),
+        false,
+      );
+    } finally {
+      await fixture.close();
+    }
+  }
+});
 
 test('Pi uses the workspace instructions, default tools, and on-demand skill contents', async () => {
   const fixture = await modelFixture([

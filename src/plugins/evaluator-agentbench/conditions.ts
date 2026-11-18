@@ -115,11 +115,23 @@ function environmentConditions(raw: JsonObject): JsonObject {
           return { name: r.name ?? null, version: r.version ?? null };
         })
       : [];
+    const baseImage = clone(env.baseImage ?? null);
+    if (
+      env.kind === 'docker' &&
+      baseImage !== null &&
+      typeof baseImage === 'object' &&
+      !Array.isArray(baseImage) &&
+      typeof baseImage.id === 'string' &&
+      /^sha256:[0-9a-f]{64}$/.test(baseImage.id)
+    ) {
+      // Prepared image tags can vary by candidate while the image stays the same.
+      delete baseImage.reference;
+    }
     result[phase] = {
       kind: env.kind ?? null,
       platform: env.platform ?? null,
       arch: env.arch ?? null,
-      baseImage: env.baseImage ?? null,
+      baseImage,
       runtimes,
       resources,
     };

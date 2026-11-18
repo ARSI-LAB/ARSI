@@ -599,7 +599,7 @@ test('native meanReward is unavailable for missing, nonfinite, or unsourced valu
     assert.deepEqual(metric.value, { kind: 'scalar', value });
   }
 });
-test('quality comparisons ignore CPU placement only for known capacity and preserve native provenance', async () => {
+test('quality comparisons ignore placement and image aliases when immutable identities are known', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-cpu-comparison-'));
   try {
     const { services, stored, measurements } = harness(directory);
@@ -608,7 +608,7 @@ test('quality comparisons ignore CPU placement only for known capacity and prese
       effective: JsonObject,
       requested: JsonObject = { cpus: 2, memory: '4096m' },
       baseImage: JsonObject = {
-        id: 'sha256:fixed',
+        id: `sha256:${'a'.repeat(64)}`,
         reference: 'fixture:fixed',
       },
     ): Promise<JsonObject> {
@@ -653,7 +653,7 @@ test('quality comparisons ignore CPU placement only for known capacity and prese
       assert.deepEqual(
         native.snapshot,
         snap,
-        'native provenance retains the actual CPU placement',
+        'native provenance retains CPU placement and the image reference',
       );
       assert.equal(result.status, 'succeeded');
       assert.equal(result.coverage, 'complete');
@@ -676,6 +676,18 @@ test('quality comparisons ignore CPU placement only for known capacity and prese
       moved.comparisonKey,
       'equal quality capacity remains comparable after CPU placement changes',
     );
+    const tagged = await evaluate('agentbench', resources, undefined, {
+      id: `sha256:${'a'.repeat(64)}`,
+      reference: 'fixture:retagged',
+    });
+    assert.equal(before.comparisonKey, tagged.comparisonKey);
+    const unknownImage = await evaluate('agentbench', resources, undefined, {
+      reference: 'fixture:fixed',
+    });
+    const unknownRetag = await evaluate('agentbench', resources, undefined, {
+      reference: 'fixture:retagged',
+    });
+    assert.notEqual(unknownImage.comparisonKey, unknownRetag.comparisonKey);
     for (const changed of [
       { ...resources, availableCpus: 1 },
       { ...resources, cpus: 1 },
@@ -695,7 +707,7 @@ test('quality comparisons ignore CPU placement only for known capacity and prese
       before.comparisonKey,
       (
         await evaluate('agentbench', resources, undefined, {
-          id: 'sha256:other',
+          id: `sha256:${'b'.repeat(64)}`,
           reference: 'fixture:fixed',
         })
       ).comparisonKey,

@@ -56,6 +56,8 @@ Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供�
 
 `selector.inference` 与 `selector.metric` 使用相同的 `contract.selector-metrics` 接口和配置字段。尚有约束未满足时，只要所有约束的违反程度都不增加，且至少一项减小，就可以接受候选。违反程度完全相同时，主指标必须改善并超过配置的门槛。已满足的约束必须保持满足；全部达标后，在保持达标的前提下优化主指标，不再退回未达标候选。标记 `prerequisite: true` 的约束始终是硬性要求，并在目标值比较前执行。只有完整、可比较且包含所需指标的测量才能用于选择。
 
+对于新的 `evaluator.agentbench` 质量评测，Docker 基础镜像在 ID 已知时按 ID 比较。同一镜像的不同标签不会阻止候选选择，原始引用仍保留在原生证据中。
+
 ## Application
 
 Application 根据初始内容创建候选版本，检查并提交修改，并为评测准备和释放运行实例。`application.agentbundle` 管理 Agent Bundle，`application.inference` 管理推理服务配置与实例，`application.kernel` 管理 Triton-Ascend 算子源码与评测工作目录。算子基线中由 `entryFile` 指定的入口文件需要提供可调用的 `kernel_function`，环境与配置见[算子优化示例](../../../examples/artifacts/kernel/transpose-copy/README.zh-CN.md)。

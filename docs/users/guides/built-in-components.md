@@ -56,7 +56,7 @@ Agent, Grid, and Optuna each evaluate the initial configuration once before sear
 
 `selector.inference` uses the same `contract.selector-metrics` interface and configuration fields as `selector.metric`. While constraints remain unmet, it accepts a candidate if no constraint violation increases and at least one decreases. Equal violations require improvement in the primary metric beyond the configured threshold. A satisfied constraint must remain satisfied; once all constraints are met, selection optimizes the primary metric without returning to an infeasible candidate. Constraints marked `prerequisite: true` remain hard requirements and run before the objective comparison. Only complete, comparable measurements with the required metrics can be selected.
 
-For new `evaluator.agentbench` quality measurements, Docker base images with a known image ID are compared by that ID. Different tags for the same image do not prevent selection. The original references remain in the native evidence.
+For `evaluator.agentbench` quality measurements, Docker base images with a verified SHA-256 image ID are compared by that ID. Selectors also accept older comparison keys when the saved conditions reproduce the original keys and differ only by references to the same image IDs. The original keys and native evidence are retained. A selection that failed at this comparison can resume from its failed call once the saved results pass the same check.
 
 ## Application
 

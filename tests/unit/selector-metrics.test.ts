@@ -17,6 +17,7 @@ import {
 import { digest, object } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 import { readDecisionFeedback } from '../../src/plugins/shared/metric-decision/index.js';
+import { conditionsSchema } from '../../src/plugins/shared/evaluator-adapter/schemas/index.js';
 
 async function selectionFixture() {
   const content = new Map<string, JsonValue>();
@@ -180,6 +181,121 @@ async function selectionFixture() {
 const correctness = {
   constraints: [{ metric: 'candidateValid', prerequisite: true, min: 1 }],
 };
+
+test('metric selection reuses valid AgentBench comparisons across Docker image aliases', async () => {
+  const fixture = await selectionFixture();
+  const imageId = `sha256:${'a'.repeat(64)}`;
+  async function record(
+    ref: string,
+    baseImage: JsonObject,
+    taskId = 'task-a',
+    comparisonKey?: string,
+  ): Promise<void> {
+    const fixed = {
+      config: null,
+      source: {
+        source: 'fixture',
+        revision: 'fixed',
+        files: [],
+        metadata: null,
+      },
+      identity: {
+        evaluator: { name: 'fixture', version: '1' },
+        runtime: { node: '24', platform: 'linux', arch: 'x64' },
+      },
+      solver: { harness: 'fixture' },
+      taskIds: [taskId],
+      serviceResources: null,
+      environments: [
+        {
+          solve: {
+            kind: 'docker',
+            platform: 'linux',
+            arch: 'amd64',
+            baseImage,
+            runtimes: [],
+            resources: null,
+          },
+        },
+      ],
+    };
+    fixture.measured(ref, ref === 'before' ? 10 : 8, 1, {
+      evaluator: {
+        pluginId: 'evaluator.agentbench',
+        implementationDigest: 'fixed',
+      },
+      comparisonKey: comparisonKey ?? digest(fixed),
+      conditions: typedArtifact(
+        'measurement.conditions/v1',
+        conditionsSchema,
+        await fixture.put({
+          protocol: 1,
+          kind: 'agentbench',
+          known: true,
+          reasons: [],
+          fixed,
+          candidateFactors: ['candidateRef'],
+        }),
+      ),
+    });
+  }
+  const input = {
+    incumbentMeasurementRef: 'before',
+    candidateMeasurementRef: 'after',
+  };
+  const context = fixture.services.extend({ callId: 'select' });
+  const selector = await metricSelectorDefinition.create(
+    { metric: 'latencyMs', direction: 'minimize', statistic: 'p50' },
+    context,
+  );
+  const receipt = {
+    input,
+    experimentId: 'experiment',
+    callId: 'select',
+    pluginId: 'selector.metric',
+    status: 'failed',
+    finishedAt: '2026-10-28T00:00:02.000Z',
+    measurementRef: null,
+    error: 'Measurements are not complete and comparable',
+  };
+  const retry = (prior: JsonObject) =>
+    selector.canRetry?.(input, prior, context);
+  try {
+    await record('before', { id: imageId, reference: 'fixture:before' });
+    const compatibleImages: JsonObject[] = [
+      { id: imageId, reference: 'fixture:after' },
+      { id: imageId },
+    ];
+    for (const image of compatibleImages) {
+      await record('after', image);
+      assert.equal((await selector.execute(input, context)).accepted, true);
+      assert.equal(await retry(receipt), true);
+    }
+    for (const prior of [
+      { ...receipt, status: 'unknown' },
+      { ...receipt, callId: 'other' },
+      { ...receipt, output: { decisionRef: 'recorded' } },
+      { ...receipt, input: { ...input, candidateMeasurementRef: 'other' } },
+      { ...receipt, error: 'Unconfirmed selector error' },
+    ])
+      assert.equal(await retry(prior), false);
+    for (const [image, taskId, key] of [
+      [{ id: `sha256:${'b'.repeat(64)}`, reference: 'fixture:after' }],
+      [{ reference: 'fixture:after' }],
+      [{ id: imageId }, 'other-task'],
+      [{ id: imageId }, 'task-a', 'unverified-key'],
+    ] as const) {
+      await record('after', image, taskId, key);
+      await assert.rejects(
+        selector.execute(input, context),
+        /not complete and comparable/,
+      );
+      assert.equal(await retry(receipt), false);
+    }
+  } finally {
+    await selector.dispose();
+  }
+});
 
 test('metric prerequisites reject assessed invalid candidates before requiring performance data', async () => {
   const fixture = await selectionFixture();

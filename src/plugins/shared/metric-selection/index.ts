@@ -10,8 +10,10 @@ import {
   measurementItemsSchema,
   metricDefinitionSchema,
   validateMeasurement,
+  type Measurement,
 } from '../../../contracts/models/measurement.js';
-import { json, object, string } from '../../../shared/json.js';
+import { digest, json, object, string } from '../../../shared/json.js';
+import { agentbenchImageAliasesMatch } from '../evaluator-adapter/agentbench-comparison.js';
 import { parseConfig, validate } from '../../../shared/schema.js';
 import {
   configSchema,
@@ -20,21 +22,65 @@ import {
   type ResolvedMetricSelectorConfig,
 } from './schema.js';
 import { metricSelectorContract } from '../../../contracts/plugin-types/index.js';
+const measurementComparisonError =
+  'Measurements are not complete and comparable';
+
+function hasComparisonKey(value: JsonObject): boolean {
+  return (
+    value.status === 'succeeded' &&
+    value.coverage === 'complete' &&
+    typeof value.comparisonKey === 'string' &&
+    value.comparisonKey.length > 0
+  );
+}
+
 function assertComparable(
   before: JsonObject,
   after: JsonObject,
   label: string,
+  aliasesMatch = false,
 ): void {
   if (
-    before.status !== 'succeeded' ||
-    after.status !== 'succeeded' ||
-    before.coverage !== 'complete' ||
-    after.coverage !== 'complete' ||
-    typeof before.comparisonKey !== 'string' ||
-    !before.comparisonKey ||
-    before.comparisonKey !== after.comparisonKey
+    !hasComparisonKey(before) ||
+    !hasComparisonKey(after) ||
+    (before.comparisonKey !== after.comparisonKey && !aliasesMatch)
   )
     throw new Error(`${label} are not complete and comparable`);
+}
+
+async function readMeasurements(
+  input: MetricSelectorInput,
+  context: RuntimeContext,
+): Promise<[Measurement, Measurement]> {
+  validate(metricSelectorContract.input_schema, input, 'metric selector input');
+  json(input);
+  const [before, after] = await Promise.all([
+    context.readMeasurement(input.incumbentMeasurementRef),
+    context.readMeasurement(input.candidateMeasurementRef),
+  ]);
+  validateMeasurement(before);
+  validateMeasurement(after);
+  if (
+    before.ref !== input.incumbentMeasurementRef ||
+    after.ref !== input.candidateMeasurementRef ||
+    before.experimentId !== context.experimentId ||
+    after.experimentId !== context.experimentId
+  )
+    throw new Error('Measurement identity or experiment ownership mismatch');
+  return [before, after];
+}
+
+async function comparableImageAliases(
+  context: RuntimeContext,
+  before: Measurement,
+  after: Measurement,
+): Promise<boolean> {
+  return (
+    hasComparisonKey(before) &&
+    hasComparisonKey(after) &&
+    before.comparisonKey !== after.comparisonKey &&
+    agentbenchImageAliasesMatch(context.artifacts, before, after)
+  );
 }
 async function scope(
   services: RuntimeContext,
@@ -182,31 +228,26 @@ export async function createMetricSelection(
       throw new Error(`Constraint ${c.metric} min exceeds max`);
   }
   return {
-    async execute(input, context: RuntimeContext) {
-      validate(
-        metricSelectorContract.input_schema,
-        input,
-        'metric selector input',
-      );
-      json(input);
-      const refs = [
-        string(input.incumbentMeasurementRef),
-        string(input.candidateMeasurementRef),
-      ];
-      const [before, after] = await Promise.all(
-        refs.map((ref) => context.readMeasurement(ref)),
-      );
-      validateMeasurement(before);
-      validateMeasurement(after);
+    async canRetry(input, receipt, context) {
+      // This error is raised before writing the selection decision.
       if (
-        before.ref !== refs[0] ||
-        after.ref !== refs[1] ||
-        before.experimentId !== context.experimentId ||
-        after.experimentId !== context.experimentId
+        receipt.status !== 'failed' ||
+        receipt.error !== measurementComparisonError ||
+        receipt.callId !== context.callId ||
+        receipt.experimentId !== context.experimentId ||
+        typeof receipt.finishedAt !== 'string' ||
+        receipt.output !== undefined ||
+        receipt.measurementRef != null ||
+        receipt.input === undefined ||
+        digest(receipt.input) !== digest(input)
       )
-        throw new Error(
-          'Measurement identity or experiment ownership mismatch',
-        );
+        return false;
+      const [before, after] = await readMeasurements(input, context);
+      return comparableImageAliases(context, before, after);
+    },
+    async execute(input, context: RuntimeContext) {
+      const [before, after] = await readMeasurements(input, context);
+      const refs = [before.ref, after.ref];
       if (
         rejectFailedCandidates &&
         after.status === 'failed' &&
@@ -256,6 +297,21 @@ export async function createMetricSelection(
         };
       }
       const hasPrerequisites = prerequisites.length > 0;
+      let aliasesMatch = false;
+      async function assertMeasurementsComparable(): Promise<void> {
+        aliasesMatch = await comparableImageAliases(context, before, after);
+        assertComparable(before, after, 'Measurements', aliasesMatch);
+      }
+      function assertPointsComparable(a: JsonObject, b: JsonObject): void {
+        assertComparable(
+          a,
+          b,
+          'Measurement points',
+          aliasesMatch &&
+            a.comparisonKey === before.comparisonKey &&
+            b.comparisonKey === after.comparisonKey,
+        );
+      }
       if (hasPrerequisites) {
         assertComparable(before, before, 'Incumbent measurements');
         if (
@@ -267,7 +323,7 @@ export async function createMetricSelection(
             'Metric prerequisites require completed, succeeded assessments',
           );
       } else {
-        assertComparable(before, after, 'Measurements');
+        await assertMeasurementsComparable();
       }
       const itemId = config.itemId;
       const [a, b] = await Promise.all([
@@ -282,7 +338,7 @@ export async function createMetricSelection(
               'Metric prerequisites require a succeeded point assessment',
             );
         } else {
-          assertComparable(a, b, 'Measurement points');
+          assertPointsComparable(a, b);
         }
         if (object(a.subject).kind !== object(b.subject).kind)
           throw new Error('Measurement point subject kinds differ');
@@ -314,9 +370,8 @@ export async function createMetricSelection(
       };
       if (eligible) {
         if (hasPrerequisites) {
-          assertComparable(before, after, 'Measurements');
-          if (itemId !== undefined)
-            assertComparable(a, b, 'Measurement points');
+          await assertMeasurementsComparable();
+          if (itemId !== undefined) assertPointsComparable(a, b);
         }
         objective = await comparableValues(services, a, b, metric, statistic);
       } else {

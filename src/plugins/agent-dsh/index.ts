@@ -3,6 +3,7 @@ import type {
   AgentInput,
   AgentOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { agentContract } from '../../contracts/plugin-types/index.js';
 import { configSchema, type AgentDshConfig } from './schema.js';
@@ -17,6 +18,9 @@ export const dshDefinition: OperationDefinition<
   description: 'Execute agent tasks through the native DSH CLI.',
   contract: agentContract,
   configSchema,
-  doctor: checkDshAgent,
   create: createAgentDsh,
 };
+
+export function dshEvents(events: OperationEvents<AgentDshConfig>): void {
+  events.on('rsi/doctor', checkDshAgent);
+}

@@ -2,6 +2,7 @@ import type {
   AgentInput,
   AgentOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { configSchema, type AgentPiConfig } from './schema.js';
 import { agentContract } from '../../contracts/plugin-types/index.js';
@@ -17,5 +18,8 @@ export const piDefinition: OperationDefinition<
   contract: agentContract,
   configSchema,
   create: createAgentPi,
-  doctor: checkPiAgent,
 };
+
+export function piEvents(events: OperationEvents<AgentPiConfig>): void {
+  events.on('rsi/doctor', checkPiAgent);
+}

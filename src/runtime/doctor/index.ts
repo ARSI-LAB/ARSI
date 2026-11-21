@@ -303,8 +303,10 @@ export async function doctorRecipe(
             checksNotRun: [],
           });
       }
-      const doctor = binding.definition.doctor;
-      if (options.staticOnly || !doctor) {
+      if (
+        options.staticOnly ||
+        !runtime.registry.handles(binding.pluginId, 'rsi/doctor')
+      ) {
         addCheck({
           id: 'plugin',
           status: 'unchecked',
@@ -323,7 +325,11 @@ export async function doctorRecipe(
         runtime: base.extend({ directory, bindingId: binding.name }),
       };
       try {
-        const result = await doctor(context);
+        const result = await runtime.registry.dispatch(
+          binding.pluginId,
+          'rsi/doctor',
+          context,
+        );
         signal.throwIfAborted();
         validate(doctorResultSchema, result, 'Doctor result');
         const ids = new Set(report.checks.map(({ id }) => id));

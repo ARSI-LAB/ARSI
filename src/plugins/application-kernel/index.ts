@@ -2,6 +2,7 @@ import type {
   ApplicationInput,
   ApplicationOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { applicationContract } from '../../contracts/plugin-types/index.js';
 import { configSchema, type KernelApplicationConfig } from './schema.js';
@@ -20,5 +21,10 @@ export const kernelApplicationDefinition: OperationDefinition<
   contract: applicationContract,
   configSchema,
   create: createApplicationKernel,
-  doctor: checkKernelApplication,
 };
+
+export function kernelApplicationEvents(
+  events: OperationEvents<KernelApplicationConfig>,
+): void {
+  events.on('rsi/doctor', checkKernelApplication);
+}

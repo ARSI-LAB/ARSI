@@ -2,6 +2,7 @@ import type {
   MetricSelectorInput,
   MetricSelectorOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { configSchema, type MetricSelectorConfig } from './schema.js';
 import { metricSelectorContract } from '../../contracts/plugin-types/index.js';
@@ -17,5 +18,10 @@ export const metricSelectorDefinition: OperationDefinition<
   contract: metricSelectorContract,
   configSchema,
   create: createMetricSelector,
-  doctor: checkOperationConfiguration,
 };
+
+export function metricSelectorEvents(
+  events: OperationEvents<MetricSelectorConfig>,
+): void {
+  events.on('rsi/doctor', checkOperationConfiguration);
+}

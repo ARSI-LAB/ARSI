@@ -69,7 +69,7 @@ export interface DoctorContext<C extends JsonObject = JsonObject> {
   readonly signal: AbortSignal;
 }
 
-/** Optional preflight capability; never invoked by registration or experiment execution. */
+/** An asynchronous handler for the registration-scoped `rsi/doctor` event. */
 export type OperationDoctor<C extends JsonObject = JsonObject> = (
   context: DoctorContext<C>,
 ) => Promise<DoctorResult>;

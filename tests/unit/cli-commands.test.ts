@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CommanderError } from 'commander';
+import type { FactStore } from '../../src/contracts/index.js';
 import { runCommand } from '../../src/entries/cli/commands.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
@@ -35,9 +36,9 @@ function launch(...args: string[]) {
   return result;
 }
 
-function commandFixture(t: TestContext) {
+function commandFixture(t: TestContext, facts?: FactStore) {
   const registry = new Registry();
-  const manager = new Manager({ registry, rootDirectory: home });
+  const manager = new Manager({ registry, rootDirectory: home, facts });
   const disposeRuntime = async (): Promise<void> => {
     await manager.dispose();
     await registry.dispose();
@@ -59,6 +60,37 @@ function commandFixture(t: TestContext) {
     },
   };
 }
+
+test('workspace cleanup uses the Manager to list experiments in a custom fact store', async (t) => {
+  const experiment = { id: 'saved', status: 'failed' };
+  const store = {
+    async read(kind: string, id: string) {
+      if (kind === 'experiments' && id === experiment.id) return experiment;
+      throw Object.assign(new Error('Missing fact'), { code: 'ENOENT' });
+    },
+    write: async () => assert.fail('No resources were recorded'),
+    list: async (kind: string) => (kind === 'experiments' ? [experiment] : []),
+    listIds: () => ['store-internal-key'],
+  };
+  const { manager, context } = commandFixture(t, store);
+  const list = t.mock.method(manager, 'list');
+  for (const dryRun of [true, false]) {
+    const args = dryRun ? ['cleanup'] : ['cleanup', '--all'];
+    const result = await runCommand(args, context);
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(JSON.parse(result.stdout ?? ''), {
+      dryRun,
+      experiments: [
+        {
+          experimentId: 'saved',
+          status: dryRun ? 'preview' : 'complete',
+          results: [],
+        },
+      ],
+    });
+  }
+  assert.equal(list.mock.callCount(), 2);
+});
 
 test('CLI forwards run options and repeatable global plugin directories', async (t) => {
   const { manager, openRuntime, context } = commandFixture(t);
@@ -110,6 +142,7 @@ test('CLI prints command-specific and nested help to stdout', () => {
     ['-h'],
     ['run', '-h'],
     ['doctor', '--help'],
+    ['cleanup', '--help'],
     ['reflection', '-h'],
     ['reflection', 'apply', '-h'],
     ['run', '--help'],
@@ -123,6 +156,11 @@ test('CLI prints command-specific and nested help to stdout', () => {
     if (args.length === 0) assert.match(result.stdout, /Run facts are saved/);
     if (args.includes('run')) assert.match(result.stdout, /--resume/);
     if (args.includes('doctor')) assert.match(result.stdout, /--static/);
+    if (args.includes('cleanup')) {
+      assert.match(result.stdout, /--dry-run/);
+      assert.match(result.stdout, /--all/);
+      assert.match(result.stdout, /previews the workspace/);
+    }
     if (args.includes('apply')) assert.match(result.stdout, /revisionID/);
   }
 });
@@ -130,6 +168,9 @@ test('CLI prints command-specific and nested help to stdout', () => {
 test('CLI reports invalid input and focused help to stderr before runtime initialization', () => {
   for (const [args, message, command = ''] of [
     [['run'], /missing required argument/, ' run'],
+    [['cleanup', 'id', '--all'], /cannot be combined/, ' cleanup'],
+    [['cleanup', '--all', 'id', '--dry-run'], /cannot be combined/, ' cleanup'],
+    [['cleanup', 'id', 'other'], /too many arguments/, ' cleanup'],
     [['run', 'r', '--resume'], /requires --id/, ' run'],
     [['run', 'r', '--id', 'run', '--retry'], /unknown option/, ' run'],
     [['show', 'id', 'extra'], /too many arguments/, ' show'],

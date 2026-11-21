@@ -4,6 +4,7 @@ import type {
   GymInput,
   GymOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { gymContract } from '../../contracts/plugin-types/index.js';
 import { gymDoctor } from './evaluate/doctor.js';
@@ -37,5 +38,8 @@ export const gymDefinition: OperationDefinition<
   contract: gymContract,
   configSchema: gymPluginConfigSchema,
   create: (config, context) => createGymOperation(config, context),
-  doctor,
 };
+
+export function gymEvents(events: OperationEvents<GymPluginConfig>): void {
+  events.on('rsi/doctor', doctor);
+}

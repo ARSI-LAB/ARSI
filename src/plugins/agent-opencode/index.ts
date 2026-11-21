@@ -3,6 +3,7 @@ import type {
   AgentInput,
   AgentOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { agentContract } from '../../contracts/plugin-types/index.js';
 import { configSchema, type AgentOpenCodeConfig } from './schema.js';
@@ -17,6 +18,11 @@ export const openCodeDefinition: OperationDefinition<
   description: 'Execute agent tasks through the OpenCode backend.',
   contract: agentContract,
   configSchema,
-  doctor: checkOpenCodeAgent,
   create: createAgentOpenCode,
 };
+
+export function openCodeEvents(
+  events: OperationEvents<AgentOpenCodeConfig>,
+): void {
+  events.on('rsi/doctor', checkOpenCodeAgent);
+}

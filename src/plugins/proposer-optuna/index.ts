@@ -1,5 +1,6 @@
 import type {
   OperationDefinition,
+  OperationEvents,
   IterativeProposerInput,
   IterativeProposerOutput,
 } from '../../contracts/index.js';
@@ -17,5 +18,10 @@ export const optunaProposerDefinition: OperationDefinition<
   contract: iterativeProposerContract,
   configSchema,
   create: createOptunaProposer,
-  doctor: checkOptunaDependencies,
 };
+
+export function optunaProposerEvents(
+  events: OperationEvents<OptunaConfig>,
+): void {
+  events.on('rsi/doctor', checkOptunaDependencies);
+}

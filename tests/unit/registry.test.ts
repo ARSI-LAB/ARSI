@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter, once } from 'node:events';
 import {
   defineContract,
   RuntimeContext,
   type OperationDefinition,
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
+import { FileFacts } from '../../src/runtime/storage/index.js';
 
 function definition(label: string): OperationDefinition {
   return {
@@ -72,31 +74,57 @@ test('managed creation rejects unknown and unregistered plugins', async (t) => {
   );
 });
 
-test('doctor is an optional function capability and registration never invokes it', async (t) => {
+test('doctor is registered as an event and runs only on dispatch', async (t) => {
   const registry = new Registry();
   t.after(() => registry.dispose());
-  const invalid = definition('invalid');
-  Object.defineProperty(invalid, 'doctor', { value: true });
+  const invalid = { ...definition('invalid'), doctor: () => ({ checks: [] }) };
   assert.throws(
     () => registry.registerOperation(invalid),
-    /doctor must be a function/,
+    /unknown field doctor/,
   );
   assert.deepEqual(registry.catalog().plugins, []);
   let calls = 0;
   const worker = definition('worker');
-  registry.registerOperation({
-    ...worker,
-    async doctor() {
+  registry.registerOperation(worker, (events) => {
+    events.on('rsi/doctor', ({ binding }) => {
       calls++;
+      assert.equal(binding.config.suffix, 'default');
       return { checks: [] };
-    },
+    });
   });
-  assert.equal(typeof registry.get(worker.id).doctor, 'function');
+  assert.ok(registry.handles(worker.id, 'rsi/doctor'));
+  assert.ok(!('doctor' in registry.get(worker.id)));
   const context = new RuntimeContext();
   const operation = await registry.get(worker.id).create({}, context);
   try {
     assert.equal(await operation.execute('input', context), 'worker:default');
     assert.equal(calls, 0);
+    const binding = {
+      name: 'worker',
+      pluginId: worker.id,
+      definition: worker,
+      config: {},
+    };
+    const probe = {
+      binding,
+      recipe: { application: binding, bindings: {}, policyConfig: {} },
+      registry,
+      runtime: context,
+      directory: '.',
+      signal: new AbortController().signal,
+    };
+    await assert.rejects(
+      registry.dispatch(worker.id, 'rsi/doctor', {
+        ...probe,
+        binding: { ...binding, config: { suffix: 42 } },
+      }),
+      /plugin doctor config.*suffix/,
+    );
+    assert.equal(calls, 0);
+    assert.deepEqual(await registry.dispatch(worker.id, 'rsi/doctor', probe), {
+      checks: [],
+    });
+    assert.equal(calls, 1);
   } finally {
     await operation.dispose();
   }
@@ -215,4 +243,69 @@ test('unregister and late Cordis teardown preserve a replacement registration', 
   }
   await registry.dispose();
   assert.deepEqual(registry.catalog(), { plugins: [], policies: [] });
+});
+
+test('registration events target the live fiber and retain it until its reply settles', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  const worker = definition('worker');
+  const barrier = new EventEmitter();
+  const entered = once(barrier, 'entered');
+  const finish = once(barrier, 'finish');
+  assert.throws(
+    () =>
+      registry.registerOperation(worker, (events) => {
+        events.on('rsi/cleanup', () =>
+          assert.fail('failed registration was dispatched'),
+        );
+        throw new Error('setup failed');
+      }),
+    /setup failed/,
+  );
+  const unload = registry.registerOperation(worker, (events) => {
+    events.on('rsi/cleanup', async () => {
+      barrier.emit('entered');
+      await finish;
+      return [{ key: 'original', status: 'preview' }];
+    });
+  });
+  registry.registerOperation({ ...worker, id: 'registry.peer' }, (events) => {
+    events.on('rsi/cleanup', () =>
+      assert.fail('unaddressed plugin received cleanup'),
+    );
+  });
+  const context = {
+    experimentId: 'test',
+    pluginId: worker.id,
+    bindingId: 'left',
+    dryRun: true,
+    dataDirectory: '.',
+    facts: new FileFacts('.'),
+    signal: new AbortController().signal,
+  };
+  const reply = registry.dispatch(worker.id, 'rsi/cleanup', context);
+  await Promise.race([
+    entered,
+    reply.then(() =>
+      assert.fail('dispatch completed before the handler started'),
+    ),
+  ]);
+  try {
+    assert.throws(unload, /in use/);
+  } finally {
+    barrier.emit('finish');
+  }
+  assert.deepEqual(await reply, [{ key: 'original', status: 'preview' }]);
+  unload();
+  await assert.rejects(
+    registry.dispatch(worker.id, 'rsi/cleanup', context),
+    /Unknown plugin/,
+  );
+  registry.registerOperation(worker, (events) =>
+    events.on('rsi/cleanup', () => []),
+  );
+  assert.deepEqual(
+    await registry.dispatch(worker.id, 'rsi/cleanup', context),
+    [],
+  );
 });

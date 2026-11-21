@@ -1,4 +1,7 @@
-import type { OperationDefinition } from '../../contracts/index.js';
+import type {
+  OperationDefinition,
+  OperationEvents,
+} from '../../contracts/index.js';
 import {
   gridProposerContract,
   type GridProposerInput,
@@ -18,5 +21,10 @@ export const gridProposerDefinition: OperationDefinition<
   contract: gridProposerContract,
   configSchema,
   create: createGridProposer,
-  doctor: checkOperationConfiguration,
 };
+
+export function gridProposerEvents(
+  events: OperationEvents<GridProposerConfig>,
+): void {
+  events.on('rsi/doctor', checkOperationConfiguration);
+}

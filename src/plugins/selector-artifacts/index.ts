@@ -2,6 +2,7 @@ import type {
   ArtifactSelectorInput,
   ArtifactSelectorOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { configSchema, type AgentEditingConfig } from './schema.js';
 import { artifactSelectorContract } from '../../contracts/plugin-types/index.js';
@@ -17,5 +18,10 @@ export const artifactSelectorDefinition: OperationDefinition<
   contract: artifactSelectorContract,
   configSchema,
   create: createArtifactSelector,
-  doctor: checkAgentEditor,
 };
+
+export function artifactSelectorEvents(
+  events: OperationEvents<AgentEditingConfig>,
+): void {
+  events.on('rsi/doctor', checkAgentEditor);
+}

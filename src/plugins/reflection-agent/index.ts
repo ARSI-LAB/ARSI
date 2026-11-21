@@ -1,5 +1,6 @@
 import type {
   OperationDefinition,
+  OperationEvents,
   ReflectionInput,
   ReflectionOutput,
 } from '../../contracts/index.js';
@@ -17,5 +18,10 @@ export const reflectionDefinition: OperationDefinition<
   contract: reflectionContract,
   configSchema,
   create: createReflectionAgent,
-  doctor: checkReflectionAgent,
 };
+
+export function reflectionEvents(
+  events: OperationEvents<AgentEditingConfig>,
+): void {
+  events.on('rsi/doctor', checkReflectionAgent);
+}

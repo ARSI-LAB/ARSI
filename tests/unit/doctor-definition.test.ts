@@ -50,22 +50,22 @@ export const customDefinition = {
   async create() { calls.create++; return {
     async execute(input) { calls.execute++; return {status:'no-change',candidateRef:input.parent,diffRef:null,rationale:'fixture'}; },
     async dispose() {}
-  }; },
-  async doctor(context) {
-    calls.doctor++;
-    if (this.id !== context.binding.pluginId) throw Error('Doctor lost its definition receiver');
-    const details = { pluginId: context.binding.pluginId, label: context.binding.config.label, input: context.binding.config.inputFile, directory: context.directory };
-    const check = await runDoctorCheck('content', async signal => {
-      await writeFile(join(context.directory, 'owned-marker'), 'owned');
-      const content = await readFile(context.binding.config.inputFile, { encoding: 'utf8', signal });
-      if (content !== 'ready') throw Error('Input must be ready: ' + process.env.DOCTOR_PUBLIC_FIXTURE_SECRET);
-    }, { signal: context.signal, details });
-    return { checks: [check] };
-  }
+  }; }
 };
 export function register(registry) {
-  registry.registerOperation(customDefinition);
-  registry.registerOperation({...customDefinition,id:'proposer.no-doctor',doctor:undefined});
+  registry.registerOperation(customDefinition, (events) => {
+    events.on('rsi/doctor', async (context) => {
+      calls.doctor++;
+      const details = { pluginId: context.binding.pluginId, label: context.binding.config.label, input: context.binding.config.inputFile, directory: context.directory };
+      const check = await runDoctorCheck('content', async signal => {
+        await writeFile(join(context.directory, 'owned-marker'), 'owned');
+        const content = await readFile(context.binding.config.inputFile, { encoding: 'utf8', signal });
+        if (content !== 'ready') throw Error('Input must be ready: ' + process.env.DOCTOR_PUBLIC_FIXTURE_SECRET);
+      }, { signal: context.signal, details });
+      return { checks: [check] };
+    });
+  });
+  registry.registerOperation({...customDefinition,id:'proposer.no-doctor'});
   registry.registerOperation({id:'application.custom',contract:applicationContract,configSchema:{type:'object'},async create(){throw Error('Doctor must not create an uncovered Application');}});
   registry.registerPolicy('policy.custom-doctor', ${JSON.stringify(join(root, 'policy.json'))});
 }

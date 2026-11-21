@@ -2,6 +2,7 @@ import type {
   ApplicationInput,
   ApplicationOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { configSchema, type InferenceConfig } from './schema.js';
 import { applicationContract } from '../../contracts/plugin-types/index.js';
@@ -18,5 +19,10 @@ export const inferenceDefinition: OperationDefinition<
   contract: applicationContract,
   configSchema,
   create: createApplicationInference,
-  doctor: checkInferenceApplication,
 };
+
+export function inferenceEvents(
+  events: OperationEvents<InferenceConfig>,
+): void {
+  events.on('rsi/doctor', checkInferenceApplication);
+}

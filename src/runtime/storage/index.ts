@@ -152,7 +152,8 @@ export class FileFacts implements FactStore {
     json(value);
     await atomic(this.path(kind, id), structuredClone(value));
   }
-  private async names(kind: string): Promise<string[]> {
+  /** Enumerate IDs from filenames even when individual records cannot be read. */
+  async listIds(kind: string): Promise<string[]> {
     const directory = join(this.directory, safeId(kind));
     let names: string[];
     try {
@@ -162,17 +163,17 @@ export class FileFacts implements FactStore {
         return [];
       throw error;
     }
-    return names.filter((n) => n.endsWith('.json')).sort();
+    return names
+      .filter((n) => n.endsWith('.json'))
+      .sort()
+      .map((n) => n.slice(0, -5));
   }
   async *scan(kind: string): AsyncGenerator<JsonObject> {
-    for (const name of await this.names(kind))
-      yield await this.read(kind, name.slice(0, -5));
+    for (const id of await this.listIds(kind)) yield await this.read(kind, id);
   }
   async list(kind: string): Promise<JsonObject[]> {
     return Promise.all(
-      (await this.names(kind)).map((name) =>
-        this.read(kind, name.slice(0, -5)),
-      ),
+      (await this.listIds(kind)).map((id) => this.read(kind, id)),
     );
   }
 }

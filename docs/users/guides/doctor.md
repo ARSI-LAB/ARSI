@@ -31,8 +31,8 @@ flowchart TD
     F -- No --> G["Record recipe.validate failure"]
     F -- Yes --> H["Prepare a temporary Runtime<br/>Visit the Application, bindings and Reflection"]
     H --> I["Check declared local paths"]
-    I --> J{"Full check with a<br/>declared doctor callback?"}
-    J -- Yes --> K["Run the doctor callback"]
+    I --> J{"Full check with a<br/>registered doctor handler?"}
+    J -- Yes --> K["Dispatch rsi/doctor to this binding"]
     K --> Q["Return DoctorResult or record a script failure"]
     J -- No --> L["Mark the plugin check unchecked"]
     Q --> M["Add binding metadata and collect results"]
@@ -50,7 +50,7 @@ flowchart TD
    - Probes use the configuration produced by merging Policy defaults and Recipe overrides.
    - A loading error produces a failed diagnostic and stops component probes.
 3. **Check declared local paths.** For the Application, each effective binding and the configured Reflection implementation, doctor checks local files and directories marked with `x-rsi-path` for existence, type and readability.
-4. **Run component checks.** By default, the framework calls `doctor` on each definition that declares it and collects its `DoctorResult`. Unavailable prerequisites can leave dependent checks `unchecked` while independent checks continue. `--static` skips all callbacks, including their model access, instance preparation and SDK probes. The report marks `<binding>.plugin` as `unchecked` when the flag skips a callback or the definition omits it, with a reason for each case.
+4. **Run component checks.** By default, the framework dispatches `rsi/doctor` to each effective binding with a registered handler and collects its `DoctorResult`. Unavailable prerequisites can leave dependent checks `unchecked` while independent checks continue. `--static` skips all callbacks, including their model access, instance preparation and SDK probes. The report marks `<binding>.plugin` as `unchecked` when the flag skips a callback or the plugin has no handler, with a reason for each case.
 5. **Clean up and report.** RSI checks use isolated temporary storage, propagate cancellation, release the instances and processes they create, and remove temporary files. Checks can read existing artifacts as inputs. RSI keeps its captures and writes in the temporary Runtime.
 
 ### Reading the JSON report
@@ -81,7 +81,7 @@ Review `unchecked` results even when the exit code is zero. A complete JSON repo
 
 ## 3. Checks for built-in components
 
-The following built-in implementations declare their own `doctor` callback. Doctor checks the components selected by the effective Recipe.
+The following built-in implementations provide a `rsi/doctor` handler. Doctor checks the components selected by the effective Recipe.
 
 ### Applications and Agents
 
@@ -126,18 +126,18 @@ All three Evaluators use their configuration adapters to call the installed Eval
 
 ## 4. Connecting custom components
 
-Define and register your component using the plugin guide. Add an optional `doctor` function to the component definition. The call to `registry.registerOperation(definition)` registers the diagnostic capability along with the component. See [Write a plugin](writing-plugins.md).
+Subscribe to `rsi/doctor` when registering the component. See [Write a plugin](writing-plugins.md).
 
-### Write and declare the diagnostic function
+### Write the diagnostic handler
 
 Import `OperationDoctor<C>`, `DoctorContext<C>` and `DoctorResult` from `arsi/contracts` or `arsi`.
 
-- Component registration and Recipe loading retain the callback for the `doctor` command to invoke.
-- When a component omits `doctor`, the framework still runs the common checks and marks the component-specific `plugin` check as `unchecked`.
+- The registration owns the handler. The `doctor` command supplies each binding’s effective configuration.
+- When a component has no `rsi/doctor` subscription, the framework still runs the common checks and marks the component-specific `plugin` check as `unchecked`.
 
 | Type                 | Purpose                                                                                                                                                                                                                                                     |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OperationDoctor<C>` | The type of the component's `doctor` function. The function receives `DoctorContext<C>` and returns `Promise<DoctorResult>`.                                                                                                                                |
+| `OperationDoctor<C>` | An asynchronous `rsi/doctor` handler that receives `DoctorContext<C>` and returns `Promise<DoctorResult>`.                                                                                                                                |
 | `DoctorContext<C>`   | The argument provided by the framework. Use `context.binding.config` for the effective configuration, `context.signal` for cancellation and `context.directory` for temporary files.                                                                        |
 | `DoctorResult`       | The component's results. Each entry in `checks` gives an ID, status and optional explanation. The result can include `missingResources` for missing inputs. The framework prefixes IDs with the binding name and combines the results into the JSON report. |
 
@@ -170,24 +170,20 @@ export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
 
 - In the example above, `runDoctorCheck` is an optional helper that sets a deadline for one probe and returns a check result.
 
-Add the diagnostic function to the component definition in its `index.ts` or `index.js`.
+Register the diagnostic function in the extension entry point.
 
 ```js
-import { proposerContract } from 'arsi/contracts';
-import { configSchema } from './schema.js';
-import { createCustom } from './service.js';
+import { customDefinition } from './plugin.js';
 import { checkCustom } from './doctor.js';
 
-export const customDefinition = {
-  id: 'proposer.custom',
-  contract: proposerContract,
-  configSchema,
-  create: createCustom,
-  doctor: checkCustom, // Optional
-};
+export function register(registry) {
+  registry.registerOperation(customDefinition, (events) => {
+    events.on('rsi/doctor', checkCustom);
+  });
+}
 ```
 
-Build the extension, call `registry.registerOperation(customDefinition)` from its `index.mjs`, then load the extension with the CLI.
+Build the extension and load its `index.mjs` with the CLI.
 
 ```sh
 arsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension

@@ -1,5 +1,6 @@
 import type {
   OperationDefinition,
+  OperationEvents,
   OperatorProposerInput,
   OperatorProposerOutput,
 } from '../../contracts/index.js';
@@ -17,5 +18,10 @@ export const operatorProposerDefinition: OperationDefinition<
   contract: operatorProposerContract,
   configSchema,
   create: createOperatorProposer,
-  doctor: checkOperatorProposer,
 };
+
+export function operatorProposerEvents(
+  events: OperationEvents<OperatorProposerConfig>,
+): void {
+  events.on('rsi/doctor', checkOperatorProposer);
+}

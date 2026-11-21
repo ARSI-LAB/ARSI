@@ -16,6 +16,10 @@ import { inside } from '../storage/index.js';
 
 export const definitionLockVersion = 'rsi.definition-lock/v2';
 
+export function definitionArchiveId(id: string, locked: JsonObject): string {
+  return digest({ id, definition: locked.digest });
+}
+
 /** Validate persisted Reflection data without consulting mutable source files. */
 export function parseLockedReflection(value: JsonValue): ReflectionConfig {
   const data = object(value, 'locked Reflection');
@@ -308,6 +312,10 @@ export function assertDefinitionLock(locked: JsonObject): void {
     throw new Error(
       'This experiment predates resumable Policy checkpoints. Start a new experiment.',
     );
+  assertDefinitionDigest(locked);
+}
+
+export function assertDefinitionDigest(locked: JsonObject): void {
   const { digest: expected, ...content } = locked;
   if (expected !== digest(content))
     throw new Error('Experiment definition lock digest mismatch');

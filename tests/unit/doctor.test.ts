@@ -37,8 +37,8 @@ async function fixture(): Promise<{
   const registry = new Registry();
   const registrations = new Map<string, () => void>();
   const register = registry.registerOperation.bind(registry);
-  registry.registerOperation = (definition) => {
-    const dispose = register(definition);
+  registry.registerOperation = (definition, subscribe) => {
+    const dispose = register(definition, subscribe);
     registrations.set(definition.id, dispose);
     return dispose;
   };
@@ -106,7 +106,9 @@ async function fixture(): Promise<{
       for (const [id, doctor] of Object.entries(overrides)) {
         const definition = registry.get(id);
         registrations.get(id)!();
-        registry.registerOperation({ ...definition, doctor });
+        registry.registerOperation(definition, (events) =>
+          events.on('rsi/doctor', doctor),
+        );
       }
     },
     async dispose() {
@@ -139,9 +141,7 @@ test('built-ins retain doctor coverage with the operator summarizer unchecked', 
   try {
     const plugins = runtime.registry.catalog().plugins;
     assert.deepEqual(
-      plugins.filter(
-        (id) => typeof runtime.registry.get(id).doctor !== 'function',
-      ),
+      plugins.filter((id) => !runtime.registry.handles(id, 'rsi/doctor')),
       ['summarizer.operator'],
     );
   } finally {

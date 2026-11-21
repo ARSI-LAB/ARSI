@@ -1,8 +1,6 @@
 import { agentProcessLauncher } from '../services/agent-execution/process.js';
 import { errorText } from '../../shared/errors.js';
-import { mkdir } from 'node:fs/promises';
-import { lock as acquireProcessLock } from 'proper-lockfile';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type {
   ArtifactStore,
@@ -17,7 +15,7 @@ import { RuntimeContext } from '../../contracts/runtime/context.js';
 import { object, string, digest } from '../../shared/json.js';
 import { createCallExecutor, type CallExecutor } from './calls.js';
 import { Instances } from './instances.js';
-import { executionLockPath, executionLockTiming } from './execution-lock.js';
+import { acquireExecutionLock } from './execution-lock.js';
 import { ManagedEvents } from '../services/events.js';
 import {
   FileArtifacts,
@@ -30,6 +28,7 @@ import { Recipe } from '../loaders/recipe.js';
 import { Policy } from '../policy/index.js';
 import {
   assertDefinitionLock,
+  definitionArchiveId,
   lockDefinition,
   parseLockedReflection,
   readResourceOrigins,
@@ -42,6 +41,7 @@ import {
   CleanupLifecycle,
   archiveUnresolvedCleanup,
   assertCleanupResolved,
+  cleanAfterSuccess,
   reconcilePersistedCleanup,
 } from './cleanup.js';
 import { RevisionActivation } from './activation.js';
@@ -189,15 +189,12 @@ export class Manager {
         recipe = await Recipe.load(recipePath, this.options.registry);
         id = safeId(options.id ?? `${recipe.id}-${randomUUID().slice(0, 8)}`);
       }
-      const lock = executionLockPath(this.directory, id);
-      await mkdir(dirname(lock), { recursive: true });
-      gate.assertOwned();
-      releaseLock = await acquireProcessLock(lock, {
-        realpath: false,
-        ...executionLockTiming,
-        retries: 0,
-        onCompromised: (error) => controller.abort(error),
-      });
+      releaseLock = await acquireExecutionLock(
+        this.directory,
+        id,
+        gate,
+        controller,
+      );
     } finally {
       await gate.release();
     }
@@ -210,17 +207,34 @@ export class Manager {
     let restore: JsonObject | undefined;
     const checkpoints = new PolicyCheckpoints(this.facts, id);
     const resources = join(this.directory, 'experiments', id, 'resources');
+    const cleanupResources = (signal: AbortSignal) =>
+      cleanAfterSuccess(
+        this.options.registry,
+        {
+          experimentId: id,
+          dataDirectory: this.directory,
+          facts: this.facts,
+          signal,
+        },
+        controller.signal,
+      );
     try {
       if (continuing) {
         resumedRecord = readExperimentRecord(await this.get(id));
+        if (resumedRecord.id !== id)
+          throw new Error('Experiment identity mismatch');
         const locked = await this.facts.read('definitions', id);
         assertDefinitionLock(locked);
         if (resumedRecord.status === 'succeeded') {
           await assertCleanupResolved(this.facts, id);
+          const signal = options.signal
+            ? AbortSignal.any([controller.signal, options.signal])
+            : controller.signal;
+          signal.throwIfAborted();
+          await cleanupResources(signal);
           await releaseLock();
           return resumedRecord;
         }
-
         const readPolicy = (source = locked) =>
           new Policy(source.policy, {
             sourcePath: string(source.policySourcePath),
@@ -259,7 +273,7 @@ export class Manager {
             );
         }
         retryRef = 'retry-' + randomUUID();
-        const archiveId = digest({ id, definition: locked.digest });
+        const archiveId = definitionArchiveId(id, locked);
         definition = await lockDefinition(
           recipe,
           this.options.registry,
@@ -987,6 +1001,9 @@ export class Manager {
         finalNotification,
         () => Promise.allSettled([...diagnostics]),
         terminal !== 'succeeded',
+        terminal === 'succeeded'
+          ? () => cleanupResources(cleanup.signal)
+          : undefined,
       );
       void cleanupJob.then(
         () => {

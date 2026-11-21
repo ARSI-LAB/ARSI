@@ -22,7 +22,6 @@ import {Evaluator} from 'arsi-evaluator';
 import {RuntimeContext} from './dist/src/contracts/index.js';
 import {FileArtifacts} from './dist/src/runtime/storage/index.js';
 import {createAgentbench} from './dist/src/plugins/evaluator-agentbench/service.js';
-import {sdkDoctor} from './dist/src/plugins/shared/evaluator-adapter/doctor-sdk.js';
 if(${JSON.stringify(isolated)}){
  const installed=await realpath(${JSON.stringify(packageDirectory)});
  for(const name of ['agent-bundle-core','arsi-evaluator']){
@@ -36,13 +35,15 @@ assert.equal(verified.manifest.kind,'dsh-agent-bundle');
 const root=await mkdtemp(join(tmpdir(),'rsi-sdk-consumer-'));
 process.env.EVALUATOR_RUN_INDEX_DIR=join(root,'run-index');
 try {
+ const evaluator = new Evaluator();
  process.env.EVALUATOR_NETWORK_CONFIG=join(root,'network.yaml');
  await writeFile(process.env.EVALUATOR_NETWORK_CONFIG,'{}\\n');
  const invalidDoctorConfig=join(root,'invalid-doctor.json');
  await writeFile(invalidDoctorConfig,'{}');
- await assert.rejects(sdkDoctor({configPath:invalidDoctorConfig,
+ await assert.rejects(evaluator.doctor({configPath:invalidDoctorConfig,
   networkConfigPath:process.env.EVALUATOR_NETWORK_CONFIG,
-  env:process.env,signal:new AbortController().signal}),/SDK doctor could not complete/);
+  env:process.env,signal:new AbortController().signal}),/benchmark|services/i);
+ await assert.rejects(evaluator.cleanup({configPath:invalidDoctorConfig}),/benchmark|services/i);
  const plugin=\`
 import {appendFileSync} from 'node:fs';
 import {createBundleSdk} from \${JSON.stringify(import.meta.resolve('agent-bundle-core'))};
@@ -74,18 +75,19 @@ export function apply(ctx){
   benchmark:{name:'bundle-smoke',config:{digest:verified.digest},solver:{name:'bundle-smoke',config:{path:bundle}}},
   environment:'local',run:{onError:'abort',timeoutSeconds:30},output:{directory:join(root,'results')}
  }));
- const sdk=new Evaluator(),options={configPath,patchPath,env:{...process.env,RSI_SDK_TEST_KEY:'fixture-only'}};
- const result=await sdk.run(options);
+ const options={configPath,patchPath,env:{...process.env,RSI_SDK_TEST_KEY:'fixture-only'}};
+ const result=await evaluator.run(options);
  assert.equal(result.kind,'local');assert.equal(result.exitCode,0);
  assert.equal(result.snapshot.run.status,'completed');
  assert.equal(result.snapshot.records.length,1);
  assert.equal(result.snapshot.records[0].verdict.passed,true);
  assert.equal(result.snapshot.records[0].cleanupStatus,'cleaned');
  assert.ok((await readFile(result.reportPath,'utf8')).length);
- const resumed=await sdk.run({...options,resume:true});
+ const resumed=await evaluator.run({...options,resume:true});
  assert.equal(resumed.runId,result.runId);assert.equal(resumed.exitCode,0);
  assert.equal(await readFile(join(root,'executions'),'utf8'),'run,');
  assert.equal(await readFile(join(root,'disposed'),'utf8'),'done,done,');
+ assert.equal(await evaluator.report(result.runDirectory),result.reportPath);
  const artifacts=new FileArtifacts(join(root,'rsi-artifacts'));
  let measurement,charges=0;
  const context=new RuntimeContext().extend({

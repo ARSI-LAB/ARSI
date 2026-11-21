@@ -14,8 +14,7 @@ import type { JsonObject, JsonValue } from '../../src/contracts/index.js';
 import { createRuntime, type Runtime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { doctorRecipe } from '../../src/runtime/doctor/index.js';
-import { Registry } from '../../src/runtime/registry/index.js';
-import { createAgentbenchDoctor } from '../../src/plugins/evaluator-agentbench/doctor.js';
+import { Evaluator } from 'arsi-evaluator';
 import type {
   SdkDoctorOptions,
   SdkDoctorRunner,
@@ -72,23 +71,12 @@ async function fixture(
   );
   Object.assign(process.env, variables);
   let selectedRunner: SdkDoctorRunner;
-  const registry = new Registry();
-  const register = registry.registerOperation.bind(registry);
-  registry.registerOperation = (definition) =>
-    register(
-      definition.id === 'evaluator.agentbench'
-        ? {
-            ...definition,
-            doctor: createAgentbenchDoctor((options) =>
-              selectedRunner(options),
-            ),
-          }
-        : definition,
-    );
+  t.mock.method(Evaluator.prototype, 'doctor', (options: SdkDoctorOptions) =>
+    selectedRunner(options),
+  );
   const runtime = await createRuntime({
     homeDirectory: false,
     rootDirectory: root,
-    registry,
   });
   t.after(async () => {
     await runtime.dispose();

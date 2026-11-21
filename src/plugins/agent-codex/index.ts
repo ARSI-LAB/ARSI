@@ -2,6 +2,7 @@ import type {
   AgentInput,
   AgentOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { agentContract } from '../../contracts/plugin-types/index.js';
 import { configSchema, type AgentCodexConfig } from './schema.js';
@@ -18,5 +19,8 @@ export const codexDefinition: OperationDefinition<
   contract: agentContract,
   configSchema,
   create: createAgentCodex,
-  doctor: checkCodexAgent,
 };
+
+export function codexEvents(events: OperationEvents<AgentCodexConfig>): void {
+  events.on('rsi/doctor', checkCodexAgent);
+}

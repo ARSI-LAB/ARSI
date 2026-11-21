@@ -84,6 +84,24 @@ export async function runCommand(
     .command('cancel <experiment-id>')
     .description('Cancel an experiment')
     .action(cancelExperiment);
+  program
+    .command('cleanup [experiment-id]')
+    .description(
+      'Clean up a saved experiment or preview all experiments in this workspace',
+    )
+    .option(
+      '--all',
+      'Clean up all experiments in this workspace, skipping any in use',
+    )
+    .option(
+      '--dry-run',
+      'Preview eligible resources and reasons for retaining others',
+    )
+    .addHelpText(
+      'after',
+      '\nWith no ID or flags, cleanup previews the workspace. Checkpoints, results and logs are kept for --resume. Required images may be pulled or built again.',
+    )
+    .action(cleanup);
   const reflection = program
     .command('reflection')
     .description('Inspect and apply reflection revisions');
@@ -162,6 +180,33 @@ export async function runCommand(
       await manager.cancel(id);
       return { id, cancellationRequested: true };
     });
+  }
+
+  async function cleanup(
+    id: string | undefined,
+    { dryRun = false, all = false }: { dryRun?: boolean; all?: boolean },
+    cmd: Command,
+  ): Promise<void> {
+    if (id !== undefined && all)
+      cmd.error('--all cannot be combined with an experiment ID');
+    const { manager } = await openRuntime();
+    const { cleanupExperiment, cleanupWorkspace } = await import(
+      './cleanup.js'
+    );
+    const report =
+      id === undefined
+        ? await cleanupWorkspace(manager, dryRun || !all, context.signal)
+        : await cleanupExperiment(manager, id, dryRun, context.signal);
+    const incomplete =
+      'experiments' in report
+        ? report.experiments.some(
+            ({ status }) => status === 'pending' || status === 'failed',
+          )
+        : report.results.some(({ status }) => status === 'pending');
+    result = {
+      exitCode: context.signal.aborted ? 130 : incomplete ? 1 : 0,
+      json: report,
+    };
   }
 
   function forRevision(

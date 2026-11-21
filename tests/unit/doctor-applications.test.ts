@@ -118,7 +118,7 @@ async function fixture(t: TestContext) {
       directory: root,
       signal: controller.signal,
     };
-    return context.binding.definition.doctor!(context);
+    return registry.dispatch(pluginId, 'rsi/doctor', context);
   };
   return { root, baseline, config, runtime, controller, run };
 }

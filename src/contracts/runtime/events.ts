@@ -1,6 +1,9 @@
 import type { Context, Events } from '@deepseek-ai/cordis';
+import type { DoctorContext, DoctorResult } from '../doctor.js';
+import type { JsonObject } from '../json.js';
 import type { AgentObservation } from '../models/agent-record.js';
 import type { RuntimeContext } from './context.js';
+import type { FactStore } from './services.js';
 
 /** Native Cordis publishing, including explicit dispatch `this` and filtering. */
 export type EventPublisher = Pick<
@@ -17,7 +20,7 @@ type EventHandler<Name extends keyof Events> = {
 }[Name];
 
 export interface EventPipeline extends EventPublisher {
-  on<Name extends keyof Events>(
+  on<Name extends Exclude<keyof Events, keyof OperationEventMap>>(
     name: Name,
     handler: EventHandler<NoInfer<Name>>,
   ): () => boolean;
@@ -101,7 +104,7 @@ export interface RevisionActivatedEvent {
 }
 
 declare module '@deepseek-ai/cordis' {
-  interface Events {
+  interface Events extends OperationEventMap {
     /** Optional call-local telemetry consumed by the Agent execution owner. */
     'rsi/agent-observation'(observation: AgentObservation): void;
     /** @mode serial Prepare before initialization; an error prevents execution. */
@@ -146,4 +149,40 @@ declare module '@deepseek-ai/cordis' {
     /** @mode emit Notify committed activation; errors do not roll it back. */
     'rsi/revision-activated'(event: RevisionActivatedEvent): void;
   }
+}
+
+// Events subscribed to at plugin registration
+
+/** The framework awaits one reply from the handler for each addressed binding. */
+export interface OperationEventMap<C extends JsonObject = JsonObject> {
+  'rsi/doctor'(context: DoctorContext<C>): DoctorResult | Promise<DoctorResult>;
+  'rsi/cleanup'(
+    context: CleanupContext,
+  ): CleanupResult[] | Promise<CleanupResult[]>;
+}
+
+export interface OperationEvents<C extends JsonObject = JsonObject> {
+  on<K extends keyof OperationEventMap>(
+    name: K,
+    handler: OperationEventMap<C>[K],
+  ): void;
+}
+
+/** A binding from a saved Recipe. Its plugin instance may never have started. */
+export interface CleanupContext {
+  readonly experimentId: string;
+  readonly bindingId: string;
+  readonly pluginId: string;
+  readonly dryRun: boolean;
+  readonly dataDirectory: string;
+  readonly facts: FactStore;
+  readonly signal: AbortSignal;
+}
+
+/** Return one result per resource or receipt, and an empty array when none remain. */
+export interface CleanupResult {
+  key: string;
+  status: 'complete' | 'preview' | 'pending';
+  report?: JsonObject;
+  error?: string;
 }

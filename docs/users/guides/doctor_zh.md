@@ -31,8 +31,8 @@ flowchart TD
     F -- 否 --> G["记录 recipe.validate 失败"]
     F -- 是 --> H["准备隔离临时 Runtime<br/>遍历 Application、绑定和 Reflection"]
     H --> I["检查当前组件声明的本地路径"]
-    I --> J{"执行完整检查且组件<br/>声明了 doctor 回调？"}
-    J -- 是 --> K["执行 doctor 回调"]
+    I --> J{"执行完整检查且组件<br/>注册了 doctor 处理器？"}
+    J -- 是 --> K["向当前绑定派发 rsi/doctor"]
     K --> Q["返回 DoctorResult 或记录脚本失败"]
     J -- 否 --> L["将该组件的 plugin 检查<br/>记为 unchecked"]
     Q --> M["补充绑定信息并汇集结果"]
@@ -50,7 +50,7 @@ flowchart TD
    - 探测使用合并 Policy 默认配置与 Recipe 覆盖后的配置。
    - 加载失败时输出失败诊断，不再执行组件探测。
 3. **检查已声明的本地路径。** 对 Application、每个生效绑定及已配置的 Reflection 实现，检查 Schema 中用 `x-rsi-path` 标记的本地文件或目录是否存在、类型是否正确、是否可读。
-4. **执行组件检查。** 默认情况下，框架调用组件定义上声明的 `doctor` 函数并收集它返回的 `DoctorResult`。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。`--static` 跳过所有回调，省去回调中的模型访问、实例准备和 SDK 探测。使用该选项或组件省略回调时，报告将 `<binding>.plugin` 记为 `unchecked` 并说明原因。
+4. **执行组件检查。** 默认情况下，框架向注册了 `rsi/doctor` 处理器的每个生效绑定派发事件，并收集返回的 `DoctorResult`。前提不可用时，依赖检查可记为 `unchecked`，独立检查继续运行。`--static` 跳过所有回调，省去回调中的模型访问、实例准备和 SDK 探测。使用该选项或组件省略回调时，报告将 `<binding>.plugin` 记为 `unchecked` 并说明原因。
 5. **清理并输出。** RSI 检查使用隔离临时存储，传递取消信号，释放自己创建的实例与进程，并删除临时文件。原有 artifacts 可作为输入读取，RSI 产生的捕获与写入留在临时 Runtime 内。
 
 ### 运行结果
@@ -81,7 +81,7 @@ flowchart TD
 
 ## 3. doctor 针对内置组件都检查什么
 
-以下内置实现都在自己的定义上声明 `doctor`。doctor 检查生效 Recipe 中选中的组件。
+以下内置实现都提供 `rsi/doctor` 处理器。doctor 检查生效 Recipe 中选中的组件。
 
 ### Application 与 Agent
 
@@ -126,18 +126,18 @@ flowchart TD
 
 ## 4. 自定义组件如何接入 doctor
 
-按[编写插件](writing-plugins_zh.md)定义并注册组件。在组件定义上添加可选的 `doctor` 函数，检测能力会随 `registry.registerOperation(definition)` 一起注册。
+在注册组件时订阅 `rsi/doctor`。参见[编写插件](writing-plugins_zh.md)。
 
-### 编写并声明检测函数
+### 编写诊断事件处理器
 
 从 `arsi/contracts` 或 `arsi` 导入 `OperationDoctor<C>`、`DoctorContext<C>` 和 `DoctorResult`。
 
-- 组件注册和 Recipe 加载负责保留回调，`doctor` 命令才会调用它。
-- 省略 `doctor` 时，框架仍执行通用检查，并将组件专用的 `plugin` 项标为 `unchecked`。
+- 处理器随插件注册生效。`doctor` 命令为每个绑定传入其生效配置。
+- 组件未订阅 `rsi/doctor` 时，框架仍执行通用检查，并将组件专用的 `plugin` 项标为 `unchecked`。
 
 | 类型                 | 用途                                                                                                                                                            |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OperationDoctor<C>` | 给组件的 `doctor` 函数标注类型。它规定函数接收 `DoctorContext<C>`，并异步返回 `DoctorResult`。                                                                  |
+| `OperationDoctor<C>` | `rsi/doctor` 异步处理器的类型，接收 `DoctorContext<C>` 并返回 `Promise<DoctorResult>`。                                                                  |
 | `DoctorContext<C>`   | 框架传给回调的参数。常用的是 `context.binding.config` 读取生效配置，`context.signal` 响应取消，`context.directory` 存放临时文件。                               |
 | `DoctorResult`       | 组件返回的检查结果。`checks` 里写每项的 ID、状态和可选说明，有缺失资源时可附上 `missingResources`。框架负责加绑定名前缀，并把各组件的结果汇总成最终 JSON 报告。 |
 
@@ -170,24 +170,20 @@ export const checkCustom: OperationDoctor<CustomConfig> = async (context) => {
 
 - 上面示例的`runDoctorCheck` 是可选工具，为单项探测设置时限并返回检查结果。
 
-在组件的 `index.ts` 或 `index.js` 中，将检测函数加入组件定义。
+在扩展入口注册检测函数。
 
 ```js
-import { proposerContract } from 'arsi/contracts';
-import { configSchema } from './schema.js';
-import { createCustom } from './service.js';
+import { customDefinition } from './plugin.js';
 import { checkCustom } from './doctor.js';
 
-export const customDefinition = {
-  id: 'proposer.custom',
-  contract: proposerContract,
-  configSchema,
-  create: createCustom,
-  doctor: checkCustom, // 可选
-};
+export function register(registry) {
+  registry.registerOperation(customDefinition, (events) => {
+    events.on('rsi/doctor', checkCustom);
+  });
+}
 ```
 
-构建扩展，在扩展的 `index.mjs` 中调用 `registry.registerOperation(customDefinition)`，再通过 CLI 加载扩展。
+构建扩展后，通过 CLI 加载它的 `index.mjs`。
 
 ```sh
 arsi doctor my-experiment/recipe.yaml --plugin-dir ./my-extension

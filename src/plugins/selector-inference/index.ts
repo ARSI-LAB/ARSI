@@ -2,6 +2,7 @@ import type {
   MetricSelectorInput,
   MetricSelectorOutput,
   OperationDefinition,
+  OperationEvents,
 } from '../../contracts/index.js';
 import { metricSelectorContract } from '../../contracts/plugin-types/index.js';
 import { checkOperationConfiguration } from '../shared/doctor/checks.js';
@@ -19,5 +20,10 @@ export const inferenceSelectorDefinition: OperationDefinition<
   contract: metricSelectorContract,
   configSchema,
   create: createInferenceSelector,
-  doctor: checkOperationConfiguration,
 };
+
+export function inferenceSelectorEvents(
+  events: OperationEvents<MetricSelectorConfig>,
+): void {
+  events.on('rsi/doctor', checkOperationConfiguration);
+}

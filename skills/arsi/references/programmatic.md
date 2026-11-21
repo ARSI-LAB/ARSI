@@ -34,7 +34,7 @@ Read the selected candidate fact by its returned candidateRef, retain its paired
 
 ## Validation and error boundaries
 
-`Recipe.load(path, runtime.registry)` checks Recipe/Policy configuration, registrations, contracts and declared Reflection resources, returning the assembled definition without creating plugin instances. Doctor uses this same loading path and invokes the optional diagnostic capabilities carried by component definitions; use its CLI report for preflight findings.
+`Recipe.load(path, runtime.registry)` checks Recipe/Policy configuration, registrations, contracts and declared Reflection resources, returning the assembled definition without creating plugin instances. Doctor uses this loading path and dispatches `rsi/doctor` to subscribed plugins for each effective binding. Its CLI report includes the results.
 
 Neither Recipe loading nor doctor evaluates the final Policy input against `input_schema`; defaults may depend on the initialized Application. A Recipe with an invalid explicit `policy.input` can therefore load successfully and fail during `manager.run`. Doctor may also leave prerequisite checks `unchecked`, so zero failed checks does not guarantee execution success.
 

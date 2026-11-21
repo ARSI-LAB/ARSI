@@ -20,6 +20,7 @@ Use `arsi --help` to list commands and `arsi <command> --help` for a command's s
 | `arsi list`                            | List saved experiments.                                                                                                                   |
 | `arsi show <experiment-id>`            | Print saved experiment status, output, and error information.                                                                             |
 | `arsi cancel <experiment-id>`          | Send a cancellation request to the specified experiment.                                                                                  |
+| `arsi cleanup [experiment-id]`         | [Preview or release experiment resources](#clean-up-experiment-resources).                                                                |
 | `arsi dashboard`                       | Serve a local web dashboard for inspecting experiments.                                                                                   |
 | `arsi reflection list [experiment-id]` | List persisted revisions, optionally for one experiment.                                                                                  |
 | `arsi reflection show <revisionID>`    | Inspect revision content and planned resource changes.                                                                                    |
@@ -60,7 +61,7 @@ arsi doctor my-experiment/recipe.yaml
 arsi run my-experiment/recipe.yaml --id terminal-skills-01
 ```
 
-- `doctor` checks the Recipe, plugin configuration, contract compatibility, Policy compilation and declared Reflection resources, then calls the optional `doctor` capability on each effective component definition. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`.
+- `doctor` checks the Recipe, plugin configuration, contract compatibility, Policy compilation and declared Reflection resources, then dispatches `rsi/doctor` to each effective binding with a handler. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`.
   - Statuses are `passed`, `failed` and `unchecked`.
   - For the diagnostic flow, report interpretation, built-in checks and custom-component integration, see the [doctor guide](doctor.md).
 
@@ -98,11 +99,23 @@ Runtime restores budget usage, compatible effective revisions, call receipts, an
 
 Experiments created before the Runtime saved control-flow decisions require a new experiment ID.
 
-- Completed experiments return their saved result without additional calls or charges.
+- Resuming a successful experiment invokes cleanup handlers again and returns the saved result with its original usage.
 - Keep the ordered Policy step IDs, types, nesting, and required plugin contract IDs. New calls use the currently registered input and output schemas.
 - The Runtime reuses completed Policy steps and committed results. It retries unfinished steps using the supplied bindings, configuration, and code. For an in-progress branch, loop iteration, or foreach, it preserves the previously selected branch, iteration, or items. A retried plugin call uses a fresh attempt directory and acquires fresh instances.
 - Retry keeps recorded usage and the original start time. Update the Recipe budget if the experiment exhausted it.
 - Once the previous execution releases the experiment lock or the lock expires after a crash, resume can retry incomplete calls, including receipts marked `unknown` or left as `running`. The Runtime archives the previous receipt and any unresolved cleanup record. A retry can repeat an external operation whose previous outcome is unknown.
+
+## Clean up experiment resources
+
+After success, RSI collects bindings from the current and archived Recipes. It calls each registered cleanup handler once per distinct `(bindingId, pluginId)` pair, even if the plugin instance never started. AgentBench and OperatorBench release eligible SDK resources. Failure, cancellation, and interruption leave resources available for retry or manual cleanup.
+
+- `arsi cleanup` or `arsi cleanup --dry-run` previews eligible resources in the current `.rsi` workspace.
+- `arsi cleanup terminal-skills-01 --dry-run` previews one experiment. Run `arsi cleanup terminal-skills-01` to release its eligible resources.
+- `arsi cleanup --all` releases eligible resources across the workspace and skips experiments in use.
+
+For custom plugins, pass the same `--plugin-dir` used to run the experiment. An unavailable plugin is reported as `pending` and other bindings are still checked.
+
+Cleanup preserves checkpoints, results, logs, and resources still in use by other experiments. A later `--resume` may pull or rebuild images.
 
 ## Dashboard
 

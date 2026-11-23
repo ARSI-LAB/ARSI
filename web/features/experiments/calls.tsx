@@ -121,6 +121,30 @@ function CallPayload({
                   </dd>
                 </>
               ) : null}
+              {(['memory', 'reflection'] as const).map((kind) => {
+                const ref =
+                  kind === 'memory' ? current.memoryRef : current.revisionRef;
+                return ref ? (
+                  <React.Fragment key={kind}>
+                    <dt>
+                      {kind === 'memory'
+                        ? 'Memory snapshot'
+                        : 'Resource revision'}
+                    </dt>
+                    <dd>
+                      <a
+                        className="text-link"
+                        href={route(id, 'learning', undefined, undefined, {
+                          learning: kind === 'memory' ? 'memory' : undefined,
+                          revision: ref,
+                        })}
+                      >
+                        {ref}
+                      </a>
+                    </dd>
+                  </React.Fragment>
+                ) : null;
+              })}
               <dt>Started</dt>
               <dd>
                 <Timestamp value={current.startedAt} />

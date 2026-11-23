@@ -13,7 +13,14 @@ import type { JsonObject } from '../../contracts/index.js';
 export interface ServerRuntime {
   manager: Pick<
     Manager,
-    'list' | 'get' | 'run' | 'cancel' | 'facts' | 'artifacts' | 'reflection'
+    | 'list'
+    | 'get'
+    | 'run'
+    | 'cancel'
+    | 'facts'
+    | 'artifacts'
+    | 'reflection'
+    | 'memory'
   > & { readonly directory?: string };
   registry: Pick<Registry, 'catalog'> & Partial<Pick<Registry, 'get'>>;
 }

@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   DoctorBinding,
   DoctorContext,
@@ -11,7 +12,10 @@ import {
   redactConfiguration,
   RuntimeCleanupInterruptedError,
 } from '../../shared/errors.js';
+import { runDoctorProbe } from '../../shared/doctor-check.js';
 import type { Runtime } from '../context.js';
+import { pathContains, selectedResourceFields } from '../learning/resources.js';
+import { validateSnapshotDestination } from '../learning/snapshot-paths.js';
 import { Recipe } from '../loaders/recipe.js';
 import { withBindingInstance } from '../manager/instances.js';
 import type { Registry } from '../registry/index.js';
@@ -75,7 +79,10 @@ export async function doctorRecipe(
   signal.throwIfAborted();
   let recipe: Recipe;
   try {
-    recipe = await Recipe.load(resolve(recipePath), sourceRuntime.registry);
+    recipe = await Recipe.load(resolve(recipePath), sourceRuntime.registry, {
+      rootDirectory: sourceRuntime.context.rootDirectory,
+      runtimeDirectory: sourceRuntime.manager.directory,
+    });
   } catch (error) {
     signal.throwIfAborted();
     return createFailureReport('recipe.validate', error);
@@ -83,12 +90,47 @@ export async function doctorRecipe(
 
   const redact = redactConfiguration({
     recipe: recipe.toJSON(),
-    reflection: recipe.reflection?.implementation.config ?? {},
+    reflection: recipe.reflection?.config ?? {},
+    memory: recipe.memory?.config ?? {},
   });
   const report: DoctorReport = {
     recipeId: recipe.id,
     checks: [{ id: 'recipe.validate', status: 'passed' }],
   };
+  for (const name of recipe.disabledLearning)
+    report.checks.push({
+      id: `${name}.status`,
+      status: 'unchecked',
+      reason: 'Disabled by the Recipe or Policy.',
+    });
+  if (recipe.reflection) {
+    const builtins = ['policies', 'plugins'].map((kind) =>
+      fileURLToPath(new URL(`../../${kind}/`, import.meta.url)),
+    );
+    const protectedTarget = Object.entries(recipe.reflection.targets).some(
+      ([name, target]) => {
+        const binding = recipe.bindings[name]!;
+        return selectedResourceFields(
+          binding.definition.configSchema,
+          binding.config,
+          target.resources,
+        ).some(({ reference }) =>
+          builtins.some((root) => pathContains(root, reference)),
+        );
+      },
+    );
+    report.checks.push({
+      id: 'reflection.targets',
+      status: 'passed',
+      ...(protectedTarget
+        ? {
+            details: {
+              note: 'Revisions activate in this experiment. Export built-in resources with arsi reflection apply <id> --to <directory>.',
+            },
+          }
+        : {}),
+    });
+  }
   await checkBindings(sourceRuntime, recipe, report, signal);
   signal.throwIfAborted();
   return redactDoctorReport(report, redact);
@@ -109,6 +151,21 @@ async function checkBindings(
         bindingIndex,
         binding.name,
       );
+      const seed = recipe.memory?.seed;
+      if (binding.name === 'memory' && seed) {
+        const { check } = await runDoctorProbe(
+          'memory.directory',
+          () =>
+            validateSnapshotDestination(
+              seed.directory,
+              'directory',
+              sourceRuntime.context.rootDirectory,
+              sourceRuntime.manager.directory,
+            ),
+          { signal },
+        );
+        report.checks.push(check);
+      }
       await checkBinding(
         {
           binding,
@@ -135,19 +192,21 @@ function getDoctorBindings(
   recipe: Recipe,
   registry: DoctorRegistry,
 ): DoctorBinding[] {
-  const bindings = [recipe.application, ...Object.values(recipe.bindings)];
-  if (!recipe.reflection) return bindings;
-
-  const { ref, config } = recipe.reflection.implementation;
-  return [
-    ...bindings,
-    {
-      name: 'reflection',
-      pluginId: ref,
-      definition: registry.get(ref),
-      config,
-    },
+  const bindings: DoctorBinding[] = [
+    recipe.application,
+    ...Object.values(recipe.bindings),
   ];
+  for (const name of ['memory', 'reflection'] as const) {
+    const module = recipe[name];
+    if (module)
+      bindings.push({
+        name,
+        pluginId: module.plugin,
+        definition: registry.get(module.plugin),
+        config: module.config,
+      });
+  }
+  return bindings;
 }
 
 async function checkBinding(

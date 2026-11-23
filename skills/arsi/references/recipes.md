@@ -9,9 +9,9 @@ Use the complete [recipe](../assets/minimal/recipe.yaml), [Target](../assets/min
 | policy            | `{ id, config, input }`                                                     |
 | bindings          | Binding name → `{ plugin?, config? }`                                       |
 | budget            | Numeric usage limits and durations                                          |
-| reflection        | Optional `{ configFile: ./reflection.yaml }`; omit when no module is needed |
+| memory, reflection | Boolean switches or external configuration pointers, such as `{ configFile: ./memory.yaml }` |
 
-`reflection: false`, `{ ref: ... }` and old rule files are unsupported. Omission inherits a Policy's `defaults.reflection.configFile` when present; it does not disable an inherited module. Use a Policy without the module/call when disabling it.
+Omitting a module inherits the Policy default. Set `enabled: false` on the module to disable it. Each declaration may override individual nested fields. Paths resolve from the declaring file.
 
 Overrides recursively merge plain configuration objects when `plugin` is inherited or unchanged. Arrays, scalars and null replace their previous values; null is then checked by the final schema. Changing `plugin` replaces the binding and discards the old implementation configuration. A config-only override inherits the default implementation. The final binding must resolve a registered plugin matching the required contract. Keep `policy.config` (algorithm parameters), `policy.input` (call input) and binding config (implementation settings) distinct. Use [public schema lookup](plugins.md#discover-schemas-through-public-apis) when adapting a binding.
 

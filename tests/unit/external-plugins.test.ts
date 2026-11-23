@@ -74,6 +74,8 @@ output: { loaded: true }
     join(root, 'recipe.yaml'),
     `schemaVersion: rsi.recipe/v1
 id: external-recipe
+memory: false
+reflection: false
 application: { plugin: external.application, config: {} }
 policy: { id: external.policy, config: {}, input: {} }
 bindings: {}
@@ -113,6 +115,8 @@ test('CLI loads external implementation and Policy for catalog, doctor and execu
       ),
       [
         ['recipe.validate', 'passed'],
+        ['memory.status', 'unchecked'],
+        ['reflection.status', 'unchecked'],
         ['application.plugin', 'unchecked'],
       ],
     );

@@ -45,6 +45,8 @@ require:
   selector:
     contract: contract.selector-metrics
 defaults:
+  memory: false
+  reflection: false
   bindings:
     proposer:
       plugin: proposer.grid

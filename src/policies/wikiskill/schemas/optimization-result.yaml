@@ -6,11 +6,6 @@ properties:
   measurementRef:
     type: string
     minLength: 1
-  memoryRef:
-    anyOf:
-      - type: string
-        minLength: 1
-      - type: 'null'
   testMeasurementRef:
     anyOf:
       - type: string
@@ -19,6 +14,5 @@ properties:
 required:
   - candidateRef
   - measurementRef
-  - memoryRef
   - testMeasurementRef
 additionalProperties: false

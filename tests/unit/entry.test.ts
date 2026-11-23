@@ -63,6 +63,9 @@ test('HTTP exposes catalog and rejects cross-origin mutation before dispatch', a
   let runs = 0;
   const server = await createServer({
     manager: {
+      memory: () => {
+        throw new Error('Unexpected Memory application');
+      },
       reflection: () => {
         throw new Error('Unexpected reflection call');
       },

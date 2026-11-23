@@ -8,7 +8,6 @@ export {
   LoopStep,
   ForEachStep,
   ControlStep,
-  ReflectionStep,
   type Step,
   type StepType,
   type StepResult,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   executionEvidencePackets,
   excerpt,
-} from '../../src/plugins/shared/agent-editing/evidence-packets.js';
+} from '../../src/runtime/services/facts/evidence-packets.js';
 
 test('Memory packets accept empty final text, trajectories and tool outputs', () => {
   const result = executionEvidencePackets({

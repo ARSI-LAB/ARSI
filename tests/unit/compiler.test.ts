@@ -11,7 +11,6 @@ import {
   LoopStep,
   ForEachStep,
   ControlStep,
-  ReflectionStep,
 } from '../../src/runtime/policy/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 
@@ -41,7 +40,7 @@ test('Policy builds immutable typed Steps and serializes reconstructable normali
       additionalProperties: false,
     },
     state: { count: 0 },
-    defaults: { reflection: { configFile: 'reflection.yaml' } },
+    defaults: { reflection: false },
     steps: [
       invoke,
       { id: 'set', type: 'state', state: { count: 1 } },
@@ -60,7 +59,6 @@ test('Policy builds immutable typed Steps and serializes reconstructable normali
         key: '${{ item }}',
         steps: [],
       },
-      { id: 'reflect', type: 'reflection' },
     ],
   };
   const policy = new Policy(value, {
@@ -74,7 +72,6 @@ test('Policy builds immutable typed Steps and serializes reconstructable normali
     IfStep,
     LoopStep,
     ForEachStep,
-    ReflectionStep,
   ].entries())
     assert.ok(policy.steps[index] instanceof Class);
   assert.ok((policy.steps[3] as LoopStep).steps[0] instanceof ControlStep);

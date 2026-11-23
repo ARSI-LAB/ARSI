@@ -20,8 +20,8 @@ For a new installation, use [quickstart](quickstart.md) in an isolated workspace
 | Missing candidateRef input                        | Add Policy mapping from application.initialCandidate                                                                      |
 | Expression rejected                               | Expressions occupy the entire scalar; initialize state and use lexical `steps.<id>.output` references                     |
 | Unsafe configuration pointer                      | Reflection resources are field names such as guidance, not /guidance or file paths                                        |
-| Reflection skipped                                | Need at least three eligible completed calls, authorized evidence and explicit type: reflection                           |
-| Memory not used                                   | Carry memoryRef through state into a later proposer call                                                                  |
+| Reflection skipped                                | Inspect the serial trigger, its guard, and the evidence window for observed calls                           |
+| Memory not used                                   | Check the active snapshot, targets and metadata.memoryVersionRef on the later Agent call                                                                  |
 | Budget exhausted                                  | Include baseline, nested Agent/Reflection calls and original elapsed time                                                 |
 | Resume blocks uncertain effects                   | Inspect receipt and external resource state; do not edit facts or blindly retry                                           |
 | HTTP cancellation response but no terminal result | Inspect the owner and persisted state; terminal cancellation has a known rejection risk in this version                   |

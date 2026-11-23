@@ -8,6 +8,8 @@ export type AgentEditingConfig = {
   skills?: string[];
 };
 
+export type LearningAgentConfig = Omit<AgentEditingConfig, 'evidenceView'>;
+
 export const agentConfigSchema = {
   type: 'object',
   properties: {
@@ -31,3 +33,18 @@ export const agentConfigSchema = {
   required: ['prompt'],
   additionalProperties: false,
 } satisfies JsonSchema;
+
+/** The learning coordinator selects the evidence view before the editor runs. */
+export function learningAgentConfigSchema(prompt: string): JsonSchema {
+  const { agentRef, guidance, skills } = agentConfigSchema.properties;
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      agentRef,
+      guidance,
+      skills,
+      prompt: { ...agentConfigSchema.properties.prompt, default: prompt },
+    },
+  };
+}

@@ -142,6 +142,8 @@ export async function prepareOperatorFixture(): Promise<{
     stringify({
       schemaVersion: 'rsi.recipe/v1',
       id: 'operator-evaluation-fixture',
+      memory: false,
+      reflection: false,
       application: {
         plugin: 'application.kernel',
         config: {

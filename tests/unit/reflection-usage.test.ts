@@ -138,6 +138,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
       agent: { contract: agentContract.id },
     },
     defaults: {
+      memory: false,
       reflection: { configFile: './reflection.yaml' },
       bindings: {
         observer: { plugin: 'usage.observer', config: {} },
@@ -152,7 +153,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
         agent: { plugin: 'usage.agent', config: {} },
       },
     },
-    output: { reflection: '${{ steps.improve.output }}' },
+    output: {},
     steps: [
       ...[1, 2, 3].map((i) => ({
         id: `observe_${i}`,
@@ -160,7 +161,6 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
         use: 'observer',
         with: { candidateRef: '${{ application.initialCandidate }}' },
       })),
-      { id: 'improve', type: 'reflection' },
       {
         id: 'propose',
         type: 'invoke',
@@ -178,11 +178,11 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
   await writeFile(
     join(directory, 'reflection.yaml'),
     JSON.stringify({
-      evidence: ['observer'],
-      targets: { proposer: { resources: ['guidance'] } },
+      trigger: { on: 'after-step', step: 'observe_3' },
+      evidence: { includeBindings: ['observer'] },
+      targets: { include: { proposer: ['guidance'] } },
       goal: './goal.md',
       implementation: {
-        contract: 'contract.reflection',
         ref: 'reflection.agent',
         config: { agentRef: 'agent' },
       },
@@ -203,8 +203,10 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
   );
   const result = await manager.run(recipePath, { id: 'usage.experiment' });
   assert.equal(result.status, 'succeeded');
-  const output = object(result.output);
-  assert.equal(object(output.reflection).status, 'activated');
+  assert.equal(
+    (await manager.facts.list('learning-runs'))[0]?.status,
+    'activated',
+  );
   assert.equal(generated, 1);
   assert.equal(prompts.length, 1);
   assert.match(prompts[0]!, /Activated guidance: verify applicability first/);
@@ -215,7 +217,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
   const calls = await manager.facts.list('calls');
   const proposerCall = calls.find((call) => call.bindingId === 'proposer');
   assert.ok(proposerCall);
-  const revisions = object(object(output.reflection).revisionRefs);
+  const revisions = object(object(result.learning).revisionRefs);
   assert.equal(proposerCall.revisionRef, revisions.proposer);
   const budgets: JsonObject = await manager.facts.read(
     'budgets',
@@ -350,11 +352,11 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
   await writeFile(
     join(directory, 'reflection.yaml'),
     JSON.stringify({
-      evidence: ['proposer'],
-      targets: { proposer: { resources: ['guidance'] } },
+      trigger: { on: 'loop-iteration' },
+      evidence: { includeBindings: ['proposer'] },
+      targets: { include: { proposer: ['guidance'] } },
       goal: './goal.md',
       implementation: {
-        contract: 'contract.reflection',
         ref: 'reflection.agent',
         config: { agentRef: 'agent' },
       },
@@ -378,6 +380,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
         agent: { contract: agentContract.id },
       },
       defaults: {
+        memory: false,
         reflection: { configFile: './reflection.yaml' },
         bindings: {
           proposer: {
@@ -391,12 +394,14 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
           agent: { plugin: 'comparison.agent', config: {} },
         },
       },
-      output: { reflection: '${{ steps.reflectSecond.output }}' },
+      output: {},
       steps: [
-        call('first', '${{ application.initialCandidate }}'),
-        { id: 'reflectFirst', type: 'reflection' },
-        call('second', '${{ steps.first.output.candidateRef }}'),
-        { id: 'reflectSecond', type: 'reflection' },
+        {
+          id: 'round',
+          type: 'loop',
+          maxIterations: 2,
+          steps: [call('propose', '${{ application.initialCandidate }}')],
+        },
       ],
     }),
   );
@@ -415,7 +420,11 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
     id: 'comparison',
   });
   assert.equal(result.status, 'succeeded');
-  assert.equal(object(object(result.output).reflection).status, 'no-change');
+  assert.ok(
+    (await manager.facts.list('learning-runs')).some(
+      (run) => run.status === 'no-change',
+    ),
+  );
   assert.equal(reflections, 2);
   assert.deepEqual(await manager.facts.list('measurements'), []);
   const cwd = reflectionProjects[1]!;

@@ -6,7 +6,7 @@ Informed by Tang et al., [WikiSkill section 3.2.3 and appendix E.3](https://arxi
 
 ## Inspect before proposing
 
-1. Inspect the memory in `context/input.json` first. Read the Wiki index, relevant pattern pages and any supplied skill-impact history before choosing an intervention. Use the supplied memory snapshot and its existing index.
+1. Inspect the Memory index in `context/input.json` and its files under `context/memory/` first. Read the Wiki index, relevant pattern pages and any supplied skill-impact history before choosing an intervention. Use the supplied memory snapshot and its existing index.
 2. Read relevant active candidate skills under `candidate/` and inspect the target in `context/input.json` for allowed paths and file constraints. If the Target does not permit the required skill change, return no edits rather than changing other surfaces.
 3. Review current training task outcomes, metric definitions, failed checks and execution excerpts. Investigate failures alongside successful cases to identify regressions the change could introduce. Inspect all relevant supplied trace excerpts; appendix E's four-trace requirement cannot be claimed when fewer traces or only partial excerpts are available. State the coverage limitation and return no change when it prevents a supported proposal.
 4. Separate missing/invalid scores from valid zero, partial credit from full passage, and observed behavior from a self-report. A grader failure names an outcome, not necessarily its root cause.

@@ -15,13 +15,15 @@ import type {
 import { errorText, redactConfiguration } from '../../shared/errors.js';
 import { json, object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
+import { acquireResourceGate } from '../learning/exclusion.js';
+import { learningAgentBinding } from '../learning/validation.js';
 import type { Registry } from '../registry/index.js';
-import { acquireResourceGate } from '../revisions/exclusion.js';
 import type { ManagedEvents } from '../services/events.js';
 import { safeId } from '../storage/index.js';
 import {
   assertDefinitionDigest,
   definitionArchiveId,
+  definitionLockVersion,
 } from './definition-lock.js';
 import { acquireExecutionLock } from './execution-lock.js';
 import type { Manager } from './index.js';
@@ -431,12 +433,14 @@ async function readCleanupBindings({
     // Definitions are traversed newest first.
     if (!bindings.has(key)) bindings.set(key, { bindingId, pluginId, config });
   }
+  function addBinding(name: string, entry: JsonValue | undefined): void {
+    const binding = object(entry);
+    add(name, binding.plugin, binding.config);
+  }
   function addRecipe(recipe: JsonObject): void {
-    const application = object(recipe.application);
-    add('_application', application.plugin, application.config);
+    addBinding('_application', recipe.application);
     for (const [name, entry] of Object.entries(object(recipe.bindings ?? {}))) {
-      const binding = object(entry);
-      add(name, binding.plugin, binding.config);
+      addBinding(name, entry);
     }
   }
 
@@ -455,7 +459,16 @@ async function readCleanupBindings({
     signal.throwIfAborted();
     assertDefinitionDigest(definition);
     addRecipe(object(definition.recipe));
-    if (definition.reflection) {
+    if (definition.schemaVersion === definitionLockVersion) {
+      for (const kind of ['memory', 'reflection'] as const) {
+        if (!definition[kind]) continue;
+        const module = object(definition[kind]);
+        addBinding('_' + kind, module);
+        if (module.agentBinding)
+          addBinding(learningAgentBinding, module.agentBinding);
+      }
+    } else if (definition.reflection) {
+      // Earlier locks kept the Reflection plugin under implementation.ref.
       const implementation = object(
         object(definition.reflection).implementation,
       );

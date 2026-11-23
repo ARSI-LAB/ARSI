@@ -1,0 +1,3 @@
+evidence: { view: training-summary }
+implementation:
+  config: { agentRef: agent, prompt: ./memory.md }

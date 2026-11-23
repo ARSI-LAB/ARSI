@@ -277,6 +277,8 @@ test('a direct inference evaluation fails and releases a rejected remote instanc
       recipePath,
       stringify({
         schemaVersion: 'rsi.recipe/v1',
+        memory: false,
+        reflection: false,
         id: 'trial',
         application: {
           plugin: inferenceDefinition.id,
@@ -923,6 +925,8 @@ test('a handled startup rejection leaves the real Manager alive for later trials
       recipePath,
       stringify({
         schemaVersion: 'rsi.recipe/v1',
+        memory: false,
+        reflection: false,
         id: 'trial',
         application: {
           plugin: inferenceDefinition.id,

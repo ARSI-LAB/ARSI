@@ -1,0 +1,6 @@
+trigger: { on: after-step, step: train }
+evidence:
+  view: training-summary
+  excludeSteps: [baseline, baseline_score, validate, promotion]
+implementation:
+  config: { agentRef: agent, prompt: ../wikiskill/memory.md }

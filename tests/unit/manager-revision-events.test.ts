@@ -199,17 +199,11 @@ test('Manager activates committed revisions before notifying, retains the old ch
   await writeFile(
     join(root, 'reflection.yaml'),
     JSON.stringify({
-      evidence: ['worker'],
-      targets: {
-        worker: { resources: ['prompt'] },
-        unused: { resources: ['prompt'] },
-      },
+      trigger: { on: 'after-step', step: 'retain' },
+      evidence: { includeBindings: ['worker'] },
+      targets: { include: { worker: ['prompt'], unused: ['prompt'] } },
       goal: './reflection-goal.md',
-      implementation: {
-        contract: reflectionContract.id,
-        ref: 'revision.reflector',
-        config: {},
-      },
+      implementation: { ref: 'revision.reflector', config: {} },
       budget: { modelCalls: 1, timeoutSeconds: 5 },
     }),
   );
@@ -225,7 +219,10 @@ test('Manager activates committed revisions before notifying, retains the old ch
         worker: { contract: worker.contract.id },
         unused: { contract: worker.contract.id },
       },
-      defaults: { reflection: { configFile: './reflection.yaml' } },
+      defaults: {
+        memory: false,
+        reflection: { configFile: './reflection.yaml' },
+      },
       state_schema: {
         type: 'object',
         properties: { last: { type: ['object', 'null'] } },
@@ -263,7 +260,6 @@ test('Manager activates committed revisions before notifying, retains the old ch
               type: 'state',
               state: { last: '${{ steps.work.output }}' },
             },
-            { id: 'improve', type: 'reflection' },
           ],
           output: '${{ state.last }}',
         },
@@ -339,7 +335,7 @@ test('Manager activates committed revisions before notifying, retains the old ch
   manager.facts.write = async (kind, id, value) => {
     if (
       (kind === 'activations' && id === 'retry-revision') ||
-      (kind === 'reflection' &&
+      (kind === 'learning-runs' &&
         value.experimentId === 'retry-revision' &&
         value.status === 'rejected')
     )
@@ -351,7 +347,7 @@ test('Manager activates committed revisions before notifying, retains the old ch
     /interrupted before activation/,
   );
   manager.facts.write = write;
-  const pending = (await manager.facts.list('reflection')).find(
+  const pending = (await manager.facts.list('learning-runs')).find(
     (fact) => fact.experimentId === 'retry-revision',
   )!;
   assert.equal(pending.status, 'validated');
@@ -363,8 +359,8 @@ test('Manager activates committed revisions before notifying, retains the old ch
   assert.equal(fixed.status, 'succeeded');
   assert.equal(object(fixed.output).prompt, 'revised');
   const activated = await manager.facts.read(
-    'reflection',
-    string(pending.reflectionId),
+    'learning-runs',
+    string(pending.learningId),
   );
   assert.equal(activated.status, 'activated');
   assert.equal(proposals, 2);

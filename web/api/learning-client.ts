@@ -4,6 +4,8 @@ export interface LearningRecord {
   kind: string;
   parentRef: string | null;
   resourceRef: string | null;
+  parentArtifactRef: string | null;
+  callId: string | null;
   reason: string | null;
   status: string;
   path: string | null;
@@ -12,6 +14,7 @@ export interface LearningRecord {
 export interface ApplicationPreview {
   applicationAllowed: boolean;
   restrictions: string[];
+  destinations: string[];
   changes: { action: string; path: string; kind: string }[];
 }
 function record(value: unknown): Record<string, unknown> {
@@ -37,6 +40,8 @@ export function parseLearning(raw: unknown): LearningRecord[] {
       kind: text(item.kind),
       parentRef: optional(item.parentRef),
       resourceRef: optional(item.resourceRef),
+      parentArtifactRef: optional(item.parentArtifactRef),
+      callId: optional(item.callId),
       reason: optional(item.reason),
       status: text(item.status),
       path: optional(item.path),
@@ -55,6 +60,9 @@ export function parseApplication(raw: unknown): ApplicationPreview {
   return {
     applicationAllowed: item.applicationAllowed,
     restrictions: item.restrictions.map(text),
+    destinations: Array.isArray(item.destinations)
+      ? item.destinations.map((entry) => text(record(entry).path))
+      : [],
     changes: item.changes.map((value) => {
       const change = record(value);
       return {
@@ -66,13 +74,24 @@ export function parseApplication(raw: unknown): ApplicationPreview {
   };
 }
 /** Never retry a write automatically: a lost response may follow a completed application. */
-export async function applyRevision(
+export async function applySnapshot(
   id: string,
+  collection: 'memories' | 'revisions',
   ref: string,
+  to?: string,
 ): Promise<'applied' | 'unchanged'> {
   const response = await fetch(
-    `api/experiments/${encodeURIComponent(id)}/revisions/${encodeURIComponent(ref)}/apply`,
-    { method: 'POST', signal: AbortSignal.timeout(120000) },
+    `api/experiments/${encodeURIComponent(id)}/${collection}/${encodeURIComponent(ref)}/apply`,
+    {
+      method: 'POST',
+      signal: AbortSignal.timeout(120000),
+      ...(to
+        ? {
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ targetDir: to }),
+          }
+        : {}),
+    },
   );
   const data = record(await response.json());
   if (!response.ok)

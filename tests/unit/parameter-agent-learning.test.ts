@@ -105,7 +105,7 @@ for (const customized of [false, true]) {
               ),
             );
             const instructions = await readFile(join(cwd, 'AGENTS.md'), 'utf8');
-            if (string(request.goal).startsWith('Consolidate measured')) {
+            if (string(request.goal).startsWith('Consolidate reproducible')) {
               assert.match(
                 instructions,
                 customized
@@ -115,10 +115,16 @@ for (const customized of [false, true]) {
               memories++;
               events.push('memory');
               assert.match(
-                await readFile(join(cwd, 'context/measurements.json'), 'utf8'),
+                await readFile(
+                  join(cwd, 'context/learning/training-summary.json'),
+                  'utf8',
+                ),
                 /score/,
               );
-              assert.ok(Array.isArray(object(metadata.observations).trials));
+              assert.equal(
+                metadata.evidenceIndex,
+                'context/learning/index.json',
+              );
               if (memories === 2)
                 throw new Error('Simulated Memory backend failure');
               return memories === 1
@@ -139,7 +145,7 @@ for (const customized of [false, true]) {
               assert.equal(metadata.evidenceView, 'training-summary');
               assert.match(
                 await readFile(
-                  join(cwd, 'context/reflection/index.json'),
+                  join(cwd, 'context/learning/index.json'),
                   'utf8',
                 ),
                 /proposer/,
@@ -166,7 +172,7 @@ for (const customized of [false, true]) {
                 : /Propose configuration candidates/,
             );
             if (proposals === 1) {
-              assert.equal(metadata.memory, null);
+              assert.equal(Object.hasOwn(metadata, 'memory'), false);
               assert.match(instructions, /Initial research method/);
               return {
                 proposals: [
@@ -176,19 +182,9 @@ for (const customized of [false, true]) {
                   },
                 ],
               };
-            } else if (proposals === 2) {
-              assert.equal(metadata.memory, null);
-              assert.equal(
-                object(metadata.observations).previousNoChangeReason,
-                'Need a different supported mechanism.',
-              );
-              assert.match(
-                instructions,
-                /Revised method: distinguish graph coverage/,
-              );
             } else {
               assert.equal(
-                object(metadata.memory)['index.md'],
+                await readFile(join(cwd, 'context/memory/index.md'), 'utf8'),
                 'Measured lesson: check graph coverage.',
               );
               assert.match(
@@ -232,19 +228,26 @@ for (const customized of [false, true]) {
       'Scenario Memory instructions',
     );
     await writeFile(join(root, 'scene/reflection.md'), reflectionGoal);
-    await writeFile(
-      join(root, 'scene/reflection.yaml'),
-      `
-evidence: [proposer, evaluator, selector, memoryUpdater]
-targets:
-  proposer: { resources: [guidance] }
-goal: ./reflection.md
-implementation:
-  contract: contract.reflection
-  ref: reflection.agent
-  config: { agentRef: agent, evidenceView: training-summary }
-`,
-    );
+    if (customized) {
+      await writeFile(
+        join(root, 'scene/memory.yaml'),
+        JSON.stringify({
+          evidence: { view: 'training-summary' },
+          implementation: {
+            config: { prompt: './memory.md', agentRef: 'agent' },
+          },
+        }),
+      );
+      await writeFile(
+        join(root, 'scene/reflection.yaml'),
+        JSON.stringify({
+          goal: './reflection.md',
+          evidence: { view: 'training-summary' },
+          targets: { include: { proposer: ['guidance'] } },
+          implementation: { config: { agentRef: 'agent' } },
+        }),
+      );
+    }
     const recipe = join(root, 'recipe.json');
     await writeFile(
       recipe,
@@ -276,17 +279,15 @@ implementation:
           config: {
             maxTrials: 4,
             candidatesPerRound: 1,
-            memory: true,
-            reflection: true,
           },
         },
         ...(customized
-          ? { reflection: { configFile: './scene/reflection.yaml' } }
+          ? {
+              memory: { configFile: './scene/memory.yaml' },
+              reflection: { configFile: './scene/reflection.yaml' },
+            }
           : {}),
         bindings: {
-          ...(customized
-            ? { memoryUpdater: { config: { prompt: './scene/memory.md' } } }
-            : {}),
           agent: { plugin: 'learning.agent' },
           proposer: {
             config: {
@@ -305,11 +306,12 @@ implementation:
     const output = object(result.output);
     assert.equal(output.stopReason, 'max-proposal-rounds');
     assert.equal(Array.isArray(output.trials) && output.trials.length, 3);
-    assert.equal(typeof output.memoryRef, 'string');
+    assert.equal(Object.hasOwn(output, 'memoryRef'), false);
     assert.notEqual(output.candidateRef, output.baselineCandidateRef);
     assert.deepEqual(events, [
       'evaluate:1',
       'propose',
+      'memory',
       'reflection',
       'propose',
       'evaluate:2',
@@ -322,6 +324,7 @@ implementation:
       'propose',
       'evaluate:4',
       'memory',
+      'reflection',
     ]);
     assert.equal(
       await readFile(join(root, 'guidance/search.md'), 'utf8'),
@@ -337,20 +340,21 @@ implementation:
     const subsequent = proposerCalls.filter((call) => call !== initial);
     assert.notEqual(initial.revisionRef, subsequent[0]!.revisionRef);
     assert.equal(subsequent[0]!.revisionRef, subsequent[1]!.revisionRef);
-    const memoryCalls = calls.filter(
-      (call) => call.bindingId === 'memoryUpdater',
+    const runs = (await runtime.manager.facts.list('learning-runs')).filter(
+      (run) => run.kind === 'memory',
     );
-    const updated = memoryCalls.find(
-      (call) => object(call.output).status === 'updated',
+    assert.ok(runs.some((run) => run.status === 'rejected'));
+    assert.ok(runs.some((run) => run.status === 'no-change'));
+    assert.ok(runs.some((run) => run.status === 'activated'));
+    assert.equal(
+      calls.filter(
+        (call) =>
+          call.contractId === 'contract.agent' &&
+          call.metadata &&
+          typeof object(call.metadata).memoryVersionRef === 'string',
+      ).length,
+      3,
     );
-    const failed = memoryCalls.find(
-      (call) => object(call.output).status === 'failed',
-    );
-    assert.ok(updated);
-    assert.ok(failed);
-    const previous = object(updated.output).memoryRef;
-    assert.equal(object(failed.output).memoryRef, previous);
-    assert.equal(output.memoryRef, previous);
     const resumed = await runtime.manager.run(recipe, {
       id: 'learning',
       resume: true,

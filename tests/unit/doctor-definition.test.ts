@@ -101,6 +101,8 @@ export function register(registry) {
   const data = {
     schemaVersion: 'rsi.recipe/v1',
     id: 'custom-doctor',
+    memory: false,
+    reflection: false,
     application: { plugin: 'application.custom', config: {} },
     policy: { id: 'policy.custom-doctor' },
     bindings: {

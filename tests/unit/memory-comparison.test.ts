@@ -1,308 +1,333 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  RuntimeContext,
-  type JsonObject,
-  type MemoryInput,
-} from '../../src/contracts/index.js';
-import { createMemoryAgent } from '../../src/plugins/memory-agent/service.js';
-import { FileArtifacts } from '../../src/runtime/storage/index.js';
-import { projectEvidenceFiles } from '../../src/runtime/services/facts/evidence-files.js';
-import { buildComparisonContext } from '../../src/plugins/memory-agent/comparison.js';
-import { editResource } from '../../src/plugins/shared/agent-editing/index.js';
-import { string } from '../../src/shared/json.js';
+import test from 'node:test';
+import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
+import { FileArtifacts, FileFacts } from '../../src/runtime/storage/index.js';
+import { collectLearningEvidence } from '../../src/runtime/learning/evidence.js';
+import { projectCandidateEvidence } from '../../src/runtime/learning/candidate-evidence.js';
+import { object, string } from '../../src/shared/json.js';
 
-const context: RuntimeContext = new RuntimeContext().extend({
-  experimentId: 'exp',
-  callId: 'call',
-  bindingId: 'memory',
-  idempotencyKey: 'call',
-  directory: '/unused',
-  signal: new AbortController().signal,
-  cleanup: new AbortController().signal,
-});
-
-test('Memory receives inline diffs and bounded execution packets without duplicate files or private scoring', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rsi-memory-comparison-'));
-  const artifacts = new FileArtifacts(root);
-  try {
-    const tree = async (text: string) =>
-      artifacts.putJson({
-        kind: 'file-tree',
-        files: [
-          {
-            path: 'skill.md',
-            mode: 420,
-            base64: Buffer.from(text).toString('base64'),
-          },
-        ],
-      });
-    const base = await tree('old action\n');
-    const candidate = await tree('new action\n');
-    const records = Array.from({ length: 240 }, (_, n) =>
-      JSON.stringify({
-        step: n,
-        action: n === 101 ? 'MIDDLE_PROBE_EVENT' : 'tool',
-        score: 0.999,
-        private: { answer: 'PRIVATE_ANSWER' },
-      }),
-    ).join('\n');
-    const trajectory = await artifacts.putJson({
+test('WikiSkill windows project training, candidate sources and selection aggregates without held-out traces', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-wiki-window-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const artifacts = new FileArtifacts(join(root, 'artifacts'));
+  const facts = new FileFacts(join(root, 'facts'));
+  const tree = async (content: string) =>
+    artifacts.putJson({
       kind: 'file-tree',
-      files: Array.from({ length: 12 }, (_, n) => ({
-        path:
-          n === 0
-            ? 'trajectory.jsonl'
-            : n === 1
-              ? 'session.jsonl'
-              : `tool-outputs/trace-${n}.jsonl`,
-        mode: 420,
-        base64: Buffer.from(records).toString('base64'),
-      })),
+      files: [
+        {
+          path: 'skill.md',
+          mode: 420,
+          base64: Buffer.from(content).toString('base64'),
+        },
+      ],
     });
-    const privateRef = await artifacts.putJson({ score: 'PRIVATE_SCORE' });
-    const index = await artifacts.putJson({
+  const baseline = await tree('old procedure');
+  const candidate = await tree('new procedure');
+  const context = new RuntimeContext().extend({
+    experimentId: 'wiki',
+    facts,
+    artifacts,
+    signal: new AbortController().signal,
+    applicationMetadata: async () => ({ initialCandidateRef: 'base' }),
+    readCandidate: async (ref) => ({
+      ref,
+      parentRef: ref === 'base' ? null : 'base',
+      artifactRef: ref === 'base' ? baseline : candidate,
+      experimentId: 'wiki',
+    }),
+    readMeasurement: async (ref) => facts.read('measurements', ref),
+  });
+  const time = (n: number) =>
+    new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString();
+  const call = async (
+    id: string,
+    path: string,
+    input: JsonObject,
+    output: JsonObject,
+    n: number,
+  ) =>
+    facts.write('calls', id, {
+      experimentId: 'wiki',
+      callId: id,
+      parentCallId: 'root',
+      bindingId: id.split('-')[0],
+      ...(id.startsWith('selector-')
+        ? { contractId: 'contract.selector-metrics' }
+        : {}),
+      input,
+      output,
+      path,
+      finishedAt: time(n),
+      status: 'succeeded',
+    });
+  const evaluation = async (
+    id: string,
+    path: string,
+    candidateRef: string,
+    marker: string,
+    n: number,
+  ) => {
+    const evidenceIndexRef = await artifacts.putJson({
       entries: [
         {
-          kind: 'trajectory',
+          kind: 'final-text',
           access: 'execution',
           integrity: 'complete',
-          artifactRef: trajectory,
-          itemId: 'task',
-          attemptId: 'attempt',
-        },
-        {
-          kind: 'native-result',
-          access: 'private',
-          integrity: 'complete',
-          artifactRef: privateRef,
+          artifactRef: await artifacts.putJson(marker),
+          itemId: id,
         },
       ],
     });
-    const measurements = ['m-base', 'm-inv', 'm-dom', 'm-compose'].map(
-      (ref, n) => ({
-        schemaVersion: 'rsi.measurement/v1',
-        ref,
-        candidateRef: n === 0 ? 'base' : 'candidate',
-        experimentId: 'exp',
-        status: 'succeeded',
-        coverage: 'complete',
-        evidenceIndexRef: index,
-      }),
-    );
-    const decisionRef = await artifacts.putJson({
-      kind: 'artifact-decision',
-      candidates: [
-        {
-          candidateRef: 'candidate',
-          measurementRef: 'm-compose',
-          originalIndex: 0,
-        },
-      ],
-      selectedIndex: 0,
-      reason: 'Usable output',
+    const ref = 'm-' + id;
+    await facts.write('measurements', ref, {
+      schemaVersion: 'rsi.measurement/v1',
+      experimentId: 'wiki',
+      ref,
+      candidateRef,
+      evidenceIndexRef,
+      metrics: {},
     });
-    let workspaceCreates = 0;
-    const services: RuntimeContext = new RuntimeContext().extend({
-      rootDirectory: root,
-      dataDirectory: root,
-      directory: root,
-      artifacts,
-      facts: {
-        read: async () => ({}),
-        write: async () => {},
-        list: async () => [],
-      },
-      workspaces: {
-        create: async () => {
-          workspaceCreates++;
-          const directory = join(root, 'workspace');
-          await mkdir(directory, { recursive: true });
-          return { ref: 'ws', directory, parentCandidateRef: null };
-        },
-        read: async () => ({
-          ref: 'ws',
-          directory: root,
-          parentCandidateRef: null,
-        }),
-        release: async () => {},
-      },
-      readCandidate: async (ref) => {
-        assert.ok(['base', 'candidate'].includes(ref));
-        return {
-          ref,
-          artifactRef: ref === 'base' ? base : candidate,
-          parentRef: null,
-          experimentId: 'exp',
-        };
-      },
-      recordCandidate: async () => 'candidate',
-      recordMeasurement: async () => 'measurement',
-      readMeasurement: async (ref) => {
-        const m = measurements.find((m) => m.ref === ref);
-        assert.ok(m);
-        return m;
-      },
-      readEvidence: async (refs, options) => {
-        assert.equal(options?.format, 'files');
-        return projectEvidenceFiles({
-          measurements: measurements.filter((m) => refs.includes(m.ref)),
-          artifacts,
-          view: 'execution',
-          maxBytes: 32 * 1024 * 1024,
-        });
-      },
-      application: async () => ({}),
-      applicationMetadata: async () => ({}),
-      invokeAgent: async () => ({
-        edits: [{ path: 'context/index.json', content: 'tampered' }],
-        reason: 'bad',
-      }),
-      invoke: async () => ({}),
-      charge: async () => {},
-      withInstance: async (_ref, _cap, use) => use({}),
-    });
-    const input: MemoryInput = {
-      memoryRef: null,
-      goal: 'Learn from edits',
-      evidenceRefs: ['m-base'],
-      comparison: {
-        baselineCandidateRef: 'base',
-        probes: {
-          base: [{ candidateRef: 'base', measurementRef: 'm-base', slot: 0 }],
-          inv: [{ candidateRef: 'candidate', measurementRef: 'm-inv' }],
-          dom: [{ candidateRef: 'candidate', measurementRef: 'm-dom' }],
-          compose: [{ candidateRef: 'candidate', measurementRef: 'm-compose' }],
-        },
-        selection: {
-          candidateRef: 'candidate',
-          measurementRef: 'm-compose',
-          decisionRef,
-        },
-      },
-    };
-    const result = await buildComparisonContext(
-      input,
-      context.extend(services),
-    );
-    const visible = JSON.stringify(result);
-    assert.equal(
-      Object.keys(result.files).some((p) =>
-        /comparison\/candidates|index\.json|session/.test(p),
-      ),
-      false,
-    );
-    assert.ok(
-      Buffer.byteLength(
-        JSON.stringify({ input: result.input, evidence: result.evidence }),
-      ) < 40000,
-    );
-    assert.match(JSON.stringify(result.evidence), /excerpts/);
-    assert.match(JSON.stringify(result.input), /-old action/);
-    assert.match(visible, /MIDDLE_PROBE_EVENT/);
-    assert.match(visible, /-old action/);
-    assert.match(visible, /\+new action/);
-    assert.match(visible, /Usable output/);
-    assert.doesNotMatch(visible, /PRIVATE_ANSWER|PRIVATE_SCORE|0\.999/);
-    assert.equal(
-      Object.keys(result.files).filter((path) =>
-        path.startsWith('context/runs/'),
-      ).length,
-      4,
-    );
-    assert.equal(
-      (result.input.comparison as JsonObject).selectedCandidateRef,
-      'candidate',
-    );
-    await assert.rejects(
-      editResource(
-        { prompt: 'src/policies/harness2/memory.md' },
-        input,
-        null,
-        context.extend(services),
-        result,
-      ),
-      /read.only/i,
-    );
-    assert.equal(workspaceCreates, 0);
-    services.invokeAgent = async (_binding, request) => {
-      const directory = join(string(request.cwd), 'context');
-      await assert.rejects(readFile(join(directory, 'index.json')), {
-        code: 'ENOENT',
-      });
-      const input = JSON.parse(
-        await readFile(join(directory, 'input.json'), 'utf8'),
-      );
-      assert.match(JSON.stringify(input.comparison), /old action/);
-      assert.match(
-        await readFile(join(directory, 'measurements.json'), 'utf8'),
-        /excerpts/,
-      );
-      assert.ok((await readdir(join(directory, 'runs'))).length <= 4);
-      return {
-        edits: [
-          {
-            path: 'experiences/pattern.md',
-            content: 'Observed contrast, with confounded attribution.',
-          },
+    await call(id, path, { candidateRef }, { measurementRef: ref }, n);
+  };
+  const collect = async (identity: string, n: number) => {
+    const { ref } = await collectLearningEvidence({
+      kind: 'memory',
+      context,
+      identity,
+      capturedAt: time(n),
+      configDigest: 'wiki',
+      view: 'training-summary',
+      observe: {
+        steps: [
+          'steps/search/steps/train',
+          'steps/search/steps/propose',
+          'steps/search/steps/select',
         ],
-        reason: 'Evidence',
-      };
-    };
-    const operation = await createMemoryAgent(
-      { prompt: 'src/policies/harness2/memory.md' },
-      services,
+        excludeSteps: [
+          'steps/baseline',
+          'steps/search/steps/validate',
+          'steps/test_if_requested/then/steps/test',
+        ],
+        includeBaseline: true,
+        includeCandidateDiffs: true,
+        includeCandidateSources: true,
+      },
+    });
+    return facts.read('evidence-views', string(ref));
+  };
+  const round = (n: number) => `steps/search/iteration-${n}/`;
+  await evaluation(
+    'eval-base',
+    'steps/baseline',
+    'base',
+    'HIDDEN_BASELINE_TRACE',
+    1,
+  );
+  await evaluation(
+    'eval-train0',
+    round(0) + 'train',
+    'base',
+    'TRAINING_ROUND_ZERO',
+    2,
+  );
+  const first = await collect('round0', 3);
+  assert.deepEqual(first.callIds, ['eval-train0']);
+  assert.match(JSON.stringify(first.files), /TRAINING_ROUND_ZERO/);
+  await call(
+    'proposer-edit',
+    round(0) + 'propose',
+    { parent: 'base', evidenceRefs: ['m-eval-train0', 'm-eval-base'] },
+    {
+      status: 'created',
+      candidateRef: 'new',
+      rationale: 'Observed training difficulty',
+    },
+    4,
+  );
+  await evaluation(
+    'eval-valid',
+    round(0) + 'validate',
+    'new',
+    'HIDDEN_VALIDATION_TRACE',
+    5,
+  );
+  await call(
+    'selector-gate',
+    round(0) + 'select',
+    {
+      incumbentMeasurementRef: 'm-eval-base',
+      candidateMeasurementRef: 'm-eval-valid',
+    },
+    {
+      accepted: true,
+      selectedCandidateRef: 'new',
+      measurementRef: 'm-eval-valid',
+      selectedValue: 0.8,
+    },
+    6,
+  );
+  await evaluation(
+    'eval-train1',
+    round(1) + 'train',
+    'new',
+    'TRAINING_ROUND_ONE',
+    7,
+  );
+  await evaluation(
+    'eval-test',
+    'steps/test_if_requested/then/test',
+    'new',
+    'HIDDEN_TEST_TRACE',
+    8,
+  );
+  const second = await collect('round1', 9);
+  const files = object(second.files);
+  assert.deepEqual(second.callIds, [
+    'proposer-edit',
+    'selector-gate',
+    'eval-train1',
+  ]);
+  assert.deepEqual([...(second.measurementRefs as string[])].sort(), [
+    'm-eval-train0',
+    'm-eval-train1',
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(second),
+    /HIDDEN_(BASELINE|VALIDATION|TEST)_TRACE/,
+  );
+  assert.match(
+    string(files['context/learning/calls/selector-gate.json']),
+    /"accepted":true/,
+  );
+  assert.doesNotMatch(
+    string(files['context/learning/calls/selector-gate.json']),
+    /selectedValue/,
+  );
+  assert.match(
+    string(files['context/learning/training-summary.json']),
+    /TRAINING_ROUND_ONE/,
+  );
+  assert.equal(
+    files['context/learning/candidates/new/skill.md'],
+    'new procedure',
+  );
+  const comparisons = string(files['context/learning/comparisons.json']);
+  assert.match(comparisons, /-old procedure/);
+  assert.match(comparisons, /\+new procedure/);
+  assert.match(comparisons, /iteration-1\/train/);
+
+  const selected = { candidateRef: 'new', measurementRef: 'm-eval-train1' };
+  const decisionRef = await artifacts.putJson({
+    kind: 'artifact-decision',
+    selectedIndex: 0,
+    candidates: [{ ...selected, originalIndex: 0 }],
+    reason: 'Most complete delivery',
+  });
+  const selection = {
+    record: { callId: 'decision', pluginId: 'selector.artifact' },
+    input: { candidates: [selected] },
+    output: { ...selected, decisionRef },
+    frame: '',
+    parent: '',
+  };
+  const project = () =>
+    projectCandidateEvidence(
+      context,
+      [selection],
+      { includeCandidateDiffs: true },
+      (path, text) => {
+        files[path] = text;
+      },
     );
-    const updated = (await operation.execute(
-      input,
-      context.extend(services),
-    )) as JsonObject;
-    const snapshot = (await artifacts.readJson(
-      updated.memoryRef as string,
-    )) as JsonObject;
-    assert.equal((snapshot.files as JsonObject[]).length, 1);
-    assert.equal(
-      (snapshot.files as JsonObject[])[0].path,
-      'experiences/pattern.md',
-    );
-    const bad = structuredClone(input);
-    ((bad.comparison as JsonObject).selection as JsonObject).measurementRef =
-      'm-base';
-    await assert.rejects(
-      buildComparisonContext(bad, context.extend(services)),
-      /selection|selected/i,
-    );
-    const mismatch = structuredClone(input);
-    (
-      ((mismatch.comparison as JsonObject).probes as JsonObject)
-        .inv as JsonObject[]
-    )[0].candidateRef = 'base';
-    await assert.rejects(
-      buildComparisonContext(mismatch, context.extend(services)),
-      /measurement.*candidate|candidate.*measurement/i,
-    );
-    await assert.rejects(
-      projectEvidenceFiles({
-        measurements,
-        artifacts,
-        view: 'execution',
-        maxBytes: 100,
+  await project();
+  assert.match(
+    string(files['context/learning/comparisons.json']),
+    /Most complete delivery/,
+  );
+  const withheld = { candidateRef: 'base', measurementRef: 'm-eval-base' };
+  const hiddenRef = await artifacts.putJson({
+    kind: 'artifact-decision',
+    selectedIndex: 0,
+    reason: 'QUOTED_HELD_OUT_DELIVERY',
+    candidates: [
+      { ...selected, originalIndex: 0 },
+      { ...withheld, originalIndex: 1 },
+    ],
+  });
+  await facts.write('calls', 'artifact-choice', {
+    experimentId: 'wiki',
+    callId: 'artifact-choice',
+    parentCallId: 'root',
+    status: 'succeeded',
+    bindingId: 'selector',
+    pluginId: 'selector.artifact',
+    contractId: 'contract.selector-artifacts',
+    path: 'steps/judge',
+    finishedAt: time(11),
+    input: { candidates: [selected, withheld] },
+    output: {
+      ...selected,
+      decisionRef: hiddenRef,
+      reason: 'QUOTED_HELD_OUT_DELIVERY',
+    },
+  });
+  await facts.write('calls', 'artifact-agent', {
+    experimentId: 'wiki',
+    callId: 'artifact-agent',
+    parentCallId: 'artifact-choice',
+    status: 'succeeded',
+    bindingId: 'agent',
+    path: 'steps/judge/agent',
+    finishedAt: time(10),
+    input: {},
+    output: { reason: 'QUOTED_HELD_OUT_DELIVERY' },
+  });
+  const scoped = await collectLearningEvidence({
+    kind: 'memory',
+    context,
+    identity: 'choice-window',
+    capturedAt: time(12),
+    configDigest: 'choice',
+    observe: {
+      bindings: ['selector', 'agent'],
+      excludeSteps: ['steps/baseline'],
+      includeCandidateDiffs: true,
+      includeAgentTraces: true,
+    },
+  });
+  const decisionSnapshot = await facts.read(
+    'evidence-views',
+    string(scoped.ref),
+  );
+  assert.doesNotMatch(
+    JSON.stringify(decisionSnapshot),
+    /QUOTED_HELD_OUT_DELIVERY|HIDDEN_BASELINE_TRACE|artifact-agent/,
+  );
+  const decisionSummary = JSON.parse(
+    string(object(decisionSnapshot.files)['context/learning/comparisons.json']),
+  );
+  assert.equal(decisionSummary.selections[0].selectedCandidateRef, 'new');
+  assert.equal(decisionSummary.selections[0].selectionReason, null);
+  selection.output.measurementRef = 'another-measurement';
+  await assert.rejects(project(), /selection does not match/);
+  await assert.rejects(
+    projectCandidateEvidence(
+      context.extend({
+        readCandidate: async (ref) => ({
+          ref,
+          parentRef: null,
+          artifactRef: baseline,
+          experimentId: 'foreign',
+        }),
       }),
-      /size|byte|limit/i,
-    );
-    await assert.rejects(
-      projectEvidenceFiles({
-        measurements,
-        artifacts,
-        view: 'delivery',
-        maxBytes: 10000,
-      }),
-      /execution/i,
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+      [{ ...selection, record: {}, output: { candidateRef: 'new' } }],
+      { includeCandidateDiffs: true },
+      () => {},
+    ),
+    /another experiment/,
+  );
 });

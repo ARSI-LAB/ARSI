@@ -131,6 +131,8 @@ test('Manager loop candidates retain their producer paths through child applicat
     recipe,
     stringify({
       schemaVersion: 'rsi.recipe/v1',
+      memory: false,
+      reflection: false,
       id: 'test',
       application: { plugin: 'test.application', config: {} },
       policy: { id: 'test.policy', config: {}, input: {} },

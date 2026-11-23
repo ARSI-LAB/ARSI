@@ -16,10 +16,6 @@ config_schema:
 state_schema:
   type: object
   properties:
-    memory:
-      type:
-        - string
-        - 'null'
     candidate:
       type: string
       minLength: 1
@@ -28,12 +24,10 @@ state_schema:
         - string
         - 'null'
   required:
-    - memory
     - candidate
     - measurement
   additionalProperties: false
 state:
-  memory: null
   candidate: ${{ input.candidateRef }}
   measurement: null
 output_schema:
@@ -41,12 +35,10 @@ output_schema:
   properties:
     candidateRef: { type: string }
     measurementRef: { type: string }
-    memoryRef: { type: [string, 'null'] }
-  required: [candidateRef, measurementRef, memoryRef]
+  required: [candidateRef, measurementRef]
   additionalProperties: false
 require:
   agent: { contract: contract.agent }
-  memory: { contract: contract.memory }
   proposer: { contract: contract.proposer }
   evaluator: { contract: contract.agentbench }
   selector: { contract: contract.selector-metrics }
@@ -70,7 +62,6 @@ steps:
         type: invoke
         use: proposer
         with:
-          memoryRef: ${{ state.memory }}
           parent: ${{ state.candidate }}
           goal: Include the exact phrase Check the answer in prompt.md.
           evidenceRefs:
@@ -98,26 +89,6 @@ steps:
               state:
                 candidate: ${{ steps.select.output.selectedCandidateRef }}
                 measurement: ${{ steps.select.output.measurementRef }}
-      - id: learn_for_next_round
-        type: if
-        if: ${{ loop.index + 1 < config.maxRounds }}
-        then:
-          steps:
-            - id: remember
-              type: invoke
-              use: memory
-              with:
-                memoryRef: ${{ state.memory }}
-                goal:
-                  Retain general checking guidance from authorized observations, not task
-                  answers.
-                evidenceRefs:
-                  - ${{ state.measurement }}
-            - id: retain_memory
-              type: state
-              state:
-                memory: ${{ steps.remember.output.memoryRef }}
 output:
   candidateRef: ${{ state.candidate }}
   measurementRef: ${{ state.measurement }}
-  memoryRef: ${{ state.memory }}

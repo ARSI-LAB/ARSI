@@ -1,11 +1,12 @@
+import { validate } from '../../shared/schema.js';
 import type { FastifyInstance } from 'fastify';
 import type { Manager } from '../../runtime/manager/index.js';
 import type { ObservationQueries } from '../../runtime/services/observation.js';
 
-/** Transport only: ownership checks precede the existing revision application boundary. */
+/** Verify experiment ownership before exposing a snapshot or mutating its destination. */
 export function registerLearningRoutes(
   app: FastifyInstance,
-  manager: Pick<Manager, 'reflection'>,
+  manager: Pick<Manager, 'reflection' | 'memory'>,
   queries: ObservationQueries,
   publicReadOnly = false,
 ): void {
@@ -20,46 +21,87 @@ export function registerLearningRoutes(
     required: ['id'],
     additionalProperties: false,
   };
-  const revisionParams = {
+  const snapshotParams = {
     ...params,
     properties: { id: identifier, ref: identifier },
     required: ['id', 'ref'],
   };
+  const destination = {
+    type: 'object',
+    properties: { targetDir: { type: 'string', minLength: 1 } },
+    additionalProperties: false,
+  };
+  const previewQuery = {
+    ...destination,
+    properties: {
+      ...destination.properties,
+      inspection: { type: 'integer', minimum: 0 },
+    },
+  };
+  type Params = { id: string; ref: string };
+  type Destination = { targetDir?: string };
   for (const kind of ['revisions', 'memories'] as const) {
     app.get<{ Params: { id: string } }>(
       `/api/observation/experiments/:id/${kind}`,
       { schema: { params } },
       (request) => queries.learning(request.params.id, kind),
     );
+    const supportsDestination = kind === 'memories';
+    const application = async ({ id, ref }: Params) => {
+      if (kind === 'memories') {
+        await queries.assertMemory(id, ref);
+        return manager.memory();
+      }
+      await queries.assertRevision(id, ref);
+      return manager.reflection();
+    };
+    app.get<{ Params: Params; Querystring: Destination }>(
+      `/api/observation/experiments/:id/${kind}/:ref/application`,
+      {
+        schema: {
+          params: snapshotParams,
+          querystring: supportsDestination
+            ? previewQuery
+            : {
+                ...previewQuery,
+                properties: { inspection: previewQuery.properties.inspection },
+              },
+        },
+      },
+      async ({ params, query }) => {
+        const snapshots = await application(params);
+        if (publicReadOnly)
+          return {
+            applicationAllowed: false,
+            restrictions: [
+              'Local file changes are unavailable on a public read-only dashboard.',
+            ],
+            changes: [],
+          };
+        return queries.applicationPreview(
+          params.id,
+          await snapshots.show(params.ref, { to: query.targetDir }),
+        );
+      },
+    );
+    app.post<{ Params: Params; Body?: Destination }>(
+      `/api/experiments/:id/${kind}/:ref/apply`,
+      { schema: { params: snapshotParams } },
+      async ({ params, body }) => {
+        if (body !== undefined)
+          validate(
+            supportsDestination
+              ? destination
+              : { type: 'object', additionalProperties: false },
+            body,
+            'application destination',
+          );
+        const snapshots = await application(params);
+        const result = await snapshots.apply(params.ref, {
+          to: body?.targetDir,
+        });
+        return { status: result.status };
+      },
+    );
   }
-  app.get<{ Params: { id: string; ref: string } }>(
-    '/api/observation/experiments/:id/revisions/:ref/application',
-    { schema: { params: revisionParams } },
-    async (request) => {
-      const { id, ref } = request.params;
-      await queries.assertRevision(id, ref);
-      if (publicReadOnly)
-        return {
-          applicationAllowed: false,
-          restrictions: [
-            'Local file changes are unavailable on a public read-only dashboard.',
-          ],
-          changes: [],
-        };
-      return queries.applicationPreview(
-        id,
-        await manager.reflection().show(ref),
-      );
-    },
-  );
-  app.post<{ Params: { id: string; ref: string } }>(
-    '/api/experiments/:id/revisions/:ref/apply',
-    { schema: { params: revisionParams } },
-    async (request) => {
-      const { id, ref } = request.params;
-      await queries.assertRevision(id, ref);
-      const result = await manager.reflection().apply(ref);
-      return { status: result.status };
-    },
-  );
 }

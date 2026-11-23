@@ -1,449 +1,351 @@
-import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
-import type {
-  Binding,
-  JsonObject,
-  OperationDefinition,
-} from '../../src/contracts/index.js';
+import test, { type TestContext } from 'node:test';
 import {
   agentContract,
   applicationContract,
+  memoryContract,
   proposerContract,
   reflectionContract,
-} from '../../src/contracts/plugin-types/index.js';
+  type JsonObject,
+  type PluginContract,
+} from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
-import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
-import { validateReflection } from '../../src/runtime/revisions/validation.js';
-import { Policy } from '../../src/runtime/policy/index.js';
-import { createRuntime } from '../../src/runtime/context.js';
+import { configSchema as agentPiSchema } from '../../src/plugins/agent-pi/schema.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
-import { object } from '../../src/shared/json.js';
-import { parseLockedReflection } from '../../src/runtime/manager/definition-lock.js';
+import { FileArtifacts } from '../../src/runtime/storage/index.js';
+import {
+  lockDefinition,
+  parseLockedMemory,
+  parseLockedReflection,
+  readResourceOrigins,
+} from '../../src/runtime/manager/definition-lock.js';
+import { object, string } from '../../src/shared/json.js';
+import {
+  resourcePath,
+  assignPointer,
+  pointerValue,
+} from '../../src/runtime/learning/resources.js';
+
+test('Reflection addresses escaped Schema keys while keeping snapshot paths portable', () => {
+  const config: JsonObject = { 'prompt/sources': { 'my~file': 'before' } };
+  const pointer = '/prompt~1sources/my~0file';
+  assert.equal(pointerValue(config, pointer), 'before');
+  assignPointer(config, pointer, 'after');
+  assert.equal(object(config['prompt/sources'])['my~file'], 'after');
+  assert.match(
+    resourcePath('worker', pointer),
+    /^bindings\/worker\/resources\/@[a-f0-9]{64}\/@[a-f0-9]{64}$/,
+  );
+  assert.throws(() => pointerValue(config, '/__proto__/x'), /Unsafe/);
+});
 async function fixture(t: TestContext) {
-  const root = await mkdtemp(join(tmpdir(), 'rsi-reflection-config-'));
+  const root = await mkdtemp(join(tmpdir(), 'rsi-learning-config-'));
   const registry = new Registry();
   t.after(async () => {
     await registry.dispose();
     await rm(root, { recursive: true, force: true });
   });
-  const generator: OperationDefinition = {
-    id: 'reflection.custom',
-    contract: reflectionContract,
-    configSchema: {
-      type: 'object',
-      properties: {
-        instructions: { type: 'string', 'x-rsi-path': 'file' },
-        mode: { enum: ['conservative'], default: 'conservative' },
+  const policyDir = join(root, 'policy'),
+    recipeDir = join(root, 'recipe');
+  await mkdir(policyDir);
+  await mkdir(recipeDir);
+  await mkdir(join(policyDir, 'guidance'));
+  await mkdir(join(recipeDir, 'seed'));
+  await writeFile(join(recipeDir, 'seed', 'notes.md'), 'seed');
+  await writeFile(join(policyDir, 'inherited.md'), 'policy prompt');
+  await writeFile(join(recipeDir, 'override.md'), 'recipe prompt');
+  await writeFile(join(policyDir, 'goal.md'), 'policy goal');
+  const file = { type: 'string', 'x-rsi-path': 'file' };
+  function register(
+    id: string,
+    contract: PluginContract,
+    properties: JsonObject = {},
+  ) {
+    registry.registerOperation({
+      id,
+      contract,
+      configSchema: { type: 'object', properties, additionalProperties: false },
+      async create() {
+        throw new Error('Recipe loading must not create any instances');
       },
-      required: ['instructions'],
-      additionalProperties: false,
-    },
-    async create() {
-      return {
-        async execute() {
-          return { status: 'no-change', proposal: null, reason: 'No change' };
-        },
-        async dispose() {},
-      };
-    },
-  };
-  const target: OperationDefinition = {
-    ...generator,
-    id: 'proposer.test',
-    contract: proposerContract,
-    configSchema: {
-      type: 'object',
-      properties: {
-        guidance: { type: 'string', 'x-rsi-path': 'directory' },
-        prompt: { type: 'string', 'x-rsi-path': 'file' },
-        label: { type: 'string' },
-      },
-      additionalProperties: false,
-    },
-  };
-  registry.registerOperation(generator);
-  registry.registerOperation(target);
-  registry.registerOperation(reflectionDefinition);
+    });
+  }
+  register('application.test', applicationContract);
+  register('proposer.test', proposerContract, {
+    guidance: { type: 'string', 'x-rsi-path': 'directory' },
+  });
+  register('agent.test', agentContract);
+  register('memory.test', memoryContract, {
+    goalFile: file,
+    resources: { type: 'object', properties: { a: file, b: file } },
+  });
   registry.registerOperation({
-    ...generator,
-    id: 'agent.test',
+    id: 'agent.pi',
     contract: agentContract,
-  });
-  await mkdir(join(root, 'guidance'));
-  await writeFile(join(root, 'prompt.md'), 'Base prompt');
-  const bindings: Record<string, Binding> = {
-    proposer: {
-      plugin: target.id,
-      config: {
-        guidance: join(root, 'guidance'),
-        prompt: join(root, 'prompt.md'),
-        label: 'plain string',
-      },
-    },
-    other: { plugin: target.id, config: { prompt: join(root, 'prompt.md') } },
-    agent: { plugin: 'agent.test', config: {} },
-    'agent.default': { plugin: 'agent.test', config: {} },
-  };
-  const definition: JsonObject = {
-    evidence: ['proposer'],
-    targets: {
-      proposer: { resources: ['guidance'] },
-      other: { resources: ['prompt'] },
-    },
-    goal: './goal.md',
-    implementation: {
-      contract: reflectionContract.id,
-      ref: generator.id,
-      config: { instructions: './prompt.md' },
-    },
-  };
-  await writeFile(join(root, 'goal.md'), 'Improve reusable guidance');
-  await writeFile(join(root, 'other-goal.md'), 'Another goal');
-  const path = join(root, 'reflection.yaml');
-  async function load(value: JsonObject = definition) {
-    await writeFile(path, stringify(value));
-    return validateReflection(
-      path,
-      bindings,
-      (id) => registry.get(id),
-      (id) => registry.contract(id),
-    );
-  }
-  return { root, path, registry, bindings, definition, load };
-}
-test('Reflection parses one complete config, preserving per-target permissions and implementation defaults', async (t) => {
-  const { root, path, definition, load } = await fixture(t);
-  const parsed = await load();
-  assert.equal(parsed.path, path);
-  assert.deepEqual(parsed.targets, {
-    proposer: { resources: ['guidance'] },
-    other: { resources: ['prompt'] },
-  });
-  assert.deepEqual(parsed.budget, {});
-  assert.deepEqual(parsed.implementation.config, {
-    instructions: join(root, 'prompt.md'),
-    mode: 'conservative',
-  });
-  assert.equal(Object.hasOwn(parsed.implementation.config, 'agentRef'), false);
-  assert.deepEqual(definition.implementation, {
-    contract: reflectionContract.id,
-    ref: 'reflection.custom',
-    config: { instructions: './prompt.md' },
-  });
-  assert.notEqual(
-    (await load({ ...definition, goal: './other-goal.md' })).digest,
-    parsed.digest,
-  );
-});
-test('Reflection budgets apply only when explicitly configured', async (t) => {
-  const { definition, load } = await fixture(t);
-  const defaults: JsonObject[] = [{}, { timeoutSeconds: 600 }];
-  for (const budget of defaults) {
-    const parsed = await load({ ...definition, budget });
-    assert.equal(parsed.budget.modelCalls, undefined);
-    assert.equal(
-      parsed.budget.elapsedWallMs,
-      'timeoutSeconds' in budget ? 600000 : undefined,
-    );
-  }
-  for (const modelCalls of [0, 2, 50, 80])
-    assert.equal(
-      (await load({ ...definition, budget: { modelCalls } })).budget.modelCalls,
-      modelCalls,
-    );
-  const invalid: JsonObject[] = [
-    { modelCalls: -1 },
-    { modelCalls: null },
-    { modelCalls: 1.5 },
-    { modelCalls: Number.MAX_SAFE_INTEGER + 1 },
-    { timeoutSeconds: 0 },
-    { timeoutSeconds: -1 },
-    { timeoutSeconds: 2147484 },
-    { timeoutSeconds: Number.MAX_SAFE_INTEGER },
-    { elapsedWallMs: 120000 },
-  ];
-  for (const budget of invalid)
-    await assert.rejects(load({ ...definition, budget }), /budget/);
-});
-
-test('Reflection loads and locks an optional positive safe evidence byte budget', async (t) => {
-  const { definition, load } = await fixture(t);
-  const parsed = await load({
-    ...definition,
-    budget: { evidenceBytes: 64 * 1024 * 1024 },
-  });
-  assert.equal(parsed.budget.evidenceBytes, 64 * 1024 * 1024);
-  assert.deepEqual(
-    parseLockedReflection(JSON.parse(JSON.stringify(parsed))).budget,
-    parsed.budget,
-  );
-  for (const evidenceBytes of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-    await assert.rejects(
-      load({ ...definition, budget: { evidenceBytes } }),
-      /budget.evidenceBytes/,
-    );
-  }
-});
-test('Reflection goal files resolve from the selected config and lock UTF-8 contents', async (t) => {
-  const { root, definition, load } = await fixture(t);
-  const first = await load();
-  assert.equal(first.goal, 'Improve reusable guidance');
-  await writeFile(join(root, 'goal.md'), 'Revised goal at the same path');
-  const changed = await load();
-  assert.notEqual(changed.digest, first.digest);
-  assert.equal(changed.goal, 'Revised goal at the same path');
-  await assert.rejects(
-    load({ ...definition, goal: './missing.md' }),
-    /goal: cannot read/,
-  );
-  await writeFile(join(root, 'goal.md'), '  \n');
-  await assert.rejects(load(), /goal: file is empty/);
-  await writeFile(join(root, 'goal.md'), Buffer.from([0xff]));
-  await assert.rejects(load(), /goal: cannot read UTF-8/);
-});
-test('Reflection requires explicit registered implementation, contract and builtin Agent binding', async (t) => {
-  const { definition, load } = await fixture(t);
-  const implementations: JsonObject[] = [
-    { contract: reflectionContract.id },
-    { contract: reflectionContract.id, ref: '' },
-    { ref: 'reflection.custom' },
-    { contract: agentContract.id, ref: 'reflection.custom' },
-    { contract: reflectionContract.id, ref: 'agent.test' },
-    { contract: reflectionContract.id, ref: 'reflection.missing' },
-  ];
-  for (const implementation of implementations)
-    await assert.rejects(
-      load({ ...definition, implementation }),
-      /implementation|Unknown plugin/,
-    );
-  const builtin = { contract: reflectionContract.id, ref: 'reflection.agent' };
-  const agentConfigs: JsonObject[] = [
-    {},
-    { agentRef: '' },
-    { agentRef: 'missing' },
-    { agentRef: 'proposer' },
-  ];
-  for (const config of agentConfigs)
-    await assert.rejects(
-      load({ ...definition, implementation: { ...builtin, config } }),
-      /agentRef/,
-    );
-  for (const field of ['maxContextBytes', 'maxModelCalls'])
-    await assert.rejects(
-      load({
-        ...definition,
-        implementation: {
-          ...builtin,
-          config: { agentRef: 'agent', [field]: 100 },
-        },
-      }),
-      new RegExp(field),
-    );
-  const parsed = await load({
-    ...definition,
-    implementation: { ...builtin, config: { agentRef: 'agent' } },
-  });
-  assert.equal(parsed.implementation.config.agentRef, 'agent');
-  assert.equal(parsed.implementation.config.maxModelCalls, undefined);
-  assert.equal(parsed.implementation.config.maxContextBytes, undefined);
-  assert.ok(
-    (
-      await readFile(String(parsed.implementation.config.prompt), 'utf8')
-    ).trim(),
-  );
-  const zero = await load({
-    ...definition,
-    implementation: { ...builtin, config: { agentRef: 'agent.default' } },
-    budget: { modelCalls: 0 },
-  });
-  assert.equal(zero.budget.modelCalls, 0);
-  assert.equal(zero.implementation.config.maxModelCalls, undefined);
-});
-test('Reflection rejects legacy rules, unknown fields and invalid target or evidence authorization', async (t) => {
-  const { definition, load } = await fixture(t);
-  const invalid: JsonObject[] = [
-    { rules: [] },
-    { ...definition, enabled: true },
-    { ...definition, evidence: [] },
-    { ...definition, evidence: ['proposer', 'proposer'] },
-    { ...definition, evidence: ['missing'] },
-    { ...definition, targets: {} },
-    { ...definition, targets: { missing: { resources: ['guidance'] } } },
-    {
-      ...definition,
-      targets: { proposer: { resources: ['guidance', 'guidance'] } },
-    },
-    { ...definition, targets: { proposer: { resources: ['label'] } } },
-    {
-      ...definition,
-      targets: { proposer: { resources: ['guidance'], config: [] } },
-    },
-    { ...definition, goal: ' ' },
-  ];
-  for (const value of invalid)
-    await assert.rejects(load(value), /reflection\.yaml:/);
-});
-test('Reflection checks configured read-only resources before execution', async (t) => {
-  const { root, load } = await fixture(t);
-  await rm(join(root, 'prompt.md'));
-  await assert.rejects(
-    load(),
-    /reflection.yaml.*targets.proposer\/prompt: cannot read resource/,
-  );
-});
-const policy = {
-  schemaVersion: 'rsi.policy/v1',
-  id: 'policy.config-test',
-  input_schema: { type: 'object' },
-  output_schema: { type: 'object' },
-  defaults: {
-    reflection: { configFile: './missing-is-not-read-during-compilation.yaml' },
-  },
-  output: '${{ steps.improve.output }}',
-  steps: [{ id: 'improve', type: 'reflection' }],
-};
-test('Policy compiler registers Reflection separately from raw generator contracts and enforces serial empty calls', () => {
-  const compiled = new Policy(policy);
-  assert.equal(compiled.steps[0]?.type, 'reflection');
-  assert.deepEqual(compiled.requirements, {});
-  assert.throws(
-    () => new Policy({ ...policy, defaults: {} }),
-    /defaults.reflection/,
-  );
-  assert.throws(
-    () =>
-      new Policy({
-        ...policy,
-        require: { reflection: { contract: reflectionContract.id } },
-      }),
-    /reserved/,
-  );
-  assert.throws(
-    () =>
-      new Policy({
-        ...policy,
-        defaults: { reflection: { ref: './legacy.yaml' } },
-      }),
-    /migrate.*configFile/,
-  );
-  assert.throws(
-    () => new Policy({ ...policy, defaults: { reflection: {} } }),
-    /configFile/,
-  );
-  assert.throws(
-    () =>
-      new Policy({
-        ...policy,
-        steps: [
-          { id: 'improve', type: 'reflection', with: { goal: 'Override' } },
-        ],
-      }),
-    /unknown field with/,
-  );
-  assert.doesNotThrow(
-    () =>
-      new Policy({
-        ...policy,
-        steps: [{ id: 'improve', type: 'reflection' }],
-      }),
-  );
-  const concurrent = {
-    ...policy,
-    output: {},
-    steps: [
-      {
-        id: 'batch',
-        type: 'foreach',
-        foreach: [1],
-        as: 'entry',
-        key: '${{ entry }}',
-        concurrency: 2,
-        steps: [{ id: 'improve', type: 'reflection' }],
-      },
-    ],
-  };
-  assert.throws(() => new Policy(concurrent), /parallel.*Reflection/);
-  const declarationOnly = new Policy({
-    ...policy,
-    output: {},
-    steps: [],
-  });
-  assert.equal(declarationOnly.steps.length, 0);
-});
-test('Recipe validation loads only the selected whole Reflection file before execution', async (t) => {
-  const { root, registry, bindings, definition, load } = await fixture(t);
-  await load();
-  const runtime = await createRuntime({ rootDirectory: join(root, 'runtime') });
-  t.after(() => runtime.dispose());
-  for (const id of ['reflection.custom', 'proposer.test'])
-    runtime.registry.registerOperation(registry.get(id));
-  runtime.registry.registerOperation({
-    id: 'application.test',
-    contract: applicationContract,
-    configSchema: { type: 'object', additionalProperties: false },
+    configSchema: agentPiSchema,
     async create() {
-      throw new Error('validation must not instantiate the Application');
+      throw new Error('unexpected activation');
     },
   });
-  const selected = join(root, 'reflection.yaml');
-  const policyPath = join(root, 'policy.yaml');
-  const definitionPolicy: JsonObject = {
+  register('reflection.agent', reflectionContract, {
+    agentRef: { type: 'string' },
+    prompt: file,
+  });
+  register('reflection.test', reflectionContract);
+  register('memory.agent', memoryContract, {
+    agentRef: { type: 'string' },
+    prompt: file,
+  });
+  const policy: JsonObject = {
     schemaVersion: 'rsi.policy/v1',
-    id: 'policy.preflight',
+    id: 'learning',
     input_schema: { type: 'object' },
-    output_schema: { type: 'object' },
+    output_schema: true,
     require: {
       proposer: { contract: proposerContract.id },
-      other: { contract: proposerContract.id },
+      backend: { contract: agentContract.id },
     },
     defaults: {
-      reflection: { configFile: './missing-default.yaml' },
       bindings: {
         proposer: {
-          plugin: bindings.proposer!.plugin,
-          config: bindings.proposer!.config,
+          plugin: 'proposer.test',
+          config: { guidance: './guidance' },
         },
-        other: {
-          plugin: bindings.other!.plugin,
-          config: bindings.other!.config,
-        },
+        backend: { plugin: 'agent.test' },
       },
     },
-    output: {},
-    steps: [],
+    steps: [
+      {
+        id: 'search',
+        type: 'loop',
+        maxIterations: 2,
+        steps: [{ id: 'propose', type: 'invoke', use: 'proposer' }],
+      },
+    ],
+    output: null,
   };
-  await writeFile(policyPath, stringify(definitionPolicy));
-  runtime.registry.registerPolicy('policy.preflight', policyPath);
-  const recipePath = join(root, 'recipe.yaml');
-  const recipe: JsonObject = {
+  const decl = {
     schemaVersion: 'rsi.recipe/v1',
-    id: 'recipe.preflight',
+    id: 'probe',
     application: { plugin: 'application.test' },
-    policy: { id: 'policy.preflight' },
-    reflection: { configFile: './reflection.yaml' },
+    policy: { id: 'learning' },
   };
-  await writeFile(recipePath, stringify(recipe));
+  const policyPath = join(policyDir, 'policy.yaml');
+  registry.registerPolicy('learning', policyPath);
+  async function load(overrides: JsonObject) {
+    await writeFile(policyPath, JSON.stringify(policy));
+    return Recipe.fromJSON({ ...decl, ...overrides }, registry, {
+      sourcePath: join(recipeDir, 'recipe.yaml'),
+    });
+  }
+  return { root, registry, policy, policyDir, recipeDir, load };
+}
+
+test('zero-configuration learning resolves real Agent schema defaults and all eligible Policy targets', async (t) => {
+  const f = await fixture(t);
+  const recipe = await f.load({});
+  assert.equal(recipe.memory?.config.agentRef, '_learningAgent');
+  assert.equal(recipe.reflection?.config.agentRef, '_learningAgent');
+  assert.equal(recipe.bindings._learningAgent!.config.model, '${MODEL_NAME}');
   assert.equal(
-    (await Recipe.load(recipePath, runtime.registry)).id,
-    'recipe.preflight',
+    recipe.bindings._learningAgent!.config.base_url,
+    '${MODEL_ENDPOINT}',
   );
-  assert.deepEqual(await runtime.manager.facts.list('calls'), []);
-  // An invalid selected override is never replaced by a valid default file.
-  await writeFile(join(root, 'missing-default.yaml'), stringify(definition));
-  await writeFile(selected, stringify({ ...definition, evidence: [] }));
-  await assert.rejects(
-    Recipe.load(recipePath, runtime.registry),
-    /reflection.yaml.*evidence/,
+  assert.equal(
+    recipe.bindings._learningAgent!.config.api_key,
+    '${MODEL_API_KEY}',
   );
-  const withoutDeclaration = structuredClone(definitionPolicy);
-  delete object(withoutDeclaration.defaults).reflection;
-  await writeFile(policyPath, stringify(withoutDeclaration));
-  await assert.rejects(
-    Recipe.load(recipePath, runtime.registry),
-    /does not declare defaults.reflection/,
+  assert.deepEqual(recipe.memory?.trigger, { on: 'loop-iteration', every: 1 });
+  assert.deepEqual(recipe.reflection?.targets, {
+    proposer: { resources: ['/guidance'] },
+  });
+  assert.deepEqual(recipe.memory?.consumers, ['proposer', 'backend']);
+  assert.equal(recipe.memory?.goalFile.endsWith('goal.md'), true);
+  assert.equal(
+    Object.hasOwn(object(recipe.toJSON().bindings), '_learningAgent'),
+    false,
   );
+});
+
+test('Recipe toggles preserve or replace a Policy file and skip disabled configuration', async (t) => {
+  const f = await fixture(t);
+  object(f.policy.defaults).memory = { configFile: './memory.yaml' };
+  object(f.policy.defaults).reflection = false;
+  await writeFile(
+    join(f.policyDir, 'memory.yaml'),
+    JSON.stringify({
+      goal: './goal.md',
+      trigger: { on: 'after-step', step: 'propose', every: 2 },
+      evidence: {
+        view: 'training-summary',
+        includeBindings: ['proposer'],
+        excludeSteps: ['search'],
+      },
+      targets: { exclude: ['backend'] },
+      implementation: { config: { agentRef: 'backend' } },
+    }),
+  );
+  const inherited = await f.load({ memory: true });
+  assert.equal(inherited.memory?.goal, 'policy goal');
+  assert.equal(inherited.memory?.config.agentRef, 'backend');
+  assert.deepEqual(inherited.memory?.consumers, ['proposer']);
+  assert.deepEqual(inherited.memory?.trigger, {
+    on: 'after-step',
+    step: 'propose',
+    every: 2,
+  });
+  assert.deepEqual(inherited.memory?.observe.excludeSteps, ['steps/search']);
+  assert.equal(inherited.bindings._learningAgent, undefined);
+  await writeFile(
+    join(f.recipeDir, 'memory.yaml'),
+    JSON.stringify({
+      implementation: {
+        ref: 'memory.test',
+        config: { goalFile: './override.md' },
+      },
+      directory: './missing',
+    }),
+  );
+  const override = await f.load({
+    memory: { configFile: './memory.yaml' },
+    reflection: true,
+  });
+  assert.equal(override.memory?.seed?.directory, join(f.recipeDir, 'missing'));
+  assert.equal(
+    override.memory?.config.goalFile,
+    join(f.recipeDir, 'override.md'),
+  );
+  assert.deepEqual(override.memory?.trigger, {
+    on: 'loop-iteration',
+    every: 1,
+  });
+  assert.equal(override.reflection?.config.agentRef, '_learningAgent');
+  await rm(join(f.policyDir, 'memory.yaml'));
+  assert.equal((await f.load({ memory: false })).memory, undefined);
+});
+
+test('definition locks preserve learning configurations, source directories, seed artifacts and Agent settings across recovery', async (t) => {
+  const f = await fixture(t);
+  await writeFile(
+    join(f.recipeDir, 'memory.yaml'),
+    JSON.stringify({ directory: './seed' }),
+  );
+  const recipe = await f.load({ memory: { configFile: './memory.yaml' } });
+  const store = new FileArtifacts(join(f.root, 'artifacts'));
+  const dir = join(f.root, 'lock');
+  const locked = await lockDefinition(recipe, f.registry, store, dir);
+  const memory = parseLockedMemory(locked.memory!),
+    reflection = parseLockedReflection(locked.reflection!);
+  assert.equal(
+    readResourceOrigins(locked)._memory!['/directory'],
+    join(f.recipeDir, 'seed'),
+  );
+  assert.equal(
+    object(locked.plugins)['agent.pi'],
+    f.registry.identity('agent.pi'),
+  );
+  const tree = object(await store.readJson(memory.seedArtifactRef!));
+  assert.ok(
+    Array.isArray(tree.files) &&
+      tree.files.some((x) => object(x).path === 'notes.md'),
+  );
+  await rm(join(f.recipeDir, 'memory.yaml'));
+  await rm(join(f.recipeDir, 'seed'), { recursive: true });
+  const recovered = await Recipe.fromJSON(locked.recipe, f.registry, {
+    sourcePath: recipe.sourcePath,
+    policy: recipe.policy,
+    lockedLearning: true,
+    memory,
+    reflection,
+  });
+  const retried = await lockDefinition(
+    recovered,
+    f.registry,
+    store,
+    dir,
+    { ref: 'retry-probe' },
+    locked,
+  );
+  assert.deepEqual(retried.memory, locked.memory);
+  assert.equal(
+    recovered.bindings._learningAgent!.config.model,
+    '${MODEL_NAME}',
+  );
+  assert.equal(await readFile(memory.goalFile, 'utf8'), memory.goal);
+  const empty = await f.load({});
+  const emptyLock = await lockDefinition(
+    empty,
+    f.registry,
+    store,
+    join(f.root, 'empty-lock'),
+  );
+  assert.deepEqual(
+    await store.readJson(string(object(emptyLock.memory).seedArtifactRef)),
+    { kind: 'file-tree', files: [] },
+  );
+});
+
+test('invalid learning declarations, resources, filters and parallel triggers reject before execution', async (t) => {
+  const f = await fixture(t);
+  const steps = f.policy.steps;
+  assert.ok(Array.isArray(steps));
+  steps.push({
+    id: 'fanout',
+    type: 'foreach',
+    foreach: [1, 2],
+    as: 'item',
+    key: '${{ item }}',
+    concurrency: 2,
+    steps: [{ id: 'inside', type: 'invoke', use: 'proposer' }],
+  });
+  for (const [kind, configuration, reason] of [
+    [
+      'memory',
+      { implementation: { config: { agentRef: 'proposer' } } },
+      /agentRef/,
+    ],
+    [
+      'memory',
+      { trigger: { on: 'after-step', step: 'inside' } },
+      /parallel foreach/,
+    ],
+    [
+      'memory',
+      { trigger: { on: 'loop-end', step: 'search' } },
+      /step|required/,
+    ],
+    ['memory', { trigger: { every: 0 } }, /every/],
+    [
+      'memory',
+      { evidence: { excludeSteps: ['absent'] } },
+      /Unknown learning step/,
+    ],
+    ['memory', { targets: { include: ['absent'] } }, /unknown binding/],
+    ['memory', { directory: './override.md' }, /directory/],
+    ['memory', { directory: './.rsi/private' }, /Protected/],
+    [
+      'reflection',
+      { targets: { exclude: { proposer: ['absent'] } } },
+      /not declared/,
+    ],
+    [
+      'reflection',
+      { targets: { include: { absent: ['*'] } } },
+      /unknown binding/,
+    ],
+    ['reflection', { trigger: { afterPolicy: true } }, /additional properties/],
+  ] as const) {
+    await writeFile(
+      join(f.recipeDir, 'invalid.yaml'),
+      JSON.stringify(configuration),
+    );
+    await assert.rejects(
+      f.load({ [kind]: { configFile: './invalid.yaml' } }),
+      reason,
+    );
+  }
+  await assert.rejects(f.load({ memory: { enabled: false } }), /recipe/);
 });

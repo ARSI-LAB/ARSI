@@ -8,7 +8,6 @@ export type ProposerInput = {
   goal: string;
   evidenceRefs: string[];
   sources?: { candidateRef: string; measurementRef?: string }[];
-  memoryRef?: string | null;
   observations?: JsonObject;
   editConstraints?: JsonObject;
   maxCandidates?: number;
@@ -77,17 +76,6 @@ export const singleProposerInputSchema: JsonObject & {
     goal: {
       minLength: 1,
       type: 'string',
-    },
-    memoryRef: {
-      anyOf: [
-        {
-          minLength: 1,
-          type: 'string',
-        },
-        {
-          type: 'null',
-        },
-      ],
     },
     parent: {
       minLength: 1,

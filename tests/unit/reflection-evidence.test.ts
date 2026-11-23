@@ -17,7 +17,7 @@ import {
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
-import { collectReflectionEvidence } from '../../src/runtime/revisions/evidence.js';
+import { collectLearningEvidence } from '../../src/runtime/learning/evidence.js';
 import { object, string } from '../../src/shared/json.js';
 import { createReflectionAgent } from '../../src/plugins/reflection-agent/service.js';
 
@@ -56,15 +56,16 @@ async function fixture(t: TestContext) {
   const collect = async (
     id: string,
     second: number,
-    extra: Partial<Parameters<typeof collectReflectionEvidence>[0]> = {},
+    extra: Partial<Parameters<typeof collectLearningEvidence>[0]> = {},
   ) => {
-    const result = await collectReflectionEvidence({
+    const result = await collectLearningEvidence({
+      kind: 'reflection',
       context,
-      names: ['proposer'],
+      observe: { bindings: ['proposer'] },
       identity: id,
       capturedAt: at(second),
       policyScopeId: 'root',
-      moduleKey: 'module',
+      configDigest: 'module',
       directory: root,
       isAgentBinding: (binding) => binding === 'agent',
       ...extra,
@@ -85,9 +86,9 @@ test('Reflection respects the supplied evidence byte limit and reports omitted c
   const { result, snapshot } = await f.collect('bounded', 2, { maxBytes: 256 });
   assert.deepEqual(result.callIds, ['large']);
   const content = string(
-    object(snapshot.files)['context/reflection/calls/large.json'],
+    object(snapshot.files)['context/learning/calls/large.json'],
   );
-  assert.match(content, /truncated: Reflection evidence byte limit/);
+  assert.match(content, /truncated: learning evidence byte limit/);
   assert.doesNotMatch(content, /END_OF_OBSERVATION/);
   assert.ok(Buffer.byteLength(content) < 512);
   assert.ok(
@@ -174,11 +175,11 @@ test('the same qualified binding in separate Policy executions does not share ob
   await f.call('a-work', 'child.worker', 1, { parentCallId: 'scope-a' });
   await f.call('b-work', 'child.worker', 2, { parentCallId: 'scope-b' });
   const a = await f.collect('a1', 3, {
-    names: ['child.worker'],
+    observe: { bindings: ['child.worker'] },
     policyScopeId: 'scope-a',
   });
   const b = await f.collect('b1', 3, {
-    names: ['child.worker'],
+    observe: { bindings: ['child.worker'] },
     policyScopeId: 'scope-b',
   });
   assert.deepEqual(a.result.callIds, ['a-work']);
@@ -186,47 +187,29 @@ test('the same qualified binding in separate Policy executions does not share ob
   assert.equal(b.snapshot.windowStart, null);
 });
 
-test('late associated results are narrowly attributable, deduplicated and usable without new primary calls', async (t) => {
+test('evidence filters also apply to late evaluations referencing an admitted candidate', async (t) => {
   const f = await fixture(t);
   await f.call('proposal', 'proposer', 1, {
-    input: { parent: 'base', taskId: 'task' },
-    output: { candidateRef: 'candidate' },
-  });
-  const first = await f.collect('r1', 2);
-  assert.equal(first.result.callCount, 1);
-  await f.call('late-eval', 'evaluator', 3, {
-    input: { candidateRef: 'candidate' },
-    output: {},
-    status: 'failed',
-    error: 'evaluation failed before measurement',
-  });
-  await f.call('future-eval', 'evaluator', 8, {
-    input: { candidateRef: 'candidate' },
-    output: {},
-  });
-  const second = await f.collect('r2', 4);
-  assert.deepEqual(second.result.callIds, []);
-  assert.equal(second.result.callCount, 1);
-  assert.deepEqual(
-    (object(second.snapshot.index).lateResults as JsonObject[]).map(
-      (entry) => entry.callId,
-    ),
-    ['late-eval'],
-  );
-  assert.equal(JSON.stringify(second.snapshot).includes('future-eval'), false);
-  const third = await f.collect('r3', 5);
-  assert.equal(third.result.callCount, 0);
-  await f.call('ambiguous-producer', 'otherProposer', 6, {
     input: { parent: 'base' },
     output: { candidateRef: 'candidate' },
   });
-  const fourth = await f.collect('r4', 9);
-  assert.equal(fourth.result.callCount, 0);
-  assert.ok(
-    (object(fourth.snapshot.index).diagnostics as JsonObject[]).some(
-      (entry) => entry.code === 'ambiguous-candidate-result',
-    ),
-  );
+  await f.collect('first', 2);
+  await f.call('held-out', 'evaluator', 3, {
+    input: { candidateRef: 'candidate' },
+    output: {},
+    error: 'held-out marker',
+  });
+  const restricted = await f.collect('next', 4);
+  assert.equal(restricted.result.callCount, 0);
+  assert.doesNotMatch(JSON.stringify(restricted.snapshot), /held-out marker/);
+  const independent = await f.collect('memory', 4, {
+    kind: 'memory',
+    observe: {
+      bindings: ['proposer', 'evaluator'],
+      excludeBindings: ['proposer'],
+    },
+  });
+  assert.deepEqual(independent.result.callIds, ['held-out']);
 });
 
 test('actual request, workspace, diagnostic trace and patch files are readable and scoring fields are projected out', async (t) => {
@@ -288,13 +271,11 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
   const { snapshot } = await f.collect('r1', 3);
   const files = object(snapshot.files);
   assert.match(
-    string(files['context/reflection/calls/proposal-descendant-agent.json']),
+    string(files['context/learning/calls/proposal-descendant-agent.json']),
     /actual agent task/,
   );
   const workspace = JSON.parse(
-    string(
-      files['context/reflection/calls/proposal-workspace-agent/index.json'],
-    ),
+    string(files['context/learning/calls/proposal-workspace-agent/index.json']),
   ) as JsonObject[];
   const instructions = workspace.find(
     (file) => file.sourcePath === 'AGENTS.md',
@@ -305,11 +286,11 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
     /Inspect the proposed changes/,
   );
   assert.match(
-    string(files['context/reflection/calls/proposal-trace-agent.jsonl']),
+    string(files['context/learning/calls/proposal-trace-agent.jsonl']),
     /read_file/,
   );
   assert.match(
-    string(files['context/reflection/calls/proposal-patch.json']),
+    string(files['context/learning/calls/proposal-patch.json']),
     /useful actual patch/,
   );
   const delivered = JSON.stringify(files);
@@ -331,24 +312,34 @@ test('Memory snapshots are explicit, decoded and source-referenced', async (t) =
       },
     ],
   });
-  await f.call('memory', 'memoryUpdater', 1, { output: { memoryRef } });
+  await f.call('memory', '_memory', 1, { output: { resourceRef: memoryRef } });
   const absent = await f.collect('r1', 2);
   assert.equal(
     JSON.stringify(absent.snapshot).includes('retained reported experience'),
     false,
   );
   const present = await f.collect('selected', 2, {
-    names: ['memoryUpdater'],
-    moduleKey: 'memory-module',
+    observe: { bindings: ['memory'] },
+    configDigest: 'memory-module',
   });
   const files = object(present.snapshot.files);
   assert.equal(
-    files['context/reflection/calls/memory-memoryRef.json/0.txt'],
+    files['context/learning/calls/memory-memory/0.txt'],
     'retained reported experience',
   );
   assert.match(
-    string(files['context/reflection/calls/memory-memoryRef.json/index.json']),
+    string(files['context/learning/calls/memory-memory/index.json']),
     /experience.md/,
+  );
+  const training = await f.collect('summary', 2, {
+    observe: { bindings: ['memory'] },
+    view: 'training-summary',
+    configDigest: 'training-module',
+  });
+  assert.deepEqual(training.result.callIds, ['memory']);
+  assert.doesNotMatch(
+    JSON.stringify(training.snapshot),
+    /retained reported experience/,
   );
 });
 
@@ -408,14 +399,14 @@ test('one latest direct-previous-version call per binding supplies readable vers
   assert.match(
     string(
       object(snapshot.files)[
-        'context/reflection/versions/current-difference.patch'
+        'context/learning/versions/current-difference.patch'
       ],
     ),
     /-before\n\+after/,
   );
   assert.equal(
     object(snapshot.files)[
-      'context/reflection/versions/initial/bindings/proposer/resources/guidance/rules.md'
+      'context/learning/versions/initial/bindings/proposer/resources/guidance/rules.md'
     ],
     'before',
   );
@@ -536,7 +527,7 @@ test('execution filters scoring inputs while training-summary supplies only auth
     1,
   );
   const training = await f.collect('training', 2, {
-    moduleKey: 'training-module',
+    configDigest: 'training-module',
     view: 'training-summary',
     maxBytes: 4 * 1024 * 1024,
   });
@@ -590,7 +581,7 @@ test('composition source identities survive projection without expanding unselec
     output: { candidateRef: 'composed' },
   });
   const { snapshot } = await f.collect('composition-reflection', 3, {
-    names: ['composer'],
+    observe: { bindings: ['composer'] },
   });
   const calls = object(snapshot.index).calls as JsonObject[];
   assert.equal(calls.length, 1);
@@ -625,11 +616,12 @@ test('a rejected trigger with failed evidence preparation still bounds the next 
     /Invalid Measurement evidence index/,
   );
   assert.deepEqual(await f.facts.list('evidence-views'), []);
-  await f.facts.write('reflection', 'rejected-trigger', {
-    reflectionId: 'rejected-trigger',
+  await f.facts.write('learning-runs', 'rejected-trigger', {
+    kind: 'reflection',
+    learningId: 'rejected-trigger',
     experimentId: 'experiment',
     policyScopeId: 'root',
-    configFile: 'module',
+    configDigest: 'module',
     stepPath: 'first',
     startedAt: at(2),
     status: 'rejected',
@@ -770,10 +762,7 @@ test('authorized empty execution files remain readable by the Reflection Agent a
       };
     },
   });
-  const operation = await createReflectionAgent(
-    { prompt, evidenceView: 'execution' },
-    context,
-  );
+  const operation = await createReflectionAgent({ prompt }, context);
   try {
     const output = await operation.execute(
       {
@@ -850,7 +839,7 @@ test('ASCII PDF delivery reaches the Reflection Agent as page previews through e
       const index = object(
         JSON.parse(
           await readFile(
-            join(directory, 'context/reflection/index.json'),
+            join(directory, 'context/learning/index.json'),
             'utf8',
           ),
         ),
@@ -883,10 +872,7 @@ test('ASCII PDF delivery reaches the Reflection Agent as page previews through e
       return { edits: [], reason: 'Read all three pages' };
     },
   });
-  const operation = await createReflectionAgent(
-    { prompt, evidenceView: 'execution' },
-    context,
-  );
+  const operation = await createReflectionAgent({ prompt }, context);
   try {
     assert.equal(
       (
@@ -961,27 +947,25 @@ test('an observed binding with no new current-version call exposes only its dire
   );
   const files = object(emptyWindow.snapshot.files);
   assert.match(
-    string(
-      files['context/reflection/versions/generated-final-difference.patch'],
-    ),
+    string(files['context/learning/versions/generated-final-difference.patch']),
     /-original rule\n\+revised rule/,
   );
   assert.equal(
     files[
-      'context/reflection/versions/initial/bindings/proposer/resources/guidance/rules.md'
+      'context/learning/versions/initial/bindings/proposer/resources/guidance/rules.md'
     ],
     'original rule',
   );
   assert.equal(
     files[
-      'context/reflection/versions/generated-final/bindings/proposer/resources/guidance/rules.md'
+      'context/learning/versions/generated-final/bindings/proposer/resources/guidance/rules.md'
     ],
     'revised rule',
   );
   assert.equal(JSON.stringify(files).includes('before-call'), false);
   await f.call('new-memory-call', 'memoryUpdater', 4);
   const next = await f.collect('r3', 5, {
-    names: ['proposer', 'memoryUpdater'],
+    observe: { bindings: ['proposer', 'memoryUpdater'] },
     currentRevisionRefs: { proposer: 'generated-final' },
   });
   assert.equal(next.result.callCount, 1);
@@ -1023,7 +1007,7 @@ test('Reflection reads the current retry conversation and its payloads', async (
   assert.match(
     string(
       object(snapshot.files)[
-        'context/reflection/calls/proposal-trace-agent.jsonl'
+        'context/learning/calls/proposal-trace-agent.jsonl'
       ],
     ),
     /CURRENT_RETRY_TAIL/,

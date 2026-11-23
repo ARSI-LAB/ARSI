@@ -94,21 +94,11 @@ Application 在提交新候选前检查实际文件改动，超出范围、包�
 
 ### Memory
 
-Memory 需要 Policy 显式接入。Policy 调用 `memory.agent` 将证据和观察整理成可复用经验，保存返回的 `memoryRef`，再传给后续使用经验的步骤。例如：
-
-- **WikiSkill**：每轮训练评测后，用测评中的训练分数和执行证据更新经验，再传给本轮 Proposer，辅助改进 Skill。
-- **Harness²**：每个任务结束后，用执行过程中的执行轨迹更新经验，供后续任务的 Proposer 使用；
-
-更新失败时，Policy 可以继续。更详细的信息可见 [Memory 使用指南](memory_zh.md)。
+Runtime 在配置的串行边界调用 Memory 插件，校验证据生成的快照，并向后续获授权的绑定提供活动版本。WikiSkill 在训练评测后触发，Harness² 在任务结束后触发。参见 [Memory 使用指南](memory_zh.md)。
 
 ### Reflection
 
-Reflection 只需要 Policy 显式声明执行。在 Reflection配置文件中 指定允许修改的指导文件等资源，随后在Policy中声明 `type: reflection` 步骤调用 `reflection.agent`，根据执行证据提出修改。例如：
-
-- **Harness²**：已授权修改 Invariant Proposer 和 Domain Proposer 的 `guidance` 指导文件。`improve_guidance` 步骤默认注释；在自定义 Policy 中启用后，可更新这些文件，供后续 Proposer 生成提案时使用。
-
-通过校验的修改由 Runtime 在当前实验中启用，供后续插件调用读取使用。具体配置、资源授权和跨实验复用见 [Reflection 使用指南](reflection_zh.md)。
-
+Runtime 在配置的边界调用 Reflection 插件，校验授权范围内的资源修改，并为后续调用激活修订。Harness² 预配置了 Invariant 与 Domain Proposer 的指导文件，默认启用。Recipe 可设置 `reflection: false` 关闭 Reflection。参见 [Reflection 使用指南](reflection_zh.md)。
 
 ### 推理配置候选
 

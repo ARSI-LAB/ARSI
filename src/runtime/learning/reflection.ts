@@ -1,5 +1,11 @@
-import { collectReflectionEvidence } from './evidence.js';
-import { errorText } from '../../shared/errors.js';
+import { persistFact } from '../storage/persistence-error.js';
+import {
+  runLearningCycle,
+  optionalFact,
+  type CycleOptions,
+  type LearningCycle,
+} from './runner.js';
+import type { LearningResult } from './records.js';
 import {
   pointerValue,
   assignPointer,
@@ -12,12 +18,10 @@ import { mkdir, readFile, lstat, writeFile, chmod } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type {
   Binding,
-  BudgetScope,
   FileTreeFile,
   RuntimeContext,
   JsonObject,
   JsonValue,
-  OperationDefinition,
 } from '../../contracts/index.js';
 import { parseFileTree } from '../../contracts/index.js';
 import {
@@ -30,42 +34,17 @@ import {
 import { validate } from '../../shared/schema.js';
 import { configPathFields } from '../../shared/paths.js';
 import { inside, safeId } from '../storage/index.js';
-import {
-  isTerminal,
-  readReflectionRecord,
-  readReflectionResult,
-  type ReflectionResult,
-  type ReflectionStatus,
-  type ReflectionTerminalStatus,
-} from './records.js';
 type Mapping = {
   kind: string;
   binding: string;
   pointer: string;
   changes: JsonValue[];
-  maxBytes?: number;
 };
-export interface ReflectionOptions {
+export interface ReflectionOptions extends CycleOptions {
   config: ReflectionConfig;
-  invocation: { policyScopeId: string; stepPath: string; attempt?: string };
-  priorAttempts?: readonly JsonObject[];
-  generatorCommitted?(reflectionId: string): boolean;
-  generatorBinding: string;
-  state: JsonObject;
-  bindings: Readonly<Record<string, Binding>>;
   sourceResources?: Readonly<Record<string, Readonly<Record<string, string>>>>;
-  context: RuntimeContext;
-  directory: string;
-  revisionRefs: Readonly<JsonObject>;
   /** Publish initial parents only after every target snapshot is durable. */
   initialize(parents: JsonObject): void;
-  getDefinition(id: string): OperationDefinition;
-  invoke(
-    binding: string,
-    value: JsonValue,
-    key: string,
-    scope: BudgetScope,
-  ): Promise<JsonValue>;
   save(
     changes: Record<string, Binding>,
     revisions: JsonObject,
@@ -79,19 +58,6 @@ function text(file: FileTreeFile): string {
   return new TextDecoder('utf-8', { fatal: true }).decode(
     Buffer.from(file.base64, 'base64'),
   );
-}
-async function optionalFact(
-  options: ReflectionOptions,
-  kind: string,
-  id: string,
-): Promise<JsonObject | null> {
-  try {
-    return await options.context.facts.read(kind, id);
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
-      return null;
-    throw error;
-  }
 }
 function currentRevision(
   options: ReflectionOptions,
@@ -116,7 +82,7 @@ async function activationIncludes(
   revisions: JsonObject,
 ): Promise<boolean> {
   const committed = await optionalFact(
-    options,
+    options.context.facts,
     'activations',
     options.context.experimentId,
   );
@@ -127,164 +93,41 @@ async function activationIncludes(
     const visited = new Set<string>();
     while (typeof ref === 'string' && ref !== expected && !visited.has(ref)) {
       visited.add(ref);
-      const revision = await optionalFact(options, 'revisions', ref);
+      const revision = await optionalFact(
+        options.context.facts,
+        'revisions',
+        ref,
+      );
       ref = revision?.parentRef;
     }
     if (ref !== expected) return false;
   }
   return true;
 }
-/** Execute one explicit step; save alone owns the atomic active-pointer transition. */
+/** Prepare authorized target resources, validate the proposal and publish revisions together. */
 export async function reflect(
   options: ReflectionOptions,
-): Promise<ReflectionResult> {
-  options.context.signal.throwIfAborted();
-  for (const raw of options.priorAttempts ?? []) {
-    const prior = readReflectionRecord(raw);
-    if (
-      prior.status === 'validated' &&
-      (await activationIncludes(options, object(prior.revisions)))
-    ) {
-      return readReflectionResult({
-        reflectionId: prior.reflectionId,
-        status: 'activated',
-        revisionRefs: prior.revisions,
-        reason: prior.reason,
-      });
-    }
-    if (isTerminal(prior.status) && prior.status !== 'rejected')
-      return readReflectionResult(prior.result, string(prior.reflectionId));
-  }
-  const preparedAttempt = options.priorAttempts?.find(
-    (prior) =>
-      (prior.status === 'validated' ||
-        (prior.status === 'prepared' &&
-          typeof prior.reflectionId === 'string' &&
-          options.generatorCommitted?.(prior.reflectionId))) &&
-      prior.configFile === options.config.path &&
-      prior.configDigest === options.config.digest &&
-      Object.entries(object(prior.parents)).every(([binding, parent]) => {
-        const current = options.bindings[binding];
-        return current && currentRevision(options, binding, current) === parent;
+): Promise<LearningResult> {
+  return runLearningCycle(options, 'reflection', {
+    includes: (record) => activationIncludes(options, object(record.revisions)),
+    parentsMatch: (record) =>
+      Object.entries(object(record.parents)).every(([key, parent]) => {
+        const binding = options.bindings[key];
+        return binding && currentRevision(options, key, binding) === parent;
       }),
-  );
-  const identity = preparedAttempt
-    ? string(preparedAttempt.reflectionId)
-    : 'reflection-' +
-      digest({
-        experimentId: options.context.experimentId,
-        policyScopeId: options.invocation.policyScopeId,
-        stepPath: options.invocation.stepPath,
-        ...(options.invocation.attempt
-          ? { attempt: options.invocation.attempt }
-          : {}),
-      });
-  const rawPrior = await optionalFact(options, 'reflection', identity);
-  const prior = rawPrior ? readReflectionRecord(rawPrior) : null;
-  const metadata: JsonObject = {
-    interface: 'explicit-reflection/v1',
-    reflectionId: identity,
-    experimentId: options.context.experimentId,
-    policyScopeId: options.invocation.policyScopeId,
-    stepPath: options.invocation.stepPath,
-    configFile: options.config.path,
-    configDigest: options.config.digest,
-  };
-  if (
-    prior &&
-    (prior.interface !== metadata.interface ||
-      prior.configFile !== metadata.configFile ||
-      prior.configDigest !== metadata.configDigest)
-  )
-    throw new Error(
-      'Reflection configuration or checkpoint is incompatible with this invocation',
-    );
-  const scopeStartedAt =
-    typeof prior?.startedAt === 'string'
-      ? prior.startedAt
-      : new Date().toISOString();
-  let persisted: JsonObject = prior ?? {};
-  const save = async (
-    status: ReflectionStatus,
-    data: JsonObject = {},
-  ): Promise<void> => {
-    persisted = {
-      ...persisted,
-      ...data,
-      ...metadata,
-      startedAt: scopeStartedAt,
-      status,
-      reason: typeof data.reason === 'string' ? data.reason : status,
-    };
-    await options.context.facts.write('reflection', identity, persisted);
-  };
-  const finish = async (
-    status: ReflectionTerminalStatus,
-    data: JsonObject = {},
-  ): Promise<ReflectionResult> => {
-    const result = readReflectionResult({
-      reflectionId: identity,
-      status,
-      reason:
-        status === 'rejected' && typeof data.error === 'string'
-          ? data.error
-          : typeof data.reason === 'string'
-            ? data.reason
-            : typeof data.error === 'string'
-              ? data.error
-              : status,
-      revisionRefs: status === 'activated' ? object(data.revisions ?? {}) : {},
-    });
-    await save(status, { ...data, reason: result.reason, result });
-    return result;
-  };
-  if (prior && isTerminal(prior.status)) {
-    const result = readReflectionResult(prior.result, identity);
-    if (result.status !== prior.status)
-      throw new Error('Reflection result status mismatch');
-    return result;
-  }
-  const elapsedLimit = options.config.budget.elapsedWallMs;
-  const evidenceLimit = Math.min(
-    options.config.budget.evidenceBytes ?? Number.POSITIVE_INFINITY,
-    options.context.scope?.limits.evidenceBytes ?? Number.POSITIVE_INFINITY,
-  );
-  const elapsed = Date.now() - Date.parse(scopeStartedAt);
-  if (!Number.isFinite(elapsed))
-    throw new Error('Invalid persisted reflection start time');
-  const localTimeout =
-    elapsedLimit === undefined
-      ? undefined
-      : AbortSignal.timeout(Math.max(0, elapsedLimit - Math.max(0, elapsed)));
-  const scope: BudgetScope = {
-    id: identity,
-    signal: localTimeout
-      ? AbortSignal.any([options.context.signal, localTimeout])
-      : options.context.signal,
-    limits: {
-      ...(options.config.budget.modelCalls === undefined
-        ? {}
-        : { modelCalls: options.config.budget.modelCalls }),
-      ...(elapsedLimit === undefined ? {} : { elapsedWallMs: elapsedLimit }),
-      ...(Number.isFinite(evidenceLimit)
-        ? { evidenceBytes: evidenceLimit }
-        : {}),
-    },
-  };
-  const assertScope = (): void => {
-    options.context.signal.throwIfAborted();
-    if (
-      elapsedLimit !== undefined &&
-      Date.now() - Date.parse(scopeStartedAt) >= elapsedLimit
-    )
-      throw new Error('Reflection local wall budget exhausted');
-    scope.signal.throwIfAborted();
-  };
+    execute: (cycle) => reviseResources(options, cycle),
+  });
+}
+
+async function reviseResources(
+  options: ReflectionOptions,
+  cycle: LearningCycle,
+): Promise<LearningResult> {
+  const { prior, identity, assertScope, save, finish } = cycle;
   let workspace:
     | Awaited<ReturnType<RuntimeContext['workspaces']['create']>>
     | undefined;
   try {
-    if (!prior) await save('started');
     if (prior?.status === 'validated') {
       const changes = Object.fromEntries(
         Object.entries(object(prior.bindings)).map(([key, value]) => {
@@ -317,54 +160,15 @@ export async function reflect(
       }
       return finish('activated', prior);
     }
-    const collected = await collectReflectionEvidence({
-      context: options.context,
-      names: options.config.evidence,
-      identity,
-      capturedAt: scopeStartedAt,
-      maxBytes: scope.limits.evidenceBytes,
-      policyScopeId: options.invocation.policyScopeId,
-      moduleKey: options.config.path,
-      configDigest: options.config.digest,
-      stepPath: options.invocation.stepPath,
-      directory: options.directory,
-      currentRevisionRefs: options.revisionRefs,
-      isAgentBinding: (name) => {
-        const binding = options.bindings[name];
-        if (!binding) return false;
-        try {
-          return (
-            options.getDefinition(binding.plugin).contract.id ===
-            'contract.agent'
-          );
-        } catch {
-          return false;
-        } // Policy bindings are not operation definitions.
-      },
-      view:
-        options.config.implementation.config.evidenceView === 'training-summary'
-          ? 'training-summary'
-          : 'execution',
-      ...(typeof prior?.evidenceViewRef === 'string'
-        ? { priorRef: prior.evidenceViewRef }
-        : {}),
-    });
-    await save('evidence-prepared', {
-      evidenceViewRef: collected.ref,
-      callIds: collected.callIds,
-    });
+    const collected = await cycle.evidence();
     const evidenceRefs = collected.ref ? [collected.ref] : [];
+    if (!Object.keys(options.config.targets).length)
+      return finish('skipped', { reason: 'no editable resources' });
     workspace = await options.context.workspaces.create();
     const parents: JsonObject = {},
       manifest: JsonObject = {},
       mappings = new Map<string, Mapping>();
     // A prepared boundary must replay the same generator input and resource snapshot.
-    const legacyEditLimits =
-      prior?.status === 'prepared' &&
-      Object.hasOwn(
-        object(object(prior.input).editConstraints),
-        'maxChangedFiles',
-      );
     const projected = new Map<string, FileTreeFile>();
     const originals = new Map<string, JsonObject[]>();
     const register = (path: string, mapping: Mapping): void => {
@@ -381,7 +185,11 @@ export async function reflect(
         fields = configPathFields(plugin.configSchema, binding.config);
       const parent = currentRevision(options, key, binding);
       parents[key] = parent;
-      const parentFact = await optionalFact(options, 'revisions', parent);
+      const parentFact = await optionalFact(
+        options.context.facts,
+        'revisions',
+        parent,
+      );
       const selectedFields = selectedResourceFields(
         plugin.configSchema,
         binding.config,
@@ -444,7 +252,6 @@ export async function reflect(
           binding: key,
           pointer,
           changes: ['create', 'modify'],
-          ...(legacyEditLimits ? { maxBytes: 65536 } : {}),
         });
       }
     }
@@ -474,9 +281,10 @@ export async function reflect(
     const before = await options.context.artifacts.capture(workspace.directory);
     for (const key of Object.keys(options.config.targets)) {
       const parent = string(parents[key]);
-      if (await optionalFact(options, 'revisions', parent)) continue;
+      if (await optionalFact(options.context.facts, 'revisions', parent))
+        continue;
       const binding = options.bindings[key]!;
-      await options.context.facts.write('revisions', parent, {
+      await persistFact(options.context.facts, 'revisions', parent, {
         ref: parent,
         parentRef: null,
         rootRef: parent,
@@ -507,9 +315,6 @@ export async function reflect(
         allowedPaths: [...mappings.keys()].map((path) =>
           path.endsWith('/') ? path + '**/*' : path,
         ),
-        ...(legacyEditLimits
-          ? { maxChangedFiles: 16, maxChangedBytes: 131072 }
-          : {}),
       },
     };
     if (prior?.status === 'prepared') {
@@ -521,7 +326,6 @@ export async function reflect(
         throw new Error('Prepared Reflection input changed before recovery');
     } else
       await save('prepared', {
-        startedAt: scopeStartedAt,
         parents,
         resourceRef: before,
         input,
@@ -529,19 +333,7 @@ export async function reflect(
         evidenceViewRef: collected.ref,
       });
     assertScope();
-    if (
-      options.config.implementation.ref === 'reflection.agent' &&
-      scope.limits.modelCalls === 0
-    )
-      throw new Error('Reflection local model-call budget exhausted');
-    const result = object(
-      await options.invoke(
-        options.generatorBinding,
-        input,
-        `reflection/${identity}`,
-        scope,
-      ),
-    );
+    const result = object(await cycle.invoke(input));
     assertScope();
     if (result.status === 'no-change') {
       return finish('no-change', {
@@ -565,15 +357,12 @@ export async function reflect(
       oldTree = parseFiles(await options.context.artifacts.readJson(before)),
       newTree = parseFiles(await options.context.artifacts.readJson(after));
     const changedTargets = new Set<string>();
-    let total = 0,
-      changedFiles = 0;
+    let changedFiles = 0;
     for (const path of new Set([...oldTree.keys(), ...newTree.keys()])) {
       const a = oldTree.get(path),
         b = newTree.get(path);
       if (canonical(a ?? null) === canonical(b ?? null)) continue;
       changedFiles++;
-      if (legacyEditLimits && changedFiles > 16)
-        throw new Error('Reflection exceeds changed-file limit');
       const mapping =
         mappings.get(path) ??
         [...mappings].find(
@@ -588,24 +377,7 @@ export async function reflect(
       // Content edits preserve existing permissions; new text files may follow umask.
       if (b && ((b.mode & 0o111) !== 0 || (a && b.mode !== a.mode)))
         throw new Error('Reflection resource mode change denied');
-      const bytes = b ? Buffer.from(b.base64, 'base64').length : 0;
-      total += bytes;
-      if (legacyEditLimits && (bytes > 65536 || total > 131072))
-        throw new Error('Reflection resource exceeds byte limit');
       if (b) text(b);
-    }
-    for (const [path, mapping] of mappings) {
-      if (mapping.maxBytes === undefined) continue;
-      const size = [...newTree]
-        .filter(([file]) =>
-          path.endsWith('/') ? file.startsWith(path) : file === path,
-        )
-        .reduce(
-          (sum, [, file]) => sum + Buffer.from(file.base64, 'base64').length,
-          0,
-        );
-      if (size > mapping.maxBytes)
-        throw new Error('Reflection resource exceeds aggregate byte limit');
     }
     if (changedFiles === 0) {
       return finish('no-change', {
@@ -671,11 +443,11 @@ export async function reflect(
       revisions[key] = revision;
       changes[key] = { ...binding, config };
       const parentRevision = await optionalFact(
-        options,
+        options.context.facts,
         'revisions',
         string(parents[key]),
       );
-      await options.context.facts.write('revisions', revision, {
+      await persistFact(options.context.facts, 'revisions', revision, {
         ref: revision,
         parentRef: parents[key]!,
         experimentId: options.context.experimentId,
@@ -691,7 +463,7 @@ export async function reflect(
         pluginId: binding.plugin,
         config,
         resourceRef: after,
-        reflectionId: identity,
+        learningId: identity,
         reason: generationReason,
         status: 'validated',
       });
@@ -707,27 +479,6 @@ export async function reflect(
     assertScope();
     await options.save(changes, revisions, identity);
     return finish('activated', prepared);
-  } catch (error) {
-    const saved = await optionalFact(options, 'reflection', identity);
-    if (
-      saved?.status === 'validated' &&
-      (await activationIncludes(options, object(saved.revisions)))
-    ) {
-      const result = await finish('activated', saved);
-      options.context.signal.throwIfAborted();
-      return result;
-    }
-    const result = await finish('rejected', {
-      ...saved,
-      error: errorText(error),
-      parentRevisionRefs: prior?.parents ?? null,
-    });
-    if (
-      options.context.signal.aborted ||
-      (error instanceof Error && error.name === 'ExperimentBudgetExceeded')
-    )
-      throw error;
-    return result;
   } finally {
     if (workspace) await options.context.workspaces.release(workspace.ref);
   }

@@ -38,7 +38,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
       services.event.on('rsi/policy-step-completed', (event) => {
         if (
           event.policyScopeId === 'root' &&
-          event.stepPath === 'steps/improve' &&
+          event.stepPath === 'steps/finish' &&
           interruption
         ) {
           const controller = interruption;
@@ -132,23 +132,17 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
     use: 'worker',
   }));
   const config = (goal: string): JsonObject => ({
-    evidence: ['worker'],
-    targets: { worker: { resources: ['prompt'] } },
+    trigger: { on: 'after-step', step: 'work2' },
+    evidence: { includeBindings: ['worker'] },
+    targets: { include: { worker: ['prompt'] } },
     goal,
-    implementation: {
-      contract: reflectionContract.id,
-      ref: 'scoped.generator',
-      config: {},
-    },
+    implementation: { ref: 'scoped.generator', config: {} },
     budget: { modelCalls: 0, evidenceBytes: 4096 },
   });
   await writeFile(join(root, 'prompt.md'), 'current guidance');
   await writeFile(join(root, 'override-goal.md'), 'root override goal');
   await writeFile(join(root, 'changed-goal.md'), 'changed root goal');
-  await writeFile(
-    join(root, 'override.yaml'),
-    JSON.stringify(config('./override-goal.md')),
-  );
+
   const policy: JsonObject = {
     schemaVersion: 'rsi.policy/v1',
     id: 'scoped.root',
@@ -156,17 +150,14 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
     output_schema: { type: 'object' },
     require: { worker: { contract: worker.contract.id } },
     defaults: {
+      memory: false,
       reflection: { configFile: './missing-default.yaml' },
       bindings: {
         worker: { plugin: worker.id, config: { prompt: './prompt.md' } },
       },
     },
-    steps: [
-      ...workSteps,
-      { id: 'improve', type: 'reflection' },
-      { id: 'improve_again', type: 'reflection' },
-    ],
-    output: '${{ steps.improve_again.output }}',
+    steps: [...workSteps, { id: 'finish', type: 'state', state: {} }],
+    output: {},
   };
   const policyPath = join(root, 'policy.yaml');
   await writeFile(policyPath, JSON.stringify(policy));
@@ -177,9 +168,13 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
     id: 'scoped',
     application: { plugin: 'scoped.application', config: {} },
     policy: { id: 'scoped.root', input: {}, config: {} },
-    reflection: { configFile: './override.yaml' },
+    reflection: { configFile: './reflection.yaml' },
     budget: { operations: 100, elapsedWallMs: 30000, cleanupReserveMs: 1000 },
   };
+  await writeFile(
+    join(root, 'reflection.yaml'),
+    JSON.stringify(config('./override-goal.md')),
+  );
   await writeFile(recipePath, JSON.stringify(recipe));
   interruption = new AbortController();
   await assert.rejects(
@@ -190,20 +185,19 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   assert.deepEqual(generations, [
     { binding: '_reflection', goal: 'root override goal' },
   ]);
-  const partial = (await manager.facts.list('reflection')).filter(
+  const partial = (await manager.facts.list('learning-runs')).filter(
     (fact) => fact.experimentId === 'scoped',
   );
   assert.equal(partial.length, 1);
   assert.equal(partial[0]!.policyScopeId, 'root');
   const resumed = await manager.run(recipePath, { id: 'scoped', resume: true });
   assert.equal(resumed.status, 'succeeded');
-  assert.equal(object(resumed.output).status, 'skipped');
   assert.equal(initializations, 1);
   assert.equal(generations.length, 1);
-  const completed = (await manager.facts.list('reflection')).filter(
+  const completed = (await manager.facts.list('learning-runs')).filter(
     (fact) => fact.experimentId === 'scoped',
   );
-  assert.equal(completed.length, 2);
+  assert.equal(completed.length, 1);
   const initialRevision = (await manager.facts.list('revisions')).find(
     (record) => record.experimentId === 'scoped' && record.binding === 'worker',
   );
@@ -224,8 +218,8 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   );
 
   assert.equal(
-    new Set(completed.map((fact) => object(fact.result).reflectionId)).size,
-    2,
+    new Set(completed.map((fact) => object(fact.result).learningId)).size,
+    1,
   );
 
   interruption = new AbortController();
@@ -235,9 +229,10 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   );
   const beforeChangedResume = generations.length;
   await writeFile(
-    join(root, 'override.yaml'),
+    join(root, 'reflection.yaml'),
     JSON.stringify(config('./changed-goal.md')),
   );
+  await writeFile(recipePath, JSON.stringify(recipe));
   await writeFile(policyPath, JSON.stringify(policy));
   const continued = await manager.run(recipePath, {
     id: 'changed',
@@ -276,7 +271,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
       as: 'item',
       key: '${{ item }}',
       concurrency: 2,
-      steps: [{ id: 'improve', type: 'reflection' }],
+      steps: [{ id: 'work2', type: 'invoke', use: 'worker' }],
     },
   ];
   policy.output = {};
@@ -284,7 +279,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   const beforeRejected = initializations;
   await assert.rejects(
     manager.run(recipePath, { id: 'parallel' }),
-    /parallel.*Reflection|Reflection.*parallel/,
+    /parallel/i,
   );
   assert.equal(initializations, beforeRejected);
 

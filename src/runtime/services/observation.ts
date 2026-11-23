@@ -245,21 +245,18 @@ export class ObservationQueries {
       'measurements',
       'calls',
       'revisions',
+      'memory-revisions',
+      'learning-runs',
     ] as const)
       for await (const entry of this.scanOwned(kind, id)) {
         if (kind === 'revisions') {
           if (entry.resourceRef) collect(entry.resourceRef);
+        } else if (kind === 'memory-revisions') {
+          if (entry.artifactRef) collect(entry.artifactRef);
+          if (entry.changeRef) collect(entry.changeRef);
         } else if (kind === 'candidates') collect(entry.artifactRef!);
         else if (kind === 'calls') {
           if (entry.output !== undefined) collect(entry.output);
-          if (
-            entry.pluginId === 'memory.agent' &&
-            entry.input &&
-            typeof entry.input === 'object' &&
-            !Array.isArray(entry.input) &&
-            entry.input.memoryRef
-          )
-            collect(entry.input.memoryRef);
           if (entry.evidenceRef !== undefined) collect(entry.evidenceRef);
         } else collect(entry);
       }
@@ -267,77 +264,95 @@ export class ObservationQueries {
   }
 
   /** Compact learning records; file contents use the existing bounded artifact projection. */
-  private async reflectionPaths(id: string): Promise<Map<string, string>> {
+  private async learningPaths(id: string): Promise<Map<string, string>> {
     const paths = new Map<string, string>();
-    for await (const record of this.scanOwned('reflection', id)) {
-      if (
-        typeof record.reflectionId === 'string' &&
-        typeof record.stepPath === 'string'
-      )
-        paths.set(record.reflectionId, record.stepPath);
+    for await (const run of this.scanOwned('learning-runs', id)) {
+      if (typeof run.triggerPath !== 'string') continue;
+      if (typeof run.callId === 'string')
+        paths.set(run.callId, run.triggerPath);
+      paths.set(`learning/${run.learningId}`, run.triggerPath);
     }
     return paths;
   }
 
   async learning(
     id: string,
-    kind: 'revisions' | 'memories',
+    collection: 'revisions' | 'memories',
   ): Promise<JsonObject[]> {
-    const secrets = await this.secrets(id);
-    const paths =
-      kind === 'revisions'
-        ? await this.reflectionPaths(id)
-        : new Map<string, string>();
-    const records: JsonObject[] = [];
-    for await (const entry of this.scanOwned(
-      kind === 'revisions' ? 'revisions' : 'calls',
-      id,
-    )) {
-      if (kind === 'revisions') {
+    const [secrets, runs, snapshots] = await Promise.all([
+      this.secrets(id),
+      this.owned('learning-runs', id),
+      this.owned(
+        collection === 'memories' ? 'memory-revisions' : collection,
+        id,
+      ),
+    ]);
+    const memory = collection === 'memories';
+    const attempts = new Map(
+      runs
+        .filter((run) => run.kind === (memory ? 'memory' : 'reflection'))
+        .map((run) => [run.learningId, run]),
+    );
+    const artifacts = new Map(
+      snapshots.map((snapshot) => [
+        snapshot.ref,
+        snapshot.artifactRef ?? snapshot.resourceRef,
+      ]),
+    );
+    const records: JsonObject[] = snapshots.map((entry) => {
+      const run = attempts.get(entry.learningId);
+      if (memory) attempts.delete(entry.learningId);
+      return {
+        id: entry.ref ?? null,
+        binding: memory ? 'memory' : (entry.binding ?? null),
+        kind: entry.kind ?? 'legacy',
+        parentRef: entry.parentRef ?? null,
+        parentArtifactRef:
+          entry.parentArtifactRef ?? artifacts.get(entry.parentRef) ?? null,
+        resourceRef: entry.artifactRef ?? entry.resourceRef ?? null,
+        reason: entry.reason ?? run?.reason ?? null,
+        status: run?.status ?? entry.status ?? 'unknown',
+        path: run?.triggerPath ?? entry.triggerPath ?? null,
+        startedAt: run?.startedAt ?? entry.startedAt ?? null,
+        callId: run?.callId ?? entry.callId ?? null,
+      };
+    });
+    if (memory)
+      for (const run of attempts.values())
         records.push({
-          id: entry.ref ?? null,
-          path: paths.get(String(entry.reflectionId)) ?? null,
-          binding: entry.binding ?? null,
-          kind: entry.kind ?? 'legacy',
-          parentRef: entry.parentRef ?? null,
-          resourceRef: entry.resourceRef ?? null,
-          reason: entry.reason ?? null,
-          status: entry.status ?? 'unknown',
+          id: run.learningId ?? null,
+          binding: 'memory',
+          kind: 'attempt',
+          parentRef: run.parentRef ?? null,
+          parentArtifactRef: run.parentArtifactRef ?? null,
+          resourceRef: null,
+          reason: run.reason ?? null,
+          status: run.status ?? 'unknown',
+          path: run.triggerPath ?? null,
+          callId: run.callId ?? null,
+          startedAt: run.startedAt ?? null,
         });
-      } else if (entry.pluginId === 'memory.agent') {
-        const input =
-          entry.input &&
-          typeof entry.input === 'object' &&
-          !Array.isArray(entry.input)
-            ? entry.input
-            : {};
-        const output =
-          entry.output &&
-          typeof entry.output === 'object' &&
-          !Array.isArray(entry.output)
-            ? entry.output
-            : {};
-        records.push({
-          id: entry.callId ?? null,
-          binding: entry.bindingId ?? null,
-          kind: 'memory',
-          parentRef: input.memoryRef ?? null,
-          resourceRef: output.memoryRef ?? null,
-          reason: output.reason ?? entry.error ?? null,
-          status: output.status ?? entry.status ?? 'unknown',
-          path: entry.path ?? null,
-          startedAt: entry.startedAt ?? null,
-        });
-      }
-    }
     return records.map((record) => object(this.clean(record, secrets)));
   }
 
   async assertRevision(id: string, ref: string): Promise<void> {
+    await this.assertSnapshot('revisions', id, ref);
+  }
+  async assertMemory(id: string, ref: string): Promise<void> {
+    await this.assertSnapshot('memories', id, ref);
+  }
+  private async assertSnapshot(
+    collection: 'revisions' | 'memories',
+    id: string,
+    ref: string,
+  ): Promise<void> {
     await this.experiment(id);
-    const revision = await this.facts.read('revisions', safeId(ref));
-    if (revision.experimentId !== id)
-      throw Object.assign(new Error('Revision not found in experiment'), {
+    const snapshot = await this.facts.read(
+      collection === 'memories' ? 'memory-revisions' : collection,
+      safeId(ref),
+    );
+    if (snapshot.experimentId !== id)
+      throw Object.assign(new Error('Snapshot not found in experiment'), {
         statusCode: 404,
       });
   }
@@ -350,6 +365,7 @@ export class ObservationQueries {
           applicationAllowed: value.applicationAllowed ?? false,
           restrictions: value.restrictions ?? [],
           changes: value.changes ?? [],
+          destinations: value.destinations ?? [],
         },
         await this.secrets(id),
       ),
@@ -618,6 +634,8 @@ export class ObservationQueries {
           'callId',
           'parentCallId',
           'bindingId',
+          'memoryRef',
+          'revisionRef',
           'pluginId',
           'contractId',
           'path',
@@ -627,6 +645,14 @@ export class ObservationQueries {
           'error',
         ])
           if (entry[key] !== undefined) compact[key] = entry[key];
+        const metadata = entry.metadata;
+        if (
+          metadata &&
+          typeof metadata === 'object' &&
+          !Array.isArray(metadata) &&
+          typeof metadata.memoryVersionRef === 'string'
+        )
+          compact.memoryRef = metadata.memoryVersionRef;
         const output = entry.output;
         if (output && typeof output === 'object' && !Array.isArray(output)) {
           compact.output = {};
@@ -674,9 +700,19 @@ export class ObservationQueries {
       pluginId: string(record.pluginId),
       contractId: optionalText(record.contractId),
       path: optionalText(record.path),
+      revisionRef: optionalText(record.revisionRef),
+      memoryRef: optionalText(
+        record.memoryRef ??
+          (record.metadata &&
+          typeof record.metadata === 'object' &&
+          !Array.isArray(record.metadata)
+            ? record.metadata.memoryVersionRef
+            : null),
+      ),
       triggerPath:
-        record.pluginId === 'reflection.agent'
-          ? (paths.get(String(record.path).replace(/^reflection\//, '')) ??
+        record.bindingId === '_reflection' || record.bindingId === '_memory'
+          ? (paths.get(String(record.callId)) ??
+            paths.get(String(record.path)) ??
             null)
           : null,
       status: string(record.status),
@@ -689,7 +725,7 @@ export class ObservationQueries {
     };
   }
   async calls(id: string, offset = 0, limit = 50): Promise<Page<CallSummary>> {
-    const paths = await this.reflectionPaths(id);
+    const paths = await this.learningPaths(id);
     const entries = await this.owned('calls', id),
       secrets = await this.secrets(id);
     entries.sort(
@@ -879,7 +915,7 @@ export class ObservationQueries {
     const secrets = await this.secrets(id),
       record = await this.ownedCall(id, callId);
     return {
-      ...this.call(record, secrets, await this.reflectionPaths(id)),
+      ...this.call(record, secrets, await this.learningPaths(id)),
       input: this.preview(record.input, secrets),
       output: this.preview(record.output, secrets),
     };

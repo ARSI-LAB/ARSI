@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   parseLearning,
   parseApplication,
-  applyRevision,
+  applySnapshot,
   type LearningRecord,
 } from '../../api/learning-client';
 import { parseArtifact } from '../../api/observation-client';
@@ -30,12 +30,10 @@ function revisionDepth(
   return depth;
 }
 function title(record: LearningRecord, records: LearningRecord[]): string {
-  if (record.kind === 'memory')
-    return !record.parentRef &&
-      record.resourceRef &&
-      record.status === 'updated'
-      ? 'First memory'
-      : 'Memory update';
+  if (record.binding === 'memory') {
+    if (record.kind === 'initial') return 'Initial memory';
+    return record.kind === 'attempt' ? 'Memory attempt' : 'Memory update';
+  }
   return record.kind === 'initial'
     ? 'Initial version'
     : `Revision ${revisionDepth(record, records)}`;
@@ -101,18 +99,22 @@ function Snapshot({
   );
 }
 
-function ApplyRevision({
+function ApplySnapshot({
   id,
   revision,
+  collection,
   label,
 }: {
   id: string;
   revision: string;
+  collection: 'memories' | 'revisions';
   label: string;
 }): React.JSX.Element {
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [destination, setDestination] = useState('');
+  const [previewTo, setPreviewTo] = useState('');
   const [inspection, setInspection] = useState(0);
   const [acknowledged, setAcknowledged] = useState(false);
   const [pending, setPending] = useState(false);
@@ -126,9 +128,11 @@ function ApplyRevision({
       mounted.current = false;
     };
   }, []);
+  const query = new URLSearchParams({ inspection: String(inspection) });
+  if (previewTo) query.set('targetDir', previewTo);
   const preview = useObservation(
     open
-      ? `/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revision)}/application?inspection=${inspection}`
+      ? `/${encodeURIComponent(id)}/${collection}/${encodeURIComponent(revision)}/application?${query}`
       : null,
     parseApplication,
     null,
@@ -150,7 +154,7 @@ function ApplyRevision({
     setError('');
     setAttempted(true);
     try {
-      const status = await applyRevision(id, revision);
+      const status = await applySnapshot(id, collection, revision, previewTo);
       if (mounted.current) {
         setResult(
           status === 'applied'
@@ -172,10 +176,7 @@ function ApplyRevision({
   return (
     <div className="learning-apply">
       <div className="section-heading">
-        <p className="muted">
-          Apply this version to its original source files for future
-          experiments.
-        </p>
+        <p className="muted">Use this snapshot in future experiments.</p>
         <button
           ref={trigger}
           className="quiet-button learning-primary"
@@ -187,7 +188,7 @@ function ApplyRevision({
             setOpen(true);
           }}
         >
-          Preview local changes
+          Preview application
         </button>
       </div>
       {result ? (
@@ -210,7 +211,7 @@ function ApplyRevision({
         }}
       >
         <div className="section-heading">
-          <h2 id="learning-apply-title">Apply local changes</h2>
+          <h2 id="learning-apply-title">Preview snapshot application</h2>
           <button
             className="quiet-button"
             disabled={pending}
@@ -223,8 +224,37 @@ function ApplyRevision({
         <p id="learning-apply-description" className="muted">
           Selected snapshot: {label}.
         </p>
+        {collection === 'memories' && (
+          <form
+            className="actions"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setAcknowledged(false);
+              setAttempted(false);
+              setError('');
+              setPreviewTo(destination.trim());
+              setInspection((value) => value + 1);
+            }}
+          >
+            <label className="learning-field">
+              Export directory (optional)
+              <input
+                value={destination}
+                placeholder="Original source directory"
+                disabled={pending}
+                onChange={(event) => {
+                  setDestination(event.target.value);
+                  setAcknowledged(false);
+                }}
+              />
+            </label>
+            <button type="submit" className="quiet-button" disabled={pending}>
+              Preview destination
+            </button>
+          </form>
+        )}
         <Feedback {...preview} />
-        {preview.data && !preview.error ? (
+        {preview.data && !preview.error && previewTo === destination.trim() ? (
           <>
             {!preview.data.applicationAllowed ? (
               <section
@@ -272,6 +302,11 @@ function ApplyRevision({
                 </p>
               </div>
             ) : null}
+            {preview.data.destinations.map((path) => (
+              <p key={path}>
+                Destination <code>{path}</code>
+              </p>
+            ))}
             <ul className="learning-plan">
               {preview.data.changes.map((change, index) => (
                 <li key={index}>
@@ -330,11 +365,15 @@ function ApplyRevision({
             <button
               className="quiet-button learning-primary"
               disabled={
-                pending || attempted || !acknowledged || !!preview.error
+                pending ||
+                attempted ||
+                !acknowledged ||
+                !!preview.error ||
+                previewTo !== destination.trim()
               }
               onClick={() => void apply()}
             >
-              {pending ? 'Applying…' : 'Apply local changes'}
+              {pending ? 'Applying…' : 'Apply to source files'}
             </button>
           ) : null}
         </div>
@@ -355,9 +394,7 @@ function Detail({
   memory: boolean;
 }): React.JSX.Element {
   const selection = useRoute();
-  const parent = memory
-    ? record.parentRef
-    : records.find((item) => item.id === record.parentRef)?.resourceRef;
+  const parent = record.parentArtifactRef;
   const full = !parent || selection.content === 'full';
   const prefix = memory ? '' : `bindings/${record.binding}/resources/`;
   return (
@@ -444,19 +481,22 @@ function Detail({
               : 'No resource snapshot was recorded.'}
           </p>
         )}
-        {memory ? (
+        {record.callId ? (
           <a
             className="text-link"
-            href={route(id, 'calls', undefined, undefined, { call: record.id })}
+            href={route(id, 'calls', undefined, undefined, {
+              call: record.callId,
+            })}
           >
             View call
           </a>
         ) : null}
       </div>
-      {!memory ? (
-        <ApplyRevision
+      {record.resourceRef ? (
+        <ApplySnapshot
           id={id}
           revision={record.id}
+          collection={memory ? 'memories' : 'revisions'}
           label={`${title(record, records)} · ${record.binding}`}
         />
       ) : null}
@@ -526,7 +566,7 @@ export function Learning({
         <Card>
           <div className="empty-state">
             {memory
-              ? 'No Memory calls recorded.'
+              ? 'No Memory records found.'
               : 'No Reflection revisions recorded.'}
           </div>
         </Card>

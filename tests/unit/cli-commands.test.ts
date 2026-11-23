@@ -148,6 +148,7 @@ test('CLI prints command-specific and nested help to stdout', () => {
     ['run', '--help'],
     ['help', 'run'],
     ['reflection', 'apply', '--help'],
+    ['memory', 'show', '--help'],
   ]) {
     const result = launch(...args);
     assert.equal(result.status, 0, result.stderr);
@@ -164,6 +165,8 @@ test('CLI prints command-specific and nested help to stdout', () => {
       assert.match(result.stdout, /--all/);
       assert.match(result.stdout, /previews the workspace/);
     }
+    if (args.includes('memory'))
+      assert.match(result.stdout, /--to <directory>/);
     if (args.includes('apply')) assert.match(result.stdout, /revisionID/);
   }
 });
@@ -216,6 +219,17 @@ test('CLI dispatches experiment actions and nested reflection actions', async (t
     assert.equal(result.exitCode, 0);
     return JSON.parse(result.stdout ?? '');
   };
+  const memories = manager.memory();
+  t.mock.method(manager, 'memory', () => memories);
+  t.mock.method(
+    memories,
+    'apply',
+    async (id: string, options: { to?: string } = {}) => ({ id, ...options }),
+  );
+  assert.deepEqual(
+    await run('memory', 'apply', 'snapshot', '--to', 'destination'),
+    { id: 'snapshot', to: 'destination' },
+  );
   assert.deepEqual(await run('list'), [{ experiment: 'exp' }]);
   assert.deepEqual(await run('show', 'exp'), { experiment: 'exp' });
   assert.deepEqual(await run('cancel', 'exp'), {

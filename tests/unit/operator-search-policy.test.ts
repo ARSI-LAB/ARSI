@@ -1,7 +1,7 @@
 import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test, { type TestContext } from 'node:test';
@@ -149,6 +149,52 @@ async function setup(
   return { ...fixture, ...runtime, requests };
 }
 
+test('operator search discovers default learning resources and rejects shared editable task ownership', async (t) => {
+  const f = await setup(t);
+  const declaration = object(parse(await readFile(f.recipePath, 'utf8')));
+  delete declaration.memory;
+  delete declaration.reflection;
+  const load = () =>
+    Recipe.fromJSON(declaration, f.registry, { sourcePath: f.recipePath });
+  await assert.rejects(load(), /Overlapping editable destinations/);
+  const task = join(f.root, 'proposer-task');
+  await cp(join(f.root, 'example/task'), task, { recursive: true });
+  object(
+    object(object(object(declaration.bindings).proposer).config).task,
+  ).directory = task;
+  const recipe = await load();
+  assert.equal(recipe.memory?.trigger.on, 'loop-iteration');
+  assert.ok(
+    recipe.reflection?.targets.proposer?.resources.includes(
+      '/promptsDirectory',
+    ),
+  );
+  assert.ok(
+    recipe.reflection?.targets.summarizer?.resources.includes('/promptFile'),
+  );
+  assert.ok(
+    recipe.reflection?.targets.evaluator?.resources.includes('/task/directory'),
+  );
+  assert.equal(recipe.bindings._learningAgent!.pluginId, 'agent.pi');
+  object(declaration.budget).operations = 1;
+  await writeFile(f.recipePath, stringify(declaration));
+  await assert.rejects(
+    f.manager.run(f.recipePath, { id: 'default-learning' }),
+    /Budget exceeded: operations/,
+  );
+  const experiment = await f.manager.get('default-learning');
+  assert.ok(object(experiment.application).initialCandidateRef);
+  const activation = await f.manager.facts.read(
+    'activations',
+    'default-learning',
+  );
+  const initial = await f.manager.facts.read(
+    'memory-revisions',
+    string(object(activation.memory).ref),
+  );
+  assert.equal(initial.kind, 'initial');
+  assert.equal(initial.sourceDirectory, null);
+});
 test('operator search inherits policy prompt paths while resolving recipe overrides from the recipe', async (t) => {
   const f = await setup(t);
   const recipe = await Recipe.load(f.recipePath, f.registry);
@@ -162,7 +208,7 @@ test('operator search inherits policy prompt paths while resolving recipe overri
     recipe.bindings.summarizer!.config.promptFile,
     fileURLToPath(
       new URL(
-        '../../src/policies/operator-search/prompts/summarize.md',
+        '../../src/policies/operator-search/summarize.md',
         import.meta.url,
       ),
     ),

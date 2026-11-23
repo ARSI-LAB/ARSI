@@ -13,17 +13,11 @@ state_schema:
       type: array
       items:
         type: object
-    wikiRef:
-      type:
-        - string
-        - 'null'
   required:
     - deliveries
-    - wikiRef
   additionalProperties: false
 state:
   deliveries: []
-  wikiRef: null
 output_schema:
   $ref: ./schemas/task-deliveries.yaml
 require:
@@ -39,13 +33,9 @@ require:
     contract: contract.agentbench
   selector:
     contract: contract.selector-artifacts
-  memoryUpdater:
-    contract: contract.memory
 defaults:
-  # Memory retains task experience; explicit Reflection separately improves the
-  # optimizer's guidance through its own resource versions.
-  reflection:
-    configFile: ./reflection.yaml
+  memory: { configFile: ./memory.yaml }
+  reflection: { configFile: ./reflection.yaml }
   # Harness² paper §2.2–2.3 / appendix H: editors and experience extraction
   # use execution evidence, never verifier scores, rewards, rubrics or test verdicts.
   # Evaluator still archives scoring for reporting; it is not learning input here.
@@ -88,12 +78,6 @@ defaults:
       config:
         agentRef: agent
         prompt: ./prompts/select-delivery.md
-    memoryUpdater:
-      plugin: memory.agent
-      config:
-        evidenceView: execution
-        agentRef: agent
-        prompt: ./memory.md
 steps:
   - id: search
     type: loop
@@ -144,7 +128,6 @@ steps:
                         goal: Improve general execution, tool use, and completion checks.
                         evidenceRefs:
                           - ${{ base.measurementRef }}
-                        memoryRef: ${{ state.wikiRef }}
                     - id: execute_inv
                       type: invoke
                       use: evaluator
@@ -175,7 +158,6 @@ steps:
                           evidence.
                         evidenceRefs:
                           - ${{ base.measurementRef }}
-                        memoryRef: ${{ state.wikiRef }}
                     - id: execute_dom
                       type: invoke
                       use: evaluator
@@ -206,7 +188,6 @@ steps:
               sources: ${{ flatten(steps.probes.output) }}
               evidenceRefs:
                 - ${{ base.measurementRef }}
-              memoryRef: ${{ state.wikiRef }}
           - id: execute_composed
             type: invoke
             use: evaluator
@@ -229,41 +210,6 @@ steps:
         type: state
         state:
           deliveries: ${{ append(state.deliveries, steps.select.output) }}
-      - id: remember_if_enabled
-        type: if
-        if: ${{ config.memory }}
-        then:
-          steps:
-            - id: remember
-              type: invoke
-              use: memoryUpdater
-              with:
-                memoryRef: ${{ state.wikiRef }}
-                goal:
-                  Maintain compact harness-improvement experience from this task's supplied
-                  execution contrasts. Preserve sources, confounding and
-                  unresolved edit attribution; do not cache task answers.
-                evidenceRefs:
-                  ${{ concat(concat(pluck(steps.base.output, 'measurementRef'),
-                  pluck(steps.probes.output[0], 'measurementRef')),
-                  concat(pluck(steps.probes.output[1], 'measurementRef'),
-                  pluck(steps.compose.output, 'measurementRef'))) }}
-                # Compare snapshots with H0, every probe and the saved selection,
-                # without exposing grades to the learning operation.
-                comparison:
-                  baselineCandidateRef: ${{ input.candidateRef }}
-                  probes:
-                    base: ${{ steps.base.output }}
-                    invariant: ${{ steps.probes.output[0] }}
-                    domain: ${{ steps.probes.output[1] }}
-                    compose: ${{ steps.compose.output }}
-                  selection: ${{ steps.select.output }}
-            - id: save_memory
-              type: state
-              state:
-                wikiRef: ${{ steps.remember.output.memoryRef }}
-    # - id: improve_guidance
-    #   type: reflection
 output:
   baseline: ${{ input.candidateRef }}
   deliveries: ${{ state.deliveries }}

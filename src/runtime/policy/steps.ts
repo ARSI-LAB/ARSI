@@ -20,8 +20,7 @@ export type StepType =
   | 'if'
   | 'loop'
   | 'foreach'
-  | 'control'
-  | 'reflection';
+  | 'control';
 export type StepResult =
   | { kind: 'completed'; output: JsonValue }
   | { kind: 'break' }
@@ -37,7 +36,6 @@ export interface StepValidationContext {
   readonly stateSchema: JsonSchema;
   readonly parallel: boolean;
   readonly loopDepth: number;
-  readonly reflectionDeclared: boolean;
   readonly names: readonly string[];
   validateTemplate(template: Template, locals?: readonly string[]): void;
   validateSteps(
@@ -63,7 +61,6 @@ export interface StepContext {
   decision(key: string, choose: () => JsonValue): Promise<JsonValue>;
   invoke(binding: string, input: () => JsonValue): Promise<JsonValue>;
   updateState(patch: JsonObject): JsonObject;
-  reflect(): Promise<JsonValue>;
   runSteps(
     steps: readonly Step[],
     options: {
@@ -86,6 +83,7 @@ export const reservedNames = [
   'application',
   'config',
   'input',
+  'memory',
   'state',
   'steps',
   'loop',
@@ -560,30 +558,6 @@ export class ControlStep implements Step {
     };
   }
 }
-export class ReflectionStep implements Step {
-  readonly type = 'reflection';
-  readonly id: string;
-  constructor(value: JsonObject) {
-    this.id = declaration(value, this.type, []);
-    Object.freeze(this);
-  }
-  validate(context: StepValidationContext): void {
-    if (!context.reflectionDeclared)
-      throw new Error(
-        `${context.label}: Reflection requires defaults.reflection.configFile`,
-      );
-    if (context.parallel)
-      throw new Error(
-        `${context.label}: parallel execution cannot call Reflection`,
-      );
-  }
-  async execute(context: StepContext): Promise<StepResult> {
-    return { kind: 'completed', output: await context.reflect() };
-  }
-  toJSON(): JsonObject {
-    return { id: this.id, type: this.type };
-  }
-}
 export function parseSteps(
   value: JsonValue | undefined,
   label: string,
@@ -604,8 +578,6 @@ export function parseSteps(
         return new ForEachStep(step);
       case 'control':
         return new ControlStep(step);
-      case 'reflection':
-        return new ReflectionStep(step);
       default:
         throw new Error(
           `${label}.${String(step.id)}.type: unknown step type ${String(step.type)}`,
@@ -625,9 +597,9 @@ export function assertParallelSafe(
   label: string,
 ): void {
   for (const step of steps) {
-    if (step instanceof StateStep || step instanceof ReflectionStep)
+    if (step instanceof StateStep)
       throw new Error(
-        `${label}/${step.id}: parallel execution cannot ${step.type === 'state' ? 'write shared state' : 'call Reflection'}`,
+        `${label}/${step.id}: parallel execution cannot write shared state`,
       );
     if (step instanceof IfStep) {
       assertParallelSafe(step.thenBranch.steps, label);

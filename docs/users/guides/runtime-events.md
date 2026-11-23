@@ -186,7 +186,7 @@ factoryCtx.event.on('rsi/before-call', async (event, next) => {
 
 For `rsi/before-call`, the default decision is `{ kind: 'proceed' }`. A successful decision accepts optional `metadata` for the call receipt. Both call admission hooks accept `{ kind: 'reject', reason }` with a nonempty reason.
 
-For `rsi/before-agent-invoke`, the default decision includes a separate copy of the input. To change the Agent request, return the updated `input` in a `proceed` decision. This listener keeps downstream changes and adds an audit tag to requests from the `proposer` binding.
+For `rsi/before-agent-invoke`, the default decision includes a separate copy of the input. To change the Agent request, return the updated `input` in a `proceed` decision. Calling `await next()` lets a binding inspect and transform the request after Memory preparation. When both hooks supply the same receipt metadata key, the final Agent preparation result takes precedence. This listener keeps downstream changes and adds an audit tag to requests from the `proposer` binding.
 
 ```ts
 factoryCtx.event.on('rsi/before-agent-invoke', async (event, next) => {

@@ -1,0 +1,85 @@
+import type { JsonObject, RuntimeContext } from '../../../contracts/index.js';
+import { canonical, object } from '../../../shared/json.js';
+import { prepareDocumentPreviews } from '../../reflection-agent/document-previews.js';
+import type { ReadOnlyEditContext } from './index.js';
+
+export async function learningContext(
+  kind: 'memory' | 'reflection',
+  evidenceRefs: string[],
+  context: RuntimeContext,
+): Promise<ReadOnlyEditContext> {
+  const indexPath = 'context/learning/index.json';
+  const files: Record<string, string> = {};
+  const indexes: JsonObject[] = [];
+  const sources: JsonObject[] = [];
+  const limit = context.scope?.limits.evidenceBytes ?? Infinity;
+  let evidenceView: string | null = null;
+  let bytes = 0;
+  for (const ref of evidenceRefs) {
+    const snapshot = await context.facts.read('evidence-views', ref);
+    if (
+      snapshot.experimentId !== context.experimentId ||
+      snapshot.view !== 'learning-observations/v1' ||
+      snapshot.moduleKind !== kind ||
+      (snapshot.evidenceView !== 'execution' &&
+        snapshot.evidenceView !== 'training-summary') ||
+      (evidenceView !== null && snapshot.evidenceView !== evidenceView)
+    )
+      throw new Error(`${kind} evidence snapshot ownership or format mismatch`);
+    evidenceView = snapshot.evidenceView;
+    for (const [path, content] of Object.entries(object(snapshot.files))) {
+      if (!path.startsWith('context/learning/') || typeof content !== 'string')
+        throw new Error('Invalid learning evidence file');
+      if (Object.hasOwn(files, path))
+        throw new Error('Duplicate learning evidence file');
+      if (path === indexPath) {
+        // Only the persisted, byte-bounded index is authorized for this project.
+        try {
+          indexes.push({ ref, ...object(JSON.parse(content)) });
+        } catch {
+          indexes.push({ ref, truncated: true });
+        }
+        continue;
+      }
+      bytes += Buffer.byteLength(content);
+      if (bytes > limit)
+        throw new Error('Learning evidence files exceed evidenceBytes');
+      files[path] = content;
+    }
+    if (Array.isArray(snapshot.sources))
+      for (const source of snapshot.sources) sources.push(object(source));
+  }
+  const index = canonical({ indexes, previews: [] });
+  const omitted = canonical({ truncated: true });
+  files[indexPath] =
+    bytes + Buffer.byteLength(index) <= limit
+      ? index
+      : bytes + Buffer.byteLength(omitted) <= limit
+        ? omitted
+        : '';
+  const previews = await prepareDocumentPreviews({
+    sources,
+    files,
+    artifacts: context.artifacts,
+    signal: context.signal,
+    maxBytes: context.scope?.limits.evidenceBytes,
+  });
+  if (previews.length) {
+    const available =
+      limit -
+      Object.entries(files).reduce(
+        (sum, [path, content]) =>
+          path === indexPath ? sum : sum + Buffer.byteLength(content),
+        0,
+      );
+    const full = canonical({ indexes, previews });
+    if (Buffer.byteLength(full) <= available) files[indexPath] = full;
+    else if (Buffer.byteLength(omitted) <= available)
+      files[indexPath] = omitted;
+  }
+  return {
+    files,
+    evidence: { indexPath, views: evidenceRefs.length },
+    input: { evidenceIndex: indexPath, evidenceView },
+  };
+}

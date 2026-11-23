@@ -1,7 +1,7 @@
 import type { JsonObject, JsonValue } from '../../contracts/index.js';
 import { json, object, string } from '../../shared/json.js';
 import type { ReadOnlyEditContext } from '../shared/agent-editing/index.js';
-import { excerpt } from '../shared/agent-editing/evidence-packets.js';
+import { excerpt } from '../../runtime/services/facts/evidence-packets.js';
 
 const toolResultCharacters = 2000;
 const thinkingTypes = new Set([

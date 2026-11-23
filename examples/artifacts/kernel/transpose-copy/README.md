@@ -38,8 +38,8 @@ and external retrieval script placeholders. Keep the hardware description in
 The Policy supplies five generic proposer prompts through
 `bindings.proposer.config.promptsDirectory` and a separate summary prompt
 through `bindings.summarizer.config.promptFile`. The Recipe selects the local
-[prompts directory](./prompts) and its [summary prompt](./prompts/summarize.md).
-Relative paths resolve from the Recipe directory.
+[prompts directory](./prompts) and its [summary prompt](./summarize.md).
+Relative paths resolve from the Recipe directory. The [Reflection configuration](./reflection.yaml) selects both prompt resources for revision. The proposer and evaluator share the same benchmark task directory.
 
 A custom proposer directory must contain `diagnose.md`, `diagnose-metrics.md`,
 `generate.md`, `generate-metrics.md`, and `repair.md`. Keep `prompts/` alongside the Recipe when copying or

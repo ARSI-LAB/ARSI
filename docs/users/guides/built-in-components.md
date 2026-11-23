@@ -94,21 +94,11 @@ Before committing a new candidate, the Application checks the actual file change
 
 ### Memory
 
-Memory requires explicit integration in the Policy. The Policy calls `memory.agent` to turn evidence and observations into reusable experience, saves the returned `memoryRef`, and passes it to later steps that use the experience. For example:
-
-- **WikiSkill**: After each round's training evaluation, update the experience using its scores and execution evidence, then pass it to that round's Proposer to help improve skills.
-- **Harness²**: After each task, use execution traces to update the experience, then pass it to Proposers in later tasks.
-
-The Policy can continue if an update fails. See the [Memory guide](memory.md) for details.
+At a configured serial boundary, the Runtime invokes the Memory plugin, validates the proposed snapshot and makes the active version available to authorized bindings. WikiSkill triggers after training evaluation and Harness² after each task. See the [Memory guide](memory.md).
 
 ### Reflection
 
-Reflection requires an explicit execution step in the Policy. Specify the guidance files and other resources that may change in the Reflection configuration file, then declare a `type: reflection` step in the Policy to call `reflection.agent` and propose changes based on execution evidence. For example:
-
-- **Harness²**: Authorizes changes to the Invariant Proposer and Domain Proposer's `guidance` files. Its `improve_guidance` step is commented out by default; enabling it in a custom Policy allows these files to be updated for later Proposer calls to use when generating proposals.
-
-Runtime activates validated changes within the current experiment for later plugin calls to read and use. Follow the [Reflection guide](reflection.md) for configuration, resource authorization, and reuse across experiments.
-
+At a configured boundary, the Runtime invokes the Reflection plugin, validates changes against the authorized resources and activates revisions for later calls. Harness² defines guidance targets for the Invariant and Domain Proposers. Set `reflection: false` in the Recipe to disable Reflection. See the [Reflection guide](reflection.md).
 
 ### Inference configuration candidates
 

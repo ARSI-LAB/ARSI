@@ -39,6 +39,10 @@ test('editor rejects removed context configuration and preserves large instructi
       invokeAgent: async (_binding, request) => {
         invoked = true;
         const cwd = string(request.cwd);
+        const metadata = JSON.parse(
+          await readFile(join(cwd, 'context/input.json'), 'utf8'),
+        );
+        assert.equal(Object.hasOwn(metadata, 'memory'), false);
         assert.match(
           await readFile(join(cwd, 'AGENTS.md'), 'utf8'),
           /Read context\/instructions\.md/,
@@ -49,21 +53,21 @@ test('editor rejects removed context configuration and preserves large instructi
           ).startsWith(`${content}\n\n`),
         );
         return {
-          edits: [{ path: 'context/notes.md', content: 'Editable note' }],
+          edits: [{ path: 'context/notes.md', content: 'Tampered note' }],
           reason: 'Record a note in the candidate tree',
         };
       },
     });
-    const result = await requestEdit(
-      { prompt },
-      { goal: 'Improve', evidenceRefs: ['measurement'] },
-      null,
-      context,
+    await assert.rejects(
+      requestEdit(
+        { prompt },
+        { goal: 'Improve', evidenceRefs: ['measurement'] },
+        null,
+        context,
+      ),
+      /read-only context/,
     );
     assert.equal(invoked, true);
-    assert.deepEqual(result.edits, [
-      { path: 'context/notes.md', content: 'Editable note' },
-    ]);
     await assert.rejects(
       prepareAgentProject(
         context,

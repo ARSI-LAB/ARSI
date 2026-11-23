@@ -1,0 +1,6 @@
+trigger: { on: after-step, step: train }
+evidence:
+  view: training-summary
+  excludeSteps: [baseline, baseline_score, validate, test]
+implementation:
+  config: { agentRef: agent, prompt: ./memory.md }

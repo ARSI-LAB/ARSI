@@ -102,7 +102,7 @@ defaults:
       plugin: summarizer.operator
       config:
         agentRef: agent
-        promptFile: ./prompts/summarize.md
+        promptFile: ./summarize.md
 steps:
   - id: evaluate_baseline
     use: evaluator

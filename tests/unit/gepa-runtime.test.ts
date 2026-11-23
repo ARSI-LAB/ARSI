@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rm } from 'node:fs/promises';
 import type { JsonObject } from '../../src/contracts/index.js';
+import { ObservationQueries } from '../../src/runtime/services/observation.js';
 import { object, string } from '../../src/shared/json.js';
 import { runGepa, decodeTree } from '../fixtures/gepa-runtime.js';
 
@@ -801,4 +802,51 @@ test('malformed reflective outputs fail before committing or evaluating a propos
       /Agent output/,
     );
   }
+});
+
+test('GEPA attaches custom Memory and Reflection from its Recipe and delivers the resulting Memory to the Proposer', async (t) => {
+  const run = await runGepa({
+    attachLearning: true,
+    seed: 11,
+    maxRounds: 1,
+    maxRollouts: 20,
+    feedbackTasks: ['task-a'],
+    selectionTasks: ['task-a'],
+    proposals: { a: 'A1' },
+    scoreTable: {
+      'A0|B0': { scores: { 'task-a': 0.2 } },
+      'A1|B0': { scores: { 'task-a': 0.6 } },
+    },
+  });
+  t.after(async () => {
+    await run.manager.dispose();
+    await rm(run.root, { recursive: true, force: true });
+  });
+  const query = new ObservationQueries(
+    run.manager.facts,
+    run.manager.artifacts,
+  );
+  const snapshots = await query.learning('gepa-runtime', 'memories');
+  const generated = snapshots.find((row) => row.kind === 'generated');
+  assert.ok(generated);
+  assert.equal(
+    run.agentCalls[0]!.projectFiles['context/memory/lesson.md'],
+    'Compare observed outcomes.',
+  );
+  const calls = await run.manager.facts.list('calls');
+  assert.equal(
+    object(
+      calls.find((row) => row.contractId === 'contract.agent' && row.metadata)!
+        .metadata,
+    ).memoryVersionRef,
+    generated.id,
+  );
+  assert.equal(
+    calls.find((row) => row.bindingId === '_memory')!.pluginId,
+    'test.gepa-memory',
+  );
+  assert.equal(
+    calls.find((row) => row.bindingId === '_reflection')!.pluginId,
+    'test.gepa-reflection',
+  );
 });

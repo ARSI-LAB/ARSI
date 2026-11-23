@@ -5,6 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { stringify } from 'yaml';
 import { applicationContract } from '../../src/contracts/plugin-types/application.js';
+import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
 import { reflectionContract } from '../../src/contracts/plugin-types/reflection.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { readYaml } from '../../src/runtime/loaders/yaml.js';
@@ -234,6 +235,8 @@ async function recipeFixture(t: test.TestContext): Promise<{
       },
       require: { worker: { contract: contract.id } },
       defaults: {
+        memory: false,
+        reflection: false,
         bindings: {
           worker: {
             plugin: 'worker',
@@ -456,7 +459,7 @@ test('bundled Recipes preserve time budgets without injecting call or token limi
       elapsedWallMs: name === 'dsh-harness2' ? 259200000 : 172800000,
     });
     assert.deepEqual(
-      configured.reflection?.budget ?? {},
+      configured.reflection?.budget,
       name === 'dsh-harness2' ? { elapsedWallMs: 3600000 } : {},
     );
     assert.equal(configured.bindings.agent!.config.timeoutMs, 1800000);
@@ -479,10 +482,7 @@ test('bundled Recipes preserve time budgets without injecting call or token limi
     assert.equal(recipe.bindings.agent!.config.timeoutMs, undefined);
     assert.equal(recipe.bindings.agent!.config.executionTimeoutMs, undefined);
     assert.equal(recipe.reflection?.budget.modelCalls, undefined);
-    assert.equal(
-      recipe.reflection?.implementation.config.maxModelCalls,
-      undefined,
-    );
+    assert.equal(recipe.reflection?.config.maxModelCalls, undefined);
     const editors = Object.entries(recipe.bindings).filter(([, binding]) =>
       ['proposer.agent', 'memory.agent', 'selector.artifact'].includes(
         binding.pluginId,
@@ -528,6 +528,7 @@ test('Gym GAIA Recipe separates train_full search from holdout promotion', async
   registry.registerOperation(piDefinition);
   registry.registerOperation(proposerDefinition);
   registry.registerOperation(memoryDefinition);
+  registry.registerOperation(reflectionDefinition);
   registry.registerOperation(metricSelectorDefinition);
   registry.registerOperation(gymDefinition);
   registry.registerPolicy(
@@ -572,7 +573,7 @@ test('Recipe rejects unknown bindings, invalid budgets, legacy fields and mismat
     { ...recipe, budget: { cleanupReserveMs: 0 } },
     { ...recipe, policy: { ref: 'policy.test' } },
     { ...recipe, application: { ref: 'application.test' } },
-    { ...recipe, reflection: { configFile: './reflection.yaml' } },
+    { ...recipe, reflection: { enabled: true } },
   ]) {
     await writeFile(path, stringify(invalid));
     await assert.rejects(Recipe.load(path, registry));
@@ -589,7 +590,7 @@ test('Recipe rejects unknown bindings, invalid budgets, legacy fields and mismat
   );
 });
 
-test('Recipe selects one complete Reflection file and restores locked definitions after source files change', async (t) => {
+test('Recipe merges Reflection overrides and restores locked definitions after source files change', async (t) => {
   const { registry, directory, recipe: raw } = await recipeFixture(t);
   registry.registerOperation({
     id: 'reflection.test',
@@ -605,9 +606,18 @@ test('Recipe selects one complete Reflection file and restores locked definition
   });
   const policyPath = registry.policy('policy.test');
   const policy = await readYaml(policyPath);
-  object(policy.defaults).reflection = {
-    configFile: './missing-default-reflection.yaml',
-  };
+  object(policy.defaults).reflection = { configFile: './unused-default.yaml' };
+  await writeFile(
+    join(directory, 'reflection.yaml'),
+    stringify({
+      trigger: { on: 'experiment-end' },
+      evidence: { includeBindings: ['worker'] },
+      targets: { include: { worker: ['nested'] } },
+      implementation: { ref: 'reflection.test' },
+      goal: './goal.md',
+      budget: { modelCalls: 0 },
+    }),
+  );
   await writeFile(policyPath, stringify(policy));
   await writeFile(join(directory, 'inherited'), 'Inherited resource');
   await writeFile(join(directory, 'new'), 'Overridden resource');
@@ -615,36 +625,26 @@ test('Recipe selects one complete Reflection file and restores locked definition
     join(directory, 'goal.md'),
     'Improve the selected resources.',
   );
-  const reflectionPath = join(directory, 'selected-reflection.yaml');
-  await writeFile(
-    reflectionPath,
-    stringify({
-      evidence: ['worker'],
-      targets: { worker: { resources: ['nested'] } },
-      goal: './goal.md',
-      implementation: {
-        contract: 'contract.reflection',
-        ref: 'reflection.test',
-        config: {},
-      },
-      budget: { modelCalls: 0 },
-    }),
-  );
   const recipePath = join(directory, 'recipe.yaml');
   await writeFile(
     recipePath,
     stringify({
       ...raw,
-      reflection: { configFile: './selected-reflection.yaml' },
+      reflection: { configFile: './reflection.yaml' },
     }),
   );
   const recipe = await Recipe.load(recipePath, registry);
-  assert.equal(recipe.reflection?.path, reflectionPath);
+  assert.deepEqual(recipe.reflection?.trigger, {
+    on: 'experiment-end',
+    every: 1,
+  });
   assert.equal(recipe.reflection?.goal, 'Improve the selected resources.');
-  assert.deepEqual(recipe.reflection?.implementation.config, { mode: 'safe' });
-  assert.deepEqual(recipe.toJSON().reflection, { configFile: reflectionPath });
+  assert.deepEqual(recipe.reflection?.config, { mode: 'safe' });
+  assert.equal(
+    object(recipe.toJSON().reflection).configFile,
+    './reflection.yaml',
+  );
   await writeFile(policyPath, 'invalid changed Policy');
-  await rm(reflectionPath);
   await rm(join(directory, 'goal.md'));
   const restored = await Recipe.fromJSON(recipe.toJSON(), registry, {
     sourcePath: recipePath,

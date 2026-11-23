@@ -457,7 +457,7 @@ test('Reflection previews redact extracted values and locations and report malfo
   assert.match(string(previews[1]!.reason), /parser/);
 });
 
-test('Reflection supplies preview files in its workspace and rejects evidence edits and view changes', async (t) => {
+test('Reflection supplies preview files in its workspace and rejects evidence edits and cross-module snapshots', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-preview-agent-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const artifacts = new FileArtifacts(join(directory, 'artifacts'));
@@ -488,9 +488,10 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
   });
   const snapshot: JsonObject = {
     experimentId: 'preview',
-    view: 'reflection-observations/v1',
+    view: 'learning-observations/v1',
+    moduleKind: 'reflection',
     evidenceView: 'execution',
-    files: { 'context/call.json': '{"status":"succeeded"}' },
+    files: { 'context/learning/call.json': '{"status":"succeeded"}' },
     index: { callIds: ['call'] },
     sources: [
       {
@@ -518,14 +519,24 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
     ): Promise<JsonObject> {
       const cwd = string(request.cwd);
       const index = JSON.parse(
-        await readFile(join(cwd, 'context/reflection/index.json'), 'utf8'),
+        await readFile(join(cwd, 'context/learning/index.json'), 'utf8'),
       );
+      if (previewBudget !== undefined) {
+        assert.equal(index.truncated, true);
+        const budgetedFiles = [
+          'context/learning/index.json',
+          'context/learning/call.json',
+          'context/learning/previews/0.txt',
+        ];
+        let bytes = 0;
+        for (const path of budgetedFiles)
+          bytes += (await readFile(join(cwd, path))).length;
+        assert.ok(bytes <= previewBudget);
+        reads++;
+        return { edits: [], reason: 'Limited evidence budget' };
+      }
       const preview = object(index.previews[0]);
       const content = await readFile(join(cwd, string(preview.path)), 'utf8');
-      if (previewBudget !== undefined) {
-        assert.equal(preview.inspection, 'partial');
-        assert.ok(Buffer.byteLength(content) <= previewBudget);
-      }
       assert.match(content, /source value/);
       reads++;
       return {
@@ -570,7 +581,7 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
   );
   await facts.write('evidence-views', 'evidence-preview', {
     ...snapshot,
-    evidenceView: 'training-summary',
+    moduleKind: 'memory',
   });
   await assert.rejects(
     operation.execute(input, context),

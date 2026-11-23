@@ -1,5 +1,6 @@
 import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { recoverSnapshotPublication } from './snapshot-publication.js';
 import { lock } from 'proper-lockfile';
 import type { FactStore } from '../../contracts/index.js';
 import { readExperimentCleanupState } from '../manager/records.js';
@@ -23,12 +24,19 @@ export async function acquireResourceGate(
       compromised = error;
     },
   });
-  return {
+  const gate = {
     assertOwned() {
       if (compromised) throw compromised;
     },
     release,
   };
+  try {
+    await recoverSnapshotPublication(directory, gate);
+    return gate;
+  } catch (error) {
+    await release();
+    throw error;
+  }
 }
 
 /** Called while holding the gate. Existing stale ownership requires explicit recovery. */

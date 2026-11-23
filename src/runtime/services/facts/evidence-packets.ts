@@ -45,7 +45,10 @@ function trajectory(text: string): string {
 }
 
 /** Project already-authorized, sanitized execution files into one packet per run. */
-export function executionEvidencePackets(full: JsonObject): {
+export function executionEvidencePackets(
+  full: JsonObject,
+  directory = 'context/runs',
+): {
   files: JsonObject;
   evidence: JsonObject;
 } {
@@ -128,7 +131,7 @@ export function executionEvidencePackets(full: JsonObject): {
       );
     }
     const packet = sections.join('\n\n');
-    const path = `context/runs/${index}.txt`;
+    const path = `${directory}/${index}.txt`;
     if (packet) files[path] = excerpt(packet, 24000);
     measurements.push({
       measurementRef: measurement.measurementRef!,

@@ -49,13 +49,12 @@ test('policy.parameter-agent loads default learning resources with either Reflec
   };
   const options = { sourcePath: join(root, 'recipe.yaml') };
   const standard = await Recipe.fromJSON(declaration, registry, options);
-  assert.equal(standard.policyConfig.memory, false);
-  assert.equal(standard.policyConfig.reflection, false);
+  assert.equal(standard.memory?.evidenceView, 'training-summary');
+  assert.equal(standard.reflection?.evidenceView, 'training-summary');
   assert.equal(
     standard.bindings.proposer!.config.prompt,
     join(root, 'prompt.md'),
   );
-  assert.ok(standard.reflection);
   const guidance = standard.bindings.proposer!.config.guidance;
   assert.equal(typeof guidance, 'string');
   assert.match(
@@ -63,15 +62,19 @@ test('policy.parameter-agent loads default learning resources with either Reflec
     /Configuration search guidance/,
   );
   for (const reflection of [false, true]) {
-    declaration.policy.config = { reflection };
-    const loaded = await Recipe.fromJSON(declaration, registry, options);
-    assert.ok(loaded.reflection);
+    const loaded = await Recipe.fromJSON(
+      { ...declaration, reflection },
+      registry,
+      options,
+    );
+    assert.equal(Boolean(loaded.reflection), reflection);
     const reloaded = await Recipe.fromJSON(loaded.toJSON(), registry, options);
     assert.deepEqual(reloaded.reflection, loaded.reflection);
   }
-  declaration.policy.config = { reflection: false };
+
   const missingGuidance = {
     ...declaration,
+    reflection: true,
     bindings: {
       ...declaration.bindings,
       proposer: { config: { guidance: './missing-guidance' } },
@@ -115,7 +118,7 @@ test('policy.parameter-agent follows selector decisions and returns the measured
             return { measurementRef: `m-${input.candidateRef}` };
           }
           if (binding === 'proposer') {
-            assert.equal(input.memoryRef, null);
+            assert.equal(Object.hasOwn(input, 'memoryRef'), false);
             if (input.parent === 'baseline') {
               assert.equal(input.maxCandidates, 2);
               assert.deepEqual(input.evidenceRefs, ['m-baseline']);
@@ -189,7 +192,7 @@ test('policy.parameter-agent follows selector decisions and returns the measured
     ]);
     assert.equal(result.status, 'no-feasible-configuration');
     assert.equal(result.candidateFeasible, false);
-    assert.equal(result.memoryRef, null);
+    assert.equal(Object.hasOwn(result, 'memoryRef'), false);
     assert.equal(result.stopReason, 'max-trials');
     assert.equal(result.baselineCandidateRef, 'baseline');
     assert.equal(result.baselineMeasurementRef, 'm-baseline');

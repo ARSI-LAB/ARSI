@@ -30,6 +30,8 @@ bindings:
       plugin: selector.metric,
       config: { metric: checkPhrase, direction: maximize },
     }
+memory: false
+reflection: false
 budget:
   modelCalls: 8
   evaluationRuns: 2

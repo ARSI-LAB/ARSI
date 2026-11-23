@@ -1,0 +1,4 @@
+targets: { include: [proposer] }
+implementation:
+  config: { agentRef: agent, prompt: ./memory.md }
+budget: { modelCalls: 6 }

@@ -397,8 +397,8 @@ export type ConcreteOperationChecks = [
   Check<
     Equal<
       {
-        status: 'updated';
-        memoryRef: null;
+        status: 'proposed';
+        resourceRef: null;
         changeRef: string;
         reason: string;
       } extends MemoryOutput
@@ -568,13 +568,15 @@ test('typed inputs and outputs satisfy public contract Schemas', () => {
     {
       contract: contracts.memoryContract,
       input: {
-        memoryRef: null,
+        parentVersionRef: null,
+        resourceRef: null,
         goal: 'Learn',
         evidenceRefs: [],
+        editConstraints: {},
       } satisfies MemoryInput,
       output: {
         status: 'no-change',
-        memoryRef: null,
+        resourceRef: null,
         changeRef: null,
         reason: '',
       } satisfies MemoryOutput,
@@ -725,7 +727,12 @@ test('contract Schemas retain required fields, discriminated branches and collec
     },
     {
       schema: contracts.memoryContract.output_schema,
-      value: { status: 'updated', memoryRef: null, changeRef: 'a', reason: '' },
+      value: {
+        status: 'proposed',
+        resourceRef: null,
+        changeRef: 'a',
+        reason: '',
+      },
     },
     {
       schema: contracts.proposerContract.output_schema,
@@ -757,11 +764,7 @@ test('contract Schemas retain required fields, discriminated branches and collec
     assert.throws(() => validate(schema, value));
 });
 
-test('Memory comparison keeps the frozen public contract Schema', () => {
-  assert.equal(Object.isFrozen(contracts.memoryContract), true);
-  assert.equal(Object.isFrozen(contracts.memoryComparisonSchema), true);
-  assert.equal(
-    Object.isFrozen(contracts.memoryComparisonSchema.properties),
-    true,
-  );
+test('Memory exposes immutable proposal schemas', () => {
+  assert.equal(Object.isFrozen(contracts.memoryContract.input_schema), true);
+  assert.equal(Object.isFrozen(contracts.memoryContract.output_schema), true);
 });

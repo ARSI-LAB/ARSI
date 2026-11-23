@@ -4,7 +4,10 @@ import {
   FileFacts,
   FileArtifacts,
 } from '../../../src/runtime/storage/index.js';
-import { RevisionApplication } from '../../../src/runtime/revisions/application.js';
+import {
+  RevisionApplication,
+  MemoryApplication,
+} from '../../../src/runtime/learning/application.js';
 
 /** Real revision application against disposable resources, never repository guidance. */
 export async function seedLearning(root: string) {
@@ -84,22 +87,43 @@ export async function seedLearning(root: string) {
     'experience.md',
     'Preserve worksheet names.\nCheck formula results after saving.\n',
   );
+  const memoryApplication = new MemoryApplication({
+    directory,
+    rootDirectory: project,
+    facts,
+    artifacts,
+  });
+  for (const [ref, artifactRef] of [
+    ['memory-initial', memoryBefore],
+    ['memory-next', memoryAfter],
+  ] as const)
+    await facts.write('memory-revisions', ref, {
+      ref,
+      artifactRef,
+      experimentId: 'learning-run',
+      rootRef: 'memory-initial',
+      parentRef: ref === 'memory-initial' ? null : 'memory-initial',
+      kind: ref === 'memory-initial' ? 'initial' : 'generated',
+      ...(ref === 'memory-initial'
+        ? { sourceDirectory: null, status: 'initial' }
+        : { learningId: 'memory-run', status: 'validated' }),
+    });
+  await facts.write('learning-runs', 'memory-run', {
+    experimentId: 'learning-run',
+    kind: 'memory',
+    learningId: 'memory-run',
+    triggerPath: 'steps/search/iteration-1',
+    callId: 'memory-update',
+    status: 'activated',
+    startedAt: '2026-11-05T01:15:00.000Z',
+  });
   await facts.write('calls', 'memory-update', {
     experimentId: 'learning-run',
     callId: 'memory-update',
-    bindingId: 'memoryUpdater',
-    pluginId: 'memory.agent',
+    bindingId: '_memory',
+    pluginId: 'custom.memory',
     status: 'succeeded',
-    path: 'search/1/remember',
-    startedAt: '2026-11-05T01:15:00.000Z',
-    finishedAt: '2026-11-05T01:16:00.000Z',
-    input: { memoryRef: memoryBefore },
-    output: {
-      status: 'updated',
-      memoryRef: memoryAfter,
-      reason: 'Retain checks from the selected output.',
-      changeRef: null,
-    },
+    path: 'learning/memory-run',
   });
   return {
     directory,
@@ -107,6 +131,7 @@ export async function seedLearning(root: string) {
     facts,
     artifacts,
     application,
+    memoryApplication,
     before,
     after,
     memoryBefore,

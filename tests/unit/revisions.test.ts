@@ -28,13 +28,13 @@ import {
 import {
   reflect,
   type ReflectionOptions,
-} from '../../src/runtime/revisions/index.js';
-import { RevisionApplication } from '../../src/runtime/revisions/application.js';
+} from '../../src/runtime/learning/reflection.js';
+import { RevisionApplication } from '../../src/runtime/learning/application.js';
 import {
   assignPointer,
   pointerValue,
-} from '../../src/runtime/revisions/resources.js';
-import { canonical, object, string } from '../../src/shared/json.js';
+} from '../../src/runtime/learning/resources.js';
+import { object, string } from '../../src/shared/json.js';
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(await realpath(tmpdir()), 'rsi-revisions-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -92,24 +92,25 @@ async function fixture(t: TestContext) {
   const revisionRefs: JsonObject = {};
   const options: ReflectionOptions = {
     config: {
-      path: join(root, 'reflection.yaml'),
+      trigger: { on: 'experiment-end', every: 1 },
+      goalFile: join(root, 'goal.md'),
+      evidenceView: 'execution',
       digest: 'config',
-      evidence: ['a'],
+      observe: { bindings: ['a'] },
       targets: {
         a: { resources: ['guidance'] },
         b: { resources: ['guidance'] },
       },
       goal: 'Improve guidance',
-      implementation: {
-        contract: 'contract.reflection',
-        ref: 'custom',
-        config: {},
-      },
+      plugin: 'custom',
+      config: {},
       budget: { modelCalls: 0 },
     },
-    invocation: { policyScopeId: 'root', stepPath: 'init/improve' },
-    generatorBinding: '_reflection',
-    state: { wikiRef: 'must-not-read' },
+    invocation: {
+      policyScopeId: 'root',
+      stepPath: 'init/improve',
+      triggerPath: 'init/improve',
+    },
     bindings,
     context,
     directory,
@@ -170,7 +171,7 @@ async function fixture(t: TestContext) {
   };
   const next = (step: string): ReflectionOptions => ({
     ...options,
-    invocation: { policyScopeId: 'root', stepPath: step },
+    invocation: { policyScopeId: 'root', stepPath: step, triggerPath: step },
   });
   return {
     root,
@@ -447,10 +448,7 @@ test('local generator failures, invalid edits and budgets preserve activation; g
     ...f.next('zero'),
     config: {
       ...f.options.config,
-      implementation: {
-        ...f.options.config.implementation,
-        ref: 'reflection.agent',
-      },
+      plugin: 'reflection.agent',
     },
   });
   assert.equal(zero.status, 'rejected');
@@ -495,53 +493,6 @@ test('Reflection accepts authorized edits beyond the former implicit file and by
   });
   assert.equal(result.status, 'activated');
 });
-test('a prepared Reflection with legacy edit limits replays its original input', async (t) => {
-  const f = await fixture(t);
-  await f.observe();
-  let prepared: JsonObject = {};
-  const original = await reflect({
-    ...f.options,
-    invoke: async (_binding, _input, _key, scope) => {
-      prepared = await f.facts.read('reflection', scope.id);
-      return { status: 'no-change', proposal: null, reason: 'unchanged' };
-    },
-  });
-  const tree = parseFileTree(
-    await f.artifacts.readJson(string(prepared.resourceRef)),
-  );
-  const manifestFile = tree.files.find(
-    (file) => file.path === 'manifest.json',
-  )!;
-  const manifest = object(
-    JSON.parse(Buffer.from(manifestFile.base64, 'base64').toString('utf8')),
-  );
-  for (const entry of Object.values(manifest)) object(entry).maxBytes = 65536;
-  manifestFile.base64 = Buffer.from(canonical(manifest)).toString('base64');
-  const resourceRef = await f.artifacts.putJson(tree);
-  const input = object(prepared.input);
-  const legacyInput = {
-    ...input,
-    resourceRef,
-    editConstraints: {
-      ...object(input.editConstraints),
-      maxChangedFiles: 16,
-      maxChangedBytes: 131072,
-    },
-  };
-  await f.facts.write('reflection', original.reflectionId, {
-    ...prepared,
-    resourceRef,
-    input: legacyInput,
-  });
-  const recovered = await reflect({
-    ...f.options,
-    invoke: async (_binding, input) => {
-      assert.deepEqual(input, legacyInput);
-      return { status: 'no-change', proposal: null, reason: 'replayed' };
-    },
-  });
-  assert.equal(recovered.reason, 'replayed');
-});
 test('prepared recovery reuses frozen evidence/resources and a committed activation does not regenerate or roll back', async (t) => {
   const f = await fixture(t);
   await f.observe();
@@ -553,13 +504,13 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
     ...f.options,
     invoke: async (_binding, input, _key, scope) => {
       generations++;
-      prepared = await f.facts.read('reflection', scope.id);
+      prepared = await f.facts.read('learning-runs', scope.id);
       return f.proposed(input, {
         'bindings/a/resources/guidance/rules.md': 'saved rule',
       });
     },
     save: async (changes, revisions, id) => {
-      validated = await f.facts.read('reflection', id);
+      validated = await f.facts.read('learning-runs', id);
       if (fail) throw new Error('preparation failed');
       await f.options.save(changes, revisions, id);
     },
@@ -569,7 +520,7 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
   assert.equal(validated.status, 'validated');
   assert.deepEqual(f.options.revisionRefs, validated.parents);
   assert.equal(f.bindings.a!.config.guidance, join(f.root, 'a'));
-  await f.facts.write('reflection', rejected.reflectionId, validated);
+  await f.facts.write('learning-runs', rejected.learningId, validated);
   fail = false;
   const recovered = await reflect(options);
   assert.equal(recovered.status, 'activated');
@@ -588,7 +539,7 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
   assert.equal(descendant.status, 'activated');
   const activeBindings = structuredClone(f.bindings);
   const activeRefs = f.options.revisionRefs;
-  await f.facts.write('reflection', recovered.reflectionId, validated);
+  await f.facts.write('learning-runs', recovered.learningId, validated);
   assert.equal(
     (await reflect({ ...options, revisionRefs: {} })).status,
     'activated',
@@ -628,7 +579,11 @@ test('a later Policy invocation retains the binding resource owner and its gener
   await f.observe('a', { parentCallId: 'child-scope' });
   const second = await reflect({
     ...f.options,
-    invocation: { policyScopeId: 'child-scope', stepPath: 'improve' },
+    invocation: {
+      policyScopeId: 'child-scope',
+      stepPath: 'improve',
+      triggerPath: 'improve',
+    },
     invoke: async (_binding, input) =>
       f.proposed(input, {
         'bindings/a/resources/guidance/second.md': 'second scope rule',
@@ -645,7 +600,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
   assert.equal(shown.reason, 'bounded improvement');
   assert.equal(shown.generationPolicyScopeId, 'child-scope');
   assert.equal(
-    (await f.facts.read('reflection', second.reflectionId)).reason,
+    (await f.facts.read('learning-runs', second.learningId)).reason,
     'bounded improvement',
   );
   await application.apply(string(second.revisionRefs.a));
@@ -727,15 +682,12 @@ for (const corruption of ['record status', 'result status'] as const) {
   test(`Reflection rejects an unknown persisted ${corruption} before generation`, async (t) => {
     const f = await fixture(t);
     const result = await reflect(f.options);
-    const saved = await f.facts.read('reflection', result.reflectionId);
+    const saved = await f.facts.read('learning-runs', result.learningId);
     if (corruption === 'record status') saved.status = 'unexpected-status';
     else object(saved.result).status = 'unexpected-status';
-    await f.facts.write('reflection', result.reflectionId, saved);
+    await f.facts.write('learning-runs', result.learningId, saved);
     const before = f.generations();
-    await assert.rejects(
-      reflect(f.options),
-      /Reflection.*status.*unsupported/i,
-    );
+    await assert.rejects(reflect(f.options), /Learning.*status.*unsupported/i);
     assert.equal(f.generations(), before);
   });
 }
@@ -743,31 +695,28 @@ for (const corruption of ['record status', 'result status'] as const) {
 test('Reflection rejects a terminal result that disagrees with its saved status', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('reflection', result.reflectionId);
+  const saved = await f.facts.read('learning-runs', result.learningId);
   saved.status = 'rejected';
   object(saved.result).status = 'activated';
-  await f.facts.write('reflection', result.reflectionId, saved);
-  await assert.rejects(reflect(f.options), /Reflection.*status.*mismatch/);
+  await f.facts.write('learning-runs', result.learningId, saved);
+  await assert.rejects(reflect(f.options), /Learning.*status.*mismatch/);
 });
 
 test('Reflection rejects restored result revision references that are not strings', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('reflection', result.reflectionId);
+  const saved = await f.facts.read('learning-runs', result.learningId);
   object(saved.result).revisionRefs = { worker: 42 };
-  await f.facts.write('reflection', result.reflectionId, saved);
-  await assert.rejects(reflect(f.options), /Reflection result.*must be string/);
+  await f.facts.write('learning-runs', result.learningId, saved);
+  await assert.rejects(reflect(f.options), /Learning result.*must be string/);
   assert.equal(f.generations(), 0);
 });
 
 test('Reflection rejects a restored result with the wrong invocation identity', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('reflection', result.reflectionId);
-  object(saved.result).reflectionId = 'another-reflection';
-  await f.facts.write('reflection', result.reflectionId, saved);
-  await assert.rejects(
-    reflect(f.options),
-    /Reflection result identity mismatch/,
-  );
+  const saved = await f.facts.read('learning-runs', result.learningId);
+  object(saved.result).learningId = 'another-reflection';
+  await f.facts.write('learning-runs', result.learningId, saved);
+  await assert.rejects(reflect(f.options), /Learning result identity mismatch/);
 });

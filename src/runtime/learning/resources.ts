@@ -12,7 +12,7 @@ import type {
   JsonValue,
   JsonSchema,
 } from '../../contracts/index.js';
-import { object } from '../../shared/json.js';
+import { digest, object } from '../../shared/json.js';
 import { safeId } from '../storage/index.js';
 import { configPathFields, type ConfigPathField } from '../../shared/paths.js';
 /** Match a selected field and the configured Schema paths beneath collections. */
@@ -24,7 +24,9 @@ export function selectedResourceFields(
   const fields = configPathFields(schema, config);
   const selected = new Map<string, ConfigPathField>();
   for (const name of names) {
-    const pointer = '/' + name.replaceAll('~', '~0').replaceAll('/', '~1');
+    const pointer = name.startsWith('/')
+      ? name
+      : '/' + name.replaceAll('~', '~0').replaceAll('/', '~1');
     const matches = fields.filter(
       (field) =>
         field.pointer === pointer || field.pointer.startsWith(pointer + '/'),
@@ -101,23 +103,34 @@ export async function validateEditableDestinations(
     ),
   );
 }
-export function segments(pointer: string): string[] {
+function configurationKeys(pointer: string): string[] {
   if (!pointer.startsWith('/')) throw new Error('Expected JSON Pointer');
   const parts = pointer
     .slice(1)
     .split('/')
     .map((p) => p.replaceAll('~1', '/').replaceAll('~0', '~'));
   for (const part of parts)
-    if (
-      !/^(?:[A-Za-z][A-Za-z0-9_-]*|0|[1-9][0-9]*)$/.test(part) ||
-      ['constructor', 'prototype', '__proto__'].includes(part)
-    )
+    if (['constructor', 'prototype', '__proto__'].includes(part))
       throw new Error('Unsafe configuration pointer');
   return parts;
 }
-export function pointerValue(value: JsonObject, pointer: string): JsonValue {
+/** A Schema property may contain a slash or device name. Give those keys a portable snapshot path. */
+export function segments(pointer: string): string[] {
+  return configurationKeys(pointer).map((key) =>
+    /^(?:[A-Za-z][A-Za-z0-9_-]*|0|[1-9][0-9]*)$/.test(key) &&
+    !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9]|dist|node_modules)$/i.test(key) &&
+    key.length <= 200
+      ? key
+      : '@' + digest(key),
+  );
+}
+function valueAt(
+  value: JsonObject,
+  keys: string[],
+  pointer: string,
+): JsonValue {
   let result: JsonValue = value;
-  for (const key of segments(pointer)) {
+  for (const key of keys) {
     if (Array.isArray(result) && !/^(?:0|[1-9][0-9]*)$/.test(key))
       throw new Error(`Configuration pointer missing ${pointer}`);
     const record: JsonObject | JsonValue[] = Array.isArray(result)
@@ -129,15 +142,18 @@ export function pointerValue(value: JsonObject, pointer: string): JsonValue {
   }
   return result;
 }
+export function pointerValue(value: JsonObject, pointer: string): JsonValue {
+  return valueAt(value, configurationKeys(pointer), pointer);
+}
 export function assignPointer(
   value: JsonObject,
   pointer: string,
   entry: JsonValue,
 ): void {
-  const parts = segments(pointer),
+  const parts = configurationKeys(pointer),
     last = parts.pop()!;
   let result: JsonValue = value;
-  if (parts.length) result = pointerValue(value, '/' + parts.join('/'));
+  if (parts.length) result = valueAt(value, parts, pointer);
   if (Array.isArray(result)) {
     if (!/^(?:0|[1-9][0-9]*)$/.test(last) || Number(last) >= result.length)
       throw new Error(`Configuration pointer missing ${pointer}`);

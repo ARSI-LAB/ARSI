@@ -186,7 +186,7 @@ factoryCtx.event.on('rsi/before-call', async (event, next) => {
 
 对于 `rsi/before-call`，默认决策为 `{ kind: 'proceed' }`，允许调用时可通过 `metadata` 为回执添加元数据。两个调用准入钩子都支持返回 `{ kind: 'reject', reason }` 拒绝请求，`reason` 必须为非空字符串。
 
-对于 `rsi/before-agent-invoke`，默认决策包含一份独立的请求副本。要调整 Agent 请求，在返回的 `proceed` 决策中提供更新后的 `input`。下面的监听保留后续监听返回的修改，并为来自 `proposer` 绑定的请求添加审计标记。
+对于 `rsi/before-agent-invoke`，默认决策包含一份独立的请求副本。要调整 Agent 请求，在返回的 `proceed` 决策中提供更新后的 `input`。绑定监听器调用 `await next()` 后，可以检查和修改已完成 Memory 准备的请求。两个钩子返回同名的回执元数据时，Runtime 使用 Agent 请求准备阶段的最终值。下面的监听保留后续监听返回的修改，并为来自 `proposer` 绑定的请求添加审计标记。
 
 ```ts
 factoryCtx.event.on('rsi/before-agent-invoke', async (event, next) => {

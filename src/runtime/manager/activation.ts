@@ -1,11 +1,13 @@
 import { getLogger } from '@logtape/logtape';
+import { persistFact } from '../storage/persistence-error.js';
+import { parseActiveMemory, type ActiveMemory } from '../learning/memory.js';
 import type {
   Binding,
   EventPipeline,
   FactStore,
   JsonObject,
 } from '../../contracts/index.js';
-import { object, string } from '../../shared/json.js';
+import { canonical, object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import type { Registry } from '../registry/index.js';
 import type { Instances } from './instances.js';
@@ -15,11 +17,12 @@ const logger = getLogger(['arsi', 'runtime', 'manager']);
 
 type PreparedInstance = Awaited<ReturnType<Instances['prepare']>>;
 interface Activation {
+  memory: ActiveMemory | null;
   activationId: string;
   bindings: Record<string, Binding>;
   revisions: JsonObject;
 }
-interface RevisionActivationOptions {
+interface LearningActivationOptions {
   id: string;
   bindings: Record<string, Binding>;
   facts: FactStore;
@@ -43,17 +46,85 @@ function parseActivation(value: JsonObject): Activation {
   return {
     activationId: string(value.activationId),
     bindings,
+    memory: value.memory ? parseActiveMemory(value.memory) : null,
     revisions: object(value.revisions),
   };
 }
 
 /** Saves the replacement set before switching live instances and retiring prior owners. */
-export class RevisionActivation {
+export class LearningActivation {
   private readonly bindingState: Record<string, Binding>;
   private readonly revisionState: JsonObject = {};
 
-  constructor(private readonly options: RevisionActivationOptions) {
+  private memoryState: ActiveMemory | null = null;
+  private writes: Promise<void> = Promise.resolve();
+
+  constructor(private readonly options: LearningActivationOptions) {
     this.bindingState = structuredClone(options.bindings);
+  }
+
+  get memory(): ActiveMemory | null {
+    return this.memoryState;
+  }
+  get summary(): JsonObject {
+    return {
+      memoryRef: this.memoryState?.ref ?? null,
+      memoryArtifactRef: this.memoryState?.artifactRef ?? null,
+      revisionRefs: { ...this.revisionState },
+    };
+  }
+  private serialize(write: () => Promise<void>): Promise<void> {
+    const result = this.writes.then(write);
+    this.writes = result.catch(() => {});
+    return result;
+  }
+  initializeMemory(memory: ActiveMemory): Promise<void> {
+    return this.saveMemory(memory, memory.ref);
+  }
+  saveMemory(memory: ActiveMemory, activationId: string): Promise<void> {
+    return this.serialize(async () => {
+      await this.persist(
+        activationId,
+        this.bindingState,
+        this.revisionState,
+        memory,
+      );
+      this.memoryState = memory;
+      try {
+        this.options.event.emit('rsi/memory-activated', {
+          experimentId: this.options.id,
+          activationId,
+          memoryVersionRef: memory.ref,
+          artifactRef: memory.artifactRef,
+        });
+      } catch (error) {
+        this.options.diagnose('rsi/memory-activated', error);
+      }
+    });
+  }
+  private async persist(
+    activationId: string,
+    bindings: Record<string, Binding>,
+    revisions: JsonObject,
+    memory: ActiveMemory | null,
+  ): Promise<void> {
+    const record = {
+      activationId,
+      bindings: object(structuredClone(bindings)),
+      revisions: { ...revisions },
+      memory,
+      ...(this.options.bindingVersions
+        ? { bindingVersions: this.options.bindingVersions }
+        : {}),
+    };
+    const { facts, id } = this.options;
+    try {
+      await persistFact(facts, 'activations', id, record);
+    } catch (error) {
+      // A storage adapter can lose the acknowledgement after publishing the pointer.
+      const published = await facts.read('activations', id).catch(() => null);
+      if (!published || canonical(published) !== canonical(record)) throw error;
+    }
   }
 
   get bindings(): Readonly<Record<string, Binding>> {
@@ -81,6 +152,7 @@ export class RevisionActivation {
       throw error;
     }
     const activation = parseActivation(saved);
+    this.memoryState = activation.memory;
     const savedVersions = object(saved.bindingVersions ?? {});
     for (const [name, binding] of Object.entries(activation.bindings)) {
       if (
@@ -100,13 +172,19 @@ export class RevisionActivation {
     }
   }
 
-  async save(
+  saveRevisions(
     changes: Record<string, Binding>,
     revisions: JsonObject,
     activationId: string,
   ): Promise<void> {
-    const { id, facts, registry, instances, cleanup, event, diagnose } =
-      this.options;
+    return this.serialize(() => this.replace(changes, revisions, activationId));
+  }
+  private async replace(
+    changes: Record<string, Binding>,
+    revisions: JsonObject,
+    activationId: string,
+  ): Promise<void> {
+    const { id, registry, instances, cleanup, event, diagnose } = this.options;
     const prepared = new Map<string, PreparedInstance>();
     const previous = new Map<string, Promise<PreparedInstance>>();
     try {
@@ -115,14 +193,12 @@ export class RevisionActivation {
         validate(definition.configSchema, binding.config, 'revision config');
         prepared.set(target, await instances.prepare(target, binding));
       }
-      await facts.write('activations', id, {
+      await this.persist(
         activationId,
-        bindings: object(structuredClone({ ...this.bindingState, ...changes })),
-        revisions: { ...this.revisionState, ...revisions },
-        ...(this.options.bindingVersions
-          ? { bindingVersions: this.options.bindingVersions }
-          : {}),
-      });
+        { ...this.bindingState, ...changes },
+        { ...this.revisionState, ...revisions },
+        this.memoryState,
+      );
     } catch (error) {
       for (const [target, instance] of prepared)
         cleanup.retire(instance, `${activationId}-${target}-prepared`);

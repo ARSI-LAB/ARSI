@@ -1,5 +1,6 @@
 schemaVersion: rsi.recipe/v1
 id: operator-transpose-copy-metrics-search
+reflection: { configFile: ./reflection.yaml }
 application:
   plugin: application.kernel
   config:
@@ -54,7 +55,7 @@ bindings:
     config:
       agentRef: agent
       modelRequestTimeoutMs: 0
-      promptFile: ./prompts/summarize.md
+      promptFile: ./summarize.md
   evaluator:
     plugin: evaluator.operatorbench
     config:

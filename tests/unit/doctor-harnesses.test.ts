@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import type { JsonObject, JsonValue } from '../../src/contracts/index.js';
 import { createRuntime, type Runtime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
@@ -210,7 +210,12 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
       'evaluator.sdk-doctor',
       'evaluator.sdk.coverage',
       'evaluator.sdk.network',
+      'memory.binding.agentRef',
+      'memory.prepare-project',
+      'reflection.binding.agentRef',
+      'reflection.prepare-project',
       independentChecks[name],
+      ...(name === 'dsh-gepa' ? ['_learningAgent.model-access'] : []),
     ])
       assert.equal(
         report.checks.find((check) => check.id === id)?.status,
@@ -218,17 +223,6 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
         `${name}: ${id}`,
       );
     if (name === 'dsh-harness2') {
-      assert.equal(
-        report.checks.find((check) => check.id === 'reflection.prepare-project')
-          ?.status,
-        'passed',
-      );
-      assert.equal(
-        report.checks.find(
-          (check) => check.id === 'reflection.binding.agentRef',
-        )?.status,
-        'passed',
-      );
       assert.equal(
         report.checks.find(
           (check) => check.id === 'domainProposer.prepare-project',
@@ -478,4 +472,26 @@ test('identical scripted Recipe checks stay deterministic across two conversatio
     'passed',
   );
   verifyReport(reduceLatency);
+});
+
+test('Doctor accepts a future Memory directory and reports built-in Reflection destinations', async (t) => {
+  const f = await fixture(t, 'dsh-harness2');
+  delete object(f.data.bindings).domainProposer;
+  f.data.reflection = true;
+  f.data.memory = { configFile: './memory-directory.yaml' };
+  await writeFile(
+    join(dirname(f.path), 'memory-directory.yaml'),
+    JSON.stringify({ directory: './new-memory' }),
+  );
+  await writeFile(f.path, JSON.stringify(f.data));
+  const report = await doctorRecipe(f.runtime, f.path);
+  assert.equal(
+    report.checks.find((check) => check.id === 'memory.directory')?.status,
+    'passed',
+    JSON.stringify(report.checks),
+  );
+  assert.equal(
+    report.checks.find((check) => check.id === 'reflection.targets')?.status,
+    'passed',
+  );
 });

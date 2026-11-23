@@ -30,7 +30,8 @@ bindings:
       plugin: selector.metric,
       config: { metric: checkPhrase, direction: maximize },
     }
-reflection: { configFile: ./reflection-only.yaml }
+memory: false
+reflection: { configFile: ./reflection.yaml }
 budget:
   modelCalls: 20
   evaluationRuns: 3

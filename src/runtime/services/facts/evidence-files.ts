@@ -13,6 +13,7 @@ export async function projectEvidenceFiles(options: {
   artifacts: ArtifactStore;
   view: EvidenceView;
   maxBytes?: number;
+  directory?: string;
 }): Promise<JsonObject> {
   if (options.view !== 'execution')
     throw new Error('File evidence requires the execution view');
@@ -113,7 +114,7 @@ export async function projectEvidenceFiles(options: {
             ? 'text'
             : 'json';
         const safe = fullEvidenceText(content, format);
-        const path = `context/evidence/${mi}/${ei}/record.txt`;
+        const path = `${options.directory ?? 'context/evidence'}/${mi}/${ei}/record.txt`;
         store(path, safe.text);
         entryFiles.push({
           path,
@@ -155,7 +156,7 @@ export async function projectEvidenceFiles(options: {
             ? 'json'
             : 'text';
         const safe = fullEvidenceText(decoded, format);
-        const path = `context/evidence/${mi}/${ei}/${fi}.txt`;
+        const path = `${options.directory ?? 'context/evidence'}/${mi}/${ei}/${fi}.txt`;
         store(path, safe.text);
         entryFiles.push({
           path,

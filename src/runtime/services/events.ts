@@ -39,6 +39,7 @@ export class EventScope {
     readonly bindingId: string,
     readonly context: Context,
     readonly event: EventPipeline,
+    readonly order: 'normal' | 'last',
   ) {}
 }
 
@@ -85,7 +86,7 @@ export class ManagedEvents {
     };
   }
 
-  prepare(bindingId: string): EventScope {
+  prepare(bindingId: string, order: 'normal' | 'last' = 'normal'): EventScope {
     if (!this.accepting)
       throw new Error('Experiment event admission is closed');
     const scope: EventScope = new EventScope(
@@ -95,6 +96,7 @@ export class ManagedEvents {
         ...this.event,
         on: (name, handler) => this.subscribe(scope, name, handler),
       },
+      order,
     );
     this.scopes.add(scope);
     return scope;
@@ -137,11 +139,14 @@ export class ManagedEvents {
   private install(): void {
     for (const scope of this.scopes)
       for (const dispose of scope.disposers.splice(0)) dispose();
-    for (const scope of this.slots.values()) {
-      if (!scope?.active) continue;
-      for (const subscription of scope.subscriptions)
-        scope.disposers.push(subscription.install());
-    }
+    // Binding middleware wraps the Runtime's innermost Agent preparation,
+    // including when bindings subscribe lazily after the Runtime has started.
+    for (const order of ['normal', 'last'] as const)
+      for (const scope of this.slots.values()) {
+        if (!scope?.active || scope.order !== order) continue;
+        for (const subscription of scope.subscriptions)
+          scope.disposers.push(subscription.install());
+      }
   }
 
   private subscribe<Name extends keyof Events>(

@@ -13,6 +13,7 @@ import {
 import {
   definitionLockVersion,
   parseLockedReflection,
+  parseLockedMemory,
 } from '../manager/definition-lock.js';
 
 class DefinitionLockError extends Error {
@@ -75,6 +76,7 @@ function readDefinitionLock(locked: JsonObject): {
         object(policy[field], `locked policy.${field}`);
     if (locked.reflection !== null && locked.reflection !== undefined)
       parseLockedReflection(locked.reflection);
+    if (locked.memory != null) parseLockedMemory(locked.memory);
     return {
       definitionDigest: expected,
       policy,

@@ -1,0 +1,7 @@
+evidence:
+  view: training-summary
+  excludeSteps: [baseline, baseline_score, validate, test]
+targets:
+  include: { proposer: [prompt] }
+implementation:
+  config: { agentRef: agent }

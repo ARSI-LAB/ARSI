@@ -23,6 +23,14 @@ export type {
   RecipeDeclaration,
 } from './recipe.js';
 export { bindingDeclarationSchema, recipeDeclarationSchema } from './recipe.js';
+export type {
+  LearningKind,
+  LearningTrigger,
+  LearningBudget,
+  LearningDeclaration,
+  MemoryConfiguration,
+  ReflectionConfiguration,
+} from './learning.js';
 export type { Candidate } from './models/candidate.js';
 export * from './models/measurement.js';
 export * from './models/file-tree.js';

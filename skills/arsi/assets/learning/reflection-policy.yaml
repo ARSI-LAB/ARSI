@@ -16,10 +16,6 @@ config_schema:
 state_schema:
   type: object
   properties:
-    reflectionResults:
-      type: array
-      items:
-        type: object
     candidate:
       type: string
       minLength: 1
@@ -28,12 +24,10 @@ state_schema:
         - string
         - 'null'
   required:
-    - reflectionResults
     - candidate
     - measurement
   additionalProperties: false
 state:
-  reflectionResults: []
   candidate: ${{ input.candidateRef }}
   measurement: null
 output_schema:
@@ -41,18 +35,13 @@ output_schema:
   properties:
     candidateRef: { type: string }
     measurementRef: { type: string }
-    reflectionResults:
-      type: array
-      items: { type: object }
-  required: [candidateRef, measurementRef, reflectionResults]
+  required: [candidateRef, measurementRef]
   additionalProperties: false
 require:
   agent: { contract: contract.agent }
   proposer: { contract: contract.proposer }
   evaluator: { contract: contract.agentbench }
   selector: { contract: contract.selector-metrics }
-defaults:
-  reflection: { configFile: ./reflection-only.yaml }
 steps:
   - id: baseline
     type: invoke
@@ -100,19 +89,6 @@ steps:
               state:
                 candidate: ${{ steps.select.output.selectedCandidateRef }}
                 measurement: ${{ steps.select.output.measurementRef }}
-      - id: learn_for_next_round
-        type: if
-        if: ${{ loop.index + 1 < config.maxRounds }}
-        then:
-          steps:
-            - id: improve_guidance
-              type: reflection
-            - id: retain_reflection
-              type: state
-              state:
-                reflectionResults: ${{ append(state.reflectionResults,
-                  steps.improve_guidance.output) }}
 output:
   candidateRef: ${{ state.candidate }}
   measurementRef: ${{ state.measurement }}
-  reflectionResults: ${{ state.reflectionResults }}

@@ -237,7 +237,6 @@ test('Proposer can read every non-thinking event and full arguments while only t
       parent: 'base',
       goal: 'Improve workflow',
       evidenceRefs: ['m'],
-      memoryRef: null,
       sources: [{ candidateRef: 'source', measurementRef: 'm-source' }],
     };
     assert.equal(

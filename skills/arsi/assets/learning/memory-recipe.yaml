@@ -24,17 +24,14 @@ bindings:
       agentRef: agent
       prompt: ./proposer.md
       guidance: ./guidance
-  memory:
-    plugin: memory.agent
-    config:
-      agentRef: agent
-      prompt: ./memory.md
   evaluator: { plugin: evaluator.skill-text, config: {} }
   selector:
     {
       plugin: selector.metric,
       config: { metric: checkPhrase, direction: maximize },
     }
+memory: { configFile: ./memory.yaml }
+reflection: false
 budget:
   modelCalls: 20
   evaluationRuns: 3

@@ -19,7 +19,7 @@ const endpoint = `/api/observation/experiments/${experimentId}/policy-structure`
 
 function savedDefinition(directory: string): JsonObject {
   const content: JsonObject = {
-    schemaVersion: 'rsi.definition-lock/v2',
+    schemaVersion: 'rsi.definition-lock/v3',
     recipe: {
       schemaVersion: 'rsi.recipe/v1',
       id: 'saved-recipe',
@@ -78,6 +78,7 @@ function savedDefinition(directory: string): JsonObject {
     ],
     resourceOrigins: { worker: { '/prompt': join(directory, 'prompt.md') } },
     reflection: null,
+    memory: null,
   };
   return { ...content, digest: digest(content) };
 }
@@ -114,6 +115,9 @@ async function fixture(
       artifacts,
       list: () => facts.list('experiments'),
       get: (id) => facts.read('experiments', id),
+      memory: () => {
+        throw new Error('Unexpected Memory application');
+      },
       reflection: () => {
         throw new Error('A structure read must not activate Reflection');
       },
@@ -298,6 +302,10 @@ test('Policy structure HTTP distinguishes missing, unsupported and corrupt snaps
     [relock(invalidPolicy), 'unsupported-source'],
     [relock(mismatchedPolicy), 'invalid-source'],
     [relock(invalidReflection), 'invalid-source'],
+    [
+      relock({ ...original, memory: { secret: privateValue } }),
+      'invalid-source',
+    ],
     [relock(missingOutput), 'invalid-source'],
   ];
   for (const [lock, category] of variants) {

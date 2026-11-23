@@ -15,12 +15,15 @@ import {
 } from '../../src/plugins/shared/evaluator-adapter/cleanup.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
 import {
+  agentContract,
   defineContract,
+  memoryContract,
   reflectionContract,
   type OperationDefinition,
 } from '../../src/contracts/index.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { dispatchRecipeCleanup } from '../../src/runtime/manager/cleanup.js';
+import { definitionLockVersion } from '../../src/runtime/manager/definition-lock.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { digest } from '../../src/shared/json.js';
 
@@ -621,13 +624,23 @@ test('cleanup reports initialization failures per binding and retries after the 
   assert.deepEqual(seen, ['driver', 'driver', 'unused']);
 });
 
-test('standalone cleanup previews saved Application and Reflection bindings without opening the original files', async (t) => {
+test('standalone cleanup previews saved Application and learning bindings without opening the original files', async (t) => {
   const f = await managerFixture(async () => ({}));
   t.after(f.dispose);
   const { manager } = f;
   const registry = manager.options.registry;
   for (const definition of [
     { ...registry.get('test.application'), id: 'test.app' },
+    {
+      ...registry.get('test.driver'),
+      contract: agentContract,
+      id: 'agent.pi',
+    },
+    {
+      ...registry.get('test.driver'),
+      contract: memoryContract,
+      id: 'test.memory',
+    },
     {
       ...registry.get('test.driver'),
       contract: reflectionContract,
@@ -701,6 +714,35 @@ test('standalone cleanup previews saved Application and Reflection bindings with
   });
   assert.deepEqual(await preview(), [
     ['_application', 'test.app'],
+    ['_reflection', 'test.reflection'],
+  ]);
+
+  const agentBinding = {
+    plugin: 'agent.pi',
+    config: { label: '_learningAgent' },
+  };
+  const current = {
+    schemaVersion: definitionLockVersion,
+    recipe,
+    memory: {
+      plugin: 'test.memory',
+      config: { label: '_memory' },
+      agentBinding,
+    },
+    reflection: {
+      plugin: 'test.reflection',
+      config: { label: '_reflection' },
+      agentBinding,
+    },
+  };
+  await manager.facts.write('definitions', id, {
+    ...current,
+    digest: digest(current),
+  });
+  assert.deepEqual(await preview(), [
+    ['_application', 'test.app'],
+    ['_memory', 'test.memory'],
+    ['_learningAgent', 'agent.pi'],
     ['_reflection', 'test.reflection'],
   ]);
 });

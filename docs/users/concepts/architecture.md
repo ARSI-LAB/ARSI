@@ -77,7 +77,7 @@ Plugins can use [Runtime evidence services](../../../src/runtime/services/facts/
 
 ## Plugin self-evolution
 
-The framework provides plugin-level self-evolution components, including Memory and Reflection. Select a Policy that integrates them and configure the relevant bindings, learning goals, and authorized resources to use them in an experiment.
+The framework provides plugin-level self-evolution components, including Memory and Reflection. Use the Policy or Recipe to reference external files that configure serial triggers, evidence and targets.
 
 Follow the [Memory guide](../guides/memory.md) and [Reflection guide](../guides/reflection.md) for configuration and how updates affect later execution. See [built-in components](../guides/built-in-components.md) for available implementations.
 
@@ -111,10 +111,11 @@ sequenceDiagram
   Core->>App: Initialize
   App-->>Core: Initial candidate
 
-  Core->>Proposer: domainProposer<br/>Candidate, goal, evidence, optional Memory
+  Core->>Proposer: domainProposer<br/>Candidate, goal and evidence
   Proposer->>Core: Read candidate files<br/>and authorized execution records
   Core-->>Proposer: Candidate files and execution records
-  Proposer->>Agent: Request proposed file changes
+  Proposer->>Core: Invoke Agent with the project
+  Core->>Agent: Request file changes with the pinned Memory when available
   Agent-->>Proposer: Proposed changes
   Proposer->>Proposer: Validate and apply changes<br/>in a temporary workspace
   Proposer->>Core: Submit changes (commit)

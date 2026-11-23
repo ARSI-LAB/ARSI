@@ -11,7 +11,7 @@ import {
 } from '../../src/contracts/index.js';
 import { CleanupLifecycle } from '../../src/runtime/manager/cleanup.js';
 import { Instances } from '../../src/runtime/manager/instances.js';
-import { RevisionActivation } from '../../src/runtime/manager/activation.js';
+import { LearningActivation } from '../../src/runtime/manager/activation.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { ManagedEvents } from '../../src/runtime/services/events.js';
 import { FileFacts } from '../../src/runtime/storage/index.js';
@@ -125,7 +125,7 @@ async function fixture(
     }
     await write(kind, id, value);
   };
-  const activation = new RevisionActivation({
+  const activation = new LearningActivation({
     id: context.experimentId,
     bindings,
     facts,
@@ -153,6 +153,7 @@ async function fixture(
     context,
     bindings: activation.bindings,
     revisionRefs: activation.revisionRefs,
+    activation,
     oldBinding,
     writing,
     commit,
@@ -163,7 +164,7 @@ async function fixture(
     restore: () => activation.restore(),
     disposedVersion: (version: number) => disposal.get(version)!.promise,
     save: () =>
-      activation.save(
+      activation.saveRevisions(
         { worker: newBinding },
         { worker: 'revision-new' },
         'activation-new',
@@ -395,3 +396,51 @@ for (const failure of ['prepare', 'commit'] as const) {
     );
   });
 }
+
+test('simultaneous Memory and revision saves preserve both active pointers without restarting Memory consumers', async (t) => {
+  const f = await fixture(t);
+  const lease = await f.instances.acquire('worker', f.bindings.worker!);
+  try {
+    const memory = {
+      ref: 'memory-first',
+      artifactRef: 'artifact:immutable',
+      rootRef: 'memory-first',
+    };
+    const saving = f.activation.saveMemory(memory, 'learning-memory-first');
+    await f.writing.promise;
+    assert.equal(f.activation.memory, null);
+    const revising = f.save();
+    f.commit.release();
+    await Promise.all([saving, revising]);
+    assert.deepEqual(f.created, [1, 2]);
+    const saved = await f.facts.read('activations', 'activation-race');
+    assert.deepEqual(saved.memory, memory);
+    assert.deepEqual(saved.revisions, { worker: 'revision-new' });
+  } finally {
+    lease.release();
+  }
+});
+
+test('a lost acknowledgement after durable activation publishes both pointers to live readers', async (t) => {
+  const f = await fixture(t);
+  f.commit.release();
+  const write = f.facts.write.bind(f.facts);
+  f.facts.write = async (kind, id, data) => {
+    await write(kind, id, data);
+    if (kind === 'activations') throw new Error('lost acknowledgement');
+  };
+  const memory = {
+    ref: 'memory-first',
+    artifactRef: 'artifact:immutable',
+    rootRef: 'memory-first',
+  };
+  await f.activation.saveMemory(memory, 'learning-memory-first');
+  await f.save();
+  assert.equal(f.activation.memory?.ref, memory.ref);
+  assert.equal(f.activation.revisionRefs.worker, 'revision-new');
+  assert.equal(f.activation.bindings.worker!.config.version, 2);
+  assert.deepEqual(
+    (await f.facts.read('activations', 'activation-race')).memory,
+    memory,
+  );
+});

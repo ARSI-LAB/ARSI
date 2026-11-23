@@ -1,3 +1,4 @@
+import { persistFact } from '../storage/persistence-error.js';
 import { readAgentTrace } from '../storage/agent-records.js';
 import { join } from 'node:path';
 import type {
@@ -20,17 +21,25 @@ import {
 import { projectEvidenceFiles } from '../services/facts/evidence-files.js';
 import { safeId } from '../storage/index.js';
 import type { EvidenceCall } from './evidence-window.js';
-import { selectEvidenceWindow, asObject, finished } from './evidence-window.js';
+import type { LearningObserve } from './schema.js';
+import { projectCandidateEvidence } from './candidate-evidence.js';
+import { executionEvidencePackets } from '../services/facts/evidence-packets.js';
+import {
+  selectEvidenceWindow,
+  asObject,
+  finished,
+  matchesPrimary,
+} from './evidence-window.js';
 
 export interface EvidenceOptions {
   context: RuntimeContext;
-  names: string[];
   identity: string;
   capturedAt: string;
   maxBytes?: number;
   priorRef?: string;
   policyScopeId?: string;
-  moduleKey?: string;
+  kind: 'memory' | 'reflection';
+  observe: LearningObserve;
   configDigest?: string;
   stepPath?: string;
   directory?: string;
@@ -38,7 +47,7 @@ export interface EvidenceOptions {
   isAgentBinding?(binding: string): boolean;
   currentRevisionRefs?: JsonObject;
 }
-export interface ReflectionEvidence {
+export interface LearningEvidence {
   ref: string | null;
   callCount: number;
   callIds: string[];
@@ -49,9 +58,9 @@ function task(call: EvidenceCall): JsonValue {
 }
 
 /** A persisted, scope-local trigger snapshot. References, not arbitrary strings, authorize expansion. */
-export async function collectReflectionEvidence(
+export async function collectLearningEvidence(
   options: EvidenceOptions,
-): Promise<ReflectionEvidence> {
+): Promise<LearningEvidence> {
   const { context } = options;
   const diagnostics: JsonObject[] = [];
   const note = (code: string, callId?: JsonValue): void => {
@@ -67,7 +76,9 @@ export async function collectReflectionEvidence(
     cutoff,
     primaryIds,
     policyScopeId,
-    moduleKey,
+    excludedMeasurements,
+    excludedProducers,
+    withheldSelections,
   } = window;
   const files: JsonObject = {};
   const sourceTextPaths = new Map<string, string>();
@@ -82,7 +93,7 @@ export async function collectReflectionEvidence(
     const available = Math.max(0, limit - bytes);
     const data = Buffer.from(content);
     if (data.length > available) {
-      const marker = '\n[truncated: Reflection evidence byte limit]';
+      const marker = '\n[truncated: learning evidence byte limit]';
       const suffix = Buffer.byteLength(marker) <= available ? marker : '';
       let end = Math.max(0, available - Buffer.byteLength(suffix));
       while (end > 0 && (data[end]! & 0xc0) === 0x80) end--;
@@ -98,7 +109,7 @@ export async function collectReflectionEvidence(
     ref: string,
     source: JsonObject,
   ): Promise<void> => {
-    if (seenMeasurements.has(ref)) return;
+    if (excludedMeasurements.has(ref) || seenMeasurements.has(ref)) return;
     const measurement = await context.facts
       .read('measurements', ref)
       .catch((error: unknown) => {
@@ -117,6 +128,7 @@ export async function collectReflectionEvidence(
       note('foreign-measurement', source.callId);
       return;
     }
+    if (excludedProducers.has(String(measurement.callId))) return;
     seenMeasurements.add(ref);
     measurements.push(measurement);
   };
@@ -222,8 +234,48 @@ export async function collectReflectionEvidence(
     const id = string(call.record.callId);
     if (included.has(id)) return;
     included.add(id);
-    const path = `context/reflection/calls/${safeId(id)}.json`;
-    store(path, safeText(call.record));
+    const path = `context/learning/calls/${safeId(id)}.json`;
+    const summary: JsonObject = {
+      callId: id,
+      bindingId: call.record.bindingId ?? null,
+      status: call.record.status ?? null,
+      path: call.record.path ?? null,
+    };
+    if (String(call.record.contractId).startsWith('contract.selector')) {
+      const fields = ['accepted', 'selectedCandidateRef', 'decisionRef'];
+      if (
+        ![
+          call.output.measurementRef,
+          call.input.incumbentMeasurementRef,
+          call.input.candidateMeasurementRef,
+        ].some(
+          (ref) => typeof ref === 'string' && excludedMeasurements.has(ref),
+        )
+      )
+        fields.push('selectedValue', 'incumbentValue', 'candidateValue');
+      summary.output = Object.fromEntries(
+        Object.entries(call.output).filter(([key]) => fields.includes(key)),
+      );
+    }
+    const record =
+      options.view === 'training-summary'
+        ? summary
+        : withheldSelections.has(id)
+          ? {
+              ...call.record,
+              ...(call.record.error === undefined
+                ? {}
+                : { error: 'Held-out delivery details omitted' }),
+              output: Object.fromEntries(
+                Object.entries(call.output).filter(([key]) =>
+                  ['candidateRef', 'measurementRef', 'decisionRef'].includes(
+                    key,
+                  ),
+                ),
+              ),
+            }
+          : call.record;
+    store(path, safeText(record));
     const entry: JsonObject = {
       callId: id,
       bindingId: call.record.bindingId ?? null,
@@ -275,18 +327,43 @@ export async function collectReflectionEvidence(
     if (typeof call.output.diffRef === 'string')
       await artifactText(
         call.output.diffRef,
-        `context/reflection/calls/${id}-patch.json`,
+        `context/learning/calls/${id}-patch.json`,
         call.record,
       );
-    // Only an explicitly selected Memory call grants access to its retained snapshot.
-    if (options.names.includes(String(call.record.bindingId)))
-      for (const key of ['memoryRef'])
-        if (typeof call.output[key] === 'string')
-          await artifactText(
-            call.output[key],
-            `context/reflection/calls/${id}-${key}.json`,
-            call.record,
-          );
+    // A Memory snapshot may quote execution evidence from a different window.
+    // Keep its update receipt in training summaries without importing that text.
+    if (
+      call.record.bindingId === '_memory' &&
+      options.kind === 'reflection' &&
+      options.view !== 'training-summary' &&
+      typeof call.output.resourceRef === 'string'
+    )
+      await artifactText(
+        call.output.resourceRef,
+        `context/learning/calls/${id}-memory`,
+        call.record,
+      );
+    if (options.view === 'training-summary') return;
+    if (!(options.observe.includeAgentTraces ?? options.kind === 'reflection'))
+      return;
+    // A selector may have opened held-out artifacts in its Agent workspace.
+    // Its aggregate decision remains visible, but that workspace cannot be expanded.
+    const inputs = [
+      call.input.incumbentMeasurementRef,
+      call.input.candidateMeasurementRef,
+      ...(Array.isArray(call.input.candidates)
+        ? call.input.candidates.map((value) => asObject(value).measurementRef)
+        : []),
+      ...(Array.isArray(call.input.evidenceRefs)
+        ? call.input.evidenceRefs
+        : []),
+    ];
+    if (
+      inputs.some(
+        (ref) => typeof ref === 'string' && excludedMeasurements.has(ref),
+      )
+    )
+      return;
     const descendants = new Set([id]);
     for (let changed = true; changed; ) {
       changed = false;
@@ -309,7 +386,7 @@ export async function collectReflectionEvidence(
         !options.isAgentBinding?.(String(child.record.bindingId))
       )
         continue;
-      const childPath = `context/reflection/calls/${id}-descendant-${safeId(childId)}.json`;
+      const childPath = `context/learning/calls/${id}-descendant-${safeId(childId)}.json`;
       store(childPath, safeText(child.record));
       try {
         const diagnostic = await readAgentTrace(
@@ -325,7 +402,7 @@ export async function collectReflectionEvidence(
           ),
         );
         store(
-          `context/reflection/calls/${id}-trace-${childId}.jsonl`,
+          `context/learning/calls/${id}-trace-${childId}.jsonl`,
           safeText(diagnostic, 'jsonl'),
         );
         traceCount++;
@@ -352,7 +429,7 @@ export async function collectReflectionEvidence(
         continue;
       await artifactText(
         ref,
-        `context/reflection/calls/${id}-workspace-${safeId(childId)}`,
+        `context/learning/calls/${id}-workspace-${safeId(childId)}`,
         child.record,
       );
     }
@@ -372,6 +449,7 @@ export async function collectReflectionEvidence(
     if (typeof source.output.candidateRef !== 'string') continue;
     for (const result of calls) {
       if (
+        !matchesPrimary(result.record, options) ||
         result.input.candidateRef !== source.output.candidateRef ||
         !source.frame ||
         result.frame !== source.frame ||
@@ -421,7 +499,10 @@ export async function collectReflectionEvidence(
   const collectRevisionComparisons = async (): Promise<JsonObject[]> => {
     const comparisons: JsonObject[] = [];
     const revisionFiles = new Set<string>();
-    for (const binding of options.names) {
+    for (const binding of new Set([
+      ...(options.observe.bindings ?? []),
+      ...selected.map((call) => String(call.record.bindingId)),
+    ])) {
       const bindingCalls = selected.filter(
         (call) => call.record.bindingId === binding,
       );
@@ -465,6 +546,7 @@ export async function collectReflectionEvidence(
       }
       const priorCalls = (currentCall ? calls : bindingCalls).filter(
         (call) =>
+          matchesPrimary(call.record, options) &&
           call.record.bindingId === binding &&
           (call.record.revisionRef === parent.ref ||
             (call.record.revisionRef == null && parent.kind === 'initial')) &&
@@ -524,7 +606,7 @@ export async function collectReflectionEvidence(
               Buffer.from(file.base64, 'base64'),
             );
             store(
-              `context/reflection/versions/${record.ref}/${file.path}`,
+              `context/learning/versions/${record.ref}/${file.path}`,
               safeText(content, 'text'),
             );
           } catch {
@@ -594,22 +676,47 @@ export async function collectReflectionEvidence(
           );
         }
         store(
-          `context/reflection/versions/${revision.ref}-difference.patch`,
+          `context/learning/versions/${revision.ref}-difference.patch`,
           safeText(patches.join('\n'), 'text'),
         );
       }
     }
     return comparisons;
   };
-  const comparisons = await collectRevisionComparisons();
+  const comparisons =
+    (options.observe.includeRevisionComparisons ??
+    options.kind === 'reflection')
+      ? await collectRevisionComparisons()
+      : [];
+  if (
+    options.observe.includeCandidateDiffs ||
+    options.observe.includeCandidateSources
+  )
+    await projectCandidateEvidence(
+      context,
+      selected,
+      options.observe,
+      store,
+      withheldSelections,
+    );
   const sources: JsonObject[] = [];
   const sourceDescriptors = new Map<string, JsonObject>();
-  if (measurements.length) {
+  if (measurements.length && options.view !== 'training-summary') {
     const projected = await projectEvidenceFiles({
       measurements,
       artifacts: context.artifacts,
       view: 'execution',
+      directory: 'context/learning/evidence',
     });
+    if (options.kind === 'memory') {
+      const packets = executionEvidencePackets(
+        projected,
+        'context/learning/packets',
+      );
+      for (const [path, text] of Object.entries(packets.files))
+        store(path, string(text));
+      store('context/learning/packets/index.json', safeText(packets.evidence));
+    }
     for (const rawMeasurement of projected.measurements as JsonValue[]) {
       const measurement = object(rawMeasurement);
       measurement.sourceMeasurement = measurement.measurementRef ?? null;
@@ -634,13 +741,20 @@ export async function collectReflectionEvidence(
               const content = object(projected.files)[file.path];
               if (typeof content !== 'string')
                 throw new Error(
-                  `Reflection evidence file ${file.path}: expected text`,
+                  `Learning evidence file ${file.path}: expected text`,
                 );
               store(file.path, content);
               sourceTextPaths.set(sourceKey, file.path);
             }
           }
-          if (file.inspection !== 'uninspected') continue;
+          if (
+            file.inspection !== 'uninspected' ||
+            !(
+              options.observe.includeDocumentPreviews ??
+              options.kind === 'reflection'
+            )
+          )
+            continue;
           const association = {
             measurementRef: measurement.measurementRef ?? null,
             measurement: measurement.measurementRef ?? null,
@@ -675,19 +789,19 @@ export async function collectReflectionEvidence(
       }
     }
     store(
-      'context/reflection/evaluation-index.json',
+      'context/learning/evaluation-index.json',
       safeText({ ...projected, files: {} }),
     );
-    if (options.view === 'training-summary') {
-      const feedback = await projectEvidence({
-        measurements,
-        artifacts: context.artifacts,
-        view: 'training-summary',
-        maxBytes: options.maxBytes,
-      });
-      // This projection alone allows normalized scores and diagnostics; ordinary records stay execution-filtered.
-      store('context/reflection/training-summary.json', canonical(feedback));
-    }
+  }
+  if (measurements.length && options.view === 'training-summary') {
+    const feedback = await projectEvidence({
+      measurements,
+      artifacts: context.artifacts,
+      view: 'training-summary',
+      maxBytes: options.maxBytes,
+    });
+    // This projection alone allows normalized scores and diagnostics; ordinary records stay execution-filtered.
+    store('context/learning/training-summary.json', canonical(feedback));
   }
   const index = object(
     JSON.parse(
@@ -709,17 +823,17 @@ export async function collectReflectionEvidence(
       }),
     ),
   );
-  store('context/reflection/index.json', safeText(index));
+  store('context/learning/index.json', safeText(index));
   const payload: JsonObject = {
     experimentId: context.experimentId,
     policyScopeId,
-    moduleKey,
+    moduleKind: options.kind,
     configDigest: options.configDigest ?? null,
     measurementRefs: [...seenMeasurements],
     index,
     files,
     sources,
-    view: 'reflection-observations/v1',
+    view: 'learning-observations/v1',
     evidenceView: options.view ?? 'execution',
     capturedAt: options.capturedAt,
     boundaryId: options.identity,
@@ -731,7 +845,7 @@ export async function collectReflectionEvidence(
     includedCallIds: [...included],
   };
   const ref = 'evidence-' + digest(payload);
-  await context.facts.write('evidence-views', ref, payload);
+  await persistFact(context.facts, 'evidence-views', ref, payload);
   return {
     ref,
     callCount: selected.length + lateResults.length,

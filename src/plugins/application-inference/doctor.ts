@@ -46,23 +46,23 @@ export function checkInferenceApplication(
     return apiKeyEnv === undefined || Boolean(process.env[apiKeyEnv]?.trim());
   }
 
-  return [
+  const rules: DoctorRule[] = [
     {
       id: 'baseline',
       check: isBaselineAvailable,
       reason:
         'Restore the baseline input files or correct the Target and baseline configuration.',
     },
-    ...('remote' in config
-      ? [
-          {
-            id: 'remote-executable',
-            check: isInterpreterAvailable,
-            reason:
-              'Install or correct remote.executable so its version can be checked.',
-          },
-        ]
-      : []),
+  ];
+  if ('remote' in config) {
+    rules.push({
+      id: 'remote-executable',
+      check: isInterpreterAvailable,
+      reason:
+        'Install or correct remote.executable so its version can be checked.',
+    });
+  }
+  rules.push(
     {
       id: 'launch-prerequisites',
       check: areLaunchPrerequisitesAvailable,
@@ -77,7 +77,8 @@ export function checkInferenceApplication(
           ? 'No API key environment variable is required.'
           : `credentials.apiKeyEnv references missing or empty environment variable ${apiKeyEnv}. Set that variable before running the experiment.`,
     },
-  ];
+  );
+  return rules;
 }
 
 async function checkRemoteInterpreter(

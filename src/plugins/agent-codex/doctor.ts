@@ -37,34 +37,37 @@ export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
     return true;
   };
 
-  return [
+  const rules: DoctorRule[] = [
     {
       id: 'executable',
       check: isExecutableAvailable,
       reason:
         'The proposal-side Codex executable could not provide CLI help; check agent.codex.executable and the Codex installation.',
     },
-    ...(mode === 'read-only' || mode === 'workspace-write'
-      ? [
-          {
-            id: 'sandbox',
-            check: async (signal: AbortSignal): Promise<boolean> => {
-              const settings = await prepareCodexSandbox({
-                mode,
-                executable: string(
-                  context.binding.config.executable ?? 'codex',
-                ),
-                directory: context.directory,
-                signal,
-              });
-              sandboxOverrides = settings.config;
-              return true;
-            },
-            reason:
-              'Codex could not verify the explicit sandbox prerequisites before native health checks.',
-          },
-        ]
-      : []),
+  ];
+
+  if (mode === 'read-only' || mode === 'workspace-write') {
+    const isSandboxAvailable = async (
+      signal: AbortSignal,
+    ): Promise<boolean> => {
+      const settings = await prepareCodexSandbox({
+        mode,
+        executable: string(context.binding.config.executable ?? 'codex'),
+        directory: context.directory,
+        signal,
+      });
+      sandboxOverrides = settings.config;
+      return true;
+    };
+    rules.push({
+      id: 'sandbox',
+      check: isSandboxAvailable,
+      reason:
+        'Codex could not verify the explicit sandbox prerequisites before native health checks.',
+    });
+  }
+
+  rules.push(
     {
       id: 'doctor',
       get check() {
@@ -94,7 +97,8 @@ export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
           : 'Proposal-side model access was not checked because this Codex CLI does not support a machine-readable doctor report.';
       },
     },
-  ];
+  );
+  return rules;
 }
 
 async function inspectCodexExecutable(

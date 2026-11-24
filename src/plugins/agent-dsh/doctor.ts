@@ -23,35 +23,44 @@ export function checkDshAgent(context: DoctorContext): DoctorRule[] {
   const isProfileValid = (signal: AbortSignal): Promise<boolean> =>
     isDshProfileValid(context, signal);
 
-  return [
+  const rules: DoctorRule[] = [
     {
       id: 'executable',
       check: isExecutableCompatible,
       reason: `The CLI lacks required CLI options. Check ${context.binding.name}.config.executable and upgrade the native CLI.`,
     },
-    explicit
-      ? {
-          id: 'sandbox',
-          check: async (signal: AbortSignal): Promise<boolean> => {
-            const sandbox = await prepareDshSandbox({
-              executable: string(context.binding.config.executable ?? 'dsh'),
-              mode,
-              directory: context.directory,
-              artifacts: context.directory,
-              signal,
-            });
-            await sandbox.dispose();
-            return true;
-          },
-          reason:
-            'DSH could not verify the explicit sandbox prerequisites; check the native installation, profile and Linux sandbox support.',
-        }
-      : {
-          id: 'profile-config',
-          check: isProfileValid,
-          reason:
-            'DSH returned invalid or unsupported headless configuration. Check executable and repair the native headless profile.',
-        },
+  ];
+
+  if (explicit) {
+    const isSandboxAvailable = async (
+      signal: AbortSignal,
+    ): Promise<boolean> => {
+      const sandbox = await prepareDshSandbox({
+        executable: string(context.binding.config.executable ?? 'dsh'),
+        mode,
+        directory: context.directory,
+        artifacts: context.directory,
+        signal,
+      });
+      await sandbox.dispose();
+      return true;
+    };
+    rules.push({
+      id: 'sandbox',
+      check: isSandboxAvailable,
+      reason:
+        'DSH could not verify the explicit sandbox prerequisites; check the native installation, profile and Linux sandbox support.',
+    });
+  } else {
+    rules.push({
+      id: 'profile-config',
+      check: isProfileValid,
+      reason:
+        'DSH returned invalid or unsupported headless configuration. Check executable and repair the native headless profile.',
+    });
+  }
+
+  rules.push(
     {
       id: 'doctor',
       reason:
@@ -62,7 +71,8 @@ export function checkDshAgent(context: DoctorContext): DoctorRule[] {
       reason:
         'Native preflight does not establish model-service reachability or model availability. Verify model access in the native client before running RSI.',
     },
-  ];
+  );
+  return rules;
 }
 
 async function isDshProfileValid(

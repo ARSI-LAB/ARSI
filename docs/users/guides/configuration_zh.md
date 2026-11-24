@@ -150,13 +150,54 @@ bindings:
 | DSH | 模型在原生 headless profile 中配置 |
 | OpenCode | `model`：`provider/model`，可追加 `#variant` |
 
-RSI 保留原生模型和认证配置，在应用提案前会校验所提交的编辑。Claude Code 的 Hooks 和 MCP 在 RSI 调用中禁用。
+RSI 使用原生模型和认证配置，在应用提案前会校验所提交的编辑。显式沙箱档位会限制加载的原生扩展。
 
 RSI 使用 `approval_policy = "never"` 启动 Codex。沙箱拒绝命令时，Codex 会将失败结果返回给 Agent，无需交互式审批。
 
-在 Windows 上，如果 Codex 的生效配置显式将 `windows.sandbox` 设置为 `"elevated"` 或 `"unelevated"`，RSI 会使用 `workspace-write` 模式并开启网络。未显式配置原生沙箱的 Windows，以及 Linux，使用 `danger-full-access`。命令可以访问运行 RSI 的账户可用的文件和资源。其他平台使用只读工作区权限。
+在 Windows 上，如果 Codex 的生效配置显式将 `windows.sandbox` 设置为 `"elevated"` 或 `"unelevated"`，RSI 会使用 `workspace-write` 模式并开启网络。未显式配置原生沙箱的 Windows 使用 `danger-full-access`。Linux 和 macOS 上的默认调用使用原生 Codex 的生效沙箱配置。
 
 在 Windows 上，RSI 会从独立 Codex 子进程的环境中移除桌面应用专用变量 `CODEX_WINDOWS_REGISTERED_CORE`，让工作区命令通过独立 CLI 的沙箱执行。
+
+### Linux 上的调用级沙箱
+
+`agent.codex`、`agent.claudecode` 和 `agent.dsh` 支持 `config.sandbox`。可以在 Recipe 绑定或 Policy 的 `defaults.bindings` 中配置。Recipe 通过现有绑定合并规则覆盖 Policy 的取值。
+
+```yaml
+# Recipe fragment
+bindings:
+  agent:
+    plugin: agent.codex
+    config:
+      sandbox: read-only
+```
+
+```yaml
+# Policy fragment
+defaults:
+  bindings:
+    agent:
+      plugin: agent.codex
+      config:
+        sandbox: workspace-write
+```
+
+| 取值              | 模型工具及其受约束子进程的文件写入范围                          |
+| ----------------- | --------------------------------------------------------------- |
+| `inherit` 或省略  | 使用后端现有行为。显式 `inherit` 可以覆盖 Policy 的沙箱默认值。 |
+| `read-only`       | 禁止写入普通文件，包括工作区文件和临时文件。                    |
+| `workspace-write` | 允许写入本次 Agent 调用的工作目录和原生沙箱开放的平台临时区。   |
+
+工作目录是为单次 Agent 调用准备的输入目录。候选修改仍通过现有结构化提案和 Application 校验提交。显式档位排除宿主配置中的额外可写目录，以及无法纳入写入边界的宿主可执行扩展。只有能够确认权限约束的子 Agent 工具才会开放。
+
+Linux 首版关闭三个后端的子 Agent 工具。Claude Code 在 `read-only` 中通过 Glob 和 Grep 读取文本，在 `workspace-write` 中增加 Read 和沙箱内的 Bash。原生 Read 工具可能在渲染 PDF 时创建临时文件，因此只读档位会关闭该工具。Claude Code 和 DSH 的显式档位均关闭独立的 Edit 和 Write 工具，工作区写入通过沙箱内的 Bash 完成。调用目录中的 Skill 文件仍可读取。Claude Code 需要 `bubblewrap` 和 `socat`。`apiKeyHelper` 等可执行认证辅助项与可执行扩展一起排除，这类调用可以使用环境凭据或原生 OAuth 凭据。
+
+这些档位约束已启用工具直接发起的文件系统写入。读取范围、原生网络规则、网络或 IPC 服务执行的写入，以及可信 CLI 自身的会话记录写入，沿用各自现有规则。CLI 设置按调用传入，用户级和系统级配置文件的内容保持一致。
+
+DSH 显式档位使用独立的原生配置目录和安装包自带的 base/headless 组件，向本次调用传入原生模型和 provider 的字面量设置、环境配置及原生凭据，排除自定义可执行 profile 组件。已验证的 `0.1.7-rc.2` headless 协议通过原生进程退出状态报告是否完成；适配器仅在确认已安装的 CLI 和 headless 版本后，接受该版本的旧格式 final 事件。
+
+显式档位要求 Linux 和兼容的原生沙箱能力。缺少依赖、设置冲突或只能部分执行约束时，在提交模型任务前失败。正常沙箱中被拒绝的写入会作为原生工具错误返回。`doctor` 使用与执行相同的沙箱准备逻辑进行检查。
+
+通过 `pnpm test:integration:agent-sandbox` 单独运行原生集成验证。默认单测不包含这些检查。运行需要三个原生 CLI 及其 Linux 沙箱依赖，检查使用本地工具和受控文件，避免执行基准任务或外部模型推理。
 
 ### 检查并启动
 

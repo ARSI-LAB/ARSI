@@ -19,6 +19,13 @@ import type {
 } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import { runCodexProcess } from './process.js';
+import type { AgentSandboxMode } from '../shared/native-agent/sandbox.js';
+import {
+  prepareCodexSandbox,
+  validateCodexSandbox,
+  validateCodexSandboxConfig,
+  type CodexSandbox,
+} from './sandbox.js';
 
 function nativeError(value: unknown): string {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
@@ -37,6 +44,8 @@ interface SessionOptions {
   directory: string;
   model?: string;
   reasoningEffort?: string;
+  sandbox?: AgentSandboxMode;
+  sandboxSettings?: CodexSandbox;
   request: AgentInput;
   signal: AbortSignal;
   record: (event: AgentObservation) => void;
@@ -44,6 +53,17 @@ interface SessionOptions {
 }
 export async function runSession(options: SessionOptions): Promise<JsonObject> {
   const { signal } = options;
+  if (options.sandbox !== undefined && options.sandbox !== 'inherit') {
+    options = {
+      ...options,
+      sandboxSettings: await prepareCodexSandbox({
+        mode: options.sandbox,
+        executable: options.executable,
+        directory: options.directory,
+        signal,
+      }),
+    };
+  }
   const backoffMs = [250, 500];
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();
@@ -94,6 +114,7 @@ async function runSessionAttempt(
       'Use the project instructions and return the requested JSON result.',
   });
   const launchConfig = [
+    ...(options.sandboxSettings?.config ?? []),
     'approval_policy="never"',
     `project_root_markers=[${JSON.stringify(projectMarker)}]`,
   ];
@@ -109,6 +130,9 @@ async function runSessionAttempt(
       params: {
         cwd: options.directory,
         ephemeral: !hasRoles,
+        ...(options.sandboxSettings
+          ? { sandbox: options.sandbox, approvalPolicy: 'never' }
+          : {}),
         ...(options.model === undefined ? {} : { model: options.model }),
         ...(options.reasoningEffort === undefined
           ? {}
@@ -130,7 +154,7 @@ async function runSessionAttempt(
     },
   );
   let hasRoles = false;
-  for (const role of roles) {
+  for (const role of options.sandboxSettings ? [] : roles) {
     const name = role.name.slice(0, -5);
     if (
       role.isFile() &&
@@ -164,7 +188,7 @@ async function runSessionAttempt(
         );
       if (message.method === undefined && message.id === 1) {
         send({ method: 'initialized' });
-        if (platform === 'win32') {
+        if (platform === 'win32' || options.sandboxSettings) {
           send({
             id: 4,
             method: 'config/read',
@@ -174,12 +198,17 @@ async function runSessionAttempt(
           startThread(send, {});
         }
       } else if (
-        platform === 'win32' &&
+        (platform === 'win32' || options.sandboxSettings) &&
         message.method === undefined &&
         message.id === 4
       ) {
         const configRead = object(message.result, 'Codex config/read');
         const config = object(configRead.config, 'Codex config');
+        if (options.sandboxSettings) {
+          validateCodexSandboxConfig(config);
+          startThread(send, {});
+          return;
+        }
         const origins = object(configRead.origins, 'Codex config origins');
         const windows =
           config.windows == null
@@ -202,6 +231,18 @@ async function runSessionAttempt(
         }
       } else if (message.method === undefined && message.id === 2) {
         const configuration = object(message.result);
+        if (
+          options.sandboxSettings &&
+          options.sandbox &&
+          options.sandbox !== 'inherit'
+        ) {
+          validateCodexSandbox(
+            options.sandbox,
+            options.directory,
+            configuration,
+          );
+          options.sandboxSettings.policy = object(configuration.sandbox);
+        }
         threadId = string(object(configuration.thread).id);
         record({
           runId: 'main',
@@ -232,6 +273,12 @@ async function runSessionAttempt(
             input: [{ type: 'text', text: prompt }],
             outputSchema: request.outputSchema,
             cwd: options.directory,
+            ...(options.sandboxSettings
+              ? {
+                  sandboxPolicy: options.sandboxSettings.policy,
+                  approvalPolicy: 'never',
+                }
+              : {}),
           },
         });
       } else if (message.method === 'item/completed') {

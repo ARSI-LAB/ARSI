@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
+import type { AgentLineHandler } from '../../../contracts/index.js';
 
 /** No shell expansion. Abort kills the probe and waits for its exit before returning. */
 export async function runCommand(
@@ -10,6 +12,7 @@ export async function runCommand(
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     input?: string;
+    onLine?: AgentLineHandler;
     acceptedExitCodes?: readonly number[];
   },
 ): Promise<{ stdout: string; stderr: string }> {
@@ -24,6 +27,11 @@ export async function runCommand(
     });
     let stdout = '';
     let stderr = '';
+    let pending = Promise.resolve();
+    let lineBuffer = '';
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+    let completed = false;
     let failure: Error | undefined;
     let terminating: Promise<void> | undefined;
     const kill = (): void => {
@@ -60,12 +68,39 @@ export async function runCommand(
         });
       }
     };
+    const handleLine = (line: string): void => {
+      pending = pending
+        .then(async () => {
+          if (failure || options.signal.aborted || completed) return;
+          const done = await options.onLine!(line, (message) => {
+            child.stdin.write(JSON.stringify(message) + '\n');
+          });
+          if (done) {
+            completed = true;
+            child.stdin.end();
+          }
+        })
+        .catch((error: unknown) => {
+          failure = error instanceof Error ? error : new Error(String(error));
+          kill();
+        });
+    };
     const collect = (stream: 'stdout' | 'stderr', data: Buffer): void => {
-      if (stream === 'stdout') stdout += data.toString('utf8');
-      else stderr += data.toString('utf8');
+      const decoded =
+        stream === 'stdout'
+          ? stdoutDecoder.write(data)
+          : stderrDecoder.write(data);
+      if (stream === 'stdout') stdout += decoded;
+      else stderr += decoded;
       if (stdout.length + stderr.length > 1024 * 1024) {
         failure = new Error(`${command}: probe output exceeded 1 MiB`);
         kill();
+      }
+      if (stream === 'stdout' && options.onLine) {
+        lineBuffer += decoded;
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop()!;
+        for (const line of lines) handleLine(line);
       }
     };
     options.signal.addEventListener('abort', kill, { once: true });
@@ -81,6 +116,12 @@ export async function runCommand(
     });
     child.once('close', async (code) => {
       options.signal.removeEventListener('abort', kill);
+      const remainder = stdoutDecoder.end();
+      stdout += remainder;
+      stderr += stderrDecoder.end();
+      if (options.onLine && (lineBuffer || remainder))
+        handleLine(lineBuffer + remainder);
+      await pending;
       await terminating;
       if (options.signal.aborted) reject(options.signal.reason);
       else if (failure) reject(failure);
@@ -95,7 +136,8 @@ export async function runCommand(
         );
       else resolve({ stdout, stderr });
     });
-    child.stdin.end(options.input);
+    if (options.onLine) child.stdin.write(options.input ?? '');
+    else child.stdin.end(options.input);
     if (options.signal.aborted) kill();
   });
 }

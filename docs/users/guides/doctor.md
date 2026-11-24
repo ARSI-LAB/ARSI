@@ -106,6 +106,8 @@ The following built-in implementations provide a `rsi/doctor` handler. Doctor ch
 
 For `application.inference`, Recipe loading checks that `healthcheck.path` and `endpoint.basePath` begin with a single `/`. Remote mode requires paths without query strings or fragments. These rules apply to both `doctor` and `run` before launch.
 
+For `agent.codex`, `agent.claudecode`, and `agent.dsh` with an explicit Linux `config.sandbox`, Doctor also runs the backend's sandbox preparation without submitting a model task. It checks native availability and effective restrictions using the same preparation as execution. Missing dependencies, unsupported configurations, and incomplete enforcement fail the sandbox check. These checks establish startup readiness. Run `pnpm test:integration:agent-sandbox` separately to exercise file and Shell write boundaries with the installed CLIs.
+
 ### Proposers, Memory, Reflection and Selectors
 
 | Implementation              | Checks performed                                                                                                                                                                                                                |

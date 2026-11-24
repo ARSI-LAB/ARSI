@@ -6,6 +6,7 @@ import { projectMarker } from '../shared/agent-editing/project.js';
 import { executablePath } from '../shared/doctor/executable.js';
 import { runCommand } from '../shared/doctor/process.js';
 import { codexCommand } from './executable.js';
+import { prepareCodexSandbox } from './sandbox.js';
 
 interface CodexDiagnostics {
   executable: string;
@@ -17,6 +18,8 @@ interface CodexDiagnostics {
 export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
   let command: CodexDiagnostics | undefined;
   let diagnosis: Awaited<ReturnType<typeof runCodexDiagnostics>> | undefined;
+  let sandboxOverrides: string[] = [];
+  const mode = context.binding.config.sandbox;
   const isExecutableAvailable = async (
     signal: AbortSignal,
   ): Promise<boolean> => {
@@ -25,7 +28,12 @@ export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
   };
   const isDoctorHealthy = async (signal: AbortSignal): Promise<boolean> => {
     if (!command) return false;
-    diagnosis = await runCodexDiagnostics(context, command, signal);
+    diagnosis = await runCodexDiagnostics(
+      context,
+      command,
+      sandboxOverrides,
+      signal,
+    );
     return true;
   };
 
@@ -36,6 +44,27 @@ export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
       reason:
         'The proposal-side Codex executable could not provide CLI help; check agent.codex.executable and the Codex installation.',
     },
+    ...(mode === 'read-only' || mode === 'workspace-write'
+      ? [
+          {
+            id: 'sandbox',
+            check: async (signal: AbortSignal): Promise<boolean> => {
+              const settings = await prepareCodexSandbox({
+                mode,
+                executable: string(
+                  context.binding.config.executable ?? 'codex',
+                ),
+                directory: context.directory,
+                signal,
+              });
+              sandboxOverrides = settings.config;
+              return true;
+            },
+            reason:
+              'Codex could not verify the explicit sandbox prerequisites before native health checks.',
+          },
+        ]
+      : []),
     {
       id: 'doctor',
       get check() {
@@ -112,12 +141,14 @@ async function inspectCodexExecutable(
 async function runCodexDiagnostics(
   context: DoctorContext,
   command: CodexDiagnostics,
+  sandboxOverrides: string[],
   signal: AbortSignal,
 ): Promise<{
   reason: string;
   details: { modelList: string; providerReachability: string };
 }> {
   const overrides = [
+    ...sandboxOverrides.flatMap((value) => ['-c', value]),
     '-c',
     `project_root_markers=[${JSON.stringify(projectMarker)}]`,
   ];

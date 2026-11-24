@@ -15,6 +15,7 @@ import { checkDshAgent } from './doctor.js';
 import type { AgentDshConfig } from './schema.js';
 import { runDshProcess } from './process.js';
 import { dshObservations } from './observations.js';
+import { prepareDshSandbox } from './sandbox.js';
 
 export const createAgentDsh: OperationDefinition<
   AgentInput,
@@ -30,27 +31,17 @@ export const createAgentDsh: OperationDefinition<
         spec,
         onLine,
       ) => context.runAgentProcess(spec, onLine);
+      const sandbox =
+        config.sandbox && config.sandbox !== 'inherit'
+          ? await prepareDshSandbox({
+              executable: config.executable ?? 'dsh',
+              mode: config.sandbox,
+              directory: request.cwd,
+              artifacts: context.directory,
+              signal: context.signal,
+            })
+          : undefined;
       const patch = join(context.directory, 'dsh-launch.json');
-      await writeFile(
-        patch,
-        JSON.stringify([
-          ...['credentials', 'authorization', 'deepseek-account'].map((id) => ({
-            id,
-            disabled: false,
-          })),
-          {
-            id: 'agent-instructions',
-            config: { maxBytes: 65536, projectRootMarkers: ['.rsi-project'] },
-          },
-          {
-            id: 'skill-filesystem',
-            config: {
-              customSkillDirs: [join(request.cwd, '.agents', 'skills')],
-            },
-          },
-        ]),
-        { mode: 0o600 },
-      );
       const record = (
         observation: import('../../contracts/index.js').AgentObservation,
       ): void => {
@@ -64,6 +55,29 @@ export const createAgentDsh: OperationDefinition<
       let sessionId: string | undefined;
       let finalText: string | undefined;
       try {
+        await writeFile(
+          patch,
+          JSON.stringify([
+            ...(sandbox?.patches ?? []),
+            ...['credentials', 'authorization', 'deepseek-account'].map(
+              (id) => ({
+                id,
+                disabled: false,
+              }),
+            ),
+            {
+              id: 'agent-instructions',
+              config: { maxBytes: 65536, projectRootMarkers: ['.rsi-project'] },
+            },
+            {
+              id: 'skill-filesystem',
+              config: {
+                customSkillDirs: [join(request.cwd, '.agents', 'skills')],
+              },
+            },
+          ]),
+          { mode: 0o600 },
+        );
         const prompt =
           JSON.stringify({
             goal: request.goal,
@@ -78,7 +92,18 @@ export const createAgentDsh: OperationDefinition<
           prompt,
           (line) => {
             const event = object(JSON.parse(line));
-            observe(event);
+            // shortcut: DSH 0.1.7-rc.2 omits final metadata; remove when that verified CLI is unsupported.
+            const legacy =
+              event.type === 'final' &&
+              sandbox?.legacyFinal === true &&
+              Object.keys(event).every(
+                (key) => key === 'type' || key === 'text',
+              );
+            observe(
+              legacy && sessionId
+                ? { ...event, sessionId, reason: { kind: 'completed' } }
+                : event,
+            );
             if (event.type === 'session') {
               if (sessionId !== undefined)
                 throw new Error('DSH emitted duplicate session events');
@@ -98,11 +123,11 @@ export const createAgentDsh: OperationDefinition<
             } else if (event.type === 'final') {
               if (
                 !sessionId ||
-                event.sessionId !== sessionId ||
+                (!legacy && event.sessionId !== sessionId) ||
                 finalText !== undefined
               )
                 throw new Error('Invalid DSH final session');
-              const reason = object(event.reason).kind;
+              const reason = legacy ? 'completed' : object(event.reason).kind;
               record({
                 runId: 'main',
                 native: { sessionId },
@@ -120,13 +145,21 @@ export const createAgentDsh: OperationDefinition<
             }
           },
           launch,
-          { record, outputSchema: request.outputSchema },
+          {
+            record,
+            outputSchema: request.outputSchema,
+            ...(sandbox ? { env: sandbox.env } : {}),
+          },
         );
         if (finalText === undefined)
           throw new Error('DSH returned no final result');
         return parseAgentResult(finalText);
       } finally {
-        await rm(patch, { force: true });
+        try {
+          await rm(patch, { force: true });
+        } finally {
+          await sandbox?.dispose();
+        }
       }
     },
     async dispose() {},

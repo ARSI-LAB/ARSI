@@ -264,13 +264,14 @@ test('retrieval inherits host thread settings and confirms cleanup after cancell
   await writeFile(
     f.config.retrievalScript,
     `#!/usr/bin/env node
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, rename } from 'node:fs/promises';
 const requestPath = process.argv[process.argv.indexOf('--request') + 1];
 await readFile(requestPath, 'utf8');
-await writeFile(requestPath + '.environment.json', JSON.stringify({
+await writeFile(requestPath + '.environment.tmp', JSON.stringify({
   omp: process.env.OMP_NUM_THREADS,
   mkl: process.env.MKL_NUM_THREADS,
 }));
+await rename(requestPath + '.environment.tmp', requestPath + '.environment.json');
 setInterval(() => {}, 1000);
 `,
   );

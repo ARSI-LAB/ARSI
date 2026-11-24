@@ -106,6 +106,8 @@ arsi doctor my-experiment/recipe.yaml --json
 
 对于 `application.inference`，加载 Recipe 时会检查 `healthcheck.path` 和 `endpoint.basePath` 是否以单个 `/` 开头。远程模式要求路径省略查询字符串和片段。`doctor` 和 `run` 都在启动服务前检查这些规则。
 
+当 `agent.codex`、`agent.claudecode` 或 `agent.dsh` 显式配置 Linux `config.sandbox` 时，Doctor 还会运行后端的沙箱准备流程，使用与执行相同的准备逻辑检查原生能力与生效限制，过程中无需提交模型任务。依赖缺失、配置不兼容或约束只能部分生效时，沙箱检查失败。这些检查确认启动条件，可以另行执行 `pnpm test:integration:agent-sandbox`，验证已安装 CLI 的文件和 Shell 写入边界。
+
 ### Proposer、Memory、Reflection 与 Selector
 
 | 实现                        | 实际检查                                                                                                                                                |

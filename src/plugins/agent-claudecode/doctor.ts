@@ -1,11 +1,13 @@
 import type { DoctorContext, DoctorRule } from '../../contracts/index.js';
-import { object } from '../../shared/json.js';
+import { object, string } from '../../shared/json.js';
 import {
   isNativeAgentCompatible,
   runNativeAgentCommand,
 } from '../shared/doctor/native-agent.js';
+import { prepareClaudeSandbox } from './sandbox.js';
 
 export function checkClaudeCodeAgent(context: DoctorContext): DoctorRule[] {
+  const mode = context.binding.config.sandbox;
   const isExecutableCompatible = (signal: AbortSignal): Promise<boolean> =>
     isNativeAgentCompatible(
       context,
@@ -36,6 +38,29 @@ export function checkClaudeCodeAgent(context: DoctorContext): DoctorRule[] {
       check: isExecutableCompatible,
       reason: `The CLI lacks required CLI options. Check ${context.binding.name}.config.executable and upgrade the native CLI.`,
     },
+    ...(mode === 'read-only' || mode === 'workspace-write'
+      ? [
+          {
+            id: 'sandbox',
+            check: async (signal: AbortSignal): Promise<boolean> => {
+              const sandbox = await prepareClaudeSandbox(
+                {
+                  executable: string(
+                    context.binding.config.executable ?? 'claude',
+                  ),
+                  sandbox: mode,
+                },
+                context.directory,
+                signal,
+              );
+              await sandbox.dispose();
+              return true;
+            },
+            reason:
+              'Claude Code could not verify the explicit sandbox prerequisites before authentication checks.',
+          },
+        ]
+      : []),
     {
       id: 'doctor',
       reason:

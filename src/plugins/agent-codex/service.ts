@@ -22,6 +22,7 @@ export const createAgentCodex: OperationDefinition<
         throw new Error('For Codex role delegation, use native spawn_agent');
       return runSession({
         executable: config.executable ?? 'codex',
+        sandbox: config.sandbox,
         model: config.model,
         reasoningEffort: config.thinkingLevel,
         directory: request.cwd,

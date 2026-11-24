@@ -32,38 +32,35 @@ export function checkClaudeCodeAgent(context: DoctorContext): DoctorRule[] {
   const isAuthenticated = (signal: AbortSignal): Promise<boolean> =>
     isClaudeAuthenticated(context, signal);
 
-  const rules: DoctorRule[] = [
+  return [
     {
       id: 'executable',
       check: isExecutableCompatible,
       reason: `The CLI lacks required CLI options. Check ${context.binding.name}.config.executable and upgrade the native CLI.`,
     },
-  ];
-
-  if (mode === 'read-only' || mode === 'workspace-write') {
-    const isSandboxAvailable = async (
-      signal: AbortSignal,
-    ): Promise<boolean> => {
-      const sandbox = await prepareClaudeSandbox(
-        {
-          executable: string(context.binding.config.executable ?? 'claude'),
-          sandbox: mode,
-        },
-        context.directory,
-        signal,
-      );
-      await sandbox.dispose();
-      return true;
-    };
-    rules.push({
-      id: 'sandbox',
-      check: isSandboxAvailable,
-      reason:
-        'Claude Code could not verify the explicit sandbox prerequisites before authentication checks.',
-    });
-  }
-
-  rules.push(
+    ...(mode === 'read-only' || mode === 'workspace-write'
+      ? [
+          {
+            id: 'sandbox',
+            check: async (signal: AbortSignal): Promise<boolean> => {
+              const sandbox = await prepareClaudeSandbox(
+                {
+                  executable: string(
+                    context.binding.config.executable ?? 'claude',
+                  ),
+                  sandbox: mode,
+                },
+                context.directory,
+                signal,
+              );
+              await sandbox.dispose();
+              return true;
+            },
+            reason:
+              'Claude Code could not verify the explicit sandbox prerequisites before authentication checks.',
+          },
+        ]
+      : []),
     {
       id: 'doctor',
       reason:
@@ -80,8 +77,7 @@ export function checkClaudeCodeAgent(context: DoctorContext): DoctorRule[] {
       reason:
         'Native preflight does not establish model-service reachability or model availability. Verify model access in the native client before running RSI.',
     },
-  );
-  return rules;
+  ];
 }
 
 async function isClaudeAuthenticated(

@@ -14,18 +14,19 @@ import { prepareEvaluationConfig } from './service.js';
 export function createAgentbenchDoctor(run?: SdkDoctorRunner): OperationDoctor {
   return (context) => {
     const baseline = plain(context.recipe.application.config.baseline);
-    const rules: DoctorRule[] = [];
-    if (
+    const instanceScope: DoctorRule[] =
       typeof baseline.directory !== 'string' &&
       typeof baseline.artifactRef !== 'string'
-    ) {
-      rules.push({
-        id: 'application-instance',
-        reason:
-          'The Application supplies its instance during execution; SDK doctor uses a temporary path without establishing instance readiness.',
-      });
-    }
-    rules.push(
+        ? [
+            {
+              id: 'application-instance',
+              reason:
+                'The Application supplies its instance during execution; SDK doctor uses a temporary path without establishing instance readiness.',
+            },
+          ]
+        : [];
+    return [
+      ...instanceScope,
       ...sdkDoctorRules(context, prepareAgentbenchConfig, run),
       {
         id: 'model-access',
@@ -37,8 +38,7 @@ export function createAgentbenchDoctor(run?: SdkDoctorRunner): OperationDoctor {
         reason:
           'The installed Evaluator SDK doctor does not measure disk capacity, so evaluation storage sufficiency is unchecked.',
       },
-    );
-    return rules;
+    ];
   };
 }
 

@@ -476,8 +476,20 @@ function fakeAgentPlugin(
           const metadata = object(
             JSON.parse(string(projectFiles['context/input.json'])),
           );
-          if (metadata.evidenceIndex === 'context/learning/index.json')
+          if (metadata.evidenceIndex === 'context/learning/index.json') {
+            if (!Object.hasOwn(projectFiles, 'candidate/manifest.json'))
+              return {
+                edits: [
+                  {
+                    path: 'lesson.md',
+                    content:
+                      'Inspect the training examples before proposing changes.',
+                  },
+                ],
+                reason: 'Record a training lesson',
+              };
             return { edits: [], reason: 'No learning edit for this window' };
+          }
           const evidence = object(
             JSON.parse(string(projectFiles['context/measurements.json'])),
           );

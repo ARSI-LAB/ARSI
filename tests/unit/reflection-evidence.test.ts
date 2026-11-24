@@ -300,7 +300,7 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
   assert.match(delivered, /project context marker/);
 });
 
-test('Memory snapshots are explicit, decoded and source-referenced', async (t) => {
+test('Reflection step filters keep Memory receipts and binding filters can exclude them', async (t) => {
   const f = await fixture(t);
   const memoryRef = await f.artifacts.putJson({
     kind: 'file-tree',
@@ -312,16 +312,30 @@ test('Memory snapshots are explicit, decoded and source-referenced', async (t) =
       },
     ],
   });
-  await f.call('memory', '_memory', 1, { output: { resourceRef: memoryRef } });
-  const absent = await f.collect('r1', 2);
+  await f.call('memory', '_memory', 1, {
+    path: 'learning/learning-memory-update',
+    output: { resourceRef: memoryRef },
+  });
+  await f.call('propose', 'proposer', 1, { path: 'steps/propose' });
+  await f.call('other', 'proposer', 1, { path: 'steps/other' });
+  await f.call('generator', 'agent', 1, {
+    parentCallId: 'memory',
+    path: 'steps/propose',
+  });
+  const steps = ['steps/propose'];
+  const absent = await f.collect('r1', 2, {
+    observe: { steps, excludeBindings: ['memory'] },
+  });
+  assert.deepEqual(absent.result.callIds, ['propose']);
   assert.equal(
     JSON.stringify(absent.snapshot).includes('retained reported experience'),
     false,
   );
   const present = await f.collect('selected', 2, {
-    observe: { bindings: ['memory'] },
+    observe: { steps, bindings: ['proposer', 'memory', 'agent'] },
     configDigest: 'memory-module',
   });
+  assert.deepEqual(present.result.callIds, ['memory', 'propose']);
   const files = object(present.snapshot.files);
   assert.equal(
     files['context/learning/calls/memory-memory/0.txt'],
@@ -332,11 +346,11 @@ test('Memory snapshots are explicit, decoded and source-referenced', async (t) =
     /experience.md/,
   );
   const training = await f.collect('summary', 2, {
-    observe: { bindings: ['memory'] },
+    observe: { steps },
     view: 'training-summary',
     configDigest: 'training-module',
   });
-  assert.deepEqual(training.result.callIds, ['memory']);
+  assert.deepEqual(training.result.callIds, ['memory', 'propose']);
   assert.doesNotMatch(
     JSON.stringify(training.snapshot),
     /retained reported experience/,

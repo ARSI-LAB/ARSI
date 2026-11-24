@@ -22,7 +22,9 @@ budget: { timeoutSeconds: 3600 }
 
 默认可编辑符合条件的绑定上已配置的 `x-rsi-path` 资源。`targets.include` 和 `targets.exclude` 按绑定及字段名限定范围。`'*'` 代表该绑定所有可编辑字段。可编辑路径重叠时会报错。`goal` 可指定目标文件，`implementation.config.prompt` 可指定提示词文件。默认使用 `reflection.agent`、通用目标及内置 `agent.pi`。显式指定的 `agentRef` 必须引用已声明的 Agent 绑定。
 
-默认在每次顶层循环迭代结束时触发，无顶层循环时在实验结束时触发。还可选择 `loop-end`、`experiment-end` 或带串行步骤 ID 的 `after-step`。`every` 指定每匹配多少次边界执行一次。Memory 和 Reflection 同时命中时先执行 Memory。证据视图默认为 `execution`，仅在允许评分反馈时选择 `training-summary`。可用 `evidence` 下的 `includeBindings`、`excludeBindings`、`includeSteps`、`excludeSteps` 过滤证据。即使 Recipe 关闭了 Memory，共用的 Reflection 配置文件仍可设置 `excludeBindings: [memory]`。显式设置 `includeBindings: [memory]` 则要求启用 Memory。证据窗口为空时跳过生成。
+默认在每次顶层循环迭代结束时触发，无顶层循环时在实验结束时触发。还可选择 `loop-end`、`experiment-end` 或带串行步骤 ID 的 `after-step`。`every` 指定每匹配多少次边界执行一次。Memory 和 Reflection 同时命中时先执行 Memory。
+
+证据视图默认为 `execution`，仅在允许评分反馈时选择 `training-summary`。可用 `evidence` 下的 `includeBindings`、`excludeBindings`、`includeSteps`、`excludeSteps` 过滤证据。步骤过滤只作用于 Policy 调用。Reflection 通过绑定过滤选择 Memory 更新回执。`execution` 视图还会提供本次更新产生的 Memory 快照（如有），`training-summary` 视图仅保留该次更新的回执。即使 Recipe 关闭了 Memory，共用的 Reflection 配置文件仍可设置 `excludeBindings: [memory]`。显式设置 `includeBindings: [memory]` 则要求启用 Memory。证据窗口为空时跳过生成。
 
 ## 将版本应用到后续实验
 

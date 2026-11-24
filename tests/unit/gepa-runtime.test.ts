@@ -883,6 +883,16 @@ test('default GEPA learning Agents receive only training evidence after held-out
     2,
     'baseline and accepted candidate were scored on validation',
   );
+  const memory = calls.find((call) => call.bindingId === '_memory');
+  assert.ok(memory);
+  const memoryOutput = object(memory.output);
+  assert.equal(memoryOutput.status, 'updated');
+  const memoryFiles = decodeTree(
+    object(
+      await run.manager.artifacts.readJson(string(memoryOutput.resourceRef)),
+    ),
+  );
+  const lesson = string(memoryFiles['lesson.md']);
   for (const binding of ['_memory', '_reflection']) {
     const learning = calls.find((call) => call.bindingId === binding);
     assert.equal(learning?.status, 'succeeded');
@@ -904,6 +914,21 @@ test('default GEPA learning Agents receive only training evidence after held-out
       .join('\n');
     assert.match(evidence, /train-example/);
     assert.doesNotMatch(evidence, /held-out-example/);
+    if (binding === '_reflection') {
+      const receiptPath = `context/learning/calls/${memory.callId}.json`;
+      assert.ok(
+        Object.hasOwn(project, receiptPath),
+        'Reflection receives the Memory update receipt',
+      );
+      const receipt = object(JSON.parse(string(project[receiptPath])));
+      assert.equal(receipt.callId, memory.callId);
+      assert.equal(receipt.bindingId, '_memory');
+      assert.equal(receipt.status, 'succeeded');
+      assert.ok(
+        !evidence.includes(lesson),
+        'training summaries omit the Memory snapshot contents',
+      );
+    }
     for (const call of heldOut) {
       assert.ok(!evidence.includes(string(call.callId)));
       assert.ok(!evidence.includes(string(object(call.output).measurementRef)));

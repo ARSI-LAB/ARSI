@@ -345,6 +345,7 @@ export function matchesObservedStep(
   steps: readonly string[] | undefined,
 ): boolean {
   return (
+    record.bindingId !== '_memory' &&
     typeof record.path === 'string' &&
     !!steps?.some((location) => matchesStepPath(String(record.path), location))
   );
@@ -355,13 +356,14 @@ export function matchesPrimary(
 ): boolean {
   const binding = evidenceBinding(record);
   if (
-    String(record.bindingId).startsWith('_') &&
-    !(options.kind === 'reflection' && binding === 'memory')
+    options.observe.excludeBindings?.includes(binding) ||
+    (options.observe.bindings && !options.observe.bindings.includes(binding))
   )
     return false;
+  // The Runtime invokes Memory outside the Policy step tree.
+  if (String(record.bindingId).startsWith('_'))
+    return options.kind === 'reflection' && record.bindingId === '_memory';
   return (
-    !options.observe.excludeBindings?.includes(binding) &&
-    (!options.observe.bindings || options.observe.bindings.includes(binding)) &&
     (!options.observe.steps ||
       matchesObservedStep(record, options.observe.steps)) &&
     !matchesObservedStep(record, options.observe.excludeSteps)

@@ -23,11 +23,11 @@
 | `arsi cleanup [experiment-id]`         | [预览或清理实验资源](#清理实验资源)。                                                         |
 | `arsi dashboard`                       | 在本机提供网页版的实验观察界面。                                                              |
 | `arsi memory list [experiment-id]` | 查看实验的 Memory 快照。 |
-| `arsi memory show <memory-id> [--to <dir>]` | 预览 Memory 快照和目标文件变更。 |
-| `arsi memory apply <memory-id> [--to <dir>]` | 将快照写入配置的源目录或指定导出目录。 |
+| `arsi memory show <versionID> [--to <directory>]` | 预览 Memory 快照和目标文件变更。 |
+| `arsi memory apply <versionID> [--to <directory>]` | 将快照写入配置的源目录或指定导出目录。 |
 | `arsi reflection list [experiment-id]` | 列出持久化版本，可按实验筛选。                                                                |
-| `arsi reflection show <revisionID>`    | 检查版本内容与计划中的资源变更。                                                              |
-| `arsi reflection apply <revisionID>`   | 将快照写到记录的用户资源路径；参见 [Reflection 规则](reflection_zh.md#将版本应用到后续实验)。 |
+| `arsi reflection show <revisionID> [--to <directory>]` | 预览修订内容及所选目标的文件变更。 |
+| `arsi reflection apply <revisionID> [--to <directory>]` | 在记录的路径应用修订，或导出到专用目录。参见 [Reflection 指南](reflection_zh.md#将版本应用到后续实验)。 |
 | `arsi help [command]`                  | 显示命令列表或指定命令的帮助。                                                                |
 
 ### 交互式 CLI

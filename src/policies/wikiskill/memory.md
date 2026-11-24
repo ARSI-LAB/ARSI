@@ -36,7 +36,7 @@ Update the index with every pattern creation, merge or qualification. Prefer add
 
 `wiki/skill-impact.md`, if supplied, is the outer loop's authoritative record of proposal content/diff and validation acceptance. Read and preserve it; do not modify it or invent missing entries. This call normally precedes the current proposal and gate, so it cannot record their future results. If no impact history is supplied, say that the history is unavailable and use only known training experience. Runtime call facts existing elsewhere do not mean you have read them.
 
-Use the indexed proposal and selection calls from the preceding round to associate a decision or no-change rationale with its candidate. Read observed candidate sources under `context/learning/candidates/`. Validation evidence in this window is limited to the selector's aggregate decision. Preserve Wiki experience when a proposal is rejected.
+Use the indexed proposal and selection calls from the preceding round to associate a decision or no-change rationale with its candidate. Inspect the candidate diffs in `context/learning/comparisons.json` and follow any links to longer patches under `context/learning/diffs/`. Validation evidence in this window is limited to the selector's aggregate decision. Preserve Wiki experience when a proposal is rejected.
 
 The Wiki may contain reusable analysis and procedures; it is not limited to raw observations. Active executable skills remain a separate candidate artifact, written by the Proposer and admitted by validation. Never edit those skills or component revision resources in this call. Keep reference answers and task-specific numeric results out of reusable pattern pages, even when authorized training feedback contains them.
 

@@ -4,12 +4,10 @@ import type {
   JsonObject,
   RuntimeContext,
 } from '../../contracts/index.js';
-import type { LearningObserve } from './schema.js';
 import { parseFileTree } from '../../contracts/index.js';
 import { canonical, object, string } from '../../shared/json.js';
 import { secretValues, redactText } from '../../shared/secrets.js';
 import { excerpt } from '../services/facts/evidence-packets.js';
-import { safeId } from '../storage/index.js';
 import type { EvidenceCall } from './evidence-window.js';
 
 const lines = (text: string): string[] => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
@@ -155,12 +153,10 @@ async function artifactDecision(
 export async function projectCandidateEvidence(
   context: RuntimeContext,
   selected: readonly EvidenceCall[],
-  observe: LearningObserve,
+  includeBaseline: boolean,
   store: (path: string, content: string) => void,
   withheldSelections: ReadonlySet<string> = new Set(),
 ): Promise<void> {
-  if (!observe.includeCandidateDiffs && !observe.includeCandidateSources)
-    return;
   const refs = new Set<string>();
   const evaluations: JsonObject[] = [];
   const selections: JsonObject[] = [];
@@ -198,11 +194,7 @@ export async function projectCandidateEvidence(
         measurementRef: call.output.measurementRef,
       });
     }
-    if (
-      observe.includeCandidateDiffs &&
-      call.record.pluginId === 'selector.artifact' &&
-      call.output.decisionRef
-    )
+    if (call.record.pluginId === 'selector.artifact' && call.output.decisionRef)
       selections.push(
         await artifactDecision(
           context,
@@ -213,7 +205,7 @@ export async function projectCandidateEvidence(
       );
   }
   const baseline =
-    refs.size && observe.includeBaseline
+    refs.size && includeBaseline
       ? (await context.applicationMetadata()).initialCandidateRef
       : null;
   if (typeof baseline === 'string') refs.add(baseline);
@@ -251,31 +243,21 @@ export async function projectCandidateEvidence(
   for (const ref of refs) {
     context.signal.throwIfAborted();
     const current = await snapshot(ref);
-    if (observe.includeCandidateSources)
-      for (const file of current.files.values()) {
-        const content = textFile(file);
-        if (content !== null)
-          store(
-            `context/learning/candidates/${safeId(ref)}/${file.path}`,
-            redactText(content, secrets),
-          );
-      }
     const { artifactRef, parentRef } = current.candidate;
     const diffs: JsonObject[] = [];
-    if (observe.includeCandidateDiffs)
-      for (const against of new Set([parentRef, baseline])) {
-        if (typeof against !== 'string' || against === ref) continue;
-        const delta = redactText(
-          diffTrees(await snapshot(against), current),
-          secrets,
-        );
-        const path =
-          Buffer.byteLength(delta) > inlineLimit
-            ? `context/learning/diffs/${difference++}.diff`
-            : null;
-        if (path) store(path, delta);
-        diffs.push({ against, path, preview: excerpt(delta, inlineLimit) });
-      }
+    for (const against of new Set([parentRef, baseline])) {
+      if (typeof against !== 'string' || against === ref) continue;
+      const delta = redactText(
+        diffTrees(await snapshot(against), current),
+        secrets,
+      );
+      const path =
+        Buffer.byteLength(delta) > inlineLimit
+          ? `context/learning/diffs/${difference++}.diff`
+          : null;
+      if (path) store(path, delta);
+      diffs.push({ against, path, preview: excerpt(delta, inlineLimit) });
+    }
     candidates.push({ candidateRef: ref, artifactRef, parentRef, diffs });
   }
   store(

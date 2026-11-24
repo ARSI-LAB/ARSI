@@ -1,6 +1,5 @@
 schemaVersion: rsi.recipe/v1
 id: operator-transpose-copy-metrics-search
-reflection: { configFile: ./reflection.yaml }
 application:
   plugin: application.kernel
   config:

@@ -806,7 +806,7 @@ test('malformed reflective outputs fail before committing or evaluating a propos
 
 test('GEPA attaches custom Memory and Reflection from its Recipe and delivers the resulting Memory to the Proposer', async (t) => {
   const run = await runGepa({
-    attachLearning: true,
+    learning: 'custom',
     seed: 11,
     maxRounds: 1,
     maxRollouts: 20,
@@ -849,4 +849,64 @@ test('GEPA attaches custom Memory and Reflection from its Recipe and delivers th
     calls.find((row) => row.bindingId === '_reflection')!.pluginId,
     'test.gepa-reflection',
   );
+});
+
+test('default GEPA learning Agents receive only training evidence after held-out selection', async (t) => {
+  const run = await runGepa({
+    learning: 'policy-defaults',
+    seed: 11,
+    maxRounds: 1,
+    maxRollouts: 20,
+    feedbackTasks: ['train-example'],
+    selectionTasks: ['held-out-example'],
+    proposals: { a: 'A1' },
+    scoreTable: {
+      'A0|B0': { scores: { 'train-example': 0.2, 'held-out-example': 0.3 } },
+      'A1|B0': { scores: { 'train-example': 0.8, 'held-out-example': 0.7 } },
+    },
+  });
+  t.after(async () => {
+    await run.manager.dispose();
+    await rm(run.root, { recursive: true, force: true });
+  });
+  const calls = await run.manager.facts.list('calls');
+  const heldOut = calls.filter((call) => {
+    const taskIds = object(call.input).taskIds;
+    return (
+      call.bindingId === 'evaluator' &&
+      Array.isArray(taskIds) &&
+      taskIds.includes('held-out-example')
+    );
+  });
+  assert.equal(
+    heldOut.length,
+    2,
+    'baseline and accepted candidate were scored on validation',
+  );
+  for (const binding of ['_memory', '_reflection']) {
+    const learning = calls.find((call) => call.bindingId === binding);
+    assert.equal(learning?.status, 'succeeded');
+    const agent = calls.find(
+      (call) =>
+        call.parentCallId === learning!.callId && call.bindingId === 'agent',
+    );
+    assert.equal(agent?.status, 'succeeded');
+    const project = decodeTree(
+      object(
+        await run.manager.artifacts.readJson(
+          string(agent!.agentProjectArtifactRef),
+        ),
+      ),
+    );
+    const evidence = Object.entries(project)
+      .filter(([path]) => path.startsWith('context/learning/'))
+      .map(([, content]) => content)
+      .join('\n');
+    assert.match(evidence, /train-example/);
+    assert.doesNotMatch(evidence, /held-out-example/);
+    for (const call of heldOut) {
+      assert.ok(!evidence.includes(string(call.callId)));
+      assert.ok(!evidence.includes(string(object(call.output).measurementRef)));
+    }
+  }
 });

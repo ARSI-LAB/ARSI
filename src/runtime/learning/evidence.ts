@@ -343,8 +343,7 @@ export async function collectLearningEvidence(
         `context/learning/calls/${id}-memory`,
         call.record,
       );
-    if (options.view === 'training-summary') return;
-    if (!(options.observe.includeAgentTraces ?? options.kind === 'reflection'))
+    if (options.view === 'training-summary' || options.kind !== 'reflection')
       return;
     // A selector may have opened held-out artifacts in its Agent workspace.
     // Its aggregate decision remains visible, but that workspace cannot be expanded.
@@ -684,18 +683,12 @@ export async function collectLearningEvidence(
     return comparisons;
   };
   const comparisons =
-    (options.observe.includeRevisionComparisons ??
-    options.kind === 'reflection')
-      ? await collectRevisionComparisons()
-      : [];
-  if (
-    options.observe.includeCandidateDiffs ||
-    options.observe.includeCandidateSources
-  )
+    options.kind === 'reflection' ? await collectRevisionComparisons() : [];
+  if (options.observe.includeCandidateDiffs)
     await projectCandidateEvidence(
       context,
       selected,
-      options.observe,
+      options.observe.includeBaseline ?? false,
       store,
       withheldSelections,
     );
@@ -749,10 +742,7 @@ export async function collectLearningEvidence(
           }
           if (
             file.inspection !== 'uninspected' ||
-            !(
-              options.observe.includeDocumentPreviews ??
-              options.kind === 'reflection'
-            )
+            options.kind !== 'reflection'
           )
             continue;
           const association = {

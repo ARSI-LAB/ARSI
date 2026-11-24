@@ -37,6 +37,8 @@ require:
   agent:
     contract: contract.agent
 defaults:
+  memory: { configFile: ./memory.yaml }
+  reflection: { configFile: ./reflection.yaml }
   bindings:
     evolutionProposer:
       plugin: proposer.pareto-evolution

@@ -21,6 +21,7 @@ import {
 } from '../services/agent-project.js';
 import { memoryFiles, type ActiveMemory } from './memory.js';
 import { directoryFingerprint } from '../storage/directory-fingerprint.js';
+import { stat } from './snapshot-paths.js';
 
 export const pinnedMemory = Symbol('Memory pinned at call entry');
 
@@ -68,8 +69,14 @@ export class MemoryDelivery {
           .sort()
           .join('\n') +
         '\n';
-      for (const instructions of ['AGENTS.md', 'CLAUDE.md'])
-        await appendFile(join(staging, instructions), notice);
+      for (const instructions of ['AGENTS.md', 'CLAUDE.md']) {
+        const path = join(staging, instructions);
+        const entry = await stat(path);
+        const readOnly = entry && !(entry.mode & 0o200);
+        if (readOnly) await chmod(path, (entry.mode & 0o777) | 0o200);
+        await appendFile(path, notice);
+        if (readOnly) await chmod(path, entry.mode & 0o777);
+      }
       const cwd = await publishAgentProject(
         staging,
         callerDirectory,

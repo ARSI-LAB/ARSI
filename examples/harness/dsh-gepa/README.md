@@ -68,6 +68,12 @@ and `observe` lifecycle exchanges immutable state references, evaluation and
 proposal work requests, and feedback; GEPA's population, lineage, RNG and
 pending-round details stay inside the implementation's state artifacts.
 
+Memory and Reflection reuse the Recipe's `agent` binding. At each optimization
+round they receive training summaries from the proposal and its evaluation.
+Validation measurements and Pareto selection records stay outside both learning
+modules. Memory is delivered to the proposer. Reflection can revise the
+proposer's declared resources, which in this Recipe consist of the mutation prompt.
+
 ## Algorithm shape
 
 - Initialization samples the selection set and records the initial candidate

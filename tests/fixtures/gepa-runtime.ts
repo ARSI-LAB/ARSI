@@ -1,4 +1,6 @@
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
+import { memoryDefinition } from '../../src/plugins/memory-agent/index.js';
+import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join, matchesGlob } from 'node:path';
@@ -474,6 +476,8 @@ function fakeAgentPlugin(
           const metadata = object(
             JSON.parse(string(projectFiles['context/input.json'])),
           );
+          if (metadata.evidenceIndex === 'context/learning/index.json')
+            return { edits: [], reason: 'No learning edit for this window' };
           const evidence = object(
             JSON.parse(string(projectFiles['context/measurements.json'])),
           );
@@ -550,7 +554,7 @@ export async function runGepa(options: {
   modules?: { id: string; path: string }[];
   bindingNames?: { evaluator: string; proposer: string; agent: string };
   realAgentEndpoint?: string;
-  attachLearning?: boolean;
+  learning?: 'custom' | 'policy-defaults';
   resumeAfterEvaluation?: number;
   editWorkspaceFailures?: number;
   restartOnResume?: boolean;
@@ -626,7 +630,11 @@ export async function runGepa(options: {
     );
   registry.registerOperation(paretoEvolutionProposerDefinition);
   registry.registerOperation(proposerDefinition);
-  if (options.attachLearning) {
+  if (options.learning === 'policy-defaults') {
+    registry.registerOperation(memoryDefinition);
+    registry.registerOperation(reflectionDefinition);
+  }
+  if (options.learning === 'custom') {
     await writeFile(
       join(root, 'memory.yaml'),
       stringify({
@@ -748,10 +756,14 @@ export async function runGepa(options: {
         plugin: fakeApplication.id,
         config: { files: baselineFiles },
       },
-      memory: options.attachLearning ? { configFile: './memory.yaml' } : false,
-      reflection: options.attachLearning
-        ? { configFile: './reflection.yaml' }
-        : false,
+      ...(options.learning === 'custom'
+        ? {
+            memory: { configFile: './memory.yaml' },
+            reflection: { configFile: './reflection.yaml' },
+          }
+        : options.learning === undefined
+          ? { memory: false, reflection: false }
+          : {}),
       policy: {
         id: policyId,
         input: { candidateRef: '${{ application.initialCandidate }}' },

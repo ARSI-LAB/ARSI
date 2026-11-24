@@ -397,6 +397,32 @@ for (const failure of ['prepare', 'commit'] as const) {
   });
 }
 
+test('initializing and restoring Memory are silent; a learned version notifies listeners after activation', async (t) => {
+  const f = await fixture(t);
+  const observer = f.events.prepare('observer');
+  const notifications: string[] = [];
+  observer.event.on('rsi/memory-activated', (event) => {
+    notifications.push(event.memoryVersionRef);
+  });
+  f.events.activate(observer);
+  f.commit.release();
+  const seed = { ref: 'seed', rootRef: 'seed', artifactRef: 'artifact:seed' };
+  await f.activation.initializeMemory(seed);
+  assert.deepEqual(f.activation.memory, seed);
+  assert.deepEqual(
+    (await f.facts.read('activations', 'activation-race')).memory,
+    seed,
+  );
+  await f.restore();
+  assert.deepEqual(notifications, []);
+
+  const learned = { ...seed, ref: 'learned', artifactRef: 'artifact:learned' };
+  await f.activation.saveMemory(learned, 'learning-update');
+  await f.restore();
+  assert.deepEqual(f.activation.memory, learned);
+  assert.deepEqual(notifications, [learned.ref]);
+});
+
 test('simultaneous Memory and revision saves preserve both active pointers without restarting Memory consumers', async (t) => {
   const f = await fixture(t);
   const lease = await f.instances.acquire('worker', f.bindings.worker!);

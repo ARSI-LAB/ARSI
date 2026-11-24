@@ -42,6 +42,7 @@ import { safeId } from '../storage/index.js';
 import type { PolicyStructure } from '../../shared/observation/policy-structure.js';
 import { queryPolicyStructure } from './policy-structure-query.js';
 import { isExecutionActive } from '../manager/execution-lock.js';
+import { isLearningInProgress } from '../learning/records.js';
 
 function restrictedFile(path: string): boolean {
   return /(^|\/)(\.env(?:\..*)?|\.npmrc|\.?netrc|credentials(?:\.json|\.ya?ml|\.toml)?|secrets?\.(?:json|ya?ml|toml)|id_(?:rsa|ed25519|ecdsa|dsa)|private[-_]?key(?:\.pem|\.key)?|[^/]+\.(?:p12|pfx))$/i.test(
@@ -323,6 +324,7 @@ export class ObservationQueries {
           id: run.learningId ?? null,
           binding: 'memory',
           kind: 'attempt',
+          inProgress: isLearningInProgress(run.status),
           parentRef: run.parentRef ?? null,
           parentArtifactRef: run.parentArtifactRef ?? null,
           resourceRef: null,

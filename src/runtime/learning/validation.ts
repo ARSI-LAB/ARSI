@@ -163,13 +163,11 @@ export async function validateLearning(
     excludeBindings,
   } = declaration.evidence ?? {};
   const names = Object.keys(bindings);
-  const evidenceNames =
-    kind === 'reflection' && source.memoryEnabled
-      ? [...names, 'memory']
-      : names;
+  const evidenceNames = kind === 'reflection' ? [...names, 'memory'] : names;
+  const availableNames = source.memoryEnabled ? evidenceNames : names;
   checkNames(
     includeBindings ?? [],
-    evidenceNames,
+    availableNames,
     kind + '.evidence.includeBindings',
   );
   checkNames(
@@ -186,7 +184,7 @@ export async function validateLearning(
       ),
     );
   const observe: LearningObserve = {
-    bindings: includeBindings ?? evidenceNames,
+    bindings: includeBindings ?? availableNames,
     ...(excludeBindings ? { excludeBindings } : {}),
     ...(includeSteps ? { steps: paths(includeSteps) } : {}),
     ...(excludeSteps ? { excludeSteps: paths(excludeSteps) } : {}),

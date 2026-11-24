@@ -146,24 +146,23 @@ export async function runCommand(
         runJson(command, ({ manager }) => manager[kind]().list(id || undefined)),
       );
     for (const operation of ['show', 'apply'] as const) {
-      const command = group
+      group
         .command(
           `${operation} <${kind === 'memory' ? 'versionID' : 'revisionID'}>`,
         )
         .description(
           `${operation === 'show' ? 'Preview' : 'Apply'} a ${kind} snapshot`,
-        );
-      if (kind === 'memory')
-        command.option('--to <directory>', 'Export to a dedicated directory');
-      command.action((id: string, options: { to?: string }) => {
-        if (!id)
-          throw new Error(
-            `${kind === 'reflection' ? 'Revision' : 'Memory'} ID is required`,
+        )
+        .option('--to <directory>', 'Export to a dedicated directory')
+        .action((id: string, options: { to?: string }, command: Command) => {
+          if (!id)
+            throw new Error(
+              `${kind === 'reflection' ? 'Revision' : 'Memory'} ID is required`,
+            );
+          return runJson(command, ({ manager }) =>
+            manager[kind]()[operation](id, options),
           );
-        return runJson(command, ({ manager }) =>
-          manager[kind]()[operation](id, options),
-        );
-      });
+        });
     }
   }
   program

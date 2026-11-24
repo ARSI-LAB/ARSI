@@ -140,6 +140,7 @@ ctx.event.emit('rsi/agent-observation', {
 | `rsi/candidate-recorded`   | 候选保存后                                       | `emit`   | `callId: string`：写入该记录的调用 ID。<br>`bindingId: string`：写入该记录的绑定名。<br>`candidateRef: string`：已保存的候选引用。<br>`parentRef: string \| null`：父候选引用；初始候选为 `null`。                                                                                                                          |
 | `rsi/measurement-recorded` | 测量校验并保存后                                 | `emit`   | `callId: string`：写入该记录的调用 ID。<br>`bindingId: string`：写入该记录的绑定名。<br>`measurementRef: string`：已保存的测量引用。                                                                                                                                                                                        |
 | `rsi/revision-activated`   | 激活记录保存、有效绑定及已有插件实例的订阅切换后 | `emit`   | `activationId: string`：本次修订启用记录的 ID。<br>`bindingIds: readonly string[]`：本次启用修订涉及的绑定名列表。<br>`revisionRefs: Readonly<Record<string, string>>`：本次启用的修订映射，键为绑定名，值为修订引用。<br>`policyRevisionRef?: string`：可选。契约预留的 Policy 修订引用；当前 Runtime 发布该事件时不设置。 |
+| `rsi/memory-activated` | 新生成的 Memory 版本持久化并生效后。设置初始种子或恢复已有活动版本时均不触发。 | `emit` | `activationId: string` 为本次激活的 ID。`memoryVersionRef: string` 为生效的 Memory 版本引用。`artifactRef: string` 为该版本的文件快照引用。 |
 
 ### 插件诊断与资源清理
 

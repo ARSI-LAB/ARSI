@@ -16,6 +16,17 @@ arsi run .rsi/skill-demo/recipe.yaml --id demo-01 --resume --plugin-dir .rsi/ski
 arsi dashboard --port 4317 --plugin-dir .rsi/skill-demo/extension
 ```
 
+Use the ID from the corresponding list to preview and apply a snapshot.
+
+```sh
+arsi memory list [experiment-id]
+arsi memory show <versionID> [--to <directory>]
+arsi memory apply <versionID> [--to <directory>]
+arsi reflection list [experiment-id]
+arsi reflection show <revisionID> [--to <directory>]
+arsi reflection apply <revisionID> [--to <directory>]
+```
+
 `arsi list plugins` (alias `list plugin`) returns descriptions, contract IDs, input/output/config Schemas and compatible Policy binding slots. `arsi list policies` (alias `list policy`) returns descriptions, Schemas, required contracts, compatible plugins and defaults. Compatibility is structural, not proof of suitability. Bare `arsi list` lists experiments; `arsi catalog` retains compact ID lists.
 
 Choose commands for the current experiment state. All commands accept repeatable `--plugin-dir`. `run` takes a Recipe **path**, not catalog ID. `--resume` requires `--id`. Data is `.rsi/` under the current working directory; inspect and retry from that same directory. There are no `--data-dir`, `--recipe`, `--request-id`, pause, continue or detach options.

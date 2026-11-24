@@ -357,6 +357,35 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   assert.deepEqual(recipe.budget, { elapsedWallMs: 86400000 });
   assert.equal(recipe.bindings.proposer!.config.maxEvidenceBytes, undefined);
   const raw = await readYaml(join(directory, 'recipe.yaml'));
+  registry.registerOperation({
+    id: 'proposer.custom-gepa',
+    contract: proposerDefinition.contract,
+    configSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { guidance: { type: 'string', 'x-rsi-path': 'file' } },
+    },
+    async create() {
+      throw new Error('Recipe loading must not instantiate the proposer');
+    },
+  });
+  const custom = await Recipe.fromJSON(
+    {
+      ...raw,
+      bindings: {
+        ...object(raw.bindings),
+        proposer: {
+          plugin: 'proposer.custom-gepa',
+          config: { guidance: recipe.bindings.proposer!.config.prompt },
+        },
+      },
+    },
+    registry,
+    { sourcePath: join(directory, 'recipe.yaml') },
+  );
+  assert.deepEqual(custom.reflection?.targets, {
+    proposer: { resources: ['/guidance'] },
+  });
   for (const field of [
     'evaluatorBinding',
     'reflectorBinding',

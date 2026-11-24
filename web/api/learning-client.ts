@@ -8,6 +8,7 @@ export interface LearningRecord {
   callId: string | null;
   reason: string | null;
   status: string;
+  inProgress: boolean;
   path: string | null;
   startedAt: string | null;
 }
@@ -44,6 +45,7 @@ export function parseLearning(raw: unknown): LearningRecord[] {
       callId: optional(item.callId),
       reason: optional(item.reason),
       status: text(item.status),
+      inProgress: item.inProgress === true,
       path: optional(item.path),
       startedAt: optional(item.startedAt),
     };

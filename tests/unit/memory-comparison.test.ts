@@ -9,7 +9,7 @@ import { collectLearningEvidence } from '../../src/runtime/learning/evidence.js'
 import { projectCandidateEvidence } from '../../src/runtime/learning/candidate-evidence.js';
 import { object, string } from '../../src/shared/json.js';
 
-test('WikiSkill windows project training, candidate sources and selection aggregates without held-out traces', async (t) => {
+test('WikiSkill windows project training, candidate diffs and selection aggregates without held-out traces', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-wiki-window-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const artifacts = new FileArtifacts(join(root, 'artifacts'));
@@ -114,7 +114,6 @@ test('WikiSkill windows project training, candidate sources and selection aggreg
         ],
         includeBaseline: true,
         includeCandidateDiffs: true,
-        includeCandidateSources: true,
       },
     });
     return facts.read('evidence-views', string(ref));
@@ -211,9 +210,10 @@ test('WikiSkill windows project training, candidate sources and selection aggreg
     string(files['context/learning/training-summary.json']),
     /TRAINING_ROUND_ONE/,
   );
-  assert.equal(
-    files['context/learning/candidates/new/skill.md'],
-    'new procedure',
+  assert.ok(
+    !Object.keys(files).some((path) =>
+      path.startsWith('context/learning/candidates/'),
+    ),
   );
   const comparisons = string(files['context/learning/comparisons.json']);
   assert.match(comparisons, /-old procedure/);
@@ -235,14 +235,9 @@ test('WikiSkill windows project training, candidate sources and selection aggreg
     parent: '',
   };
   const project = () =>
-    projectCandidateEvidence(
-      context,
-      [selection],
-      { includeCandidateDiffs: true },
-      (path, text) => {
-        files[path] = text;
-      },
-    );
+    projectCandidateEvidence(context, [selection], false, (path, text) => {
+      files[path] = text;
+    });
   await project();
   assert.match(
     string(files['context/learning/comparisons.json']),
@@ -287,7 +282,7 @@ test('WikiSkill windows project training, candidate sources and selection aggreg
     output: { reason: 'QUOTED_HELD_OUT_DELIVERY' },
   });
   const scoped = await collectLearningEvidence({
-    kind: 'memory',
+    kind: 'reflection',
     context,
     identity: 'choice-window',
     capturedAt: time(12),
@@ -296,7 +291,6 @@ test('WikiSkill windows project training, candidate sources and selection aggreg
       bindings: ['selector', 'agent'],
       excludeSteps: ['steps/baseline'],
       includeCandidateDiffs: true,
-      includeAgentTraces: true,
     },
   });
   const decisionSnapshot = await facts.read(
@@ -325,7 +319,7 @@ test('WikiSkill windows project training, candidate sources and selection aggreg
         }),
       }),
       [{ ...selection, record: {}, output: { candidateRef: 'new' } }],
-      { includeCandidateDiffs: true },
+      false,
       () => {},
     ),
     /another experiment/,

@@ -173,7 +173,7 @@ class SnapshotApplication {
       const source = root.sourceDirectory;
       if (!target && (root.kind !== 'initial' || typeof source !== 'string'))
         throw new Error(
-          'This Memory has no seed directory. Export with --to <directory>.',
+          'This Memory has no seed directory. Choose a dedicated export directory.',
         );
       const path = target ?? string(source);
       if (!isAbsolute(path) || resolve(path) !== path)

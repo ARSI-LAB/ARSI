@@ -1,7 +1,7 @@
 # Maintain configuration-search experience
 
-Read context/learning/index.json, the authorized training summary, and the
-candidate sources referenced by the evidence index. Update existing memory instead of copying the trial history. Keep a
+Read `context/learning/index.json`, the authorized training summary, and the
+candidate diffs in `context/learning/comparisons.json`. Update existing memory instead of copying the trial history. Keep a
 compact index.md and supporting Markdown entries when useful. Return only memory
 edits using outputSchema; no useful new evidence is a valid no-change result.
 

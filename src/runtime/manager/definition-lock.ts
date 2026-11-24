@@ -16,7 +16,7 @@ import {
   type MemoryConfig,
   type ReflectionConfig,
 } from '../learning/schema.js';
-import { inspectPath, stat } from '../learning/snapshot-paths.js';
+import { captureMemorySeed } from '../learning/memory.js';
 import { learningAgentBinding } from '../learning/validation.js';
 import { inside } from '../storage/index.js';
 
@@ -214,17 +214,8 @@ export async function lockDefinition(
     });
     if (kind === 'memory') {
       const source = recipe.memory?.seed?.directory;
-      if (source) {
-        object(resourceOrigins[owner])['/directory'] = source;
-        await inspectPath(source);
-      }
-      const existing = source && (await stat(source));
-      if (existing && (!existing.isDirectory() || existing.isSymbolicLink()))
-        throw new Error('Invalid Memory directory: ' + source);
-      data.seedArtifactRef =
-        source && existing
-          ? await artifacts.capture(source)
-          : await artifacts.putJson({ kind: 'file-tree', files: [] });
+      if (source) object(resourceOrigins[owner])['/directory'] = source;
+      data.seedArtifactRef = await captureMemorySeed(artifacts, source);
       fields['/directory'] = data.seedArtifactRef;
     }
     data.digest = digest({

@@ -107,8 +107,10 @@ test('Memory reaches Agent projects through the pinned caller version and leaves
             /agent-projects\/[a-f0-9]{64}\/project$/,
           );
           for (const instructions of ['AGENTS.md', 'CLAUDE.md']) {
+            const path = join(cwd, instructions);
+            assert.equal((await lstat(path)).mode & 0o222, 0);
             assert.match(
-              await readFile(join(cwd, instructions), 'utf8'),
+              await readFile(path, 'utf8'),
               /Experiment Memory \(Read-Only\)[\s\S]*context\/memory\/notes.md/,
             );
           }
@@ -138,6 +140,8 @@ test('Memory reaches Agent projects through the pinned caller version and leaves
           [],
           [],
         );
+        for (const instructions of ['AGENTS.md', 'CLAUDE.md'])
+          await chmod(join(cwd, instructions), 0o444);
         await caller.invokeAgent('reader', {
           cwd,
           goal: 'Inspect',
@@ -146,10 +150,11 @@ test('Memory reaches Agent projects through the pinned caller version and leaves
         await assert.rejects(readFile(join(cwd, 'context/memory/notes.md')), {
           code: 'ENOENT',
         });
-        assert.doesNotMatch(
-          await readFile(join(cwd, 'AGENTS.md'), 'utf8'),
-          /Experiment Memory/,
-        );
+        for (const instructions of ['AGENTS.md', 'CLAUDE.md']) {
+          const path = join(cwd, instructions);
+          assert.equal((await lstat(path)).mode & 0o222, 0);
+          assert.equal(await readFile(path, 'utf8'), 'Work on this task\n');
+        }
       }
       return {};
     },

@@ -158,8 +158,8 @@ function ApplySnapshot({
       if (mounted.current) {
         setResult(
           status === 'applied'
-            ? 'Source files updated.'
-            : 'Source files already match this version.',
+            ? 'Destination files updated.'
+            : 'Destination files already match this version.',
         );
         setOpen(false);
         trigger.current?.focus();
@@ -224,35 +224,33 @@ function ApplySnapshot({
         <p id="learning-apply-description" className="muted">
           Selected snapshot: {label}.
         </p>
-        {collection === 'memories' && (
-          <form
-            className="actions"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setAcknowledged(false);
-              setAttempted(false);
-              setError('');
-              setPreviewTo(destination.trim());
-              setInspection((value) => value + 1);
-            }}
-          >
-            <label className="learning-field">
-              Export directory (optional)
-              <input
-                value={destination}
-                placeholder="Original source directory"
-                disabled={pending}
-                onChange={(event) => {
-                  setDestination(event.target.value);
-                  setAcknowledged(false);
-                }}
-              />
-            </label>
-            <button type="submit" className="quiet-button" disabled={pending}>
-              Preview destination
-            </button>
-          </form>
-        )}
+        <form
+          className="actions"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setAcknowledged(false);
+            setAttempted(false);
+            setError('');
+            setPreviewTo(destination.trim());
+            setInspection((value) => value + 1);
+          }}
+        >
+          <label className="learning-field">
+            Export directory (optional)
+            <input
+              value={destination}
+              placeholder="Recorded source paths"
+              disabled={pending}
+              onChange={(event) => {
+                setDestination(event.target.value);
+                setAcknowledged(false);
+              }}
+            />
+          </label>
+          <button type="submit" className="quiet-button" disabled={pending}>
+            Preview destination
+          </button>
+        </form>
         <Feedback {...preview} />
         {preview.data && !preview.error && previewTo === destination.trim() ? (
           <>
@@ -319,7 +317,7 @@ function ApplySnapshot({
               ))}
             </ul>
             {preview.data.applicationAllowed && !preview.data.changes.length ? (
-              <p>Source files already match this version.</p>
+              <p>Destination files already match this version.</p>
             ) : null}
             {preview.data.applicationAllowed && preview.data.changes.length ? (
               <label className="learning-ack">
@@ -373,7 +371,7 @@ function ApplySnapshot({
               }
               onClick={() => void apply()}
             >
-              {pending ? 'Applying…' : 'Apply to source files'}
+              {pending ? 'Applying…' : 'Apply to destination'}
             </button>
           ) : null}
         </div>
@@ -476,7 +474,7 @@ function Detail({
           </>
         ) : (
           <p className="empty-state">
-            {record.status === 'running'
+            {record.inProgress
               ? 'Memory update is in progress.'
               : 'No resource snapshot was recorded.'}
           </p>

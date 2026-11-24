@@ -13,11 +13,7 @@ export type LearningObserve = {
   steps?: string[];
   excludeSteps?: string[];
   includeBaseline?: boolean;
-  includeCandidateSources?: boolean;
   includeCandidateDiffs?: boolean;
-  includeAgentTraces?: boolean;
-  includeDocumentPreviews?: boolean;
-  includeRevisionComparisons?: boolean;
 };
 type LearningConfig = {
   digest: string;

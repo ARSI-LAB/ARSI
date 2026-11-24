@@ -131,10 +131,12 @@ try {
     });
     if (args[0] === 'run') assert.match(detail, /--resume/);
     else if (args.length === 2) assert.match(detail, /apply/);
-    else if (args[0] === 'memory') assert.match(detail, /--to <directory>/);
     else {
-      assert.match(detail, /<revisionID>/);
-      assert.doesNotMatch(detail, /--to/);
+      assert.match(
+        detail,
+        args[0] === 'memory' ? /<versionID>/ : /<revisionID>/,
+      );
+      assert.match(detail, /--to <directory>/);
     }
   }
   const installedManifest = JSON.parse(
@@ -388,9 +390,8 @@ export function register(registry){
               kind,
               action,
               missing,
-              ...(kind === 'memory'
-                ? ['--to', join(outside, 'exported-resource')]
-                : []),
+              '--to',
+              join(outside, 'exported-resource'),
             ],
             {
               env: consumerEnv,

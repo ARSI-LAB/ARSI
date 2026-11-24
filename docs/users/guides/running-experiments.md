@@ -23,11 +23,11 @@ Use `arsi --help` to list commands and `arsi <command> --help` for a command's s
 | `arsi cleanup [experiment-id]`         | [Preview or release experiment resources](#clean-up-experiment-resources).                                                                |
 | `arsi dashboard`                       | Serve a local web dashboard for inspecting experiments.                                                                                   |
 | `arsi memory list [experiment-id]` | List the experiment’s Memory snapshots. |
-| `arsi memory show <memory-id> [--to <dir>]` | Preview the snapshot and destination changes. |
-| `arsi memory apply <memory-id> [--to <dir>]` | Write a snapshot to its configured source directory or the export destination. |
+| `arsi memory show <versionID> [--to <directory>]` | Preview the snapshot and destination changes. |
+| `arsi memory apply <versionID> [--to <directory>]` | Write a snapshot to its configured source directory or the export destination. |
 | `arsi reflection list [experiment-id]` | List persisted revisions, optionally for one experiment.                                                                                  |
-| `arsi reflection show <revisionID>`    | Inspect revision content and planned resource changes.                                                                                    |
-| `arsi reflection apply <revisionID>`   | Write the snapshot to its recorded user-resource paths; see the [Reflection rules](reflection.md#apply-a-revision-to-future-experiments). |
+| `arsi reflection show <revisionID> [--to <directory>]` | Preview the revision and changes at the selected destination. |
+| `arsi reflection apply <revisionID> [--to <directory>]` | Apply the revision at its recorded paths or export it to a dedicated directory. See the [Reflection guide](reflection.md#apply-a-revision-to-future-experiments). |
 | `arsi help [command]`                  | Show the command list or help for a specific command.                                                                                     |
 
 ### Interactive CLI

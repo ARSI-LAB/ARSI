@@ -22,14 +22,16 @@ budget: { timeoutSeconds: 3600 }
 
 默认可编辑符合条件的绑定上已配置的 `x-rsi-path` 资源。`targets.include` 和 `targets.exclude` 按绑定及字段名限定范围。`'*'` 代表该绑定所有可编辑字段。可编辑路径重叠时会报错。`goal` 可指定目标文件，`implementation.config.prompt` 可指定提示词文件。默认使用 `reflection.agent`、通用目标及内置 `agent.pi`。显式指定的 `agentRef` 必须引用已声明的 Agent 绑定。
 
-默认在每次顶层循环迭代结束时触发，无顶层循环时在实验结束时触发。还可选择 `loop-end`、`experiment-end` 或带串行步骤 ID 的 `after-step`。`every` 指定每匹配多少次边界执行一次。Memory 和 Reflection 同时命中时先执行 Memory。证据视图默认为 `execution`，仅在允许评分反馈时选择 `training-summary`。可用 `evidence` 下的 `includeBindings`、`excludeBindings`、`includeSteps`、`excludeSteps` 过滤证据，空窗口跳过生成。
+默认在每次顶层循环迭代结束时触发，无顶层循环时在实验结束时触发。还可选择 `loop-end`、`experiment-end` 或带串行步骤 ID 的 `after-step`。`every` 指定每匹配多少次边界执行一次。Memory 和 Reflection 同时命中时先执行 Memory。证据视图默认为 `execution`，仅在允许评分反馈时选择 `training-summary`。可用 `evidence` 下的 `includeBindings`、`excludeBindings`、`includeSteps`、`excludeSteps` 过滤证据。即使 Recipe 关闭了 Memory，共用的 Reflection 配置文件仍可设置 `excludeBindings: [memory]`。显式设置 `includeBindings: [memory]` 则要求启用 Memory。证据窗口为空时跳过生成。
 
 ## 将版本应用到后续实验
 
 ```sh
 arsi reflection list my-experiment
-arsi reflection show <revisionID>
-arsi reflection apply <revisionID>
+arsi reflection show <revisionID> --to ./exported-guidance
+arsi reflection apply <revisionID> --to ./exported-guidance
 ```
 
-在 CLI 或工作台 **Reflection & Memory → Reflection** 页签预览完整快照和计划变更。应用会在记录的源路径新增、替换或移除文件。计划保留修订时，应在 Recipe 绑定中配置用户自己的专用资源。同一存储下仍有活动或状态待确认的实验时会阻止写回，受保护根目录和符号链接目标也会被拒绝。共享经验目录见 [Memory](memory_zh.md)。
+用 `--to` 可导出内置资源，也可将修订保存到自己的专用目录。在工作台打开 **Reflection & Memory → Reflection → Preview application**，输入导出目录，选择 **Preview destination**。修订只包含一个目录时，其内容直接写入导出目录。其他情况下，按绑定名和配置字段路径存放资源。后续 Recipe 的绑定可指向导出的资源以复用修订。
+
+省略导出目录时使用记录的源路径。应用前请核对将新增、替换及移除的文件。同一存储下所有实验须已结束或完成恢复后才能写入。受保护根目录和链接目标会被拒绝。共享经验目录见 [Memory](memory_zh.md)。

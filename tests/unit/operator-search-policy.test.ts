@@ -1,7 +1,7 @@
 import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cp, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test, { type TestContext } from 'node:test';
@@ -149,33 +149,25 @@ async function setup(
   return { ...fixture, ...runtime, requests };
 }
 
-test('operator search discovers default learning resources and rejects shared editable task ownership', async (t) => {
+test('operator search shares its benchmark task and limits default Reflection edits to prompts', async (t) => {
   const f = await setup(t);
   const declaration = object(parse(await readFile(f.recipePath, 'utf8')));
   delete declaration.memory;
   delete declaration.reflection;
-  const load = () =>
-    Recipe.fromJSON(declaration, f.registry, { sourcePath: f.recipePath });
-  await assert.rejects(load(), /Overlapping editable destinations/);
-  const task = join(f.root, 'proposer-task');
-  await cp(join(f.root, 'example/task'), task, { recursive: true });
-  object(
-    object(object(object(declaration.bindings).proposer).config).task,
-  ).directory = task;
-  const recipe = await load();
+  const recipe = await Recipe.fromJSON(declaration, f.registry, {
+    sourcePath: f.recipePath,
+  });
   assert.equal(recipe.memory?.trigger.on, 'loop-iteration');
-  assert.ok(
-    recipe.reflection?.targets.proposer?.resources.includes(
-      '/promptsDirectory',
-    ),
+  assert.equal(recipe.memory?.config.agentRef, 'agent');
+  assert.equal(recipe.reflection?.config.agentRef, 'agent');
+  assert.deepEqual(recipe.reflection?.targets, {
+    proposer: { resources: ['/promptsDirectory'] },
+    summarizer: { resources: ['/promptFile'] },
+  });
+  assert.equal(
+    object(recipe.bindings.evaluator!.config.task).directory,
+    object(recipe.bindings.proposer!.config.task).directory,
   );
-  assert.ok(
-    recipe.reflection?.targets.summarizer?.resources.includes('/promptFile'),
-  );
-  assert.ok(
-    recipe.reflection?.targets.evaluator?.resources.includes('/task/directory'),
-  );
-  assert.equal(recipe.bindings._learningAgent!.pluginId, 'agent.pi');
   object(declaration.budget).operations = 1;
   await writeFile(f.recipePath, stringify(declaration));
   await assert.rejects(

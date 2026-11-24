@@ -8,13 +8,13 @@ const terminalStatuses = [
   'skipped',
   'rejected',
 ] as const;
-const statuses = [
+const inProgressStatuses = [
   'started',
   'evidence-prepared',
   'prepared',
   'validated',
-  ...terminalStatuses,
 ] as const;
+const statuses = [...inProgressStatuses, ...terminalStatuses] as const;
 export type LearningTerminalStatus = (typeof terminalStatuses)[number];
 export type LearningStatus = (typeof statuses)[number];
 export interface LearningResult extends JsonObject {
@@ -38,6 +38,9 @@ export const learningResultSchema: JsonSchema = {
 };
 export interface LearningRecord extends JsonObject {
   status: LearningStatus;
+}
+export function isLearningInProgress(status: unknown): boolean {
+  return inProgressStatuses.some((step) => step === status);
 }
 export function isTerminal(
   status: LearningStatus,

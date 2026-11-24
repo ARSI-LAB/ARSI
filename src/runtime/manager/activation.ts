@@ -79,17 +79,24 @@ export class LearningActivation {
     return result;
   }
   initializeMemory(memory: ActiveMemory): Promise<void> {
-    return this.saveMemory(memory, memory.ref);
+    // The seed establishes the starting version before experiment lifecycle events.
+    return this.serialize(() => this.persistMemory(memory, memory.ref));
+  }
+  private async persistMemory(
+    memory: ActiveMemory,
+    activationId: string,
+  ): Promise<void> {
+    await this.persist(
+      activationId,
+      this.bindingState,
+      this.revisionState,
+      memory,
+    );
+    this.memoryState = memory;
   }
   saveMemory(memory: ActiveMemory, activationId: string): Promise<void> {
     return this.serialize(async () => {
-      await this.persist(
-        activationId,
-        this.bindingState,
-        this.revisionState,
-        memory,
-      );
-      this.memoryState = memory;
+      await this.persistMemory(memory, activationId);
       try {
         this.options.event.emit('rsi/memory-activated', {
           experimentId: this.options.id,

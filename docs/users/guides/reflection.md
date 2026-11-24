@@ -22,14 +22,16 @@ budget: { timeoutSeconds: 3600 }
 
 By default, Reflection can edit configured `x-rsi-path` resources on eligible bindings. `targets.include` and `targets.exclude` select resources by binding and field. Use `'*'` for all eligible fields of a binding. Overlapping editable destinations are rejected. `goal` accepts a goal file and `implementation.config.prompt` accepts a prompt file. The built-in defaults are `reflection.agent`, a generic goal and a built-in `agent.pi`. An explicit `agentRef` must select a declared Agent binding.
 
-The default trigger runs after each top-level loop iteration, or at experiment completion when the Policy has no top-level loop. Other boundaries are `loop-end`, `experiment-end`, and `after-step` with a serial step ID. `every` sets the number of matching boundaries per update. Memory runs before Reflection when both match. The evidence window defaults to `execution`. Use `training-summary` only for authorized scoring feedback. Filter it with `evidence.includeBindings`, `excludeBindings`, `includeSteps` or `excludeSteps`. Empty windows skip the generator.
+The default trigger runs after each top-level loop iteration, or at experiment completion when the Policy has no top-level loop. Other boundaries are `loop-end`, `experiment-end`, and `after-step` with a serial step ID. `every` sets the number of matching boundaries per update. Memory runs before Reflection when both match. The evidence window defaults to `execution`. Use `training-summary` only for authorized scoring feedback. Filter it with `evidence.includeBindings`, `excludeBindings`, `includeSteps` or `excludeSteps`. A shared Reflection file can set `excludeBindings: [memory]` even when a Recipe disables Memory. An explicit `includeBindings: [memory]` requires Memory to be enabled. Empty windows skip the generator.
 
 ## Apply a revision to future experiments
 
 ```sh
 arsi reflection list my-experiment
-arsi reflection show <revisionID>
-arsi reflection apply <revisionID>
+arsi reflection show <revisionID> --to ./exported-guidance
+arsi reflection apply <revisionID> --to ./exported-guidance
 ```
 
-Preview the full snapshot and its destination changes in the CLI or the Dashboard's **Reflection & Memory → Reflection** tab. Applying can add, replace and remove files at the recorded source paths. Use dedicated user-owned resources in Recipe bindings when planning to retain revisions. Write-back is blocked while an experiment in the same store is active or unresolved, and protected roots and linked destinations are rejected. See [Memory](memory.md) for the shared experience directory.
+Use `--to` to export built-in resources or save a revision in a dedicated directory you own. In the Dashboard, open **Reflection & Memory → Reflection → Preview application**, enter the export directory, and select **Preview destination**. A revision containing a single directory writes its contents directly there. Other revisions place resources under the binding name and configuration field path. Point future Recipe bindings at the exported resources to reuse them.
+
+Omit the export directory to use the recorded source paths. Review additions, replacements and removals before applying. Applying requires all experiments in the same store to be finished or recovered. Protected roots and linked destinations are rejected. See [Memory](memory.md) for the shared experience directory.

@@ -211,7 +211,12 @@ async function run(
         },
       );
     }
-    return { output, calls, partialAfter };
+    return {
+      output,
+      calls,
+      partialAfter,
+      boundaries: object(checkpoint!.boundaries),
+    };
   } finally {
     await registry.dispose();
   }
@@ -264,7 +269,19 @@ test('a failed proposal breaks a consecutive empty streak without claiming an ev
 });
 
 test('metrics Greedy continues after promotion, reuses unchanged diagnostics, and supplies current best and history', async () => {
-  const { output, calls } = await run({ values: [8, 9, 9], maxRounds: 3 });
+  const { output, calls, boundaries } = await run({
+    values: [8, 9, 9],
+    maxRounds: 3,
+  });
+  assert.deepEqual(
+    Object.keys(boundaries).filter((path) => /\/iteration-\d+$/.test(path)),
+    [
+      'steps/static_search/iteration-0',
+      'steps/metrics_loop/iteration-0',
+      'steps/metrics_loop/iteration-1',
+      'steps/metrics_loop/iteration-2',
+    ],
+  );
   assert.equal(output.bestCandidateRef, 'c1');
   assert.equal(output.stopReason, 'max-rounds');
   const proposals = calls.filter(
@@ -429,7 +446,7 @@ test('operator checkpoint keeps the selected fifth round after a slower sixth an
     finalValidity: null,
   };
   assert.deepEqual(
-    partialAfter('steps/run_metrics/then/metrics_loop/iteration-6/begin_round'),
+    partialAfter('steps/metrics_loop/iteration-6/begin_round'),
     selected,
   );
   const measured = { ...selected, finalMeasurementRef: 'm9' };

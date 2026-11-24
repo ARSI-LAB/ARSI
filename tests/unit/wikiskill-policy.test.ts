@@ -23,16 +23,16 @@ async function loadWikiPolicy(t: TestContext): Promise<Policy> {
   return Policy.load('src/policies/wikiskill/policy.yaml', registry);
 }
 
-test('memory receives authorized summary and current skills, persists Wiki and releases its workspace', async () => {
+test('memory receives authorized training evidence, persists Wiki and releases its workspace', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-wiki-memory-'));
   const artifacts = new FileArtifacts(join(root, 'artifacts'));
   const registry = new Registry();
   const workspaces = new FileWorkspaces(join(root, 'workspaces'), artifacts);
   try {
     const prompt = join(root, 'prompt.md');
-    await writeFile(prompt, 'Record observed skills and summary feedback.');
-    const sourcePath =
-      'context/learning/candidates/incumbent/plugins/base/skills/check/SKILL.md';
+    await writeFile(prompt, 'Record observed training feedback.');
+    const sourcePath = 'context/learning/training-summary.json';
+    const summary = JSON.stringify({ measurements: [] });
     const facts = new FileFacts(join(root, 'facts'));
     await facts.write('evidence-views', 'window', {
       experimentId: 'experiment',
@@ -40,7 +40,7 @@ test('memory receives authorized summary and current skills, persists Wiki and r
       moduleKind: 'memory',
       evidenceView: 'training-summary',
       index: { calls: ['training'] },
-      files: { [sourcePath]: 'Check completed work.' },
+      files: { [sourcePath]: summary },
     });
     const input = {
       parentVersionRef: null,
@@ -64,10 +64,7 @@ test('memory receives authorized summary and current skills, persists Wiki and r
         );
         assert.equal(supplied.evidenceIndex, 'context/learning/index.json');
         assert.equal(supplied.evidenceView, 'training-summary');
-        assert.equal(
-          await readFile(join(cwd, sourcePath), 'utf8'),
-          'Check completed work.',
-        );
+        assert.equal(await readFile(join(cwd, sourcePath), 'utf8'), summary);
         calls++;
         return calls === 1
           ? {

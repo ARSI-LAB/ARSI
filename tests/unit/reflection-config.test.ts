@@ -170,6 +170,41 @@ test('zero-configuration learning resolves real Agent schema defaults and all el
   );
 });
 
+test('a shared Reflection exclusion accepts Memory even when the Recipe disables it', async (t) => {
+  const f = await fixture(t);
+  const configFile = './reflection.yaml';
+  object(f.policy.defaults).reflection = { configFile };
+  const file = join(f.policyDir, configFile);
+  await writeFile(
+    file,
+    JSON.stringify({ evidence: { excludeBindings: ['memory'] } }),
+  );
+  for (const memory of [true, false]) {
+    const recipe = await f.load({ memory });
+    assert.deepEqual(recipe.reflection?.observe.excludeBindings, ['memory']);
+    assert.equal(
+      recipe.reflection?.observe.bindings?.includes('memory'),
+      memory,
+    );
+  }
+  await writeFile(
+    file,
+    JSON.stringify({ evidence: { includeBindings: ['memory'] } }),
+  );
+  await assert.rejects(
+    f.load({ memory: false }),
+    /includeBindings: unknown binding memory/,
+  );
+  await writeFile(
+    file,
+    JSON.stringify({ evidence: { excludeBindings: ['typo'] } }),
+  );
+  await assert.rejects(
+    f.load({ memory: false }),
+    /excludeBindings: unknown binding typo/,
+  );
+});
+
 test('Recipe toggles preserve or replace a Policy file and skip disabled configuration', async (t) => {
   const f = await fixture(t);
   object(f.policy.defaults).memory = { configFile: './memory.yaml' };

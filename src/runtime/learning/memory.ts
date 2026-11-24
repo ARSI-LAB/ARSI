@@ -7,7 +7,7 @@ import {
   type JsonObject,
 } from '../../contracts/index.js';
 import { canonical, digest, object, string } from '../../shared/json.js';
-import { validateSnapshotEntry } from './snapshot-paths.js';
+import { inspectPath, stat, validateSnapshotEntry } from './snapshot-paths.js';
 import { excludedArtifactEntries } from '../storage/index.js';
 import type { LearningResult } from './records.js';
 import { runLearningCycle, type CycleOptions } from './runner.js';
@@ -43,13 +43,32 @@ export function memoryFiles(raw: unknown): FileTreeFile[] {
     const content = Buffer.from(file.base64, 'base64');
     if (content.includes(0))
       throw new Error('Binary Memory resource: ' + file.path);
-    new TextDecoder('utf-8', { fatal: true }).decode(content);
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(content);
+    } catch (cause) {
+      throw new Error('Invalid UTF-8 Memory resource: ' + file.path, { cause });
+    }
     const parts = file.path.split('/');
     for (let count = 1; count < parts.length; count++)
       if (paths.has(parts.slice(0, count).join('/')))
         throw new Error('Memory file is also a directory: ' + file.path);
   }
   return tree.files;
+}
+export async function captureMemorySeed(
+  artifacts: ArtifactStore,
+  directory?: string,
+): Promise<string> {
+  if (directory) {
+    await inspectPath(directory);
+    const existing = await stat(directory);
+    if (existing) {
+      if (!existing.isDirectory())
+        throw new Error('Invalid Memory directory: ' + directory);
+      return artifacts.capture(directory);
+    }
+  }
+  return artifacts.putJson({ kind: 'file-tree', files: [] });
 }
 export async function initializeMemory(options: {
   config: MemoryConfig;

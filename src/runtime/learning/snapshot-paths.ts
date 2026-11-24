@@ -102,7 +102,7 @@ export async function validateSnapshotDestination(
     )
   )
     throw new Error(
-      `Protected destination ${path}. Export to a dedicated directory with --to <directory>`,
+      `Protected destination ${path}. Choose a dedicated export directory.`,
     );
   const projectRoots = await Promise.all(
     [rootDirectory, packageRoot].map(canonicalDestinationPath),

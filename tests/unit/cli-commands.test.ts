@@ -165,7 +165,7 @@ test('CLI prints command-specific and nested help to stdout', () => {
       assert.match(result.stdout, /--all/);
       assert.match(result.stdout, /previews the workspace/);
     }
-    if (args.includes('memory'))
+    if (args.includes('show') || args.includes('apply'))
       assert.match(result.stdout, /--to <directory>/);
     if (args.includes('apply')) assert.match(result.stdout, /revisionID/);
   }
@@ -211,8 +211,14 @@ test('CLI dispatches experiment actions and nested reflection actions', async (t
   t.mock.method(revisions, 'list', async (id?: string) => [
     { id: id ?? 'all' },
   ]);
-  t.mock.method(revisions, 'show', async (id: string) => ({ shown: id }));
-  t.mock.method(revisions, 'apply', async (id: string) => ({ applied: id }));
+  t.mock.method(revisions, 'show', async (id: string, options = {}) => ({
+    shown: id,
+    ...options,
+  }));
+  t.mock.method(revisions, 'apply', async (id: string, options = {}) => ({
+    applied: id,
+    ...options,
+  }));
 
   const run = async (...args: string[]): Promise<unknown> => {
     const result = await runCommand(args, context);
@@ -242,6 +248,14 @@ test('CLI dispatches experiment actions and nested reflection actions', async (t
   assert.deepEqual(await run('reflection', 'list', 'exp'), [{ id: 'exp' }]);
   assert.deepEqual(await run('reflection', 'show', 'rev'), { shown: 'rev' });
   assert.deepEqual(await run('reflection', 'apply', 'rev'), { applied: 'rev' });
+  assert.deepEqual(await run('reflection', 'show', 'rev', '--to', 'export'), {
+    shown: 'rev',
+    to: 'export',
+  });
+  assert.deepEqual(await run('reflection', 'apply', 'rev', '--to', 'export'), {
+    applied: 'rev',
+    to: 'export',
+  });
   await assert.rejects(
     run('reflection', 'apply', ''),
     /Revision ID is required/,

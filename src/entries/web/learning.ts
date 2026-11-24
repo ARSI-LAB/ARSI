@@ -46,7 +46,6 @@ export function registerLearningRoutes(
       { schema: { params } },
       (request) => queries.learning(request.params.id, kind),
     );
-    const supportsDestination = kind === 'memories';
     const application = async ({ id, ref }: Params) => {
       if (kind === 'memories') {
         await queries.assertMemory(id, ref);
@@ -57,17 +56,7 @@ export function registerLearningRoutes(
     };
     app.get<{ Params: Params; Querystring: Destination }>(
       `/api/observation/experiments/:id/${kind}/:ref/application`,
-      {
-        schema: {
-          params: snapshotParams,
-          querystring: supportsDestination
-            ? previewQuery
-            : {
-                ...previewQuery,
-                properties: { inspection: previewQuery.properties.inspection },
-              },
-        },
-      },
+      { schema: { params: snapshotParams, querystring: previewQuery } },
       async ({ params, query }) => {
         const snapshots = await application(params);
         if (publicReadOnly)
@@ -89,13 +78,7 @@ export function registerLearningRoutes(
       { schema: { params: snapshotParams } },
       async ({ params, body }) => {
         if (body !== undefined)
-          validate(
-            supportsDestination
-              ? destination
-              : { type: 'object', additionalProperties: false },
-            body,
-            'application destination',
-          );
+          validate(destination, body, 'application destination');
         const snapshots = await application(params);
         const result = await snapshots.apply(params.ref, {
           to: body?.targetDir,

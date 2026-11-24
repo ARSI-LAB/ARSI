@@ -79,15 +79,40 @@ test('learning HTTP projects owned records, previews changes and applies through
     /learning-secret-value|base64|sourceResources/,
   );
   assert.match(revisions.body, /REDACTED/);
+  const attemptStatuses = [
+    ['started', true],
+    ['evidence-prepared', true],
+    ['prepared', true],
+    ['validated', true],
+    ['no-change', false],
+    ['rejected', false],
+    ['skipped', false],
+  ] as const;
+  for (const [status] of attemptStatuses)
+    await f.facts.write('learning-runs', status, {
+      experimentId: 'learning-run',
+      learningId: status,
+      kind: 'memory',
+      status,
+    });
   const memories = parseLearning(
     (await server.inject(`${base}/memories`)).json(),
   );
+  for (const [status, inProgress] of attemptStatuses)
+    assert.equal(
+      memories.find((record) => record.id === status)?.inProgress,
+      inProgress,
+      status,
+    );
   const memory = memories.find((record) => record.id === 'memory-next');
   assert.equal(memory?.parentRef, 'memory-initial');
   assert.equal(memory?.parentArtifactRef, f.memoryBefore);
   assert.equal(memory?.callId, 'memory-update');
   const application = `${base}/memories/memory-next/application`;
-  assert.match((await server.inject(application)).body, /--to/);
+  assert.match(
+    (await server.inject(application)).body,
+    /Choose a dedicated export directory/,
+  );
   const to = join(root, 'export');
   assert.equal(
     parseApplication(
@@ -143,6 +168,42 @@ test('learning HTTP projects owned records, previews changes and applies through
   );
   const applyUrl =
     '/api/experiments/learning-run/revisions/revision-next/apply';
+  const targetDir = join(root, 'exported-revision');
+  const exportPreview = parseApplication(
+    (
+      await server.inject(previewUrl + '?' + new URLSearchParams({ targetDir }))
+    ).json(),
+  );
+  assert.deepEqual(exportPreview.destinations, [targetDir]);
+  assert.equal(exportPreview.applicationAllowed, true);
+  assert.equal(
+    (
+      await server.inject({
+        method: 'POST',
+        url: applyUrl,
+        payload: { targetDir },
+      })
+    ).json().status,
+    'applied',
+  );
+  assert.match(
+    await readFile(join(targetDir, 'checks.md'), 'utf8'),
+    /verify formula results/,
+  );
+  assert.equal(
+    await readFile(join(f.guidance, 'checks.md'), 'utf8'),
+    'Validate the output.\n',
+  );
+  assert.equal(
+    (
+      await server.inject({
+        method: 'POST',
+        url: applyUrl,
+        payload: { targetDir: f.directory },
+      })
+    ).statusCode,
+    400,
+  );
   assert.equal(
     (
       await server.inject({

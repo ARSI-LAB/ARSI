@@ -12,10 +12,9 @@ import {
   redactConfiguration,
   RuntimeCleanupInterruptedError,
 } from '../../shared/errors.js';
-import { runDoctorProbe } from '../../shared/doctor-check.js';
 import type { Runtime } from '../context.js';
 import { pathContains, selectedResourceFields } from '../learning/resources.js';
-import { validateSnapshotDestination } from '../learning/snapshot-paths.js';
+import { captureMemorySeed, memoryFiles } from '../learning/memory.js';
 import { Recipe } from '../loaders/recipe.js';
 import { withBindingInstance } from '../manager/instances.js';
 import type { Registry } from '../registry/index.js';
@@ -151,21 +150,6 @@ async function checkBindings(
         bindingIndex,
         binding.name,
       );
-      const seed = recipe.memory?.seed;
-      if (binding.name === 'memory' && seed) {
-        const { check } = await runDoctorProbe(
-          'memory.directory',
-          () =>
-            validateSnapshotDestination(
-              seed.directory,
-              'directory',
-              sourceRuntime.context.rootDirectory,
-              sourceRuntime.manager.directory,
-            ),
-          { signal },
-        );
-        report.checks.push(check);
-      }
       await checkBinding(
         {
           binding,
@@ -210,14 +194,27 @@ function getDoctorBindings(
 }
 
 async function checkBinding(
-  context: DoctorContext & { registry: Registry },
+  context: DoctorContext & { registry: Registry; recipe: Recipe },
   report: DoctorReport,
 ): Promise<void> {
   const { binding, signal } = context;
-  const prerequisites = await runDoctorRules(
-    [...declaredPathRules(binding), ...bindingReferenceRules(context)],
-    signal,
-  );
+  const rules = [
+    ...declaredPathRules(binding),
+    ...bindingReferenceRules(context),
+  ];
+  const seed = context.recipe.memory?.seed;
+  if (binding.name === 'memory' && seed)
+    rules.push({
+      id: 'directory',
+      reason: 'Correct the files in the configured Memory seed directory.',
+      check: async () => {
+        const { artifacts } = context.runtime;
+        const ref = await captureMemorySeed(artifacts, seed.directory);
+        memoryFiles(await artifacts.readJson(ref));
+        return true;
+      },
+    });
+  const prerequisites = await runDoctorRules(rules, signal);
   appendBindingResult(report, binding, prerequisites);
   if (prerequisites.checks.some((check) => check.status === 'failed')) {
     appendBindingResult(report, binding, {

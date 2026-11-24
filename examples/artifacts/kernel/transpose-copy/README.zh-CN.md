@@ -34,7 +34,7 @@ Recipe 将评测绑定到 RSI 插件 `evaluator.operatorbench`。该插件处理
 Policy 通过 `bindings.proposer.config.promptsDirectory` 提供五份默认提案提示词，
 通过 `bindings.summarizer.config.promptFile` 提供独立的总结提示词。
 本 Recipe 选择本地 [prompts 目录](./prompts)和[总结提示词](./summarize.md)。
-相对路径以 Recipe 所在目录为基准解析。[Reflection 配置](./reflection.yaml)选择这两处提示词作为修订目标。提案器和评估器共用同一份基准任务目录。
+相对路径以 Recipe 所在目录为基准解析。Policy 的 [Reflection 默认配置](../../../../src/policies/operator-search/reflection.yaml)将修订范围限定为提案器提示词和总结器提示词。提案器和评估器共用同一份基准任务目录。Memory 和 Reflection 复用 Recipe 的 `agent` 绑定，在每轮静态搜索和已启用的指标优化轮次结束时运行。
 
 自定义提案提示词目录必须包含 `diagnose.md`、`diagnose-metrics.md`、
 `generate.md`、`generate-metrics.md` 和 `repair.md`。复制或部署本例时，

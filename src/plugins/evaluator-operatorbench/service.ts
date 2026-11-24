@@ -33,6 +33,7 @@ import {
   sdkRunner,
   type EvaluatorRunner,
 } from '../shared/evaluator-adapter/sdk.js';
+import { forwardSdkProgress } from '../shared/evaluator-adapter/progress.js';
 import {
   parseEvaluatorConfig,
   type SdkEvaluatorConfig,
@@ -54,8 +55,8 @@ export async function createOperatorbench(
   runner: EvaluatorRunner = sdkRunner,
 ): Promise<Operation<OperatorbenchInput, OperatorbenchOutput>> {
   ctx.event?.on('rsi/doctor', operatorbenchDoctor);
-  ctx.event?.on('rsi/cleanup', (request) =>
-    cleanupEvaluatorBinding(request, 'kernel'),
+  ctx.event?.on('rsi/cleanup', (request, runtime) =>
+    cleanupEvaluatorBinding(request, 'kernel', runtime),
   );
   const config = parseConfig<OperatorbenchConfig>(
     operatorbenchConfigSchema,
@@ -156,6 +157,7 @@ export async function createOperatorbench(
           });
           context.signal.throwIfAborted();
           await context.charge('evaluationRuns', 1);
+          const onProgress = forwardSdkProgress(context);
           let native: JsonObject = { status: 'not-returned' };
           let result: SdkOperatorResult;
           let entries: JsonValue[] = [];
@@ -171,6 +173,7 @@ export async function createOperatorbench(
                       RSI_KERNEL_REPLAY_NO_MODEL_KEY:
                         'not-a-secret-no-model-calls',
                     },
+                    ...(onProgress ? { onProgress } : {}),
                   },
                   { context, kind: 'kernel' },
                 ),

@@ -50,6 +50,13 @@ These options apply across commands:
 | ----------- | ---------------------- | ------------------------------------------------------------------------------------- |
 | `run`       | `--id <experiment-id>` | Set the experiment ID. New experiments generate one if omitted; resuming requires it. |
 | `run`       | `--resume`             | Continue an existing experiment with the supplied Recipe. Requires `--id`.            |
+| `doctor` | `--static` | Check configuration and declared local paths only, skipping component diagnostics. |
+| `cleanup` | `--all` | Clean up all experiments in this workspace, skipping any in use. Cannot be combined with an experiment ID. |
+| `cleanup` | `--dry-run` | Preview eligible resources and reasons for retaining others. |
+| `run` / `doctor` / `cleanup` | `--progress` / `--no-progress` | Enable or disable live progress and the summary on stderr. Interactive terminals enable progress by default. |
+| `run` / `doctor` / `cleanup` | `--progress-mode <mode>` | Choose the progress renderer: `auto` (default), `tty` (in-place status bar), or `plain` (append-only lines for CI/logs). |
+| `run` / `doctor` / `cleanup` | `-v, --verbose` | Include Policy steps/nested calls (`run`), every individual check (`doctor`), or bindings and individual receipts (`cleanup`). |
+| `run` / `doctor` / `cleanup` | `-q, --quiet` | Suppress live progress output on stderr. |
 | `dashboard` | `--port <port>`        | Set the listening port. Defaults to `4317`; accepts values from `1` to `65535`.       |
 
 ## Validate and start
@@ -58,14 +65,18 @@ For example, validate and start an experiment with:
 
 ```sh
 arsi doctor my-experiment/recipe.yaml
-arsi run my-experiment/recipe.yaml --id terminal-skills-01
+arsi run my-experiment/recipe.yaml --id terminal-skills-01 --progress
 ```
 
 - `doctor` checks the Recipe, plugin configuration, contract compatibility, Policy compilation and declared Reflection resources, then dispatches `rsi/doctor` to bindings with valid local paths and a handler. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`.
   - Statuses are `passed`, `failed` and `unchecked`.
   - For the diagnostic flow, report interpretation, built-in checks and custom-component integration, see the [doctor guide](doctor.md).
 
-Inspect progress from another terminal in the same workspace:
+In interactive terminals (`stderr` is a TTY and neither `CI` nor `TERM=dumb` is set), `arsi run` automatically renders completed milestones (including key outcomes such as measurement metrics, selector decisions, proposals, revision activations, and resumed call summaries) above an in-place sticky status area on stderr (showing live Evaluator task progress, active Agent turns/tools, and resource cleanup while respecting `NO_COLOR`), avoiding scrollback spam while keeping stdout reserved for the JSON experiment record on success. In non-TTY environments, pass `--progress` (or `--progress-mode plain`) for append-only plain-text progress, `-v`/`--verbose` to include Policy steps and nested calls, or `-q`/`--quiet` (`--no-progress`) to silence stderr progress. The final summary includes the experiment status, stop reason, usage, and available result references.
+
+When the SDK reports a failure, Evaluator progress shows its registered error code and any confirmed cause. If the cause is unavailable, it displays the registered hint and points to any saved diagnostics. Use `--verbose` to see the phase and any available HTTP status, process exit code, and attempt ID.
+
+Inspect saved status from another terminal in the same workspace:
 
 ```sh
 arsi list
@@ -116,6 +127,8 @@ RSI retains reusable resources after every run. When you request cleanup, RSI co
 For custom plugins, pass the same `--plugin-dir` used to run the experiment. A missing plugin or a failed instance initialization is reported as `pending` and other bindings are still checked. Evaluator cleanup uses `EVALUATOR_NETWORK_CONFIG` or `~/.arsi-evaluator/network.yaml`. If the file is missing, the receipt stays `pending`. Restore the configuration and retry.
 
 Cleanup preserves checkpoints, results, logs, and resources still in use by other experiments. A later `--resume` or another experiment of the same type may take longer to start if it needs to pull or rebuild images.
+
+In interactive terminals, `arsi cleanup` automatically renders per-binding (single experiment) or per-experiment (workspace) milestones above an in-place status area on stderr (including active bindings and Evaluator receipt progress), while keeping stdout reserved for the JSON cleanup report. Pass `--progress` or `--progress-mode plain` in non-TTY environments, `-v`/`--verbose` for binding and receipt details, or `-q`/`--quiet` (`--no-progress`) to suppress stderr progress.
 
 ## Dashboard
 

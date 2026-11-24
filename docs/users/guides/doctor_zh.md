@@ -14,6 +14,8 @@ arsi doctor my-experiment/recipe.yaml
 - `doctor` 将 Recipe 校验与组件专用检查结合起来，可以发现提示词或基线缺失、绑定不兼容、提案侧模型连接失败，以及 SDK 报告的评测配置、运行前提或下载路线问题。
 
 - 只需快速检查生效配置和已声明的本地路径时，可以加上 `--static`。
+- 在交互式终端中，`arsi doctor` 默认在 stderr 上实时展示各组件的诊断进度与汇总，同时保持 stdout 仅输出 JSON 报告；可通过 `--progress`、`--no-progress`、`--progress-mode <auto|tty|plain>`、`-v`/`--verbose`（展开每项细分检查）或 `-q`/`--quiet` 控制 stderr 进度输出。
+- Evaluator SDK 执行诊断时，终端状态栏显示正在检查的绑定和耗时。SDK 返回后，各项探测结果会出现在报告中，使用 `--verbose` 也可在进度输出中查看。
 
 ## 2. doctor 的机制简介
 

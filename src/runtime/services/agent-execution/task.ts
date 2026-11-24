@@ -1,5 +1,6 @@
 import type {
   AgentObservation,
+  CallProgressUpdate,
   EventPipeline,
   JsonObject,
   Operation,
@@ -18,6 +19,66 @@ import {
 import { object } from '../../../shared/json.js';
 import { FileAgentRecorder } from '../../storage/agent-records.js';
 
+function observeAgentProgress(
+  report: (update: CallProgressUpdate) => void,
+): (observation: AgentObservation) => void {
+  let model = '';
+  const turns = new Set<string>();
+  const tools = new Map<string, { runId: string; name: string }>();
+  let toolCount = 0;
+  let lastTool = '';
+  return ({ event, runId, native }) => {
+    let warning: string | undefined;
+    switch (event.type) {
+      case 'session.started':
+        if (event.model) model = event.model;
+        break;
+      case 'message.completed':
+        if (event.role !== 'assistant') return;
+        turns.add(JSON.stringify([runId, native?.turnId ?? event.messageId]));
+        break;
+      case 'tool.started': {
+        const key = JSON.stringify([runId, event.toolCallId]);
+        if (!tools.has(key)) toolCount += 1;
+        tools.set(key, { runId, name: event.name });
+        break;
+      }
+      case 'tool.completed': {
+        const key = JSON.stringify([runId, event.toolCallId]);
+        const name = event.name || tools.get(key)?.name || 'tool';
+        tools.delete(key);
+        lastTool = `${name} (${event.status})`;
+        if (event.status === 'failed') warning = `tool ${name} failed`;
+        break;
+      }
+      case 'run.finished':
+        for (const [key, tool] of tools)
+          if (tool.runId === runId) tools.delete(key);
+        break;
+      default:
+        return;
+    }
+    const detail = [
+      model,
+      turns.size ? `turn ${turns.size}` : '',
+      toolCount ? `${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    const lines = [...tools.values()]
+      .slice(-3)
+      .map(({ name }) => `tool: ${name}`);
+    if (tools.size > lines.length)
+      lines.push(`+${tools.size - lines.length} more active tools`);
+    if (lastTool) lines.push(`last: ${lastTool}`);
+    report({
+      detail,
+      lines,
+      ...(warning ? { notice: warning, level: 'warning' } : {}),
+    });
+  };
+}
+
 /** Installed by the registry for every Agent. Plugins need only execute/dispose. */
 export function managedAgentOperation(operation: Operation): Operation {
   const active = new Map<AbortController, Promise<JsonObject>>();
@@ -34,6 +95,9 @@ export function managedAgentOperation(operation: Operation): Operation {
       const controller = new AbortController();
       const signal = AbortSignal.any([context.signal, controller.signal]);
       const execution = (async (): Promise<JsonObject> => {
+        const progress = context.reportProgress
+          ? observeAgentProgress(context.reportProgress.bind(context))
+          : undefined;
         let recorder: FileAgentRecorder | undefined;
         let recordingFailed = false;
         try {
@@ -76,6 +140,11 @@ export function managedAgentOperation(operation: Operation): Operation {
               return;
             }
             record(observation);
+            try {
+              progress?.(observation);
+            } catch {
+              // Progress is optional and separate from trace recording.
+            }
             return;
           }
           return Reflect.apply(context.event.emit, context.event, args);

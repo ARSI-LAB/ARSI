@@ -95,12 +95,21 @@ export async function createGym(
           });
           try {
             if (existing?.evalId && existing.status !== 'rejected') {
+              context.reportProgress?.({
+                detail: `polling gym eval ${existing.evalId}`,
+              });
               outcome = await client.awaitResult(
                 existing.evalId,
                 context.signal,
               );
             } else {
               await context.charge('evaluationRuns', 1);
+              context.reportProgress?.({
+                detail:
+                  taskIds.length > 0
+                    ? `submitting ${taskIds.length} tasks to gym`
+                    : 'submitting evaluation to gym',
+              });
               await writeGymSubmission(
                 context.facts,
                 record(
@@ -121,6 +130,9 @@ export async function createGym(
                 context.signal,
                 {
                   onSubmitted: async (evalId) => {
+                    context.reportProgress?.({
+                      detail: `polling gym eval ${evalId}`,
+                    });
                     await writeGymSubmission(
                       context.facts,
                       record(

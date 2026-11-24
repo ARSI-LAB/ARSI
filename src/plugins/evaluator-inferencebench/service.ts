@@ -17,6 +17,7 @@ import {
   sdkRunner,
   type EvaluatorRunner,
 } from '../shared/evaluator-adapter/sdk.js';
+import { forwardSdkProgress } from '../shared/evaluator-adapter/progress.js';
 import { evaluationStatus } from '../shared/evaluator-adapter/measurement.js';
 import {
   parseEvaluatorConfig,
@@ -52,12 +53,14 @@ export async function createInferencebench(
               mode: 0o600,
             });
             await context.charge('evaluationRuns', 1);
+            const onProgress = forwardSdkProgress(context);
             let result: unknown;
             try {
               result = await runner({
                 configPath,
                 signal: context.signal,
                 env: process.env,
+                ...(onProgress ? { onProgress } : {}),
               });
             } catch (error) {
               const partial =

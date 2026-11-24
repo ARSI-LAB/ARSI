@@ -74,6 +74,7 @@ export class ExperimentFacts {
   async recordMeasurement(
     input: JsonObject,
     ctx: RuntimeContext,
+    observeSaved?: (measurement: JsonObject) => void,
   ): Promise<string> {
     const measurement = structuredClone(input);
     if (
@@ -110,6 +111,13 @@ export class ExperimentFacts {
     if (prior && digest(prior) !== digest(measurement))
       throw new Error('Immutable Measurement cannot be overwritten');
     if (!prior) await this.facts.write('measurements', ref, measurement);
+    if (observeSaved) {
+      try {
+        observeSaved(structuredClone(measurement));
+      } catch {
+        // Display summaries must not affect a committed Measurement.
+      }
+    }
     return ref;
   }
 

@@ -8,7 +8,7 @@ arsi list plugins
 arsi list policies
 arsi catalog --plugin-dir .rsi/skill-demo/extension
 arsi doctor .rsi/skill-demo/recipe.yaml --plugin-dir .rsi/skill-demo/extension
-arsi run .rsi/skill-demo/recipe.yaml --id demo-01 --plugin-dir .rsi/skill-demo/extension
+arsi run .rsi/skill-demo/recipe.yaml --id demo-01 --progress --plugin-dir .rsi/skill-demo/extension
 arsi show demo-01
 arsi list
 arsi cancel demo-01
@@ -21,6 +21,8 @@ arsi dashboard --port 4317 --plugin-dir .rsi/skill-demo/extension
 Choose commands for the current experiment state. All commands accept repeatable `--plugin-dir`. `run` takes a Recipe **path**, not catalog ID. `--resume` requires `--id`. Data is `.rsi/` under the current working directory; inspect and retry from that same directory. There are no `--data-dir`, `--json`, `--recipe`, `--request-id`, pause, continue or detach options.
 
 Output is JSON for ordinary commands, not a versioned CLI envelope. Exit 0 means the command returned normally; inspect the experiment's status separately. Errors return 1 and interruption returns 130. `dashboard` requires a `.rsi` directory in the current working directory, prints its address, and keeps running. For clean machine stdout invoke the supplied binary or `node dist/src/entries/cli/main.js` in a checkout, avoiding package-manager banners.
+
+In interactive terminals, `run`, `doctor`, and `cleanup` show milestones above an in-place status area on stderr. `run` displays live Evaluator task progress and Agent turns and tools. During SDK diagnostics, `doctor` shows the active binding and elapsed time, then lists individual probe results with `--verbose` once the SDK returns. During resource cleanup, `cleanup` tracks active experiments, bindings, and Evaluator cleanup receipts, and summarizes cleaned, previewed, retained, or pending items. All three commands write their JSON result to stdout. Use `--progress` or `--progress-mode <auto|tty|plain>` to enable progress or choose a renderer, `-v`/`--verbose` for details, and `-q`/`--quiet` or `--no-progress` to suppress progress.
 
 `doctor` validates the Recipe and dispatches `rsi/doctor` for each effective binding whose plugin subscribed, including Reflection. Its single JSON report contains `recipeId`, `summary`, `checks` and `missingResources`. A check is `passed`, `failed` or `unchecked` with its scope and reason. Missing resources list dependent unchecked IDs in `checksNotRun`. Exit 1 means at least one failed check; exit 0 can include unchecked checks, including custom plugins without a diagnostic handler. Registration or loading failures report `recipeId: null`. RSI uses isolated temporary storage; Evaluators delegate to the full SDK doctor and its native download/build probes and time limits. Doctor does not execute Agents, request model inference or record optimization experiments. A passing report does not establish benchmark success. `run` never requires or consumes this report.
 

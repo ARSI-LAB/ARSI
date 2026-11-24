@@ -22,6 +22,12 @@ import { object, digest, json } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { errorText } from '../../shared/errors.js';
 import type { Registry } from '../registry/index.js';
+import {
+  summarizeCallOutcome,
+  type CallStatus,
+  type MeasurementSummary,
+  type RunProgressReporter,
+} from '../services/run-progress.js';
 import { agentReplayKey } from './retry.js';
 
 interface CallExecutorOptions {
@@ -43,6 +49,11 @@ interface CallExecutorOptions {
     context: RuntimeContext,
   ): Promise<void>;
   diagnose(event: string, error: unknown): void;
+  reportProgress?: RunProgressReporter;
+  consumeMeasurementSummary?(
+    callId: string,
+    measurementRef: string | undefined,
+  ): MeasurementSummary | undefined;
   onFailure(error: unknown, context: RuntimeContext): void;
 }
 export interface CallExecutor {
@@ -254,7 +265,24 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         if (object(output).status === 'failed') return output;
       }
       const lease = await options.operation(bindingId, binding);
-      ctx = ctx.extend({ event: lease.event });
+      ctx = ctx.extend({
+        event: lease.event,
+        ...(options.reportProgress
+          ? {
+              reportProgress(update) {
+                options.reportProgress?.({
+                  kind: 'call-progress',
+                  callId,
+                  parentCallId: caller.callId,
+                  bindingId,
+                  path: info.path,
+                  contractId: definition.contract.id,
+                  ...update,
+                });
+              },
+            }
+          : {}),
+      });
       const freshAttempt =
         prior && options.retryRef && options.retryRef !== prior.retryRef;
       try {
@@ -296,10 +324,18 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           ...(attemptId ? { attemptId } : {}),
         };
         await options.facts.write('calls', callId, receipt);
+        options.reportProgress?.({
+          ...info,
+          kind: 'call',
+          contractId: definition.contract.id,
+          status: 'running',
+        });
         let committed = false;
         // Serialize final receipts with any late settlement after a cleanup timeout.
         let writes = Promise.resolve();
-        const commit = (value: JsonObject): Promise<boolean> => {
+        const commit = (
+          value: JsonObject & { status: Exclude<CallStatus, 'running'> },
+        ): Promise<boolean> => {
           const write = writes.then(async () => {
             if (committed) return false;
             await options.facts.write('calls', callId, {
@@ -308,6 +344,53 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
               finishedAt: new Date().toISOString(),
             });
             committed = true;
+            if (!options.reportProgress) return true;
+            const output =
+              value.status === 'succeeded' ? value.output : undefined;
+            const measurementRef =
+              output &&
+              typeof output === 'object' &&
+              !Array.isArray(output) &&
+              typeof output.measurementRef === 'string'
+                ? output.measurementRef
+                : undefined;
+            const measurementSummary = options.consumeMeasurementSummary?.(
+              callId,
+              measurementRef,
+            );
+            const summary =
+              output !== undefined
+                ? summarizeCallOutcome(
+                    definition.contract.id,
+                    input,
+                    output,
+                    measurementSummary?.compact,
+                  )
+                : undefined;
+            const verboseSummary =
+              output !== undefined &&
+              measurementSummary &&
+              measurementSummary.full !== measurementSummary.compact
+                ? summarizeCallOutcome(
+                    definition.contract.id,
+                    input,
+                    output,
+                    measurementSummary.full,
+                  )
+                : undefined;
+            options.reportProgress({
+              ...info,
+              kind: 'call',
+              contractId: definition.contract.id,
+              status: value.status,
+              ...(summary ? { summary } : {}),
+              ...(verboseSummary && verboseSummary !== summary
+                ? { verboseSummary }
+                : {}),
+              ...(typeof value.error === 'string'
+                ? { error: value.error }
+                : {}),
+            });
             return true;
           });
           writes = write.then(

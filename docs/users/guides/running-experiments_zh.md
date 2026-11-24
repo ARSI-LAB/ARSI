@@ -50,6 +50,13 @@ arsi [通用选项] <命令> [位置参数] [命令选项]
 | ----------- | ---------------------- | --------------------------------------------------- |
 | `run`       | `--id <experiment-id>` | 指定实验 ID；新实验省略时自动生成，续跑时必须提供。 |
 | `run`       | `--resume`             | 用传入的 Recipe 继续已有实验，必须同时提供 `--id`。 |
+| `doctor` | `--static` | 仅校验配置与已声明的本地路径，跳过组件诊断。 |
+| `cleanup` | `--all` | 批量清理当前工作区中的所有实验，跳过正在使用的实验；不能与实验 ID 同时使用。 |
+| `cleanup` | `--dry-run` | 仅预览可释放的资源以及保留其他资源的原因。 |
+| `run` / `doctor` / `cleanup` | `--progress` / `--no-progress` | 开启或关闭 stderr 上的实时进度和摘要；交互式终端默认自动开启。 |
+| `run` / `doctor` / `cleanup` | `--progress-mode <mode>` | 选择进度渲染模式：`auto`（默认）、`tty`（底部原位状态栏）或 `plain`（适合 CI 与日志文件的纯文本流）。 |
+| `run` / `doctor` / `cleanup` | `-v, --verbose` | 在进度输出中展开 Policy 步骤与嵌套调用（`run`）、每项细分检查（`doctor`）或绑定与逐条清理收据明细（`cleanup`）。 |
+| `run` / `doctor` / `cleanup` | `-q, --quiet` | 关闭 stderr 上的实时进度输出。 |
 | `dashboard` | `--port <port>`        | 指定监听端口，默认 `4317`，取值范围为 `1`–`65535`。 |
 
 ## 校验与启动
@@ -58,14 +65,18 @@ arsi [通用选项] <命令> [位置参数] [命令选项]
 
 ```sh
 arsi doctor my-experiment/recipe.yaml
-arsi run my-experiment/recipe.yaml --id terminal-skills-01
+arsi run my-experiment/recipe.yaml --id terminal-skills-01 --progress
 ```
 
 - `doctor` 检查 Recipe、插件配置、契约兼容性、Policy 编译和已声明的 Reflection 资源，再为本地路径检查通过的绑定创建临时实例并调用其可选的 `rsi/doctor`。单份 JSON 报告包含 `recipeId`、`summary`、`checks` 和 `missingResources`。
   - 状态为 `passed`（通过）、`failed`（失败）或 `unchecked`（未检查）。
   - 检查流程、报告解读、内置检查和自定义组件接入方式，参见 [doctor 指南](doctor_zh.md)。
 
-在同一工作区的另一终端中查看进度：
+在交互式终端中（`stderr` 为 TTY 且未设置 `CI` 或 `TERM=dumb`），`arsi run` 默认会在 stderr 上以“上方持久里程碑 + 底部原位状态栏”的方式展示进度（遵循 `NO_COLOR`）：底部状态栏实时显示 Evaluator 任务进度、Agent 轮次与工具调用以及资源清理状态，上方里程碑展示关键业务产出（评估指标、Selector 决策、Proposer 候选、Reflection 修订激活以及 `--resume` 复用的历史步骤与用量），在避免刷屏的同时保证成功时 stdout 仍只输出纯净的实验记录 JSON。在非交互环境（如 CI 或重定向）中，可通过 `--progress`（或 `--progress-mode plain`）开启无 ANSI 转义码的纯文本进度，用 `-v`/`--verbose` 展开 Policy 步骤与嵌套调用，或用 `-q`/`--quiet`（`--no-progress`）关闭进度输出。结束摘要包含实验状态、停止原因、用量和可用的结果引用。
+
+SDK 报告失败时，Evaluator 进度会展示已登记的错误码和可确认的原因。无法确认原因时，会展示 SDK 注册表中的提示，并引导查看已保存的诊断。使用 `--verbose` 可以查看阶段，以及可用的 HTTP 状态码、进程退出码和尝试 ID。
+
+在同一工作区的另一终端中查看已保存的状态：
 
 ```sh
 arsi list
@@ -116,6 +127,8 @@ Runtime 恢复预算用量、兼容的生效版本、调用收据和检查点，
 自定义插件请传入运行实验时使用的 `--plugin-dir`。插件缺失或初始化失败时，该绑定会标为 `pending`，其他绑定仍会继续处理。Evaluator 清理使用 `EVALUATOR_NETWORK_CONFIG` 指定的文件，默认路径为 `~/.arsi-evaluator/network.yaml`。文件缺失时，该条记录保持 `pending`，恢复配置后可重试。
 
 清理会保留检查点、结果、日志，以及其他实验仍在使用的资源。之后用 `--resume` 续跑或启动同类实验时，如果需要重新拉取或构建镜像，启动时间可能会变长。
+
+在交互式终端中，`arsi cleanup` 默认会在 stderr 上展示每个绑定（单实验）或每个实验（整个工作区）的完成里程碑，并在底部原位状态栏实时显示当前正在处理的绑定与 Evaluator 清理收据进度，同时保持 stdout 只输出纯净的清理报告 JSON。在非交互环境中可通过 `--progress` 或 `--progress-mode plain` 开启纯文本进度，用 `-v`/`--verbose` 展开绑定与逐条收据明细，或用 `-q`/`--quiet`（`--no-progress`）关闭进度输出。
 
 ## 工作台
 

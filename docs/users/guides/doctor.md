@@ -14,6 +14,8 @@ arsi doctor my-experiment/recipe.yaml
 - `doctor` combines Recipe validation with component-specific checks. It can catch missing prompts or baselines, incompatible bindings, proposal model connection failures, and evaluator configuration, runtime or download-route problems reported by the SDK.
 
 - For a quick check of the effective configuration and declared local paths, add `--static`.
+- In interactive terminals, `arsi doctor` renders live per-binding check progress and a final summary on stderr while keeping stdout reserved for the JSON report. Use `--progress`, `--no-progress`, `--progress-mode <auto|tty|plain>`, `-v`/`--verbose` (every individual check), or `-q`/`--quiet` to control stderr progress.
+- During Evaluator SDK diagnostics, the in-place status area shows the active binding and elapsed time. Individual probe results appear in the report once the SDK returns and in the progress output with `--verbose`.
 
 ## 2. How it works
 

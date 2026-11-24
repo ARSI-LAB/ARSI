@@ -20,6 +20,10 @@ import type {
   DoctorReport,
   DoctorResult,
 } from '../../contracts/index.js';
+import {
+  doctorProgressReporter,
+  type DoctorProgressObserver,
+} from './progress.js';
 
 const doctorResultSchema: JsonSchema = {
   type: 'object',
@@ -112,9 +116,11 @@ export async function doctorRecipe(
   options: {
     signal?: AbortSignal;
     staticOnly?: boolean;
+    onProgress?: DoctorProgressObserver;
   } = {},
 ): Promise<DoctorReport> {
   const signal = options.signal ?? new AbortController().signal;
+  const reportProgress = doctorProgressReporter(options.onProgress);
   signal.throwIfAborted();
   let recipe: Recipe;
   try {
@@ -146,6 +152,11 @@ export async function doctorRecipe(
       config: implementation.config,
     });
   }
+  reportProgress?.({
+    kind: 'recipe-validated',
+    recipeId: recipe.id,
+    totalBindings: bindings.length,
+  });
   const temporary = await mkdtemp(join(tmpdir(), 'arsi-doctor-'));
   const isolated = new Manager({
     registry: runtime.registry,
@@ -224,6 +235,37 @@ export async function doctorRecipe(
   try {
     for (const [index, binding] of bindings.entries()) {
       signal.throwIfAborted();
+      const checkStart = report.checks.length;
+      reportProgress?.({
+        kind: 'binding-started',
+        index,
+        total: bindings.length,
+        binding: binding.name,
+        pluginId: binding.pluginId,
+      });
+      const emitBindingCompleted = (): void => {
+        if (!reportProgress) return;
+        const added = report.checks.slice(checkStart);
+        let passed = 0;
+        let failed = 0;
+        let unchecked = 0;
+        for (const item of added) {
+          if (item.status === 'passed') passed += 1;
+          else if (item.status === 'failed') failed += 1;
+          else unchecked += 1;
+        }
+        reportProgress({
+          kind: 'binding-completed',
+          index,
+          total: bindings.length,
+          binding: binding.name,
+          pluginId: binding.pluginId,
+          passed,
+          failed,
+          unchecked,
+          checks: added,
+        });
+      };
       const directory = join(temporary, `probe-${index}`);
       await mkdir(directory);
       const scoped = (id: string): string => `${binding.name}.${id}`;
@@ -313,6 +355,7 @@ export async function doctorRecipe(
             ? 'Component diagnostics were skipped by --static.'
             : 'Component diagnostics were skipped because a declared local path failed validation.',
         });
+        emitBindingCompleted();
         continue;
       }
       const context: DoctorContext = {
@@ -321,7 +364,21 @@ export async function doctorRecipe(
         registry: runtime.registry,
         directory,
         signal,
-        runtime: base,
+        runtime: reportProgress
+          ? base.extend({
+              reportProgress(update) {
+                const detail = update.detail ?? update.notice;
+                if (detail) {
+                  reportProgress({
+                    kind: 'binding-detail',
+                    binding: binding.name,
+                    pluginId: binding.pluginId,
+                    detail: redact(detail),
+                  });
+                }
+              },
+            })
+          : base,
       };
       try {
         const result = await diagnoseBinding(runtime.registry, context);
@@ -353,8 +410,10 @@ export async function doctorRecipe(
           reason: errorText(error),
         });
       }
+      emitBindingCompleted();
     }
   } finally {
+    reportProgress?.({ kind: 'cleaning' });
     try {
       await isolated.dispose();
     } catch (error) {

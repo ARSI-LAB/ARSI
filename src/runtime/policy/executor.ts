@@ -15,6 +15,7 @@ import {
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { readReflectionResult } from '../revisions/records.js';
+import type { RunProgressReporter } from '../services/run-progress.js';
 import { evaluateTemplate } from './expression.js';
 import {
   type Step,
@@ -57,6 +58,7 @@ export interface PolicyOptions {
       checkpointRef: string;
     };
     diagnose(eventName: string, error: unknown): void;
+    reportProgress?: RunProgressReporter;
   };
 }
 /** Incremental execution extends the entrypoint without weakening the snapshot callback contract. */
@@ -324,6 +326,16 @@ export async function runPolicy(
     }
     boundaries[key] = true;
     await persist({ kind: 'boundary', path: key, value: true });
+    if (
+      event.boundary === 'iteration-completed' &&
+      event.stepPath !== undefined &&
+      event.iteration !== undefined
+    )
+      options.events?.reportProgress?.({
+        kind: 'iteration-completed',
+        stepPath: event.stepPath,
+        iteration: event.iteration,
+      });
   }
   function environment(scope: Environment, extra: JsonObject = {}): JsonObject {
     const outputs: JsonObject = {};
@@ -465,6 +477,7 @@ export async function runPolicy(
         path: stepPath,
         value: journal[stepPath]!,
       });
+      options.events?.reportProgress?.({ kind: 'step-completed', stepPath });
       if (eventInfo)
         notify('rsi/policy-step-completed', () =>
           options.context.event.emit('rsi/policy-step-completed', {

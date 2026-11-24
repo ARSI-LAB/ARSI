@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Evaluator, loadConfig, type CleanupOptions } from 'arsi-evaluator';
 import type {
+  CallProgressUpdate,
   CleanupContext as BindingCleanupContext,
   CleanupResult,
   JsonObject,
@@ -17,7 +18,9 @@ import { clone, redact } from './data.js';
 type CleanupContext = Pick<
   RuntimeContext,
   'experimentId' | 'dataDirectory' | 'facts' | 'signal'
->;
+> & {
+  reportProgress?(update: CallProgressUpdate): void;
+};
 export type EvaluatorCleanupSource =
   | {
       context: RuntimeContext;
@@ -225,14 +228,29 @@ async function recordedBinding(
   }
 }
 
+function shortReceiptKey(key: string): string {
+  const match = callKey.exec(key);
+  if (!match) return key.length > 20 ? `${key.slice(0, 17)}...` : key;
+  return match[1].slice(0, 13);
+}
+
 export async function cleanupEvaluatorBinding(
   context: BindingCleanupContext,
   kind: EvaluatorCleanupSource['kind'],
+  runtime?: RuntimeContext,
 ): Promise<CleanupResult[]> {
-  return runEvaluatorCleanup(context, {
-    binding: { id: context.bindingId, kind },
-    dryRun: context.dryRun,
-  });
+  return runEvaluatorCleanup(
+    runtime?.reportProgress
+      ? {
+          ...context,
+          reportProgress: (update) => runtime.reportProgress?.(update),
+        }
+      : context,
+    {
+      binding: { id: context.bindingId, kind },
+      dryRun: context.dryRun,
+    },
+  );
 }
 
 export async function runEvaluatorCleanup(
@@ -241,6 +259,15 @@ export async function runEvaluatorCleanup(
   run: (options: CleanupOptions) => Promise<unknown> = (options) =>
     new Evaluator().cleanup(options),
 ): Promise<CleanupResult[]> {
+  const action = dryRun ? 'previewing' : 'cleaning';
+  const reportProgress = (detail: string): void => {
+    try {
+      context.reportProgress?.({ detail });
+    } catch {
+      // Reporting is best effort.
+    }
+  };
+  let receiptIndex = 0;
   const results: CleanupResult[] = [];
   for await (const { kind, entry } of cleanupReceipts(context)) {
     if (
@@ -260,6 +287,10 @@ export async function runEvaluatorCleanup(
       continue;
     }
     if (bindingId !== binding.id) continue;
+    receiptIndex += 1;
+    const label = `receipt #${receiptIndex}`;
+    const shortKey = shortReceiptKey(key);
+    reportProgress(`${action} ${label} (${shortKey})`);
     let outcome: CleanupOutcome;
     try {
       context.signal.throwIfAborted();
@@ -292,6 +323,9 @@ export async function runEvaluatorCleanup(
         throw new Error(
           'Exclusive ownership of the Evaluator input could not be established',
         );
+      if (loaded.deployment) {
+        reportProgress(`${action} ${label} (${shortKey} · Ray)`);
+      }
       const signal = AbortSignal.any([
         context.signal,
         AbortSignal.timeout(600_000),

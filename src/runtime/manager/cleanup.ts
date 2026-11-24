@@ -366,8 +366,60 @@ export async function assertCleanupResolved(
 }
 
 type CleanupBinding = Pick<CleanupContext, 'bindingId' | 'pluginId'>;
-type BindingCleanupResult = CleanupResult & CleanupBinding;
+export type BindingCleanupResult = CleanupResult & CleanupBinding;
 type ExperimentCleanupContext = Omit<CleanupContext, keyof CleanupBinding>;
+
+export type CleanupBindingProgress =
+  | {
+      readonly kind: 'bindings-discovered';
+      readonly experimentId: string;
+      readonly totalBindings: number;
+    }
+  | {
+      readonly kind: 'binding-started';
+      readonly experimentId: string;
+      readonly index: number;
+      readonly total: number;
+      readonly bindingId: string;
+      readonly pluginId: string;
+    }
+  | {
+      readonly kind: 'binding-detail';
+      readonly experimentId: string;
+      readonly bindingId: string;
+      readonly pluginId: string;
+      readonly detail: string;
+    }
+  | {
+      readonly kind: 'binding-completed';
+      readonly experimentId: string;
+      readonly index: number;
+      readonly total: number;
+      readonly bindingId: string;
+      readonly pluginId: string;
+      readonly results: readonly BindingCleanupResult[];
+      readonly handled: boolean;
+    };
+
+export type CleanupProgressReporter = (event: CleanupBindingProgress) => void;
+export type CleanupProgressObserver = (
+  event: CleanupBindingProgress,
+) => void | Promise<void>;
+
+/** Best-effort progress wrapper; never affects cleanup execution or outcomes. */
+export function cleanupProgressReporter(
+  observe: CleanupProgressObserver | undefined,
+): CleanupProgressReporter | undefined {
+  if (!observe) return undefined;
+  return (event) => {
+    try {
+      const pending = observe(structuredClone(event));
+      if (pending) void pending.catch(() => {});
+    } catch {
+      // Reporting is best effort.
+    }
+  };
+}
 
 export interface ExperimentCleanupReport {
   experimentId: string;
@@ -478,10 +530,12 @@ async function cleanupBinding(
   context: CleanupContext,
   config: JsonValue | undefined,
   ownership: AbortSignal,
+  reportProgress?: CleanupProgressReporter,
 ): Promise<CleanupResult[] | undefined> {
   await using directory = await mkdtempDisposable(
     join(tmpdir(), 'arsi-cleanup-'),
   );
+  const redact = reportProgress ? redactConfiguration(config) : undefined;
   const bindingContext = runtime.extend({
     experimentId: context.experimentId,
     bindingId: context.bindingId,
@@ -491,6 +545,21 @@ async function cleanupBinding(
     facts: context.facts,
     signal: context.signal,
     cleanup: ownership,
+    ...(reportProgress && redact
+      ? {
+          reportProgress(update) {
+            const detail = update.detail ?? update.notice;
+            if (!detail) return;
+            reportProgress({
+              kind: 'binding-detail',
+              experimentId: context.experimentId,
+              bindingId: context.bindingId,
+              pluginId: context.pluginId,
+              detail: redact(detail),
+            });
+          },
+        }
+      : {}),
   });
   return await withBindingInstance(
     registry,
@@ -514,16 +583,34 @@ export async function dispatchRecipeCleanup(
   runtime: RuntimeContext,
   request: ExperimentCleanupContext,
   ownership: AbortSignal = request.signal,
+  onProgress?: CleanupProgressObserver,
 ): Promise<BindingCleanupResult[]> {
+  const reportProgress = cleanupProgressReporter(onProgress);
   const context: ExperimentCleanupContext = {
     ...request,
     facts: cleanupFacts(request.facts, ownership, request.dryRun),
     signal: AbortSignal.any([request.signal, ownership]),
   };
   context.signal.throwIfAborted();
+  const bindings = await readCleanupBindings(context);
+  reportProgress?.({
+    kind: 'bindings-discovered',
+    experimentId: context.experimentId,
+    totalBindings: bindings.length,
+  });
   const results: BindingCleanupResult[] = [];
-  for (const { config, ...owner } of await readCleanupBindings(context)) {
+  for (const [index, { config, ...owner }] of bindings.entries()) {
     if (context.signal.aborted) break;
+    reportProgress?.({
+      kind: 'binding-started',
+      experimentId: context.experimentId,
+      index,
+      total: bindings.length,
+      bindingId: owner.bindingId,
+      pluginId: owner.pluginId,
+    });
+    const bindingResults: BindingCleanupResult[] = [];
+    let handled = true;
     try {
       const entries = await cleanupBinding(
         registry,
@@ -531,30 +618,48 @@ export async function dispatchRecipeCleanup(
         { ...context, ...owner },
         config,
         ownership,
+        reportProgress,
       );
-      if (entries === undefined) continue;
-      validate(cleanupResultSchema, entries, 'Plugin cleanup results');
-      const expected = context.dryRun ? 'preview' : 'complete';
-      if (
-        entries.some(
-          (entry) => entry.status !== expected && entry.status !== 'pending',
+      if (entries === undefined) {
+        handled = false;
+      } else {
+        validate(cleanupResultSchema, entries, 'Plugin cleanup results');
+        const expected = context.dryRun ? 'preview' : 'complete';
+        if (
+          entries.some(
+            (entry) => entry.status !== expected && entry.status !== 'pending',
+          )
         )
-      )
-        throw new Error(
-          'Plugin cleanup result does not match the requested mode',
-        );
-      for (const entry of entries) {
-        if (entry.report !== undefined) json(entry.report);
-        results.push({ ...structuredClone(entry), ...owner });
+          throw new Error(
+            'Plugin cleanup result does not match the requested mode',
+          );
+        for (const entry of entries) {
+          if (entry.report !== undefined) json(entry.report);
+          const record = { ...structuredClone(entry), ...owner };
+          bindingResults.push(record);
+          results.push(record);
+        }
       }
     } catch (error) {
-      results.push({
+      const record: BindingCleanupResult = {
         ...owner,
         key: owner.bindingId,
         status: 'pending',
         error: redactConfiguration(config)(errorText(error)),
-      });
+      };
+      bindingResults.push(record);
+      results.push(record);
     }
+    reportProgress?.({
+      kind: 'binding-completed',
+      experimentId: context.experimentId,
+      index,
+      total: bindings.length,
+      bindingId: owner.bindingId,
+      pluginId: owner.pluginId,
+      results: bindingResults,
+      handled,
+    });
   }
   return results;
 }
@@ -564,6 +669,7 @@ export async function collectExperimentCleanup(
   manager: Manager,
   report: ExperimentCleanupReport,
   signal: AbortSignal,
+  onProgress?: CleanupProgressObserver,
 ): Promise<void> {
   const { experimentId, dryRun } = report;
   signal.throwIfAborted();
@@ -608,6 +714,7 @@ export async function collectExperimentCleanup(
         signal,
       },
       ownership.signal,
+      onProgress,
     );
     ownership.signal.throwIfAborted();
   } finally {

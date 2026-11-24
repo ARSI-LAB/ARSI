@@ -7,6 +7,7 @@ import type {
 import { object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import type { Registry } from '../registry/index.js';
+import type { RunProgressReporter } from '../services/run-progress.js';
 import type { Instances } from './instances.js';
 import type { CleanupLifecycle } from './cleanup.js';
 
@@ -26,6 +27,7 @@ interface RevisionActivationOptions {
   event: EventPipeline;
   bindingVersions?: JsonObject;
   diagnose(event: string, error: unknown): void;
+  reportProgress?: RunProgressReporter;
 }
 
 function parseActivation(value: JsonObject): Activation {
@@ -134,6 +136,15 @@ export class RevisionActivation {
     const refs: Record<string, string> = {};
     for (const [key, value] of Object.entries(revisions))
       if (typeof value === 'string') refs[key] = value;
+    try {
+      this.options.reportProgress?.({
+        kind: 'revision-activated',
+        activationId,
+        bindingIds: Object.keys(changes),
+      });
+    } catch {
+      // Progress must not suppress the committed activation notification.
+    }
     try {
       event.emit('rsi/revision-activated', {
         experimentId: id,

@@ -31,6 +31,7 @@ export { RuntimeContext } from './runtime/context.js';
 export type { BudgetScope } from './runtime/execution.js';
 export type {
   ArtifactStore,
+  CallProgressUpdate,
   FactStore,
   Workspace,
   WorkspaceService,

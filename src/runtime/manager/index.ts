@@ -22,6 +22,14 @@ import { Instances } from './instances.js';
 import { acquireExecutionLock } from './execution-lock.js';
 import { ManagedEvents } from '../services/events.js';
 import {
+  finishedRunProgress,
+  progressReporter,
+  reusedCallsSummary,
+  summarizeMeasurementDetails,
+  type MeasurementSummary,
+  type RunProgressObserver,
+} from '../services/run-progress.js';
+import {
   FileArtifacts,
   FileFacts,
   FileWorkspaces,
@@ -67,6 +75,8 @@ interface RunOptions {
   signal?: AbortSignal;
   resume?: boolean;
   context?: RuntimeContext;
+  /** Best-effort observations scoped to this run. */
+  onProgress?: RunProgressObserver;
 }
 
 export interface RuntimeOptions {
@@ -176,6 +186,7 @@ export class Manager {
     options: RunOptions = {},
   ): Promise<JsonObject> {
     const continuing = options.resume === true;
+    const reportProgress = progressReporter(options.onProgress);
     const gate = await acquireResourceGate(this.directory);
     let recipe!: Recipe;
     let resourceOrigins: Record<string, Record<string, string>> = {};
@@ -222,6 +233,9 @@ export class Manager {
           controller.signal.throwIfAborted();
           options.signal?.throwIfAborted();
           await releaseLock();
+          reportProgress?.(
+            finishedRunProgress(id, 'succeeded', resumedRecord, true),
+          );
           return resumedRecord;
         }
         const readPolicy = (source = locked) =>
@@ -530,8 +544,13 @@ export class Manager {
         cleanup,
         event: events.event,
         diagnose,
+        reportProgress,
         bindingVersions: definition && object(definition.bindingVersions),
       });
+      const measurementSummaries = new Map<
+        string,
+        Map<string, MeasurementSummary>
+      >();
       const experimentFacts = new ExperimentFacts(
         id,
         this.facts,
@@ -555,6 +574,12 @@ export class Manager {
           instances.acquire(bindingId, binding),
         charge,
         diagnose,
+        reportProgress,
+        consumeMeasurementSummary: (callId, ref) => {
+          const summaries = measurementSummaries.get(callId);
+          measurementSummaries.delete(callId);
+          return ref === undefined ? undefined : summaries?.get(ref);
+        },
         onFailure: (error, caller) => {
           if (!caller.scope && !signal.aborted) {
             failureCause = error;
@@ -624,7 +649,21 @@ export class Manager {
         async recordMeasurement(this: RuntimeContext, measurement) {
           const ctx = this;
           assertBusiness();
-          const ref = await experimentFacts.recordMeasurement(measurement, ctx);
+          const ref = await experimentFacts.recordMeasurement(
+            measurement,
+            ctx,
+            reportProgress
+              ? (saved) => {
+                  const summary = summarizeMeasurementDetails(saved);
+                  if (!summary || typeof saved.ref !== 'string') return;
+                  const summaries =
+                    measurementSummaries.get(ctx.callId) ??
+                    new Map<string, MeasurementSummary>();
+                  summaries.set(saved.ref, summary);
+                  measurementSummaries.set(ctx.callId, summaries);
+                }
+              : undefined,
+          );
           try {
             services.event.emit('rsi/measurement-recorded', {
               experimentId: id,
@@ -711,6 +750,9 @@ export class Manager {
             }).slice(0, 32);
           let error: unknown;
           try {
+            ctx.reportProgress?.({
+              detail: `acquiring ${capability} instance`,
+            });
             const acquire = object(
               await calls.invoke(
                 '_application',
@@ -724,6 +766,9 @@ export class Manager {
             error = caught;
             throw caught;
           } finally {
+            ctx.reportProgress?.({
+              detail: `releasing ${capability} instance`,
+            });
             const cleanupContext = ctx.extend({ signal: ctx.cleanup });
             try {
               await calls.invoke(
@@ -831,6 +876,23 @@ export class Manager {
         policyId: policy.id,
         resumed: continuing,
       };
+      reportProgress?.({ kind: 'experiment-preparing', ...experimentInfo });
+      if (continuing) {
+        const reusedCalls = reusedCallsSummary(retryCalls);
+        const priorUsage = Object.fromEntries(
+          Object.entries(budget.usage).filter(
+            (entry): entry is [string, number] => typeof entry[1] === 'number',
+          ),
+        );
+        if (reusedCalls.length > 0 || Object.keys(priorUsage).length > 0) {
+          reportProgress?.({
+            kind: 'experiment-resumed',
+            experimentId: id,
+            reusedCalls,
+            priorUsage,
+          });
+        }
+      }
       await businessWait(
         services.event.serial('rsi/before-experiment', experimentInfo),
       );
@@ -882,6 +944,7 @@ export class Manager {
               checkpointRef: id,
             },
             diagnose,
+            reportProgress,
           },
           invoke: async (binding, value, path) =>
             calls.invoke(binding, value, root, path),
@@ -890,6 +953,7 @@ export class Manager {
             runReflection(root, path, state, parallel),
         }),
       );
+      reportProgress?.({ kind: 'experiment-cleaning' });
       await cleanup.within(drain(true));
       signal.throwIfAborted();
       if (failureCause !== undefined) throw failureCause;
@@ -906,6 +970,7 @@ export class Manager {
       terminalSaveAttempted = true;
       await this.facts.write('experiments', id, complete);
       terminal = 'succeeded';
+      reportProgress?.(finishedRunProgress(id, terminal, complete));
       return complete;
     } catch (error) {
       const wasCancelled = signal.aborted;
@@ -918,6 +983,7 @@ export class Manager {
             : undefined;
       stopping.abort(error);
       try {
+        reportProgress?.({ kind: 'experiment-cleaning' });
         await cleanup.within(drain(true));
       } catch (cleanupError) {
         closeBusiness();
@@ -968,7 +1034,7 @@ export class Manager {
       }
       await cleanup.markPending();
       terminalSaveAttempted = true;
-      await this.facts.write('experiments', id, {
+      const stopped: JsonObject = {
         ...previous,
         ...(retryRef
           ? {
@@ -986,8 +1052,10 @@ export class Manager {
         ...(partialOutput === undefined ? {} : { partialOutput }),
         usage: budget.usage,
         finishedAt: new Date().toISOString(),
-      });
+      };
+      await this.facts.write('experiments', id, stopped);
       terminal = status;
+      reportProgress?.(finishedRunProgress(id, status, stopped));
       throw error;
     } finally {
       closeBusiness();

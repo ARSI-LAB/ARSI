@@ -14,6 +14,7 @@ import {
   sdkRunner,
   type EvaluatorRunner,
 } from '../shared/evaluator-adapter/sdk.js';
+import { forwardSdkProgress } from '../shared/evaluator-adapter/progress.js';
 import { evaluationStatus } from '../shared/evaluator-adapter/measurement.js';
 import { normalizeEvaluation } from './measurement.js';
 import { configSchema, type AgentbenchConfig } from './schema.js';
@@ -30,8 +31,8 @@ export async function createAgentbench(
   runner: EvaluatorRunner = sdkRunner,
 ): Promise<Operation<AgentbenchInput, AgentbenchOutput>> {
   ctx.event?.on('rsi/doctor', agentbenchDoctor);
-  ctx.event?.on('rsi/cleanup', (request) =>
-    cleanupEvaluatorBinding(request, 'agentbundle'),
+  ctx.event?.on('rsi/cleanup', (request, runtime) =>
+    cleanupEvaluatorBinding(request, 'agentbundle', runtime),
   );
   validate(configSchema, config, 'evaluator config');
   return {
@@ -59,6 +60,7 @@ export async function createAgentbench(
             mode: 0o600,
           });
           await context.charge('evaluationRuns', 1);
+          const onProgress = forwardSdkProgress(context);
           let result: unknown;
           try {
             result = await runner(
@@ -66,6 +68,7 @@ export async function createAgentbench(
                 configPath,
                 signal: context.signal,
                 env: process.env,
+                ...(onProgress ? { onProgress } : {}),
               },
               {
                 context,

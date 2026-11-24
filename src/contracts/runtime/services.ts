@@ -27,6 +27,15 @@ export interface WorkspaceService {
   read(ref: string): Promise<Workspace>;
   release(ref: string): Promise<void>;
 }
+/** Presentation-only progress observation for the active call; never persisted as experiment facts. */
+export interface CallProgressUpdate {
+  readonly detail?: string;
+  readonly lines?: readonly string[];
+  readonly notice?: string;
+  /** Additional display text for a notice in verbose mode. */
+  readonly verboseNotice?: string;
+  readonly level?: 'info' | 'warning' | 'error';
+}
 declare module './context.js' {
   interface RuntimeContext<C extends JsonObject = JsonObject> {
     readonly event: EventPipeline<C>;
@@ -84,5 +93,7 @@ declare module './context.js' {
       capability: string,
       use: (execution: JsonObject) => Promise<T>,
     ): Promise<T>;
+    /** Best-effort presentation-only progress update for the active call. */
+    reportProgress?(this: RuntimeContext, update: CallProgressUpdate): void;
   }
 }

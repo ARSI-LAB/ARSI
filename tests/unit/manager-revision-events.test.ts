@@ -291,7 +291,13 @@ test('Manager activates committed revisions before notifying, retains the old ch
       budget: { operations: 20, elapsedWallMs: 10000, cleanupReserveMs: 1000 },
     }),
   );
-  const result = await manager.run(recipePath, { id: 'revision-events' });
+  const result = await manager.run(recipePath, {
+    id: 'revision-events',
+    onProgress(event) {
+      if (event.kind === 'revision-activated')
+        Object.assign(event.bindingIds, { 0: 'unrelated' });
+    },
+  });
   await oldChain;
   assert.equal(result.status, 'succeeded');
   assert.equal(object(result.output).prompt, 'revised');

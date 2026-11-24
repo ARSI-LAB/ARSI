@@ -637,3 +637,53 @@ test('the AgentBench service factory handles its binding cleanup through the ins
   assert.match(commands, /image ls/);
   assert.doesNotMatch(commands, /image rm/);
 });
+
+test('runEvaluatorCleanup reports receipt progress lazily without pre-reading legacy collections', async (t) => {
+  const f = await fixture(t);
+  const first = await f.register('1'.repeat(24));
+  const second = await f.register('2'.repeat(24));
+  const details: string[] = [];
+  const results = await runEvaluatorCleanup(
+    f.context.extend({
+      reportProgress(update) {
+        if (update.detail) details.push(update.detail);
+      },
+    }),
+    { ...agentCleanup, dryRun: true },
+    async () => report('candidate'),
+  );
+  assert.equal(results.length, 2);
+  assert.equal(details.length, 2);
+  assert.match(
+    details[0],
+    new RegExp(`previewing receipt #1 \\(${first.key.slice(0, 13)}\\)`),
+  );
+  assert.match(
+    details[1],
+    new RegExp(`previewing receipt #2 \\(${second.key.slice(0, 13)}\\)`),
+  );
+
+  // A corrupted legacy receipt must not prevent earlier valid receipts from cleaning first.
+  const legacyDir = join(
+    f.context.dataDirectory,
+    'facts',
+    `evaluator-images-${f.context.experimentId}`,
+  );
+  await mkdir(legacyDir, { recursive: true });
+  await writeFile(join(legacyDir, 'corrupt.json'), '{not-json');
+  const cleanedKeys: string[] = [];
+  await assert.rejects(
+    runEvaluatorCleanup(
+      f.context.extend({
+        reportProgress(update) {
+          if (update.detail) cleanedKeys.push(update.detail);
+        },
+      }),
+      agentCleanup,
+      async () => report('deleted'),
+    ),
+  );
+  assert.equal((await f.read(first.key)).status, 'complete');
+  assert.equal((await f.read(second.key)).status, 'complete');
+  assert.equal(cleanedKeys.length, 2);
+});

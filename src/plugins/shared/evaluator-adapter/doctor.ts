@@ -137,6 +137,7 @@ export async function checkSdkDoctor(
   let result: SdkReport;
   try {
     // The SDK owns the complete diagnostic workflow and its per-probe limits.
+    ctx.runtime.reportProgress?.({ detail: 'running evaluator SDK probes' });
     result = report(await run({ ...options, signal: ctx.signal }));
     ctx.signal.throwIfAborted();
   } catch (error) {

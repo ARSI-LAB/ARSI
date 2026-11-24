@@ -27,11 +27,6 @@ export function checkInferenceApplication(
     return true;
   }
 
-  async function isInterpreterAvailable(signal: AbortSignal): Promise<boolean> {
-    if ('remote' in config) await checkRemoteInterpreter(config.remote, signal);
-    return true;
-  }
-
   async function areLaunchPrerequisitesAvailable(
     signal: AbortSignal,
   ): Promise<boolean> {
@@ -53,16 +48,7 @@ export function checkInferenceApplication(
       reason:
         'Restore the baseline input files or correct the Target and baseline configuration.',
     },
-    ...('remote' in config
-      ? [
-          {
-            id: 'remote-executable',
-            check: isInterpreterAvailable,
-            reason:
-              'Install or correct remote.executable so its version can be checked.',
-          },
-        ]
-      : []),
+    ...remoteInterpreterDoctorRules(config),
     {
       id: 'launch-prerequisites',
       check: areLaunchPrerequisitesAvailable,
@@ -76,6 +62,21 @@ export function checkInferenceApplication(
         apiKeyEnv === undefined
           ? 'No API key environment variable is required.'
           : `credentials.apiKeyEnv references missing or empty environment variable ${apiKeyEnv}. Set that variable before running the experiment.`,
+    },
+  ];
+}
+
+function remoteInterpreterDoctorRules(config: InferenceConfig): DoctorRule[] {
+  if (!('remote' in config)) return [];
+  return [
+    {
+      id: 'remote-executable',
+      check: async (signal: AbortSignal): Promise<boolean> => {
+        await checkRemoteInterpreter(config.remote, signal);
+        return true;
+      },
+      reason:
+        'Install or correct remote.executable so its version can be checked.',
     },
   ];
 }

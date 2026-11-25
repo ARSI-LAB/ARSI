@@ -23,7 +23,7 @@ import {
 import { projectEvidenceFiles } from '../services/facts/evidence-files.js';
 import { safeId } from '../storage/index.js';
 import type { EvidenceCall } from './evidence-window.js';
-import type { LearningObserve } from './schema.js';
+import type { RuntimeEvolutionObserve } from './schema.js';
 import { projectCandidateEvidence } from './candidate-evidence.js';
 import { executionEvidencePackets } from '../services/facts/evidence-packets.js';
 import {
@@ -41,7 +41,7 @@ export interface EvidenceOptions {
   priorRef?: string;
   policyScopeId?: string;
   kind: 'memory' | 'reflection';
-  observe: LearningObserve;
+  observe: RuntimeEvolutionObserve;
   configDigest?: string;
   stepPath?: string;
   directory?: string;
@@ -49,7 +49,7 @@ export interface EvidenceOptions {
   isAgentBinding?(binding: string): boolean;
   currentRevisionRefs?: JsonObject;
 }
-export interface LearningEvidence {
+export interface EvolutionEvidence {
   ref: string | null;
   callCount: number;
   callIds: string[];
@@ -60,9 +60,9 @@ function task(call: EvidenceCall): JsonValue {
 }
 
 /** A persisted, scope-local trigger snapshot. References, not arbitrary strings, authorize expansion. */
-export async function collectLearningEvidence(
+export async function collectEvolutionEvidence(
   options: EvidenceOptions,
-): Promise<LearningEvidence> {
+): Promise<EvolutionEvidence> {
   const { context } = options;
   const diagnostics: JsonObject[] = [];
   const note = (code: string, callId?: JsonValue): void => {
@@ -95,7 +95,7 @@ export async function collectLearningEvidence(
     const available = Math.max(0, limit - bytes);
     const data = Buffer.from(content);
     if (data.length > available) {
-      const marker = '\n[truncated: learning evidence byte limit]';
+      const marker = '\n[truncated: runtime evolution evidence byte limit]';
       const suffix = Buffer.byteLength(marker) <= available ? marker : '';
       let end = Math.max(0, available - Buffer.byteLength(suffix));
       while (end > 0 && (data[end]! & 0xc0) === 0x80) end--;
@@ -236,7 +236,7 @@ export async function collectLearningEvidence(
     const id = string(call.record.callId);
     if (included.has(id)) return;
     included.add(id);
-    const path = `context/learning/calls/${safeId(id)}.json`;
+    const path = `context/evolution/calls/${safeId(id)}.json`;
     const summary: JsonObject = {
       callId: id,
       bindingId: call.record.bindingId ?? null,
@@ -329,7 +329,7 @@ export async function collectLearningEvidence(
     if (typeof call.output.diffRef === 'string')
       await artifactText(
         call.output.diffRef,
-        `context/learning/calls/${id}-patch.json`,
+        `context/evolution/calls/${id}-patch.json`,
         call.record,
       );
     // A Memory snapshot may quote execution evidence from a different window.
@@ -342,7 +342,7 @@ export async function collectLearningEvidence(
     )
       await artifactText(
         call.output.resourceRef,
-        `context/learning/calls/${id}-memory`,
+        `context/evolution/calls/${id}-memory`,
         call.record,
       );
     if (options.view === 'training-summary' || options.kind !== 'reflection')
@@ -387,7 +387,7 @@ export async function collectLearningEvidence(
         !options.isAgentBinding?.(String(child.record.bindingId))
       )
         continue;
-      const childPath = `context/learning/calls/${id}-descendant-${safeId(childId)}.json`;
+      const childPath = `context/evolution/calls/${id}-descendant-${safeId(childId)}.json`;
       store(childPath, safeText(child.record));
       try {
         const diagnostic = await readAgentTrace(
@@ -403,7 +403,7 @@ export async function collectLearningEvidence(
           ),
         );
         store(
-          `context/learning/calls/${id}-trace-${childId}.jsonl`,
+          `context/evolution/calls/${id}-trace-${childId}.jsonl`,
           safeText(diagnostic, 'jsonl'),
         );
         traceCount++;
@@ -430,7 +430,7 @@ export async function collectLearningEvidence(
         continue;
       await artifactText(
         ref,
-        `context/learning/calls/${id}-workspace-${safeId(childId)}`,
+        `context/evolution/calls/${id}-workspace-${safeId(childId)}`,
         child.record,
       );
     }
@@ -675,7 +675,7 @@ export async function collectLearningEvidence(
             text = new TextDecoder('utf8', { fatal: true }).decode(
               Buffer.from(base64, 'base64'),
             );
-            const output = `context/learning/versions/${record.ref}/${path}`;
+            const output = `context/evolution/versions/${record.ref}/${path}`;
             if (!Object.hasOwn(files, output))
               store(output, safeText(text, 'text'));
           } catch {
@@ -722,7 +722,7 @@ export async function collectLearningEvidence(
           );
         }
         store(
-          `context/learning/versions/${revision.ref}-difference.patch`,
+          `context/evolution/versions/${revision.ref}-difference.patch`,
           safeText(patches.join('\n'), 'text'),
         );
       }
@@ -746,16 +746,16 @@ export async function collectLearningEvidence(
       measurements,
       artifacts: context.artifacts,
       view: 'execution',
-      directory: 'context/learning/evidence',
+      directory: 'context/evolution/evidence',
     });
     if (options.kind === 'memory') {
       const packets = executionEvidencePackets(
         projected,
-        'context/learning/packets',
+        'context/evolution/packets',
       );
       for (const [path, text] of Object.entries(packets.files))
         store(path, string(text));
-      store('context/learning/packets/index.json', safeText(packets.evidence));
+      store('context/evolution/packets/index.json', safeText(packets.evidence));
     }
     for (const rawMeasurement of projected.measurements as JsonValue[]) {
       const measurement = object(rawMeasurement);
@@ -781,7 +781,7 @@ export async function collectLearningEvidence(
               const content = object(projected.files)[file.path];
               if (typeof content !== 'string')
                 throw new Error(
-                  `Learning evidence file ${file.path}: expected text`,
+                  `Runtime evolution evidence file ${file.path}: expected text`,
                 );
               store(file.path, content);
               sourceTextPaths.set(sourceKey, file.path);
@@ -826,7 +826,7 @@ export async function collectLearningEvidence(
       }
     }
     store(
-      'context/learning/evaluation-index.json',
+      'context/evolution/evaluation-index.json',
       safeText({ ...projected, files: {} }),
     );
   }
@@ -838,7 +838,7 @@ export async function collectLearningEvidence(
       maxBytes: options.maxBytes,
     });
     // This projection alone allows normalized scores and diagnostics; ordinary records stay execution-filtered.
-    store('context/learning/training-summary.json', canonical(feedback));
+    store('context/evolution/training-summary.json', canonical(feedback));
   }
   const index = object(
     JSON.parse(
@@ -860,7 +860,7 @@ export async function collectLearningEvidence(
       }),
     ),
   );
-  store('context/learning/index.json', safeText(index));
+  store('context/evolution/index.json', safeText(index));
   const payload: JsonObject = {
     experimentId: context.experimentId,
     policyScopeId,
@@ -870,7 +870,7 @@ export async function collectLearningEvidence(
     index,
     files,
     sources,
-    view: 'learning-observations/v1',
+    view: 'evolution-observations/v1',
     evidenceView: options.view ?? 'execution',
     capturedAt: options.capturedAt,
     boundaryId: options.identity,

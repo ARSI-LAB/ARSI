@@ -1,8 +1,8 @@
 # Consolidate experiment experience
 
 Read the current Memory files under `candidate/` and the evidence inventory in
-`context/learning/index.json`. Compare the supplied observations with earlier
-experience. When available, `context/learning/comparisons.json` identifies
+`context/evolution/index.json`. Compare the supplied observations with earlier
+experience. When available, `context/evolution/comparisons.json` identifies
 candidate changes, evaluations and selection decisions.
 
 Record reusable observations, their sources, applicability and uncertainty.

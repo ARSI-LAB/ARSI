@@ -21,7 +21,7 @@ policy:
       validationTaskIds:
         - terminal-bench/formal-crypto
         - terminal-bench/wal-recovery-ordering
-      # Final reporting only; these tasks must not contribute to Wiki learning.
+      # Reserved for final reporting and excluded from Memory and Reflection evidence.
       testTaskIds:
         - terminal-bench/bun-sourcemap-leak
         - terminal-bench/react-lead-form

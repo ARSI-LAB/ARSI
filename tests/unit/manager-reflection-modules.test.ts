@@ -185,7 +185,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   assert.deepEqual(generations, [
     { binding: '_reflection', goal: 'root override goal' },
   ]);
-  const partial = (await manager.facts.list('learning-runs')).filter(
+  const partial = (await manager.facts.list('evolution-runs')).filter(
     (fact) => fact.experimentId === 'scoped',
   );
   assert.equal(partial.length, 1);
@@ -194,7 +194,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   assert.equal(resumed.status, 'succeeded');
   assert.equal(initializations, 1);
   assert.equal(generations.length, 1);
-  const completed = (await manager.facts.list('learning-runs')).filter(
+  const completed = (await manager.facts.list('evolution-runs')).filter(
     (fact) => fact.experimentId === 'scoped',
   );
   assert.equal(completed.length, 1);
@@ -218,7 +218,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   );
 
   assert.equal(
-    new Set(completed.map((fact) => object(fact.result).learningId)).size,
+    new Set(completed.map((fact) => object(fact.result).evolutionId)).size,
     1,
   );
 

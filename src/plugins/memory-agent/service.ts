@@ -1,4 +1,4 @@
-import type { LearningAgentConfig } from './schema.js';
+import type { RuntimeEvolutionAgentConfig } from './schema.js';
 import type {
   MemoryInput,
   MemoryOutput,
@@ -7,12 +7,12 @@ import type {
 import { string } from '../../shared/json.js';
 import { editResource } from '../shared/agent-editing/index.js';
 import { agentEditorDoctorRules } from '../shared/agent-editing/doctor.js';
-import { learningContext } from '../shared/agent-editing/learning-context.js';
+import { evolutionContext } from '../shared/agent-editing/evolution-context.js';
 
 export const createMemoryAgent: OperationDefinition<
   MemoryInput,
   MemoryOutput,
-  LearningAgentConfig
+  RuntimeEvolutionAgentConfig
 >['create'] = async (config, ctx) => {
   ctx.event?.on('rsi/doctor', (request) => agentEditorDoctorRules(request));
   return {
@@ -22,7 +22,7 @@ export const createMemoryAgent: OperationDefinition<
         input,
         input.resourceRef,
         context,
-        await learningContext('memory', input.evidenceRefs, context),
+        await evolutionContext('memory', input.evidenceRefs, context),
       );
       if (updated.changeRef === null)
         return {

@@ -61,12 +61,12 @@ bestCandidateRef: ${{ state.bestCandidateRef }} # 当前共享状态
 - 表达式须占据整个字段值，`steps` 只能引用当前区块或外层已完成的步骤。
 - `application.initialCandidate` 和 `loop.index` 是框架提供的固定属性。
 
-在外部学习配置中引用串行步骤 ID。Runtime 管理活动 Memory 版本，Policy 无需记录 Memory 状态或输出字段。
+在 Memory 和 Reflection 的外部配置文件中引用串行步骤 ID。Runtime 管理活动 Memory 版本，Policy 无需记录 Memory 状态或输出字段。
 
 ### 保存状态与并行执行
 
 - 用 `state_schema` 声明字段、用 `state` 设置初始值，再通过 `state` 步骤更新。一次更新中的所有表达式都读取更新前的状态。
-- 并行 `foreach` 分支通过各自的 `output` 返回结果，再由后续串行步骤汇总并更新共享状态。共享状态更新和学习触发都需要串行执行。
+- 并行 `foreach` 分支通过各自的 `output` 返回结果，再由后续串行步骤汇总并更新共享状态。共享状态更新和运行时演进触发器都需要串行执行。
   - `if` 和 `foreach` 的 `output` 在对应区块内求值；`loop` 的 `output` 在循环结束后求值。
   - 过程中需要保留的循环内数据应先存入共享状态，并为循环执行 0 次的情况准备初始值。
 

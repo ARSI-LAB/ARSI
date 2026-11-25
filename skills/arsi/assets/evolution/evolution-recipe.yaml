@@ -1,12 +1,12 @@
 schemaVersion: rsi.recipe/v1
-id: recipe.skill-learning
+id: recipe.skill-evolution
 application:
   plugin: application.agentbundle
   config:
     target: { schema: ./target.yaml }
     baseline: { directory: ./baseline }
 policy:
-  id: policy.skill-learning
+  id: policy.skill-evolution
   config: { maxRounds: 2 }
   input: {}
 bindings:

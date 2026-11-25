@@ -10,7 +10,7 @@ import {
   type StepValidationContext,
   type Template,
 } from '../policy/steps.js';
-import { type FlowIndex, type StepLocation } from '../learning/trigger.js';
+import { type FlowIndex, type StepLocation } from '../evolution/trigger.js';
 
 export function compileFlow(policy: {
   inputDefaults: JsonObject;

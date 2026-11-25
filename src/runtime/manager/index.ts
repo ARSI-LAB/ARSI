@@ -55,15 +55,15 @@ import {
   assertCleanupResolved,
   reconcilePersistedCleanup,
 } from './cleanup.js';
-import { LearningActivation } from './activation.js';
-import { LearningCoordinator } from '../learning/coordinator.js';
-import { MemoryDelivery } from '../learning/memory-delivery.js';
-import { initializeMemory } from '../learning/memory.js';
-import { acquireResourceGate } from '../learning/exclusion.js';
+import { RuntimeEvolutionActivation } from './activation.js';
+import { RuntimeEvolutionCoordinator } from '../evolution/coordinator.js';
+import { MemoryDelivery } from '../evolution/memory-delivery.js';
+import { initializeMemory } from '../evolution/memory.js';
+import { acquireResourceGate } from '../evolution/exclusion.js';
 import {
   RevisionApplication,
   MemoryApplication,
-} from '../learning/application.js';
+} from '../evolution/application.js';
 import {
   PolicyCheckpoints,
   readPolicyCheckpoint,
@@ -382,7 +382,7 @@ export class Manager {
         recipe = await Recipe.load(recipePath, this.options.registry, {
           rootDirectory: this.rootDirectory,
           runtimeDirectory: this.directory,
-          lockedLearning: true,
+          lockedEvolution: true,
           ...(locked.memory
             ? { memory: parseLockedMemory(locked.memory) }
             : {}),
@@ -423,7 +423,7 @@ export class Manager {
           {
             sourcePath: recipe.sourcePath,
             policy: recipe.policy,
-            lockedLearning: true,
+            lockedEvolution: true,
             ...(definition.memory
               ? { memory: parseLockedMemory(definition.memory) }
               : {}),
@@ -492,7 +492,7 @@ export class Manager {
       stopping.abort(error);
     });
     let initial: JsonObject = {};
-    let activeLearning: LearningActivation | undefined;
+    let activeEvolution: RuntimeEvolutionActivation | undefined;
     // Definition locking can fail before the call executor is assembled.
     let activeCalls: CallExecutor | undefined;
     let services: RuntimeContext;
@@ -661,7 +661,7 @@ export class Manager {
         recipe = await Recipe.fromJSON(locked.recipe, this.options.registry, {
           sourcePath: string(locked.recipeSourcePath),
           policy: recipe.policy,
-          lockedLearning: true,
+          lockedEvolution: true,
           ...(locked.memory
             ? { memory: parseLockedMemory(locked.memory) }
             : {}),
@@ -685,7 +685,7 @@ export class Manager {
         if (module)
           bindings[name] = { plugin: module.plugin, config: module.config };
       }
-      const activation = new LearningActivation({
+      const activation = new RuntimeEvolutionActivation({
         id,
         bindings,
         facts: this.facts,
@@ -696,7 +696,7 @@ export class Manager {
         diagnose,
         bindingVersions: definition && object(definition.bindingVersions),
       });
-      activeLearning = activation;
+      activeEvolution = activation;
       const delivery = memory ? new MemoryDelivery(this.artifacts) : undefined;
       if (delivery) {
         const scope = events.prepare('_memoryDelivery', 'last');
@@ -830,7 +830,9 @@ export class Manager {
         },
         async invoke(this: RuntimeContext, binding, input) {
           if (binding === '_memory' || binding === '_reflection')
-            throw new Error('Learning modules require a Policy trigger');
+            throw new Error(
+              'Runtime evolution modules require a Policy trigger',
+            );
           return calls.invoke(binding, input, this);
         },
         async invokeAgent(this: RuntimeContext, agentRef, input) {
@@ -934,7 +936,7 @@ export class Manager {
           registrations.set(b.plugin, this.options.registry.retain(b.plugin));
       }
       const root = context('_root', 'root');
-      const learning = new LearningCoordinator({
+      const evolution = new RuntimeEvolutionCoordinator({
         context: root,
         directory: this.directory,
         memory,
@@ -961,10 +963,10 @@ export class Manager {
             scope.signal,
           ),
       });
-      if (continuing) await learning.restore();
+      if (continuing) await evolution.restore();
       if (memory || reflection) {
-        const scope = events.prepare('_learningBoundaries');
-        learning.subscribe(scope.event);
+        const scope = events.prepare('_evolutionBoundaries');
+        evolution.subscribe(scope.event);
         events.activate(scope);
       }
       if (memory && !activation.memory)
@@ -1057,7 +1059,7 @@ export class Manager {
       const complete: JsonObject = {
         ...(await this.get(id)),
         status: 'succeeded',
-        learning: activation.summary,
+        evolution: activation.summary,
         output: result,
         usage: budget.usage,
         durationMs: Date.now() - Date.parse(experimentStartedAt),
@@ -1142,8 +1144,8 @@ export class Manager {
             }
           : {}),
         status,
-        learning: activeLearning?.summary ??
-          previous.learning ?? {
+        evolution: activeEvolution?.summary ??
+          previous.evolution ?? {
             memoryRef: null,
             memoryArtifactRef: null,
             revisionRefs: {},

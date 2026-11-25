@@ -11,7 +11,7 @@ import {
 } from '../../src/contracts/index.js';
 import { CleanupLifecycle } from '../../src/runtime/manager/cleanup.js';
 import { Instances } from '../../src/runtime/manager/instances.js';
-import { LearningActivation } from '../../src/runtime/manager/activation.js';
+import { RuntimeEvolutionActivation } from '../../src/runtime/manager/activation.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { ManagedEvents } from '../../src/runtime/services/events.js';
 import { FileFacts } from '../../src/runtime/storage/index.js';
@@ -126,7 +126,7 @@ async function fixture(
     }
     await write(kind, id, value);
   };
-  const activation = new LearningActivation({
+  const activation = new RuntimeEvolutionActivation({
     bindingVersions: options.bindingVersions,
     id: context.experimentId,
     bindings,
@@ -447,7 +447,7 @@ test('initializing and restoring Memory are silent; a learned version notifies l
   assert.deepEqual(notifications, []);
 
   const learned = { ...seed, ref: 'learned', artifactRef: 'artifact:learned' };
-  await f.activation.saveMemory(learned, 'learning-update');
+  await f.activation.saveMemory(learned, 'evolution-update');
   await f.restore();
   assert.deepEqual(f.activation.memory, learned);
   assert.deepEqual(notifications, [learned.ref]);
@@ -462,7 +462,7 @@ test('simultaneous Memory and revision saves preserve both active pointers witho
       artifactRef: 'artifact:immutable',
       rootRef: 'memory-first',
     };
-    const saving = f.activation.saveMemory(memory, 'learning-memory-first');
+    const saving = f.activation.saveMemory(memory, 'evolution-memory-first');
     await f.writing.promise;
     assert.equal(f.activation.memory, null);
     const revising = f.save();
@@ -490,7 +490,7 @@ test('a lost acknowledgement after durable activation publishes both pointers to
     artifactRef: 'artifact:immutable',
     rootRef: 'memory-first',
   };
-  await f.activation.saveMemory(memory, 'learning-memory-first');
+  await f.activation.saveMemory(memory, 'evolution-memory-first');
   await f.save();
   assert.equal(f.activation.memory?.ref, memory.ref);
   assert.equal(f.activation.revisionRefs.worker, 'revision-new');

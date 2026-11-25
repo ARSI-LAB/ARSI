@@ -3,12 +3,12 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { JsonValue } from '../../contracts/json.js';
 import {
-  learningFileSchema,
-  type LearningKind,
+  runtimeEvolutionFileSchema,
+  type RuntimeEvolutionKind,
   type MemoryConfiguration,
   type ReflectionConfiguration,
   type ResourceSelection,
-} from '../../contracts/learning.js';
+} from '../../contracts/runtime-evolution.js';
 import { digest, object, string } from '../../shared/json.js';
 import { configPathFields, isResourceUrl } from '../../shared/paths.js';
 import { validate } from '../../shared/schema.js';
@@ -26,12 +26,12 @@ import {
 } from './resources.js';
 import { compileTrigger, stepLocations } from './trigger.js';
 import type {
-  LearningObserve,
+  RuntimeEvolutionObserve,
   MemoryConfig,
   ReflectionConfig,
 } from './schema.js';
 export type { MemoryConfig, ReflectionConfig } from './schema.js';
-export const learningAgentBinding = '_learningAgent';
+export const evolutionAgentBinding = '_evolutionAgent';
 
 interface Resolution {
   policy: Policy;
@@ -120,16 +120,16 @@ async function editableTargets(
   return targets;
 }
 
-export function validateLearning(
+export function validateRuntimeEvolution(
   kind: 'memory',
   source: Resolution,
 ): Promise<MemoryConfig | undefined>;
-export function validateLearning(
+export function validateRuntimeEvolution(
   kind: 'reflection',
   source: Resolution,
 ): Promise<ReflectionConfig | undefined>;
-export async function validateLearning(
-  kind: LearningKind,
+export async function validateRuntimeEvolution(
+  kind: RuntimeEvolutionKind,
   source: Resolution,
 ): Promise<MemoryConfig | ReflectionConfig | undefined> {
   const { policy, registry, bindings, override } = source;
@@ -151,7 +151,11 @@ export async function validateLearning(
         });
       })
     : {};
-  validate(learningFileSchema(kind), raw, kind + (file ? ' ' + file : ''));
+  validate(
+    runtimeEvolutionFileSchema(kind),
+    raw,
+    kind + (file ? ' ' + file : ''),
+  );
   const declaration: MemoryConfiguration & ReflectionConfiguration = raw;
   const directory = file ? dirname(file) : source.recipeDirectory;
   const trigger = compileTrigger(declaration.trigger ?? {}, policy.flowIndex);
@@ -183,7 +187,7 @@ export async function validateLearning(
         ),
       ),
     );
-  const observe: LearningObserve = {
+  const observe: RuntimeEvolutionObserve = {
     bindings: includeBindings ?? availableNames,
     ...(excludeBindings ? { excludeBindings } : {}),
     ...(includeSteps ? { steps: paths(includeSteps) } : {}),
@@ -207,12 +211,12 @@ export async function validateLearning(
       );
   } else if (plugin === kind + '.agent') {
     const agent = Binding.resolve({
-      name: learningAgentBinding,
+      name: evolutionAgentBinding,
       required: registry.contract('contract.agent'),
       registry,
       override: { declaration: { plugin: 'agent.pi' }, directory },
     });
-    config.agentRef = learningAgentBinding;
+    config.agentRef = evolutionAgentBinding;
     agentBinding = { plugin: agent.pluginId, config: agent.config };
   }
   if (plugin === kind + '.agent')

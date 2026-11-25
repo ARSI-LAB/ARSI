@@ -134,8 +134,8 @@ function CallPayload({
                     <dd>
                       <a
                         className="text-link"
-                        href={route(id, 'learning', undefined, undefined, {
-                          learning: kind === 'memory' ? 'memory' : undefined,
+                        href={route(id, 'evolution', undefined, undefined, {
+                          evolution: kind === 'memory' ? 'memory' : undefined,
                           revision: ref,
                         })}
                       >

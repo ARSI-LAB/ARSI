@@ -77,7 +77,7 @@ Plugins can use [Runtime evidence services](../../../src/runtime/services/facts/
 
 ## Plugin self-evolution
 
-The framework provides plugin-level self-evolution components, including Memory and Reflection. Use the Policy or Recipe to reference external files that configure serial triggers, evidence and targets.
+Memory and Reflection provide runtime evolution at the plugin level. Use the Policy or Recipe to reference external files that configure serial triggers, evidence and targets.
 
 Follow the [Memory guide](../guides/memory.md) and [Reflection guide](../guides/reflection.md) for configuration and how updates affect later execution. See [built-in components](../guides/built-in-components.md) for available implementations.
 

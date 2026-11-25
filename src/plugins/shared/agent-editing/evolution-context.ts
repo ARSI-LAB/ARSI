@@ -3,12 +3,12 @@ import { canonical, object } from '../../../shared/json.js';
 import { prepareDocumentPreviews } from '../../reflection-agent/document-previews.js';
 import type { ReadOnlyEditContext } from './index.js';
 
-export async function learningContext(
+export async function evolutionContext(
   kind: 'memory' | 'reflection',
   evidenceRefs: string[],
   context: RuntimeContext,
 ): Promise<ReadOnlyEditContext> {
-  const indexPath = 'context/learning/index.json';
+  const indexPath = 'context/evolution/index.json';
   const files: Record<string, string> = {};
   const indexes: JsonObject[] = [];
   const sources: JsonObject[] = [];
@@ -19,7 +19,7 @@ export async function learningContext(
     const snapshot = await context.facts.read('evidence-views', ref);
     if (
       snapshot.experimentId !== context.experimentId ||
-      snapshot.view !== 'learning-observations/v1' ||
+      snapshot.view !== 'evolution-observations/v1' ||
       snapshot.moduleKind !== kind ||
       (snapshot.evidenceView !== 'execution' &&
         snapshot.evidenceView !== 'training-summary') ||
@@ -28,10 +28,10 @@ export async function learningContext(
       throw new Error(`${kind} evidence snapshot ownership or format mismatch`);
     evidenceView = snapshot.evidenceView;
     for (const [path, content] of Object.entries(object(snapshot.files))) {
-      if (!path.startsWith('context/learning/') || typeof content !== 'string')
-        throw new Error('Invalid learning evidence file');
+      if (!path.startsWith('context/evolution/') || typeof content !== 'string')
+        throw new Error('Invalid runtime evolution evidence file');
       if (Object.hasOwn(files, path))
-        throw new Error('Duplicate learning evidence file');
+        throw new Error('Duplicate runtime evolution evidence file');
       if (path === indexPath) {
         // Only the persisted, byte-bounded index is authorized for this project.
         try {
@@ -43,7 +43,9 @@ export async function learningContext(
       }
       bytes += Buffer.byteLength(content);
       if (bytes > limit)
-        throw new Error('Learning evidence files exceed evidenceBytes');
+        throw new Error(
+          'Runtime evolution evidence files exceed evidenceBytes',
+        );
       files[path] = content;
     }
     if (Array.isArray(snapshot.sources))

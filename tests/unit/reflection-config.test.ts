@@ -37,7 +37,7 @@ import {
   parseCoveringRoots,
   pointerValue,
   resolveCoveringRoots,
-} from '../../src/runtime/learning/resources.js';
+} from '../../src/runtime/evolution/resources.js';
 
 test('Reflection addresses escaped Schema keys while keeping snapshot paths portable', () => {
   const config: JsonObject = { 'prompt/sources': { 'my~file': 'before' } };
@@ -52,7 +52,7 @@ test('Reflection addresses escaped Schema keys while keeping snapshot paths port
   assert.throws(() => pointerValue(config, '/__proto__/x'), /Unsafe/);
 });
 async function fixture(t: TestContext) {
-  const root = await mkdtemp(join(tmpdir(), 'rsi-learning-config-'));
+  const root = await mkdtemp(join(tmpdir(), 'rsi-evolution-config-'));
   const registry = new Registry();
   t.after(async () => {
     await registry.dispose();
@@ -112,7 +112,7 @@ async function fixture(t: TestContext) {
   });
   const policy: JsonObject = {
     schemaVersion: 'rsi.policy/v1',
-    id: 'learning',
+    id: 'evolution',
     input_schema: { type: 'object' },
     output_schema: true,
     require: {
@@ -142,10 +142,10 @@ async function fixture(t: TestContext) {
     schemaVersion: 'rsi.recipe/v1',
     id: 'probe',
     application: { plugin: 'application.test' },
-    policy: { id: 'learning' },
+    policy: { id: 'evolution' },
   };
   const policyPath = join(policyDir, 'policy.yaml');
-  registry.registerPolicy('learning', policyPath);
+  registry.registerPolicy('evolution', policyPath);
   async function load(overrides: JsonObject) {
     await writeFile(policyPath, JSON.stringify(policy));
     return Recipe.fromJSON({ ...decl, ...overrides }, registry, {
@@ -212,18 +212,18 @@ test('shared roots have a separate namespace from a binding named shared and kee
   );
 });
 
-test('zero-configuration learning resolves real Agent schema defaults and all eligible Policy targets', async (t) => {
+test('zero-configuration evolution resolves real Agent schema defaults and all eligible Policy targets', async (t) => {
   const f = await fixture(t);
   const recipe = await f.load({});
-  assert.equal(recipe.memory?.config.agentRef, '_learningAgent');
-  assert.equal(recipe.reflection?.config.agentRef, '_learningAgent');
-  assert.equal(recipe.bindings._learningAgent!.config.model, '${MODEL_NAME}');
+  assert.equal(recipe.memory?.config.agentRef, '_evolutionAgent');
+  assert.equal(recipe.reflection?.config.agentRef, '_evolutionAgent');
+  assert.equal(recipe.bindings._evolutionAgent!.config.model, '${MODEL_NAME}');
   assert.equal(
-    recipe.bindings._learningAgent!.config.base_url,
+    recipe.bindings._evolutionAgent!.config.base_url,
     '${MODEL_ENDPOINT}',
   );
   assert.equal(
-    recipe.bindings._learningAgent!.config.api_key,
+    recipe.bindings._evolutionAgent!.config.api_key,
     '${MODEL_API_KEY}',
   );
   assert.deepEqual(recipe.memory?.trigger, { on: 'loop-iteration', every: 1 });
@@ -233,7 +233,7 @@ test('zero-configuration learning resolves real Agent schema defaults and all el
   assert.deepEqual(recipe.memory?.consumers, ['proposer', 'backend']);
   assert.equal(recipe.memory?.goalFile.endsWith('goal.md'), true);
   assert.equal(
-    Object.hasOwn(object(recipe.toJSON().bindings), '_learningAgent'),
+    Object.hasOwn(object(recipe.toJSON().bindings), '_evolutionAgent'),
     false,
   );
 });
@@ -301,7 +301,7 @@ test('Recipe toggles preserve or replace a Policy file and skip disabled configu
     every: 2,
   });
   assert.deepEqual(inherited.memory?.observe.excludeSteps, ['steps/search']);
-  assert.equal(inherited.bindings._learningAgent, undefined);
+  assert.equal(inherited.bindings._evolutionAgent, undefined);
   await writeFile(
     join(f.recipeDir, 'memory.yaml'),
     JSON.stringify({
@@ -325,12 +325,12 @@ test('Recipe toggles preserve or replace a Policy file and skip disabled configu
     on: 'loop-iteration',
     every: 1,
   });
-  assert.equal(override.reflection?.config.agentRef, '_learningAgent');
+  assert.equal(override.reflection?.config.agentRef, '_evolutionAgent');
   await rm(join(f.policyDir, 'memory.yaml'));
   assert.equal((await f.load({ memory: false })).memory, undefined);
 });
 
-test('definition locks preserve learning configurations, source directories, seed artifacts and Agent settings across recovery', async (t) => {
+test('definition locks preserve evolution configurations, source directories, seed artifacts and Agent settings across recovery', async (t) => {
   const f = await fixture(t);
   await writeFile(
     join(f.recipeDir, 'memory.yaml'),
@@ -360,7 +360,7 @@ test('definition locks preserve learning configurations, source directories, see
   const recovered = await Recipe.fromJSON(locked.recipe, f.registry, {
     sourcePath: recipe.sourcePath,
     policy: recipe.policy,
-    lockedLearning: true,
+    lockedEvolution: true,
     memory,
     reflection,
   });
@@ -374,7 +374,7 @@ test('definition locks preserve learning configurations, source directories, see
   );
   assert.deepEqual(retried.memory, locked.memory);
   assert.equal(
-    recovered.bindings._learningAgent!.config.model,
+    recovered.bindings._evolutionAgent!.config.model,
     '${MODEL_NAME}',
   );
   assert.equal(await readFile(memory.goalFile, 'utf8'), memory.goal);
@@ -391,7 +391,7 @@ test('definition locks preserve learning configurations, source directories, see
   );
 });
 
-test('invalid learning declarations, resources, filters and parallel triggers reject before execution', async (t) => {
+test('invalid evolution declarations, resources, filters and parallel triggers reject before execution', async (t) => {
   const f = await fixture(t);
   const steps = f.policy.steps;
   assert.ok(Array.isArray(steps));
@@ -424,7 +424,7 @@ test('invalid learning declarations, resources, filters and parallel triggers re
     [
       'memory',
       { evidence: { excludeSteps: ['absent'] } },
-      /Unknown learning step/,
+      /Unknown runtime evolution step/,
     ],
     ['memory', { targets: { include: ['absent'] } }, /unknown binding/],
     ['memory', { directory: './override.md' }, /directory/],

@@ -253,7 +253,7 @@ export async function projectCandidateEvidence(
       );
       const path =
         Buffer.byteLength(delta) > inlineLimit
-          ? `context/learning/diffs/${difference++}.diff`
+          ? `context/evolution/diffs/${difference++}.diff`
           : null;
       if (path) store(path, delta);
       diffs.push({ against, path, preview: excerpt(delta, inlineLimit) });
@@ -261,7 +261,7 @@ export async function projectCandidateEvidence(
     candidates.push({ candidateRef: ref, artifactRef, parentRef, diffs });
   }
   store(
-    'context/learning/comparisons.json',
+    'context/evolution/comparisons.json',
     canonical({ candidates, evaluations, selections }),
   );
 }

@@ -16,7 +16,7 @@ Policies use `rsi.policy/v1`. `input_schema` must describe an object; `steps`, `
 
 Use [policy.yaml](../assets/minimal/policy.yaml) with its complete [Recipe](../assets/minimal/recipe.yaml) and extension registration. It measures the baseline, keeps the candidate/measurement pair in declared state, proposes in a bounded loop, evaluates only created candidates and retains the selector's paired output. A second fixed proposal returns no-change; zero rounds return the measured baseline. Follow [quickstart](quickstart.md) for all execution assets.
 
-The Policy explicitly maps `input.candidateRef` from `${{ application.initialCandidate }}`. Explicit Recipe input overrides that mapping. [learning-recipe.yaml](../assets/learning/learning-recipe.yaml) attaches Memory and Reflection; copy and register its optional resources as described in [advanced capabilities](advanced.md).
+The Policy explicitly maps `input.candidateRef` from `${{ application.initialCandidate }}`. Explicit Recipe input overrides that mapping. [evolution-recipe.yaml](../assets/evolution/evolution-recipe.yaml) attaches Memory and Reflection; copy and register its optional resources as described in [advanced capabilities](advanced.md).
 
 ## Steps, scopes and output
 
@@ -51,7 +51,7 @@ Do not use optional chaining, `??`, arbitrary methods, JavaScript `eval`, or `co
 
 ## Defaults, loading and schemas
 
-Put ordinary bindings under `defaults.bindings` with a matching `require` entry. Define learning defaults separately under `defaults.memory` and `defaults.reflection`. Bindings select plugins only; there are no child Policies or nested binding maps. Reuse flow through ordinary nested steps.
+Put ordinary bindings under `defaults.bindings` with a matching `require` entry. Define runtime evolution defaults separately under `defaults.memory` and `defaults.reflection`. Bindings select plugins only; there are no child Policies or nested binding maps. Reuse flow through ordinary nested steps.
 
 Use `Policy.load(path, registry)` from `arsi` for file-backed Policies. It expands supported local-file `$ref` schemas relative to the declaring files, resolves contracts and validates steps. `$ref` must be the only field at that position; remote and fragment-only references are unsupported. `new Policy(value, { directory, contracts: registry })` compiles already loaded data. The loaded Policy exposes `id`, `inputSchema`, `configSchema`, `stateSchema`, `outputSchema`, `requirements`, `defaults`, `steps`, and `toJSON()`.
 

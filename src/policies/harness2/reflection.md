@@ -10,7 +10,7 @@ The direct reader of your guidance is a Proposer that edits the harness, not the
 
 ## Inputs and authority
 
-Read `context/input.json` for `evidenceIndex` and `editConstraints`. When the indexed execution evidence includes a Memory update, its snapshot files are under `context/learning/calls/<call-id>-memory/`. The target snapshot under `candidate/` normally includes:
+Read `context/input.json` for `evidenceIndex` and `editConstraints`. When the indexed execution evidence includes a Memory update, its snapshot files are under `context/evolution/calls/<call-id>-memory/`. The target snapshot under `candidate/` normally includes:
 
 - existing binding prompts and guidance resources;
 - `manifest.json`, which maps projected resource paths to their authorized targets and limits;

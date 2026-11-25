@@ -12,7 +12,7 @@ This file defines repository-wide development workflow, engineering conventions,
 | `src/contracts/runtime/`                                      | Public RuntimeContext, service interfaces, execution scope, and events                                              |
 | `src/contracts/policies/`                                     | Shared Policy input Schemas                                                                                        |
 | `src/runtime/{registry,loaders,compiler,policy}/`             | Cordis registration, content loading and locking, the sole v1 DSL compiler, pure dataflow execution, and checkpoints |
-| `src/runtime/{manager,services,learning}/`                   | Sole ownership of facts and budgets, controlled calls and leases, Memory versions, Reflection revisions, activation and recovery            |
+| `src/runtime/{manager,services,evolution}/`                   | Sole ownership of facts and budgets, controlled calls and leases, Memory versions, Reflection revisions, activation and recovery            |
 | `src/runtime/storage/`                                        | Immutable artifacts, atomic facts/receipts, and local file storage implementations                                   |
 | `src/plugins/shared/file-application/`                       | Target, editing, and sealing tools shared by file-based Applications                                                |
 | `src/plugins/application-{agentbundle,inference}/`            | initialize/commit/acquire/release application lifecycle                                                              |

@@ -186,7 +186,7 @@ test('Memory reaches Agent projects through the pinned caller version and leaves
   await writeFile(join(root, 'seed/notes.md'), 'seeded');
   const record = await fixture.run();
   assert.deepEqual(delivered, ['seeded', 'new experience', 'new experience']);
-  const runs = await manager.facts.list('learning-runs');
+  const runs = await manager.facts.list('evolution-runs');
   assert.equal(runs.filter((r) => r.status === 'rejected').length, 1);
   const versions = await manager.facts.list('memory-revisions');
   const initial = versions.find((v) => v.kind === 'initial')!;
@@ -194,7 +194,7 @@ test('Memory reaches Agent projects through the pinned caller version and leaves
   assert.equal(versions.length, 2);
   assert.equal(generated.parentRef, initial.ref);
   assert.equal(generated.rootRef, initial.ref);
-  assert.equal(generated.ref, object(record.learning).memoryRef);
+  assert.equal(generated.ref, object(record.evolution).memoryRef);
   assert.ok(pointers.includes(string(generated.ref)));
   const agentCalls = (await manager.facts.list('calls')).filter(
     (c) => c.bindingId === 'reader',
@@ -326,7 +326,7 @@ test('Agent middleware sees the prepared Memory and cached workspaces retain the
     });
 });
 
-test('global cancellation and budget errors stop learning; a local model cap rejects only that invocation', async (t) => {
+test('global cancellation and budget errors stop evolution; a local model cap rejects only that invocation', async (t) => {
   for (const mode of ['cancel', 'global', 'local', 'ledger'])
     await t.test(mode, async (t) => {
       const controller = new AbortController();
@@ -361,7 +361,7 @@ test('global cancellation and budget errors stop learning; a local model cap rej
       if (mode === 'local') {
         assert.equal((await fixture.run()).status, 'succeeded');
         assert.ok(
-          (await manager.facts.list('learning-runs')).every(
+          (await manager.facts.list('evolution-runs')).every(
             (r) => r.status === 'rejected',
           ),
         );
@@ -426,7 +426,7 @@ for (const boundary of [
       await write(kind, id, data);
       const phase = boundary;
       if (
-        (kind === 'learning-runs' && data.status === phase) ||
+        (kind === 'evolution-runs' && data.status === phase) ||
         (phase === 'generator-receipt' &&
           kind === 'calls' &&
           data.bindingId === '_memory' &&
@@ -449,13 +449,13 @@ for (const boundary of [
     const versions = await manager.facts.list('memory-revisions');
     assert.equal(versions.length, 2);
     assert.equal(
-      object(result.learning).memoryRef,
+      object(result.evolution).memoryRef,
       versions.find((v) => v.kind === 'generated')!.ref,
     );
   });
 }
 
-test('a learning deadline permits the next step while the generator lease drains', async (t) => {
+test('an evolution deadline permits the next step while the generator lease drains', async (t) => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -498,11 +498,11 @@ test('a learning deadline permits the next step while the generator lease drains
   const result = await fixture.run();
   assert.equal(deliveries, 2);
   assert.equal(
-    object(result.learning).memoryRef,
+    object(result.evolution).memoryRef,
     (await fixture.manager.facts.list('memory-revisions'))[0]?.ref,
   );
   assert.equal(
-    (await fixture.manager.facts.list('learning-runs'))[0]?.status,
+    (await fixture.manager.facts.list('evolution-runs'))[0]?.status,
     'rejected',
   );
   assert.equal(
@@ -536,9 +536,9 @@ test('Memory rejects file and directory collisions before a custom proposal beco
   const record = await fixture.run();
   const versions = await fixture.manager.facts.list('memory-revisions');
   assert.equal(versions.length, 1);
-  assert.equal(object(record.learning).memoryRef, versions[0]!.ref);
+  assert.equal(object(record.evolution).memoryRef, versions[0]!.ref);
   assert.ok(
-    (await fixture.manager.facts.list('learning-runs')).every(
+    (await fixture.manager.facts.list('evolution-runs')).every(
       (r) =>
         r.status === 'rejected' &&
         String(r.reason).includes('also a directory'),

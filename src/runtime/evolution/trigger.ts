@@ -1,4 +1,4 @@
-import type { LearningTrigger } from '../../contracts/learning.js';
+import type { RuntimeEvolutionTrigger } from '../../contracts/runtime-evolution.js';
 import type { Step } from '../policy/steps.js';
 
 export interface StepLocation {
@@ -12,13 +12,13 @@ export interface FlowIndex {
 
 export function stepLocations(index: FlowIndex, id: string): StepLocation[] {
   const matches = index.locations.filter((entry) => entry.step.id === id);
-  if (!matches.length) throw new Error('Unknown learning step ' + id);
+  if (!matches.length) throw new Error('Unknown runtime evolution step ' + id);
   return matches;
 }
 export function compileTrigger(
-  trigger: Partial<LearningTrigger>,
+  trigger: Partial<RuntimeEvolutionTrigger>,
   index: FlowIndex,
-): LearningTrigger {
+): RuntimeEvolutionTrigger {
   if ((trigger.step !== undefined) !== (trigger.on === 'after-step'))
     throw new Error(
       'trigger.step is required exactly when trigger.on is after-step',
@@ -27,7 +27,7 @@ export function compileTrigger(
     const matches = stepLocations(index, trigger.step!);
     if (matches.some((match) => match.parallel))
       throw new Error(
-        'Learning trigger inside a parallel foreach: ' + trigger.step,
+        'Runtime evolution trigger inside a parallel foreach: ' + trigger.step,
       );
   }
   return { on: 'loop-iteration', every: 1, ...trigger };

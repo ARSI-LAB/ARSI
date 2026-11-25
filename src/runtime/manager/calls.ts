@@ -6,8 +6,8 @@ import { getLogger } from '@logtape/logtape';
 import { agentContract } from '../../contracts/index.js';
 import { metricSelectorContract } from '../../contracts/plugin-types/selector-metrics.js';
 import { assertOwnedAgentProject } from '../services/agent-project.js';
-import { pinnedMemory } from '../learning/memory-delivery.js';
-import type { ActiveMemory } from '../learning/memory.js';
+import { pinnedMemory } from '../evolution/memory-delivery.js';
+import type { ActiveMemory } from '../evolution/memory.js';
 import type {
   Binding,
   RuntimeContext,
@@ -109,13 +109,15 @@ export function callIdentity(
 export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
   const { id, context, charge } = options;
   const facts = options.facts;
-  const learningFacts: FactStore = {
+  const evolutionFacts: FactStore = {
     read: facts.read.bind(facts),
     list: facts.list.bind(facts),
     ...(facts.scan ? { scan: facts.scan.bind(facts) } : {}),
     async write(kind, key, value) {
       if (kind === 'candidates')
-        throw new Error('Learning calls cannot write Application candidates');
+        throw new Error(
+          'Runtime evolution calls cannot write Application candidates',
+        );
       await persistFact(facts, kind, key, value);
     },
   };
@@ -152,7 +154,9 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         definition.contract.id === 'contract.application' &&
         ['commit', 'initialize'].includes(String(object(input).action))
       )
-        throw new Error('Learning calls cannot create Application candidates');
+        throw new Error(
+          'Runtime evolution calls cannot create Application candidates',
+        );
       agentInput =
         definition.contract.id === agentContract.id ? object(input) : undefined;
       project =
@@ -232,11 +236,11 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         throw new Error('Application returned wrong action');
       return output;
     };
-    const learningCall =
+    const evolutionCall =
       bindingId === '_memory' ||
       bindingId === '_reflection' ||
       optionalCalls.has(caller.callId);
-    const memory = learningCall
+    const memory = evolutionCall
       ? null
       : (options.memoryForBinding?.(bindingId) ?? null);
     const job = (async (): Promise<JsonValue> => {
@@ -291,13 +295,13 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         bindingRef: binding.plugin,
         revisionRef: typeof revisionRef === 'string' ? revisionRef : null,
       };
-      if (learningCall) {
+      if (evolutionCall) {
         optionalCalls.add(callId);
         ctx = ctx.extend({
-          facts: learningFacts,
+          facts: evolutionFacts,
           async recordCandidate() {
             throw new Error(
-              'Learning calls cannot create Application candidates',
+              'Runtime evolution calls cannot create Application candidates',
             );
           },
         });

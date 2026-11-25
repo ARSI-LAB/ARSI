@@ -1,4 +1,4 @@
-export interface LearningRecord {
+export interface EvolutionRecord {
   id: string;
   binding: string | null;
   bindings: string[];
@@ -23,19 +23,19 @@ export interface ApplicationPreview {
 }
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('Invalid learning response');
+    throw new Error('Invalid evolution response');
   return value as Record<string, unknown>;
 }
 function text(value: unknown): string {
   if (typeof value !== 'string')
-    throw new Error('Invalid learning response field');
+    throw new Error('Invalid evolution response field');
   return value;
 }
 function optional(value: unknown): string | null {
   return value == null ? null : text(value);
 }
-export function parseLearning(raw: unknown): LearningRecord[] {
-  if (!Array.isArray(raw)) throw new Error('Invalid learning records');
+export function parseEvolution(raw: unknown): EvolutionRecord[] {
+  if (!Array.isArray(raw)) throw new Error('Invalid evolution records');
   return raw.map((value) => {
     const item = record(value);
     return {

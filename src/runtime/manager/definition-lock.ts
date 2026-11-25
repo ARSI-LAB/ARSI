@@ -15,9 +15,9 @@ import {
   parseLockedConfig,
   type MemoryConfig,
   type ReflectionConfig,
-} from '../learning/schema.js';
-import { captureMemorySeed } from '../learning/memory.js';
-import { learningAgentBinding } from '../learning/validation.js';
+} from '../evolution/schema.js';
+import { captureMemorySeed } from '../evolution/memory.js';
+import { evolutionAgentBinding } from '../evolution/validation.js';
 import { inside } from '../storage/index.js';
 
 export const definitionLockVersion = 'rsi.definition-lock/v3';
@@ -160,17 +160,19 @@ export async function lockDefinition(
     const binding = object(entry);
     await capture(string(binding.plugin), object(binding.config), name);
   }
-  const learning: JsonObject = { memory: null, reflection: null };
-  const synthesized = recipe.bindings[learningAgentBinding];
+  const evolution: JsonObject = { memory: null, reflection: null };
+  const synthesized = recipe.bindings[evolutionAgentBinding];
   if (synthesized) {
     const id = synthesized.pluginId;
     await capture(
       id,
       structuredClone(synthesized.config),
-      learningAgentBinding,
+      evolutionAgentBinding,
     );
     if (previous && object(previous.plugins)[id] !== plugins[id])
-      throw new Error('Locked learning Agent implementation changed: ' + id);
+      throw new Error(
+        'Locked runtime evolution Agent implementation changed: ' + id,
+      );
   }
   for (const kind of ['memory', 'reflection'] as const) {
     const module = recipe[kind];
@@ -181,7 +183,9 @@ export async function lockDefinition(
       const old = object(previous[kind]);
       const pluginId = string(old.plugin);
       if (object(previous.plugins)[pluginId] !== registry.identity(pluginId))
-        throw new Error('Locked learning implementation changed: ' + pluginId);
+        throw new Error(
+          'Locked runtime evolution implementation changed: ' + pluginId,
+        );
       plugins[pluginId] = registry.identity(pluginId);
       bindingVersions[owner] = object(previous.bindingVersions)[owner]!;
       const origins = object(object(previous.resourceOrigins)[owner] ?? {});
@@ -198,7 +202,7 @@ export async function lockDefinition(
         );
         resources.push(saved);
       }
-      learning[kind] = old;
+      evolution[kind] = old;
       continue;
     }
     await capture(
@@ -223,7 +227,7 @@ export async function lockDefinition(
       pluginResources: bindingVersions[owner],
       fields,
     });
-    learning[kind] = data;
+    evolution[kind] = data;
   }
   const locked: JsonObject = {
     schemaVersion: definitionLockVersion,
@@ -235,7 +239,7 @@ export async function lockDefinition(
     bindingVersions,
     resources,
     resourceOrigins,
-    ...learning,
+    ...evolution,
     ...(retry === undefined ? {} : { retry }),
   };
   return { ...locked, digest: digest(locked) };

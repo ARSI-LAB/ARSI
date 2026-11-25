@@ -476,7 +476,7 @@ function fakeAgentPlugin(
           const metadata = object(
             JSON.parse(string(projectFiles['context/input.json'])),
           );
-          if (metadata.evidenceIndex === 'context/learning/index.json') {
+          if (metadata.evidenceIndex === 'context/evolution/index.json') {
             if (!Object.hasOwn(projectFiles, 'candidate/manifest.json'))
               return {
                 edits: [
@@ -488,7 +488,7 @@ function fakeAgentPlugin(
                 ],
                 reason: 'Record a training lesson',
               };
-            return { edits: [], reason: 'No learning edit for this window' };
+            return { edits: [], reason: 'No evolution edit for this window' };
           }
           const evidence = object(
             JSON.parse(string(projectFiles['context/measurements.json'])),
@@ -566,7 +566,7 @@ export async function runGepa(options: {
   modules?: { id: string; path: string }[];
   bindingNames?: { evaluator: string; proposer: string; agent: string };
   realAgentEndpoint?: string;
-  learning?: 'custom' | 'policy-defaults';
+  evolution?: 'custom' | 'policy-defaults';
   resumeAfterEvaluation?: number;
   editWorkspaceFailures?: number;
   restartOnResume?: boolean;
@@ -642,11 +642,11 @@ export async function runGepa(options: {
     );
   registry.registerOperation(paretoEvolutionProposerDefinition);
   registry.registerOperation(proposerDefinition);
-  if (options.learning === 'policy-defaults') {
+  if (options.evolution === 'policy-defaults') {
     registry.registerOperation(memoryDefinition);
     registry.registerOperation(reflectionDefinition);
   }
-  if (options.learning === 'custom') {
+  if (options.evolution === 'custom') {
     await writeFile(
       join(root, 'memory.yaml'),
       stringify({
@@ -768,12 +768,12 @@ export async function runGepa(options: {
         plugin: fakeApplication.id,
         config: { files: baselineFiles },
       },
-      ...(options.learning === 'custom'
+      ...(options.evolution === 'custom'
         ? {
             memory: { configFile: './memory.yaml' },
             reflection: { configFile: './reflection.yaml' },
           }
-        : options.learning === undefined
+        : options.evolution === undefined
           ? { memory: false, reflection: false }
           : {}),
       policy: {

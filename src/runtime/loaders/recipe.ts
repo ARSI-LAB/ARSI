@@ -8,19 +8,19 @@ import { Policy } from '../policy/index.js';
 import { validateTemplate } from '../compiler/scope.js';
 import type { Registry } from '../registry/index.js';
 import {
-  validateLearning,
-  learningAgentBinding,
+  validateRuntimeEvolution,
+  evolutionAgentBinding,
   type MemoryConfig,
   type ReflectionConfig,
-} from '../learning/validation.js';
-import type { LearningKind } from '../../contracts/learning.js';
+} from '../evolution/validation.js';
+import type { RuntimeEvolutionKind } from '../../contracts/runtime-evolution.js';
 import { Binding } from './binding.js';
 import { resolveConfig } from './config.js';
 import { readYaml } from './yaml.js';
 
 export interface RecipeLoadOptions {
   sourcePath?: string;
-  lockedLearning?: boolean;
+  lockedEvolution?: boolean;
   rootDirectory?: string;
   runtimeDirectory?: string;
   /** A locked Policy definition supplied by Runtime during recovery. */
@@ -76,12 +76,12 @@ export class Recipe {
   readonly budget: Readonly<Record<string, number>>;
   readonly memory: MemoryConfig | undefined;
   readonly reflection: ReflectionConfig | undefined;
-  readonly disabledLearning: readonly LearningKind[];
+  readonly disabledEvolution: readonly RuntimeEvolutionKind[];
 
-  private readonly learningDeclarations: JsonObject;
+  private readonly evolutionDeclarations: JsonObject;
 
   private constructor(options: {
-    learningDeclarations: JsonObject;
+    evolutionDeclarations: JsonObject;
     id: string;
     description?: string;
     sourcePath: string;
@@ -93,9 +93,9 @@ export class Recipe {
     budget: Record<string, number>;
     memory?: MemoryConfig;
     reflection?: ReflectionConfig;
-    disabledLearning: LearningKind[];
+    disabledEvolution: RuntimeEvolutionKind[];
   }) {
-    this.learningDeclarations = freezeSnapshot(options.learningDeclarations);
+    this.evolutionDeclarations = freezeSnapshot(options.evolutionDeclarations);
     this.id = options.id;
     this.description = options.description;
     this.sourcePath = options.sourcePath;
@@ -105,7 +105,7 @@ export class Recipe {
     this.policyInput = freezeSnapshot(options.policyInput);
     this.bindings = Object.freeze(options.bindings);
     this.budget = Object.freeze(options.budget);
-    this.disabledLearning = Object.freeze(options.disabledLearning);
+    this.disabledEvolution = Object.freeze(options.disabledEvolution);
     this.memory =
       options.memory && freezeSnapshot(structuredClone(options.memory));
     this.reflection =
@@ -217,39 +217,39 @@ export class Recipe {
     };
     const memory =
       options.memory ??
-      (options.lockedLearning
+      (options.lockedEvolution
         ? undefined
-        : await validateLearning('memory', {
+        : await validateRuntimeEvolution('memory', {
             ...source,
             override: data.memory,
             memoryEnabled: false,
           }));
     const reflection =
       options.reflection ??
-      (options.lockedLearning
+      (options.lockedEvolution
         ? undefined
-        : await validateLearning('reflection', {
+        : await validateRuntimeEvolution('reflection', {
             ...source,
             override: data.reflection,
             memoryEnabled: !!memory,
           }));
     const agentBinding = memory?.agentBinding ?? reflection?.agentBinding;
     if (agentBinding)
-      bindings[learningAgentBinding] = Binding.resolve({
-        name: learningAgentBinding,
+      bindings[evolutionAgentBinding] = Binding.resolve({
+        name: evolutionAgentBinding,
         required: registry.contract('contract.agent'),
         registry,
         override: { declaration: agentBinding, directory },
       });
-    const disabledLearning = (['memory', 'reflection'] as const).filter(
+    const disabledEvolution = (['memory', 'reflection'] as const).filter(
       (kind) => !(kind === 'memory' ? memory : reflection),
     );
-    const learningDeclarations: JsonObject = {};
+    const evolutionDeclarations: JsonObject = {};
     for (const kind of ['memory', 'reflection'] as const) {
-      if (data[kind] !== undefined) learningDeclarations[kind] = data[kind];
+      if (data[kind] !== undefined) evolutionDeclarations[kind] = data[kind];
     }
     return new Recipe({
-      learningDeclarations,
+      evolutionDeclarations,
       id: string(data.id, 'recipe.id'),
       ...(data.description === undefined
         ? {}
@@ -261,7 +261,7 @@ export class Recipe {
       policyInput,
       bindings,
       budget,
-      disabledLearning,
+      disabledEvolution,
       ...(memory === undefined ? {} : { memory }),
       ...(reflection === undefined ? {} : { reflection }),
     });
@@ -282,11 +282,11 @@ export class Recipe {
       },
       bindings: Object.fromEntries(
         Object.entries(this.bindings)
-          .filter(([name]) => name !== learningAgentBinding)
+          .filter(([name]) => name !== evolutionAgentBinding)
           .map(([name, binding]) => [name, { ...binding.toJSON() }]),
       ),
       budget: { ...this.budget },
-      ...structuredClone(this.learningDeclarations),
+      ...structuredClone(this.evolutionDeclarations),
     };
   }
 }

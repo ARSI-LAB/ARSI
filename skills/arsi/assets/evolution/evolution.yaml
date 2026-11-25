@@ -1,5 +1,5 @@
 schemaVersion: rsi.policy/v1
-id: policy.skill-learning
+id: policy.skill-evolution
 input_schema:
   type: object
   properties:

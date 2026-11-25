@@ -102,7 +102,7 @@ test('independent trigger counters survive a failure between Memory and Reflecti
   const write = manager.facts.write.bind(manager.facts);
   manager.facts.write = async (collection, id, value) => {
     if (
-      collection === 'learning-runs' &&
+      collection === 'evolution-runs' &&
       value.kind === 'reflection' &&
       value.status === 'started' &&
       order.includes('memory')
@@ -198,7 +198,7 @@ test('configured loop-end, after-step, experiment-end and loopless default selec
         JSON.stringify({ trigger, implementation: { ref: generator.id } }),
       );
       await f.run();
-      const runs = await f.manager.facts.list('learning-runs');
+      const runs = await f.manager.facts.list('evolution-runs');
       assert.deepEqual(runs.map((r) => r.triggerPath).sort(), expected);
       assert.ok(runs.every((r) => r.status === 'no-change'));
     });

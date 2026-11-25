@@ -8,7 +8,10 @@ export type AgentEditingConfig = {
   skills?: string[];
 };
 
-export type LearningAgentConfig = Omit<AgentEditingConfig, 'evidenceView'>;
+export type RuntimeEvolutionAgentConfig = Omit<
+  AgentEditingConfig,
+  'evidenceView'
+>;
 
 export const agentConfigSchema = {
   type: 'object',
@@ -34,8 +37,8 @@ export const agentConfigSchema = {
   additionalProperties: false,
 } satisfies JsonSchema;
 
-/** The learning coordinator selects the evidence view before the editor runs. */
-export function learningAgentConfigSchema(prompt: string): JsonSchema {
+/** The runtime evolution coordinator selects the evidence view before the editor runs. */
+export function runtimeEvolutionAgentConfigSchema(prompt: string): JsonSchema {
   const { agentRef, guidance, skills } = agentConfigSchema.properties;
   return {
     type: 'object',

@@ -1,6 +1,6 @@
 export interface RouteSelection {
   candidateCell?: string;
-  learning?: string;
+  evolution?: string;
   revision?: string;
   diffFile?: string;
   point?: string;
@@ -29,7 +29,7 @@ export interface RouteState extends RouteSelection {
 }
 const textKeys = [
   'candidateCell',
-  'learning',
+  'evolution',
   'revision',
   'diffFile',
   'point',

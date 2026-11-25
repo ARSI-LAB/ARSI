@@ -13,7 +13,7 @@ export function register(registry) {
     fileURLToPath(new URL('../reflection-policy.yaml', import.meta.url)),
   );
   registry.registerPolicy(
-    'policy.skill-learning',
-    fileURLToPath(new URL('../learning.yaml', import.meta.url)),
+    'policy.skill-evolution',
+    fileURLToPath(new URL('../evolution.yaml', import.meta.url)),
   );
 }

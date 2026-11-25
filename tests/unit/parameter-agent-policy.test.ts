@@ -15,7 +15,7 @@ import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { object } from '../../src/shared/json.js';
 
-test('policy.parameter-agent loads default learning resources with either Reflection switch value', async (t) => {
+test('policy.parameter-agent loads default evolution resources with either Reflection switch value', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-defaults-'));
   const registry = new Registry();
   t.after(async () => {

@@ -177,7 +177,7 @@ async function exerciseSharedPrompts(t: TestContext, linked: boolean) {
   t.after(() => fixture.dispose());
   const result = await fixture.run();
   assert.equal(result.status, 'succeeded');
-  const runs = await fixture.manager.facts.list('learning-runs');
+  const runs = await fixture.manager.facts.list('evolution-runs');
   assert.ok(
     runs.every((run) => run.status === 'activated'),
     JSON.stringify(runs.map((run) => run.reason)),

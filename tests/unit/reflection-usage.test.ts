@@ -204,7 +204,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
   const result = await manager.run(recipePath, { id: 'usage.experiment' });
   assert.equal(result.status, 'succeeded');
   assert.equal(
-    (await manager.facts.list('learning-runs'))[0]?.status,
+    (await manager.facts.list('evolution-runs'))[0]?.status,
     'activated',
   );
   assert.equal(generated, 1);
@@ -217,7 +217,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
   const calls = await manager.facts.list('calls');
   const proposerCall = calls.find((call) => call.bindingId === 'proposer');
   assert.ok(proposerCall);
-  const revisions = object(object(result.learning).revisionRefs);
+  const revisions = object(object(result.evolution).revisionRefs);
   assert.equal(proposerCall.revisionRef, revisions.proposer);
   const budgets: JsonObject = await manager.facts.read(
     'budgets',
@@ -421,7 +421,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
   });
   assert.equal(result.status, 'succeeded');
   assert.ok(
-    (await manager.facts.list('learning-runs')).some(
+    (await manager.facts.list('evolution-runs')).some(
       (run) => run.status === 'no-change',
     ),
   );

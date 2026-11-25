@@ -256,8 +256,8 @@ Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺�
 | Pareto 演化提案器                     | `maxRollouts`                                      | 初始评分、父候选与提案比较、种群选择消耗的任务 rollout 总额度，与评测调用次数预算分别计算。             | 必填，无默认值。                                                                  |
 | Optuna Proposer                       | `python.timeoutMs`                                 | 单次 Python worker 调用的时长上限，单位毫秒。                                                           | 无单次 worker 调用的独立时长上限。                                                |
 | Optuna Proposer                       | `maxSamplingAttempts`                              | 整个搜索的采样尝试次数上限，包含不进入评测的重复参数组合；评测次数另由 `policy.config.maxTrials` 限制。 | 不额外限制采样尝试次数。                                                          |
-| Memory 或 Reflection | `budget.modelCalls` | 单次学习调用的模型请求上限，0 阻止新模型请求。 | 无额外的模型调用次数上限。 |
-| Memory 或 Reflection | `budget.timeoutSeconds` | 单次学习调用的墙钟时间上限，单位秒。 | 无额外的时长上限。 |
+| Memory 或 Reflection | `budget.modelCalls` | 单次 Memory 或 Reflection 调用的模型请求上限，0 阻止新模型请求。 | 无额外的模型调用次数上限。 |
+| Memory 或 Reflection | `budget.timeoutSeconds` | 单次 Memory 或 Reflection 调用的墙钟时间上限，单位秒。 | 无额外的时长上限。 |
 | Memory 或 Reflection | `budget.evidenceBytes` | 单次证据投影的字节上限。 | 无额外的模块级字节上限。 |
 | Target                                | `entries[].content.maxBytes`                       | Target 条目内单个文件的内容大小上限，单位字节。                                                         | Target 不设置单文件大小上限。                                                     |
 | Target                                | `constraints.maxChangedFiles`                      | 一次候选提交最多允许修改的文件数。                                                                      | Target 不限制变更文件数。                                                         |

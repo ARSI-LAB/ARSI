@@ -6,7 +6,7 @@ Memory 通过带版本的 UTF-8 文本目录保存可复用经验。实验启动
 
 ## 配置 Memory
 
-Memory 默认启用。Policy 可设置 `defaults.memory`，Recipe 可通过 `memory` 覆盖。`false` 表示禁用，`true` 表示启用并沿用 Policy 配置或内置默认值，`{ configFile: ./memory.yaml }` 表示选择完整配置文件。Recipe 文件会替换 Policy 文件，省略字段取内置默认值。相对路径按声明该字段的文件解析。Parameter Grid 和 Optuna 默认关闭两种学习能力。
+Memory 默认启用。Policy 可设置 `defaults.memory`，Recipe 可通过 `memory` 覆盖。`false` 表示禁用，`true` 表示启用并沿用 Policy 配置或内置默认值，`{ configFile: ./memory.yaml }` 表示选择完整配置文件。Recipe 文件会替换 Policy 文件，省略字段取内置默认值。相对路径按声明该字段的文件解析。Parameter Grid 和 Optuna 默认关闭 Memory 和 Reflection。
 
 例如，WikiSkill Recipe 可通过 `memory: { configFile: ./wiki-memory.yaml }` 选择以下配置：
 

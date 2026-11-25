@@ -17,8 +17,8 @@ import {
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
-import { collectLearningEvidence } from '../../src/runtime/learning/evidence.js';
-import { resolveCoveringRoots } from '../../src/runtime/learning/resources.js';
+import { collectEvolutionEvidence } from '../../src/runtime/evolution/evidence.js';
+import { resolveCoveringRoots } from '../../src/runtime/evolution/resources.js';
 import { object, string } from '../../src/shared/json.js';
 import { createReflectionAgent } from '../../src/plugins/reflection-agent/service.js';
 
@@ -57,9 +57,9 @@ async function fixture(t: TestContext) {
   const collect = async (
     id: string,
     second: number,
-    extra: Partial<Parameters<typeof collectLearningEvidence>[0]> = {},
+    extra: Partial<Parameters<typeof collectEvolutionEvidence>[0]> = {},
   ) => {
-    const result = await collectLearningEvidence({
+    const result = await collectEvolutionEvidence({
       kind: 'reflection',
       context,
       observe: { bindings: ['proposer'] },
@@ -87,9 +87,9 @@ test('Reflection respects the supplied evidence byte limit and reports omitted c
   const { result, snapshot } = await f.collect('bounded', 2, { maxBytes: 256 });
   assert.deepEqual(result.callIds, ['large']);
   const content = string(
-    object(snapshot.files)['context/learning/calls/large.json'],
+    object(snapshot.files)['context/evolution/calls/large.json'],
   );
-  assert.match(content, /truncated: learning evidence byte limit/);
+  assert.match(content, /truncated: runtime evolution evidence byte limit/);
   assert.doesNotMatch(content, /END_OF_OBSERVATION/);
   assert.ok(Buffer.byteLength(content) < 512);
   assert.ok(
@@ -272,11 +272,13 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
   const { snapshot } = await f.collect('r1', 3);
   const files = object(snapshot.files);
   assert.match(
-    string(files['context/learning/calls/proposal-descendant-agent.json']),
+    string(files['context/evolution/calls/proposal-descendant-agent.json']),
     /actual agent task/,
   );
   const workspace = JSON.parse(
-    string(files['context/learning/calls/proposal-workspace-agent/index.json']),
+    string(
+      files['context/evolution/calls/proposal-workspace-agent/index.json'],
+    ),
   ) as JsonObject[];
   const instructions = workspace.find(
     (file) => file.sourcePath === 'AGENTS.md',
@@ -287,11 +289,11 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
     /Inspect the proposed changes/,
   );
   assert.match(
-    string(files['context/learning/calls/proposal-trace-agent.jsonl']),
+    string(files['context/evolution/calls/proposal-trace-agent.jsonl']),
     /read_file/,
   );
   assert.match(
-    string(files['context/learning/calls/proposal-patch.json']),
+    string(files['context/evolution/calls/proposal-patch.json']),
     /useful actual patch/,
   );
   const delivered = JSON.stringify(files);
@@ -314,7 +316,7 @@ test('Reflection step filters keep Memory receipts and binding filters can exclu
     ],
   });
   await f.call('memory', '_memory', 1, {
-    path: 'learning/learning-memory-update',
+    path: 'evolution/evolution-memory-update',
     output: { resourceRef: memoryRef },
   });
   await f.call('propose', 'proposer', 1, { path: 'steps/propose' });
@@ -339,11 +341,11 @@ test('Reflection step filters keep Memory receipts and binding filters can exclu
   assert.deepEqual(present.result.callIds, ['memory', 'propose']);
   const files = object(present.snapshot.files);
   assert.equal(
-    files['context/learning/calls/memory-memory/0.txt'],
+    files['context/evolution/calls/memory-memory/0.txt'],
     'retained reported experience',
   );
   assert.match(
-    string(files['context/learning/calls/memory-memory/index.json']),
+    string(files['context/evolution/calls/memory-memory/index.json']),
     /experience.md/,
   );
   const training = await f.collect('summary', 2, {
@@ -414,14 +416,14 @@ test('one latest direct-previous-version call per binding supplies readable vers
   assert.match(
     string(
       object(snapshot.files)[
-        'context/learning/versions/current-difference.patch'
+        'context/evolution/versions/current-difference.patch'
       ],
     ),
     /-before\n\+after/,
   );
   assert.equal(
     object(snapshot.files)[
-      'context/learning/versions/initial/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/initial/bindings/proposer/resources/guidance/rules.md'
     ],
     'before',
   );
@@ -631,9 +633,9 @@ test('a rejected trigger with failed evidence preparation still bounds the next 
     /Invalid Measurement evidence index/,
   );
   assert.deepEqual(await f.facts.list('evidence-views'), []);
-  await f.facts.write('learning-runs', 'rejected-trigger', {
+  await f.facts.write('evolution-runs', 'rejected-trigger', {
     kind: 'reflection',
-    learningId: 'rejected-trigger',
+    evolutionId: 'rejected-trigger',
     experimentId: 'experiment',
     policyScopeId: 'root',
     configDigest: 'module',
@@ -854,7 +856,7 @@ test('ASCII PDF delivery reaches the Reflection Agent as page previews through e
       const index = object(
         JSON.parse(
           await readFile(
-            join(directory, 'context/learning/index.json'),
+            join(directory, 'context/evolution/index.json'),
             'utf8',
           ),
         ),
@@ -962,18 +964,20 @@ test('an observed binding with no new current-version call exposes only its dire
   );
   const files = object(emptyWindow.snapshot.files);
   assert.match(
-    string(files['context/learning/versions/generated-final-difference.patch']),
+    string(
+      files['context/evolution/versions/generated-final-difference.patch'],
+    ),
     /-original rule\n\+revised rule/,
   );
   assert.equal(
     files[
-      'context/learning/versions/initial/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/initial/bindings/proposer/resources/guidance/rules.md'
     ],
     'original rule',
   );
   assert.equal(
     files[
-      'context/learning/versions/generated-final/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/generated-final/bindings/proposer/resources/guidance/rules.md'
     ],
     'revised rule',
   );
@@ -1064,14 +1068,14 @@ test('a joint revision comparison emits one patch restricted to observed resourc
   const files = object(parentAndChild.snapshot.files);
   assert.deepEqual(
     Object.keys(files).filter((p) => p.endsWith('-difference.patch')),
-    ['context/learning/versions/second-difference.patch'],
+    ['context/evolution/versions/second-difference.patch'],
   );
   assert.match(
-    string(files['context/learning/versions/second-difference.patch']),
+    string(files['context/evolution/versions/second-difference.patch']),
     /updated proposal/,
   );
   assert.match(
-    string(files['context/learning/versions/second-difference.patch']),
+    string(files['context/evolution/versions/second-difference.patch']),
     /updated summary/,
   );
   assert.doesNotMatch(
@@ -1084,7 +1088,7 @@ test('a joint revision comparison emits one patch restricted to observed resourc
   });
   const childFiles = object(childOnly.snapshot.files);
   assert.match(
-    string(childFiles['context/learning/versions/second-difference.patch']),
+    string(childFiles['context/evolution/versions/second-difference.patch']),
     /updated summary/,
   );
   assert.doesNotMatch(
@@ -1141,7 +1145,7 @@ test('Reflection reads the current retry conversation and its payloads', async (
   assert.match(
     string(
       object(snapshot.files)[
-        'context/learning/calls/proposal-trace-agent.jsonl'
+        'context/evolution/calls/proposal-trace-agent.jsonl'
       ],
     ),
     /CURRENT_RETRY_TAIL/,

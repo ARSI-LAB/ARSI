@@ -806,7 +806,7 @@ test('malformed reflective outputs fail before committing or evaluating a propos
 
 test('GEPA attaches custom Memory and Reflection from its Recipe and delivers the resulting Memory to the Proposer', async (t) => {
   const run = await runGepa({
-    learning: 'custom',
+    evolution: 'custom',
     seed: 11,
     maxRounds: 1,
     maxRollouts: 20,
@@ -826,7 +826,7 @@ test('GEPA attaches custom Memory and Reflection from its Recipe and delivers th
     run.manager.facts,
     run.manager.artifacts,
   );
-  const snapshots = await query.learning('gepa-runtime', 'memories');
+  const snapshots = await query.evolution('gepa-runtime', 'memories');
   const generated = snapshots.find((row) => row.kind === 'generated');
   assert.ok(generated);
   assert.equal(
@@ -851,9 +851,9 @@ test('GEPA attaches custom Memory and Reflection from its Recipe and delivers th
   );
 });
 
-test('default GEPA learning Agents receive only training evidence after held-out selection', async (t) => {
+test('default GEPA evolution Agents receive only training evidence after held-out selection', async (t) => {
   const run = await runGepa({
-    learning: 'policy-defaults',
+    evolution: 'policy-defaults',
     seed: 11,
     maxRounds: 1,
     maxRollouts: 20,
@@ -894,11 +894,12 @@ test('default GEPA learning Agents receive only training evidence after held-out
   );
   const lesson = string(memoryFiles['lesson.md']);
   for (const binding of ['_memory', '_reflection']) {
-    const learning = calls.find((call) => call.bindingId === binding);
-    assert.equal(learning?.status, 'succeeded');
+    const evolutionCall = calls.find((call) => call.bindingId === binding);
+    assert.equal(evolutionCall?.status, 'succeeded');
     const agent = calls.find(
       (call) =>
-        call.parentCallId === learning!.callId && call.bindingId === 'agent',
+        call.parentCallId === evolutionCall!.callId &&
+        call.bindingId === 'agent',
     );
     assert.equal(agent?.status, 'succeeded');
     const project = decodeTree(
@@ -909,13 +910,13 @@ test('default GEPA learning Agents receive only training evidence after held-out
       ),
     );
     const evidence = Object.entries(project)
-      .filter(([path]) => path.startsWith('context/learning/'))
+      .filter(([path]) => path.startsWith('context/evolution/'))
       .map(([, content]) => content)
       .join('\n');
     assert.match(evidence, /train-example/);
     assert.doesNotMatch(evidence, /held-out-example/);
     if (binding === '_reflection') {
-      const receiptPath = `context/learning/calls/${memory.callId}.json`;
+      const receiptPath = `context/evolution/calls/${memory.callId}.json`;
       assert.ok(
         Object.hasOwn(project, receiptPath),
         'Reflection receives the Memory update receipt',

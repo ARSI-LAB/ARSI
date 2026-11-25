@@ -1,5 +1,5 @@
 import { ObservationQueries } from '../../runtime/services/observation.js';
-import { registerLearningRoutes } from './learning.js';
+import { registerEvolutionRoutes } from './evolution.js';
 import { registerObservationRoutes } from './observation.js';
 import { errorText } from '../../shared/errors.js';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -87,7 +87,7 @@ export async function createServer(
       : undefined,
   );
   registerObservationRoutes(app, queries);
-  registerLearningRoutes(app, runtime.manager, queries, publicReadOnly);
+  registerEvolutionRoutes(app, runtime.manager, queries, publicReadOnly);
   app.get('/api/catalog', async () => runtime.registry.catalog());
   app.get('/api/experiments', async () => {
     const entries = await runtime.manager.list();

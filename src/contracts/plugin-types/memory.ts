@@ -6,7 +6,7 @@ export type MemoryInput = {
   resourceRef: string | null;
   parentVersionRef: string | null;
   goal: string;
-  /** References to Runtime-prepared learning evidence snapshots. */
+  /** References to Runtime-prepared runtime evolution evidence snapshots. */
   evidenceRefs: string[];
   editConstraints: JsonObject;
 };

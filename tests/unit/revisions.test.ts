@@ -28,12 +28,12 @@ import {
 import {
   reflect,
   type ReflectionOptions,
-} from '../../src/runtime/learning/reflection.js';
-import { RevisionApplication } from '../../src/runtime/learning/application.js';
+} from '../../src/runtime/evolution/reflection.js';
+import { RevisionApplication } from '../../src/runtime/evolution/application.js';
 import {
   assignPointer,
   pointerValue,
-} from '../../src/runtime/learning/resources.js';
+} from '../../src/runtime/evolution/resources.js';
 import { object, string } from '../../src/shared/json.js';
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(await realpath(tmpdir()), 'rsi-revisions-'));
@@ -598,13 +598,13 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
     ...f.options,
     invoke: async (_binding, input, _key, scope) => {
       generations++;
-      prepared = await f.facts.read('learning-runs', scope.id);
+      prepared = await f.facts.read('evolution-runs', scope.id);
       return f.proposed(input, {
         'resources/a/guidance/rules.md': 'saved rule',
       });
     },
     save: async (changes, revisions, id, head) => {
-      validated = await f.facts.read('learning-runs', id);
+      validated = await f.facts.read('evolution-runs', id);
       if (fail) throw new Error('preparation failed');
       await f.options.save(changes, revisions, id, head);
     },
@@ -614,7 +614,7 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
   assert.equal(validated.status, 'validated');
   assert.deepEqual(f.options.revisionRefs, validated.parents);
   assert.equal(f.bindings.a!.config.guidance, join(f.root, 'a'));
-  await f.facts.write('learning-runs', rejected.learningId, validated);
+  await f.facts.write('evolution-runs', rejected.evolutionId, validated);
   fail = false;
   const recovered = await reflect({
     ...options,
@@ -637,7 +637,7 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
   assert.equal(descendant.status, 'activated');
   const activeBindings = structuredClone(f.bindings);
   const activeRefs = f.options.revisionRefs;
-  await f.facts.write('learning-runs', recovered.learningId, validated);
+  await f.facts.write('evolution-runs', recovered.evolutionId, validated);
   assert.equal(
     (await reflect({ ...options, revisionRefs: {} })).status,
     'activated',
@@ -698,7 +698,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
   assert.equal(shown.reason, 'bounded improvement');
   assert.equal(shown.generationPolicyScopeId, 'child-scope');
   assert.equal(
-    (await f.facts.read('learning-runs', second.learningId)).reason,
+    (await f.facts.read('evolution-runs', second.evolutionId)).reason,
     'bounded improvement',
   );
   await application.apply(string(second.revisionRefs.a));
@@ -778,12 +778,15 @@ for (const corruption of ['record status', 'result status'] as const) {
   test(`Reflection rejects an unknown persisted ${corruption} before generation`, async (t) => {
     const f = await fixture(t);
     const result = await reflect(f.options);
-    const saved = await f.facts.read('learning-runs', result.learningId);
+    const saved = await f.facts.read('evolution-runs', result.evolutionId);
     if (corruption === 'record status') saved.status = 'unexpected-status';
     else object(saved.result).status = 'unexpected-status';
-    await f.facts.write('learning-runs', result.learningId, saved);
+    await f.facts.write('evolution-runs', result.evolutionId, saved);
     const before = f.generations();
-    await assert.rejects(reflect(f.options), /Learning.*status.*unsupported/i);
+    await assert.rejects(
+      reflect(f.options),
+      /Runtime evolution.*status.*unsupported/i,
+    );
     assert.equal(f.generations(), before);
   });
 }
@@ -791,28 +794,37 @@ for (const corruption of ['record status', 'result status'] as const) {
 test('Reflection rejects a terminal result that disagrees with its saved status', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('learning-runs', result.learningId);
+  const saved = await f.facts.read('evolution-runs', result.evolutionId);
   saved.status = 'rejected';
   object(saved.result).status = 'activated';
-  await f.facts.write('learning-runs', result.learningId, saved);
-  await assert.rejects(reflect(f.options), /Learning.*status.*mismatch/);
+  await f.facts.write('evolution-runs', result.evolutionId, saved);
+  await assert.rejects(
+    reflect(f.options),
+    /Runtime evolution.*status.*mismatch/,
+  );
 });
 
 test('Reflection rejects restored result revision references that are not strings', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('learning-runs', result.learningId);
+  const saved = await f.facts.read('evolution-runs', result.evolutionId);
   object(saved.result).revisionRefs = { worker: 42 };
-  await f.facts.write('learning-runs', result.learningId, saved);
-  await assert.rejects(reflect(f.options), /Learning result.*must be string/);
+  await f.facts.write('evolution-runs', result.evolutionId, saved);
+  await assert.rejects(
+    reflect(f.options),
+    /Runtime evolution result.*must be string/,
+  );
   assert.equal(f.generations(), 0);
 });
 
 test('Reflection rejects a restored result with the wrong invocation identity', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('learning-runs', result.learningId);
-  object(saved.result).learningId = 'another-reflection';
-  await f.facts.write('learning-runs', result.learningId, saved);
-  await assert.rejects(reflect(f.options), /Learning result identity mismatch/);
+  const saved = await f.facts.read('evolution-runs', result.evolutionId);
+  object(saved.result).evolutionId = 'another-reflection';
+  await f.facts.write('evolution-runs', result.evolutionId, saved);
+  await assert.rejects(
+    reflect(f.options),
+    /Runtime evolution result identity mismatch/,
+  );
 });

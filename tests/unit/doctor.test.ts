@@ -1344,7 +1344,7 @@ test('CLI doctor emits one JSON diagnostic with --json and reports usage separat
   }
 });
 
-test('disabled learning modules report their status without accessing unused resources', async (t) => {
+test('disabled evolution modules report their status without accessing unused resources', async (t) => {
   const f = await fixture();
   t.after(() => f.dispose());
   const data = object(JSON.parse(await readFile(f.path, 'utf8')));

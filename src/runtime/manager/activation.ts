@@ -1,6 +1,6 @@
 import { getLogger } from '@logtape/logtape';
 import { persistFact } from '../storage/persistence-error.js';
-import { parseActiveMemory, type ActiveMemory } from '../learning/memory.js';
+import { parseActiveMemory, type ActiveMemory } from '../evolution/memory.js';
 import type {
   Binding,
   EventPipeline,
@@ -23,7 +23,7 @@ interface Activation {
   bindings: Record<string, Binding>;
   revisions: JsonObject;
 }
-interface LearningActivationOptions {
+interface RuntimeEvolutionActivationOptions {
   id: string;
   bindings: Record<string, Binding>;
   facts: FactStore;
@@ -57,7 +57,7 @@ function parseActivation(value: JsonObject): Activation {
 }
 
 /** Saves the replacement set before switching live instances and retiring prior owners. */
-export class LearningActivation {
+export class RuntimeEvolutionActivation {
   private readonly bindingState: Record<string, Binding>;
   private readonly revisionState: JsonObject = {};
   private reflectionHead: string | null = null;
@@ -65,7 +65,7 @@ export class LearningActivation {
   private memoryState: ActiveMemory | null = null;
   private writes: Promise<void> = Promise.resolve();
 
-  constructor(private readonly options: LearningActivationOptions) {
+  constructor(private readonly options: RuntimeEvolutionActivationOptions) {
     this.bindingState = structuredClone(options.bindings);
   }
 

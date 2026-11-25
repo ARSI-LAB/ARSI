@@ -31,12 +31,12 @@ test('memory receives authorized training evidence, persists Wiki and releases i
   try {
     const prompt = join(root, 'prompt.md');
     await writeFile(prompt, 'Record observed training feedback.');
-    const sourcePath = 'context/learning/training-summary.json';
+    const sourcePath = 'context/evolution/training-summary.json';
     const summary = JSON.stringify({ measurements: [] });
     const facts = new FileFacts(join(root, 'facts'));
     await facts.write('evidence-views', 'window', {
       experimentId: 'experiment',
-      view: 'learning-observations/v1',
+      view: 'evolution-observations/v1',
       moduleKind: 'memory',
       evidenceView: 'training-summary',
       index: { calls: ['training'] },
@@ -62,7 +62,7 @@ test('memory receives authorized training evidence, persists Wiki and releases i
         const supplied = object(
           JSON.parse(await readFile(join(cwd, 'context/input.json'), 'utf8')),
         );
-        assert.equal(supplied.evidenceIndex, 'context/learning/index.json');
+        assert.equal(supplied.evidenceIndex, 'context/evolution/index.json');
         assert.equal(supplied.evidenceView, 'training-summary');
         assert.equal(await readFile(join(cwd, sourcePath), 'utf8'), summary);
         calls++;

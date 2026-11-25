@@ -27,7 +27,7 @@ flowchart TD
     C -- 是 --> E["加载并校验 Recipe<br/>合并生效配置"]
     E --> F{"校验成功？"}
     F -- 否 --> G["记录 recipe.validate 失败"]
-    F -- 是 --> H["准备隔离临时 Runtime<br/>遍历 Application、绑定和学习模块"]
+    F -- 是 --> H["准备隔离临时 Runtime<br/>遍历 Application、绑定和运行时演进模块"]
     H --> I["检查已声明的路径和绑定引用"]
     I --> J{"声明的路径和绑定引用均有效？"}
     J -- 是 --> K["创建绑定实例，调用其可选的 rsi/doctor"]
@@ -47,7 +47,7 @@ flowchart TD
 2. **加载生效 Recipe。** `Recipe.load` 校验 Schema、绑定、契约兼容性、Policy 编译、预算和已启用的 Memory 和 Reflection 资源。
    - 探测使用合并 Policy 默认配置与 Recipe 覆盖后的配置。
    - 加载失败时输出失败诊断，不再执行组件探测。
-3. **检查已声明的前提。** 对 Application、每个生效绑定及每个已启用的学习模块，检查 Schema 中用 `x-rsi-path` 标记的本地文件或目录是否存在、类型是否正确、是否可读，并检查用 `x-rsi-binding` 标记的字段是否指向实现了指定契约的 Recipe 绑定。
+3. **检查已声明的前提。** 对 Application、每个生效绑定及每个已启用的运行时演进模块，检查 Schema 中用 `x-rsi-path` 标记的本地文件或目录是否存在、类型是否正确、是否可读，并检查用 `x-rsi-binding` 标记的字段是否指向实现了指定契约的 Recipe 绑定。
 4. **执行组件检查。** 若声明的路径或绑定引用检查失败，doctor 报告该失败，然后继续检查下一个绑定。上述前提通过时，doctor 会创建临时实例，等待其可选的 `rsi/doctor` 回调和 `dispose()`。初始化失败会记录该绑定的错误，其他绑定继续检查。实例未订阅时，该绑定的 `plugin` 检查记为 `unchecked`。
 5. **清理并输出。** RSI 检查使用隔离临时存储，传递取消信号，释放自己创建的实例与进程，并删除临时文件。原有 artifacts 可作为输入读取，RSI 产生的捕获与写入留在临时 Runtime 内。
 
@@ -108,7 +108,7 @@ arsi doctor my-experiment/recipe.yaml --json
 
 ### Proposer、Memory、Reflection 与 Selector
 
-Doctor 检查已启用的学习配置、显式指定的 Memory 源目录和选用的 Agent。未指定 Agent 绑定时会检查合成的内置 `agent.pi` 配置。禁用模块跳过资源加载。
+Doctor 检查已启用的运行时演进模块配置、显式指定的 Memory 源目录和选用的 Agent。未指定 Agent 绑定时会检查为内置 `agent.pi` 插件合成的 `_evolutionAgent` 绑定。禁用模块跳过资源加载。
 
 | 实现                        | 实际检查                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |

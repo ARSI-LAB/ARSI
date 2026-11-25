@@ -13,11 +13,11 @@ import {
   freezeSnapshot,
 } from '../../shared/json.js';
 import { validate, validateSchemaDefinition } from '../../shared/schema.js';
-import { learningDeclarationSchema } from '../../contracts/learning.js';
+import { runtimeEvolutionDeclarationSchema } from '../../contracts/runtime-evolution.js';
 import { compileFlow } from '../compiler/flow.js';
 import { readPolicyDocument } from '../compiler/document.js';
 import { runPolicy, type PolicyExecutionOptions } from './executor.js';
-import type { FlowIndex } from '../learning/trigger.js';
+import type { FlowIndex } from '../evolution/trigger.js';
 import {
   parseSteps,
   safeIdentifier,
@@ -167,7 +167,7 @@ export class Policy {
     for (const kind of ['memory', 'reflection'] as const)
       if (this.defaults[kind] !== undefined)
         validate(
-          learningDeclarationSchema,
+          runtimeEvolutionDeclarationSchema,
           this.defaults[kind],
           `defaults.${kind}`,
         );
@@ -215,7 +215,7 @@ export class Policy {
     });
   }
 
-  /** Resolve learning resources relative to the YAML file that supplied each field, including local refs. */
+  /** Resolve runtime evolution resources relative to the YAML file that supplied each field, including local refs. */
   resourceDirectory(pointer: string): string {
     return this.resourceDirectories.get(pointer) ?? this.directory;
   }

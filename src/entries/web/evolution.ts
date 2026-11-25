@@ -4,7 +4,7 @@ import type { Manager } from '../../runtime/manager/index.js';
 import type { ObservationQueries } from '../../runtime/services/observation.js';
 
 /** Verify experiment ownership before exposing a snapshot or mutating its destination. */
-export function registerLearningRoutes(
+export function registerEvolutionRoutes(
   app: FastifyInstance,
   manager: Pick<Manager, 'reflection' | 'memory'>,
   queries: ObservationQueries,
@@ -44,7 +44,7 @@ export function registerLearningRoutes(
     app.get<{ Params: { id: string } }>(
       `/api/observation/experiments/:id/${kind}`,
       { schema: { params } },
-      (request) => queries.learning(request.params.id, kind),
+      (request) => queries.evolution(request.params.id, kind),
     );
     const service = kind === 'memories' ? 'memory' : 'reflection';
     const assertOwnership = ({ id, ref }: Params) =>

@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import type { LearningAgentConfig } from './schema.js';
+import type { RuntimeEvolutionAgentConfig } from './schema.js';
 import type {
   OperationDefinition,
   ReflectionInput,
@@ -7,7 +7,7 @@ import type {
 } from '../../contracts/index.js';
 import { string } from '../../shared/json.js';
 import { editResource } from '../shared/agent-editing/index.js';
-import { learningContext } from '../shared/agent-editing/learning-context.js';
+import { evolutionContext } from '../shared/agent-editing/evolution-context.js';
 import { checkReflectionAgent } from './doctor.js';
 
 export const reflectionReviewer = {
@@ -20,7 +20,7 @@ export const reflectionReviewer = {
 export const createReflectionAgent: OperationDefinition<
   ReflectionInput,
   ReflectionOutput,
-  LearningAgentConfig
+  RuntimeEvolutionAgentConfig
 >['create'] = async (config, ctx) => {
   ctx.event?.on('rsi/doctor', checkReflectionAgent);
   return {
@@ -30,7 +30,7 @@ export const createReflectionAgent: OperationDefinition<
         input,
         input.resourceRef,
         context,
-        await learningContext('reflection', input.evidenceRefs, context),
+        await evolutionContext('reflection', input.evidenceRefs, context),
         [reflectionReviewer],
       );
       if (updated.changeRef !== null)

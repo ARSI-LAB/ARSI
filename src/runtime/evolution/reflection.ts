@@ -10,7 +10,7 @@ import {
 import { canonical, digest, object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { persistFact } from '../storage/persistence-error.js';
-import type { LearningResult } from './records.js';
+import type { RuntimeEvolutionResult } from './records.js';
 import {
   assignPointer,
   memberPath,
@@ -24,9 +24,9 @@ import {
 } from './resources.js';
 import {
   optionalFact,
-  runLearningCycle,
+  runEvolutionCycle,
   type CycleOptions,
-  type LearningCycle,
+  type EvolutionCycle,
 } from './runner.js';
 import type { ReflectionConfig } from './validation.js';
 
@@ -222,8 +222,8 @@ function parentsMatch(options: ReflectionOptions, record: JsonObject): boolean {
 
 export async function reflect(
   options: ReflectionOptions,
-): Promise<LearningResult> {
-  return runLearningCycle(options, 'reflection', {
+): Promise<RuntimeEvolutionResult> {
+  return runEvolutionCycle(options, 'reflection', {
     includes: (record) => activationIncludes(options, record),
     parentsMatch: (record) => parentsMatch(options, record),
     execute: (cycle) => reviseResources(options, cycle),
@@ -322,8 +322,8 @@ async function materializeRevision(
 
 async function reviseResources(
   options: ReflectionOptions,
-  cycle: LearningCycle,
-): Promise<LearningResult> {
+  cycle: EvolutionCycle,
+): Promise<RuntimeEvolutionResult> {
   const { prior, identity, assertScope, save, finish } = cycle;
   if (prior?.status === 'validated') {
     if (!(await activationIncludes(options, prior))) {
@@ -436,7 +436,7 @@ async function reviseResources(
   );
   if (!changedBindings.length) return finish('no-change', { parents, reason });
   const revision =
-    'revision-' + digest({ parentRef, after, learningId: identity });
+    'revision-' + digest({ parentRef, after, evolutionId: identity });
   const permanent = await materializeRevision(options, revision, after, roots);
   const changes: Record<string, Binding> = {};
   for (const key of changedBindings) {
@@ -473,7 +473,7 @@ async function reviseResources(
     changedBindings,
     sourceRoots: roots,
     resourceRef: after,
-    learningId: identity,
+    evolutionId: identity,
     reason: generationReason,
     status: 'validated',
   });

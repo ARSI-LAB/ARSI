@@ -15,8 +15,8 @@ import type {
 import { errorText, redactConfiguration } from '../../shared/errors.js';
 import { json, object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { acquireResourceGate } from '../learning/exclusion.js';
-import { learningAgentBinding } from '../learning/validation.js';
+import { acquireResourceGate } from '../evolution/exclusion.js';
+import { evolutionAgentBinding } from '../evolution/validation.js';
 import type { Registry } from '../registry/index.js';
 import type { ManagedEvents } from '../services/events.js';
 import { safeId } from '../storage/index.js';
@@ -465,7 +465,7 @@ async function readCleanupBindings({
         const module = object(definition[kind]);
         addBinding('_' + kind, module);
         if (module.agentBinding)
-          addBinding(learningAgentBinding, module.agentBinding);
+          addBinding(evolutionAgentBinding, module.agentBinding);
       }
     } else if (definition.reflection) {
       // Earlier locks kept the Reflection plugin under implementation.ref.

@@ -39,57 +39,59 @@ const inProgressStatuses = [
   'validated',
 ] as const;
 const statuses = [...inProgressStatuses, ...terminalStatuses] as const;
-export type LearningTerminalStatus = (typeof terminalStatuses)[number];
-export type LearningStatus = (typeof statuses)[number];
-export interface LearningResult extends JsonObject {
-  learningId: string;
-  status: LearningTerminalStatus;
+export type RuntimeEvolutionTerminalStatus = (typeof terminalStatuses)[number];
+export type RuntimeEvolutionStatus = (typeof statuses)[number];
+export interface RuntimeEvolutionResult extends JsonObject {
+  evolutionId: string;
+  status: RuntimeEvolutionTerminalStatus;
   reason: string;
   revisionRefs: Record<string, string>;
   memoryRef: string | null;
 }
-export const learningResultSchema: JsonSchema = {
+export const runtimeEvolutionResultSchema: JsonSchema = {
   type: 'object',
   properties: {
-    learningId: { type: 'string' },
+    evolutionId: { type: 'string' },
     status: { enum: [...terminalStatuses] },
     reason: { type: 'string' },
     memoryRef: { type: ['string', 'null'] },
     revisionRefs: { type: 'object', additionalProperties: { type: 'string' } },
   },
-  required: ['learningId', 'status', 'reason', 'revisionRefs', 'memoryRef'],
+  required: ['evolutionId', 'status', 'reason', 'revisionRefs', 'memoryRef'],
   additionalProperties: false,
 };
-export interface LearningRecord extends JsonObject {
-  status: LearningStatus;
+export interface RuntimeEvolutionRecord extends JsonObject {
+  status: RuntimeEvolutionStatus;
 }
-export function isLearningInProgress(status: unknown): boolean {
+export function isEvolutionInProgress(status: unknown): boolean {
   return inProgressStatuses.some((step) => step === status);
 }
 export function isTerminal(
-  status: LearningStatus,
-): status is LearningTerminalStatus {
+  status: RuntimeEvolutionStatus,
+): status is RuntimeEvolutionTerminalStatus {
   return terminalStatuses.some((terminal) => terminal === status);
 }
-export function readLearningStatus(value: unknown): LearningStatus {
+export function readEvolutionStatus(value: unknown): RuntimeEvolutionStatus {
   const status = statuses.find((status) => status === value);
   if (status !== undefined) return status;
-  throw new Error(`Learning status is unsupported: ${String(value)}`);
+  throw new Error(`Runtime evolution status is unsupported: ${String(value)}`);
 }
-export function readLearningRecord(value: JsonObject): LearningRecord {
-  return { ...value, status: readLearningStatus(value.status) };
+export function readEvolutionRecord(value: JsonObject): RuntimeEvolutionRecord {
+  return { ...value, status: readEvolutionStatus(value.status) };
 }
-export function readLearningResult(
+export function readEvolutionResult(
   value: unknown,
   identity?: string,
-): LearningResult {
-  const raw = object(value, 'Learning result');
-  const status = readLearningStatus(raw.status);
+): RuntimeEvolutionResult {
+  const raw = object(value, 'Runtime evolution result');
+  const status = readEvolutionStatus(raw.status);
   if (!isTerminal(status))
-    throw new Error(`Learning result status is unsupported: ${status}`);
-  validate(learningResultSchema, raw, 'Learning result');
-  if (identity !== undefined && raw.learningId !== identity)
-    throw new Error('Learning result identity mismatch');
+    throw new Error(
+      `Runtime evolution result status is unsupported: ${status}`,
+    );
+  validate(runtimeEvolutionResultSchema, raw, 'Runtime evolution result');
+  if (identity !== undefined && raw.evolutionId !== identity)
+    throw new Error('Runtime evolution result identity mismatch');
   // The result Schema above owns this protocol/type pairing.
-  return raw as LearningResult;
+  return raw as RuntimeEvolutionResult;
 }

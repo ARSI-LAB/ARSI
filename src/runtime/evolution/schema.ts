@@ -1,13 +1,13 @@
 import type { JsonObject, JsonValue } from '../../contracts/json.js';
 import {
-  learningNames,
-  learningTriggerSchema,
-  type LearningKind,
-  type LearningTrigger,
-} from '../../contracts/learning.js';
+  runtimeEvolutionNames,
+  runtimeEvolutionTriggerSchema,
+  type RuntimeEvolutionKind,
+  type RuntimeEvolutionTrigger,
+} from '../../contracts/runtime-evolution.js';
 import { validate } from '../../shared/schema.js';
 
-export type LearningObserve = {
+export type RuntimeEvolutionObserve = {
   bindings?: string[];
   excludeBindings?: string[];
   steps?: string[];
@@ -15,15 +15,15 @@ export type LearningObserve = {
   includeBaseline?: boolean;
   includeCandidateDiffs?: boolean;
 };
-type LearningConfig = {
+type RuntimeEvolutionConfig = {
   digest: string;
   goal: string;
   goalFile: string;
   plugin: string;
   config: JsonObject;
   agentBinding?: { plugin: string; config: JsonObject };
-  observe: LearningObserve;
-  trigger: LearningTrigger;
+  observe: RuntimeEvolutionObserve;
+  trigger: RuntimeEvolutionTrigger;
   evidenceView: 'execution' | 'training-summary';
   budget: {
     modelCalls?: number;
@@ -31,12 +31,12 @@ type LearningConfig = {
     evidenceBytes?: number;
   };
 };
-export type MemoryConfig = LearningConfig & {
+export type MemoryConfig = RuntimeEvolutionConfig & {
   consumers: string[];
   seed?: { directory: string };
   seedArtifactRef?: string;
 };
-export type ReflectionConfig = LearningConfig & {
+export type ReflectionConfig = RuntimeEvolutionConfig & {
   targets: Record<string, { resources: string[] }>;
 };
 const text = { type: 'string', minLength: 1 };
@@ -47,7 +47,7 @@ export function parseLockedConfig(
   raw: JsonValue,
 ): ReflectionConfig;
 export function parseLockedConfig(
-  kind: LearningKind,
+  kind: RuntimeEvolutionKind,
   raw: JsonValue,
 ): MemoryConfig | ReflectionConfig {
   validate(
@@ -81,15 +81,18 @@ export function parseLockedConfig(
           required: ['plugin', 'config'],
           additionalProperties: false,
         },
-        trigger: { ...learningTriggerSchema, required: ['on', 'every'] },
+        trigger: {
+          ...runtimeEvolutionTriggerSchema,
+          required: ['on', 'every'],
+        },
         observe: {
           type: 'object',
           additionalProperties: false,
           properties: {
-            bindings: learningNames,
-            excludeBindings: learningNames,
-            steps: learningNames,
-            excludeSteps: learningNames,
+            bindings: runtimeEvolutionNames,
+            excludeBindings: runtimeEvolutionNames,
+            steps: runtimeEvolutionNames,
+            excludeSteps: runtimeEvolutionNames,
             includeCandidateDiffs: { type: 'boolean' },
             includeBaseline: { type: 'boolean' },
           },
@@ -106,7 +109,7 @@ export function parseLockedConfig(
         },
         ...(kind === 'memory'
           ? {
-              consumers: learningNames,
+              consumers: runtimeEvolutionNames,
               seed: {
                 type: 'object',
                 properties: { directory: text },
@@ -120,7 +123,7 @@ export function parseLockedConfig(
                 type: 'object',
                 additionalProperties: {
                   type: 'object',
-                  properties: { resources: learningNames },
+                  properties: { resources: runtimeEvolutionNames },
                   required: ['resources'],
                   additionalProperties: false,
                 },

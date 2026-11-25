@@ -10,14 +10,17 @@ import type {
 } from '../../contracts/index.js';
 import { digest, string } from '../../shared/json.js';
 import { errorText } from '../../shared/errors.js';
-import { collectLearningEvidence, type LearningEvidence } from './evidence.js';
+import {
+  collectEvolutionEvidence,
+  type EvolutionEvidence,
+} from './evidence.js';
 import {
   isTerminal,
-  readLearningRecord,
-  readLearningResult,
-  type LearningResult,
-  type LearningStatus,
-  type LearningTerminalStatus,
+  readEvolutionRecord,
+  readEvolutionResult,
+  type RuntimeEvolutionResult,
+  type RuntimeEvolutionStatus,
+  type RuntimeEvolutionTerminalStatus,
 } from './records.js';
 import type { MemoryConfig, ReflectionConfig } from './validation.js';
 
@@ -56,48 +59,48 @@ export async function optionalFact(
     throw error;
   }
 }
-export interface LearningCycle {
+export interface EvolutionCycle {
   identity: string;
   prior: JsonObject | null;
   assertScope(): void;
-  save(status: LearningStatus, data?: JsonObject): Promise<void>;
+  save(status: RuntimeEvolutionStatus, data?: JsonObject): Promise<void>;
   finish(
-    status: LearningTerminalStatus,
+    status: RuntimeEvolutionTerminalStatus,
     data?: JsonObject,
-  ): Promise<LearningResult>;
-  evidence(): Promise<LearningEvidence>;
+  ): Promise<RuntimeEvolutionResult>;
+  evidence(): Promise<EvolutionEvidence>;
   invoke(input: JsonObject): Promise<JsonValue>;
 }
-interface LearningHandler {
+interface EvolutionHandler {
   includes(record: JsonObject): Promise<boolean>;
   parentsMatch(record: JsonObject): boolean;
-  execute(cycle: LearningCycle): Promise<LearningResult>;
+  execute(cycle: EvolutionCycle): Promise<RuntimeEvolutionResult>;
 }
 /** Own the durable invocation boundary. Only a validated proposal may publish an activation. */
-export async function runLearningCycle(
+export async function runEvolutionCycle(
   options: CycleOptions,
   kind: 'memory' | 'reflection',
-  handler: LearningHandler,
-): Promise<LearningResult> {
+  handler: EvolutionHandler,
+): Promise<RuntimeEvolutionResult> {
   const { context, config, invocation } = options;
   context.signal.throwIfAborted();
   const { experimentId, facts } = context;
   const attempts = options.priorAttempts ?? [];
   for (const raw of attempts) {
-    const record = readLearningRecord(raw);
+    const record = readEvolutionRecord(raw);
     if (
       record.kind !== kind ||
       record.experimentId !== experimentId ||
       record.stepPath !== invocation.stepPath
     )
-      throw new Error('Learning checkpoint ownership mismatch');
+      throw new Error('Runtime evolution checkpoint ownership mismatch');
     if (isTerminal(record.status)) {
-      const result = readLearningResult(
+      const result = readEvolutionResult(
         record.result,
-        string(record.learningId),
+        string(record.evolutionId),
       );
       if (result.status !== record.status)
-        throw new Error('Learning result status mismatch');
+        throw new Error('Runtime evolution result status mismatch');
       return result;
     }
   }
@@ -117,12 +120,12 @@ export async function runLearningCycle(
     break;
   }
   const identity = replay
-    ? string(replay.learningId)
-    : 'learning-' + kind + '-' + digest({ experimentId, kind, ...invocation });
-  const prior = await optionalFact(facts, 'learning-runs', identity);
+    ? string(replay.evolutionId)
+    : 'evolution-' + kind + '-' + digest({ experimentId, kind, ...invocation });
+  const prior = await optionalFact(facts, 'evolution-runs', identity);
   const startedAt = prior ? string(prior.startedAt) : new Date().toISOString();
   if (prior) {
-    const record = readLearningRecord(prior);
+    const record = readEvolutionRecord(prior);
     if (
       record.kind !== kind ||
       record.experimentId !== experimentId ||
@@ -131,17 +134,17 @@ export async function runLearningCycle(
         !(record.status === 'validated' && (await handler.includes(record))))
     )
       throw new Error(
-        'Learning configuration or checkpoint is incompatible with this invocation',
+        'Runtime evolution configuration or checkpoint is incompatible with this invocation',
       );
     if (isTerminal(record.status)) {
-      const result = readLearningResult(record.result, identity);
+      const result = readEvolutionResult(record.result, identity);
       if (result.status !== record.status)
-        throw new Error('Learning result status mismatch');
+        throw new Error('Runtime evolution result status mismatch');
       return result;
     }
   }
   let persisted: JsonObject = prior ?? {
-    learningId: identity,
+    evolutionId: identity,
     kind,
     experimentId,
     startedAt,
@@ -150,14 +153,14 @@ export async function runLearningCycle(
     triggerPath: invocation.triggerPath,
     configDigest: config.digest,
   };
-  const save: LearningCycle['save'] = async (status, data = {}) => {
+  const save: EvolutionCycle['save'] = async (status, data = {}) => {
     const next = { ...persisted, ...data, status };
-    await persistFact(facts, 'learning-runs', identity, next);
+    await persistFact(facts, 'evolution-runs', identity, next);
     persisted = next;
   };
-  const finish: LearningCycle['finish'] = async (status, data = {}) => {
-    const result = readLearningResult({
-      learningId: identity,
+  const finish: EvolutionCycle['finish'] = async (status, data = {}) => {
+    const result = readEvolutionResult({
+      evolutionId: identity,
       status,
       reason: data.error ?? data.reason ?? status,
       revisionRefs: status === 'activated' ? (data.revisions ?? {}) : {},
@@ -168,7 +171,7 @@ export async function runLearningCycle(
   };
   const elapsed = Date.now() - Date.parse(startedAt);
   if (!Number.isFinite(elapsed))
-    throw new Error('Invalid persisted learning start time');
+    throw new Error('Invalid persisted runtime evolution start time');
   const wall = config.budget.elapsedWallMs;
   const timeout =
     wall === undefined
@@ -191,10 +194,10 @@ export async function runLearningCycle(
   const assertScope = (): void => {
     context.signal.throwIfAborted();
     if (wall !== undefined && Date.now() - Date.parse(startedAt) >= wall)
-      throw new Error('Learning local wall budget exhausted');
+      throw new Error('Runtime evolution local wall budget exhausted');
     scope.signal.throwIfAborted();
   };
-  const cycle: LearningCycle = {
+  const cycle: EvolutionCycle = {
     identity,
     prior,
     assertScope,
@@ -202,7 +205,7 @@ export async function runLearningCycle(
     finish,
     async evidence() {
       assertScope();
-      const evidence = await collectLearningEvidence({
+      const evidence = await collectEvolutionEvidence({
         context: context.extend({ scope, signal: scope.signal }),
         kind,
         observe: config.observe,
@@ -239,7 +242,7 @@ export async function runLearningCycle(
       assertScope();
       if (config.plugin === kind + '.agent' && scope.limits.modelCalls === 0)
         throw new Error(kind + ' local model-call budget exhausted');
-      const key = 'learning/' + identity,
+      const key = 'evolution/' + identity,
         binding = '_' + kind;
       if (options.callId)
         await save('prepared', { callId: options.callId(binding, input, key) });

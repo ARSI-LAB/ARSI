@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { FileArtifacts, FileFacts } from '../../src/runtime/storage/index.js';
-import { collectLearningEvidence } from '../../src/runtime/learning/evidence.js';
-import { projectCandidateEvidence } from '../../src/runtime/learning/candidate-evidence.js';
+import { collectEvolutionEvidence } from '../../src/runtime/evolution/evidence.js';
+import { projectCandidateEvidence } from '../../src/runtime/evolution/candidate-evidence.js';
 import { object, string } from '../../src/shared/json.js';
 
 test('WikiSkill windows project training, candidate diffs and selection aggregates without held-out traces', async (t) => {
@@ -94,7 +94,7 @@ test('WikiSkill windows project training, candidate diffs and selection aggregat
     await call(id, path, { candidateRef }, { measurementRef: ref }, n);
   };
   const collect = async (identity: string, n: number) => {
-    const { ref } = await collectLearningEvidence({
+    const { ref } = await collectEvolutionEvidence({
       kind: 'memory',
       context,
       identity,
@@ -199,23 +199,23 @@ test('WikiSkill windows project training, candidate diffs and selection aggregat
     /HIDDEN_(BASELINE|VALIDATION|TEST)_TRACE/,
   );
   assert.match(
-    string(files['context/learning/calls/selector-gate.json']),
+    string(files['context/evolution/calls/selector-gate.json']),
     /"accepted":true/,
   );
   assert.doesNotMatch(
-    string(files['context/learning/calls/selector-gate.json']),
+    string(files['context/evolution/calls/selector-gate.json']),
     /selectedValue/,
   );
   assert.match(
-    string(files['context/learning/training-summary.json']),
+    string(files['context/evolution/training-summary.json']),
     /TRAINING_ROUND_ONE/,
   );
   assert.ok(
     !Object.keys(files).some((path) =>
-      path.startsWith('context/learning/candidates/'),
+      path.startsWith('context/evolution/candidates/'),
     ),
   );
-  const comparisons = string(files['context/learning/comparisons.json']);
+  const comparisons = string(files['context/evolution/comparisons.json']);
   assert.match(comparisons, /-old procedure/);
   assert.match(comparisons, /\+new procedure/);
   assert.match(comparisons, /iteration-1\/train/);
@@ -240,7 +240,7 @@ test('WikiSkill windows project training, candidate diffs and selection aggregat
     });
   await project();
   assert.match(
-    string(files['context/learning/comparisons.json']),
+    string(files['context/evolution/comparisons.json']),
     /Most complete delivery/,
   );
   const withheld = { candidateRef: 'base', measurementRef: 'm-eval-base' };
@@ -281,7 +281,7 @@ test('WikiSkill windows project training, candidate diffs and selection aggregat
     input: {},
     output: { reason: 'QUOTED_HELD_OUT_DELIVERY' },
   });
-  const scoped = await collectLearningEvidence({
+  const scoped = await collectEvolutionEvidence({
     kind: 'reflection',
     context,
     identity: 'choice-window',
@@ -302,7 +302,9 @@ test('WikiSkill windows project training, candidate diffs and selection aggregat
     /QUOTED_HELD_OUT_DELIVERY|HIDDEN_BASELINE_TRACE|artifact-agent/,
   );
   const decisionSummary = JSON.parse(
-    string(object(decisionSnapshot.files)['context/learning/comparisons.json']),
+    string(
+      object(decisionSnapshot.files)['context/evolution/comparisons.json'],
+    ),
   );
   assert.equal(decisionSummary.selections[0].selectedCandidateRef, 'new');
   assert.equal(decisionSummary.selections[0].selectionReason, null);

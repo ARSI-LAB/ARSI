@@ -4,22 +4,22 @@ import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from '../../src/entries/web/server.js';
-import { seedLearning } from '../fixtures/learning/seed.js';
+import { seedEvolution } from '../fixtures/evolution/seed.js';
 import {
-  parseLearning,
+  parseEvolution,
   parseApplication,
   applySnapshot,
-} from '../../web/api/learning-client.js';
+} from '../../web/api/evolution-client.js';
 
-test('learning HTTP projects owned records, previews changes and applies through the existing boundary', async (t) => {
+test('evolution HTTP projects owned records, previews changes and applies through the existing boundary', async (t) => {
   const root = await realpath(
-    await mkdtemp(join(tmpdir(), 'rsi-web-learning-')),
+    await mkdtemp(join(tmpdir(), 'rsi-web-evolution-')),
   );
   t.after(() => rm(root, { recursive: true, force: true }));
-  const f = await seedLearning(root);
-  await f.facts.write('learning-runs', 'reflection-test', {
-    experimentId: 'learning-run',
-    learningId: 'reflection-test',
+  const f = await seedEvolution(root);
+  await f.facts.write('evolution-runs', 'reflection-test', {
+    experimentId: 'evolution-run',
+    evolutionId: 'reflection-test',
     kind: 'reflection',
     triggerPath: 'loop/3/renamed',
     callId: 'reflection-call',
@@ -27,15 +27,15 @@ test('learning HTTP projects owned records, previews changes and applies through
   const revision = await f.facts.read('revisions', 'revision-next');
   await f.facts.write('revisions', 'revision-next', {
     ...revision,
-    learningId: 'reflection-test',
+    evolutionId: 'reflection-test',
   });
   await f.facts.write('calls', 'reflection-call', {
-    experimentId: 'learning-run',
+    experimentId: 'evolution-run',
     callId: 'reflection-call',
     parentCallId: 'root',
     pluginId: 'reflection.agent',
     bindingId: '_reflection',
-    path: 'learning/reflection-test',
+    path: 'evolution/reflection-test',
     status: 'succeeded',
   });
   const server = await createServer({
@@ -53,10 +53,10 @@ test('learning HTTP projects owned records, previews changes and applies through
     registry: { catalog: () => ({ plugins: [], policies: [] }) },
   });
   t.after(() => server.close());
-  const base = '/api/observation/experiments/learning-run';
+  const base = '/api/observation/experiments/evolution-run';
   const revisions = await server.inject(`${base}/revisions`);
   assert.equal(revisions.statusCode, 200);
-  const chain = parseLearning(revisions.json());
+  const chain = parseEvolution(revisions.json());
   assert.deepEqual(
     chain.map((r) => [r.id, r.depth]),
     [
@@ -74,18 +74,19 @@ test('learning HTTP projects owned records, previews changes and applies through
     kind: 'initial',
     binding: 'worker',
   });
-  const legacy = parseLearning(
+  const legacy = parseEvolution(
     (
       await server.inject('/api/observation/experiments/other-run/revisions')
     ).json(),
   );
   assert.equal(legacy[0]?.binding, 'worker');
   assert.equal(
-    parseLearning(revisions.json()).find((r) => r.id === 'revision-next')?.path,
+    parseEvolution(revisions.json()).find((r) => r.id === 'revision-next')
+      ?.path,
     'loop/3/renamed',
   );
   assert.equal(
-    parseLearning(revisions.json()).find((r) => r.id === 'revision-initial')
+    parseEvolution(revisions.json()).find((r) => r.id === 'revision-initial')
       ?.path,
     null,
   );
@@ -101,7 +102,7 @@ test('learning HTTP projects owned records, previews changes and applies through
   );
   assert.doesNotMatch(
     revisions.body,
-    /learning-secret-value|base64|sourceResources/,
+    /evolution-secret-value|base64|sourceResources/,
   );
   assert.match(revisions.body, /REDACTED/);
   const attemptStatuses = [
@@ -114,13 +115,13 @@ test('learning HTTP projects owned records, previews changes and applies through
     ['skipped', false],
   ] as const;
   for (const [status] of attemptStatuses)
-    await f.facts.write('learning-runs', status, {
-      experimentId: 'learning-run',
-      learningId: status,
+    await f.facts.write('evolution-runs', status, {
+      experimentId: 'evolution-run',
+      evolutionId: status,
       kind: 'memory',
       status,
     });
-  const memories = parseLearning(
+  const memories = parseEvolution(
     (await server.inject(`${base}/memories`)).json(),
   );
   for (const [status, inProgress] of attemptStatuses)
@@ -161,7 +162,7 @@ test('learning HTTP projects owned records, previews changes and applies through
   );
   const applied = await server.inject({
     method: 'POST',
-    url: '/api/experiments/learning-run/memories/memory-next/apply',
+    url: '/api/experiments/evolution-run/memories/memory-next/apply',
     payload: { targetDir: to },
   });
   assert.equal(applied.statusCode, 200, applied.body);
@@ -192,7 +193,7 @@ test('learning HTTP projects owned records, previews changes and applies through
     'Validate the output.\n',
   );
   const applyUrl =
-    '/api/experiments/learning-run/revisions/revision-next/apply';
+    '/api/experiments/evolution-run/revisions/revision-next/apply';
   const targetDir = join(root, 'exported-revision');
   const exportPreview = parseApplication(
     (
@@ -243,7 +244,7 @@ test('learning HTTP projects owned records, previews changes and applies through
     (
       await server.inject({
         method: 'POST',
-        url: applyUrl.replace('learning-run', 'other-run'),
+        url: applyUrl.replace('evolution-run', 'other-run'),
       })
     ).statusCode,
     404,
@@ -287,7 +288,7 @@ test('learning HTTP projects owned records, previews changes and applies through
     (
       await server.inject({
         method: 'POST',
-        url: '/api/experiments/learning-run/revisions/revision-initial/apply',
+        url: '/api/experiments/evolution-run/revisions/revision-initial/apply',
       })
     ).json().status,
     'applied',
@@ -321,5 +322,5 @@ test('application client never retries a failed write and rejects invalid respon
       changes: [],
     }),
   );
-  assert.throws(() => parseLearning([{ id: 42 }]));
+  assert.throws(() => parseEvolution([{ id: 42 }]));
 });

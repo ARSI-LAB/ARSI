@@ -1,6 +1,6 @@
 schemaVersion: rsi.policy/v1
 id: policy.parameter-agent
-description: Search configuration candidates with Agent proposals, measured selection and optional learning.
+description: Search configuration candidates with Agent proposals, measured selection and optional runtime evolution.
 # policy schema
 input_schema:
   $ref: ../../../contracts/policies/candidate-input.yaml

@@ -1,7 +1,7 @@
 import type { JsonObject, JsonValue } from '../../contracts/index.js';
 import { matchesStepPath } from './trigger.js';
 import { digest, string, strings } from '../../shared/json.js';
-import type { EvidenceOptions, LearningEvidence } from './evidence.js';
+import type { EvidenceOptions, EvolutionEvidence } from './evidence.js';
 
 export interface EvidenceCall {
   record: JsonObject;
@@ -38,7 +38,7 @@ async function ownedFacts(
   return owned;
 }
 type EvidenceWindow =
-  | { kind: 'saved'; evidence: LearningEvidence }
+  | { kind: 'saved'; evidence: EvolutionEvidence }
   | {
       kind: 'window';
       calls: EvidenceCall[];
@@ -65,14 +65,14 @@ export async function selectEvidenceWindow(
     const saved = await context.facts.read('evidence-views', options.priorRef);
     if (
       saved.experimentId !== context.experimentId ||
-      saved.view !== 'learning-observations/v1' ||
+      saved.view !== 'evolution-observations/v1' ||
       saved.boundaryId !== options.identity ||
       saved.policyScopeId !== policyScopeId ||
       saved.moduleKind !== kind ||
       saved.configDigest !== (options.configDigest ?? null) ||
       saved.evidenceView !== (options.view ?? 'execution')
     )
-      throw new Error('Learning evidence snapshot ownership mismatch');
+      throw new Error('Runtime evolution evidence snapshot ownership mismatch');
     return {
       kind: 'saved',
       evidence: {
@@ -88,7 +88,7 @@ export async function selectEvidenceWindow(
   const snapshots = await ownedFacts(options, 'evidence-views');
   const prepared = snapshots.filter(
     (record) =>
-      record.view === 'learning-observations/v1' &&
+      record.view === 'evolution-observations/v1' &&
       record.policyScopeId === policyScopeId &&
       record.moduleKind === kind &&
       record.boundaryId === options.identity,
@@ -104,7 +104,7 @@ export async function selectEvidenceWindow(
       prepared[0]!.evidenceView !== (options.view ?? 'execution')
     )
       throw new Error(
-        'Learning invocation has inconsistent persisted evidence snapshots',
+        'Runtime evolution invocation has inconsistent persisted evidence snapshots',
       );
     return {
       kind: 'saved',
@@ -115,7 +115,7 @@ export async function selectEvidenceWindow(
       },
     };
   }
-  const runs = await ownedFacts(options, 'learning-runs');
+  const runs = await ownedFacts(options, 'evolution-runs');
   // Evidence from a failed attempt is still available to this Policy step.
   const sameStepAttempts = new Set(
     runs
@@ -126,11 +126,11 @@ export async function selectEvidenceWindow(
           record.kind === kind &&
           record.stepPath === options.stepPath,
       )
-      .map((record) => record.learningId),
+      .map((record) => record.evolutionId),
   );
   const previous = snapshots.filter(
     (record) =>
-      record.view === 'learning-observations/v1' &&
+      record.view === 'evolution-observations/v1' &&
       record.policyScopeId === policyScopeId &&
       record.moduleKind === kind &&
       record.configDigest === (options.configDigest ?? null) &&
@@ -144,8 +144,8 @@ export async function selectEvidenceWindow(
       record.kind === kind &&
       (options.configDigest === undefined ||
         record.configDigest === options.configDigest) &&
-      record.learningId !== options.identity &&
-      asObject(record.result).learningId !== options.identity &&
+      record.evolutionId !== options.identity &&
+      asObject(record.result).evolutionId !== options.identity &&
       (options.stepPath === undefined ||
         record.stepPath !== options.stepPath) &&
       Number.isFinite(Date.parse(String(record.startedAt))) &&

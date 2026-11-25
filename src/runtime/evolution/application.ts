@@ -111,7 +111,7 @@ function summary(revision: JsonObject): JsonObject {
           pluginRef: revision.pluginRef ?? revision.pluginId ?? null,
         }),
     kind: revision.kind ?? 'legacy',
-    learningId: revision.learningId ?? null,
+    evolutionId: revision.evolutionId ?? null,
     applicationMetadata:
       (Array.isArray(revision.sourceRoots) ||
         Array.isArray(revision.sourceResources)) &&

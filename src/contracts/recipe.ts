@@ -1,8 +1,8 @@
 import type { JsonObject, JsonSchema } from './json.js';
 import {
-  learningDeclarationSchema,
-  type LearningDeclaration,
-} from './learning.js';
+  runtimeEvolutionDeclarationSchema,
+  type RuntimeEvolutionDeclaration,
+} from './runtime-evolution.js';
 
 /** A declaration may inherit its plugin and individual configuration fields. */
 export interface BindingDeclaration {
@@ -24,8 +24,8 @@ export interface RecipeDeclaration {
   policy: { id: string; config?: JsonObject; input?: JsonObject };
   bindings?: Record<string, BindingDeclaration>;
   budget?: Record<string, number>;
-  memory?: LearningDeclaration;
-  reflection?: LearningDeclaration;
+  memory?: RuntimeEvolutionDeclaration;
+  reflection?: RuntimeEvolutionDeclaration;
 }
 
 /** A normalized declaration, without runtime instances or executable definitions. */
@@ -73,8 +73,8 @@ export const recipeDeclarationSchema: JsonSchema = {
       type: 'object',
       additionalProperties: { type: 'number', minimum: 0 },
     },
-    memory: learningDeclarationSchema,
-    reflection: learningDeclarationSchema,
+    memory: runtimeEvolutionDeclarationSchema,
+    reflection: runtimeEvolutionDeclarationSchema,
   },
   required: ['schemaVersion', 'id', 'application', 'policy'],
   additionalProperties: false,

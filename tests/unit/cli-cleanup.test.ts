@@ -624,7 +624,7 @@ test('cleanup reports initialization failures per binding and retries after the 
   assert.deepEqual(seen, ['driver', 'driver', 'unused']);
 });
 
-test('standalone cleanup previews saved Application and learning bindings without opening the original files', async (t) => {
+test('standalone cleanup previews saved Application and evolution bindings without opening the original files', async (t) => {
   const f = await managerFixture(async () => ({}));
   t.after(f.dispose);
   const { manager } = f;
@@ -719,7 +719,7 @@ test('standalone cleanup previews saved Application and learning bindings withou
 
   const agentBinding = {
     plugin: 'agent.pi',
-    config: { label: '_learningAgent' },
+    config: { label: '_evolutionAgent' },
   };
   const current = {
     schemaVersion: definitionLockVersion,
@@ -742,7 +742,7 @@ test('standalone cleanup previews saved Application and learning bindings withou
   assert.deepEqual(await preview(), [
     ['_application', 'test.app'],
     ['_memory', 'test.memory'],
-    ['_learningAgent', 'agent.pi'],
+    ['_evolutionAgent', 'agent.pi'],
     ['_reflection', 'test.reflection'],
   ]);
 });

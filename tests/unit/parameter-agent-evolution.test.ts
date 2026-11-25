@@ -18,8 +18,8 @@ import { object, string } from '../../src/shared/json.js';
 import { measurementFixture } from '../helpers/manager-fixture.js';
 
 for (const customized of [false, true]) {
-  test(`policy.parameter-agent delivers ${customized ? 'scenario' : 'generic'} learning resources and resumes without replay`, async (t) => {
-    const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-learning-'));
+  test(`policy.parameter-agent delivers ${customized ? 'scenario' : 'generic'} evolution resources and resumes without replay`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-evolution-'));
     const runtime = await createRuntime({
       rootDirectory: root,
       homeDirectory: false,
@@ -36,7 +36,7 @@ for (const customized of [false, true]) {
     let memories = 0;
     let reflections = 0;
     runtime.registry.registerOperation({
-      id: 'learning.application',
+      id: 'evolution.application',
       contract: applicationContract,
       configSchema: { type: 'object' },
       create: (config: FileApplicationConfig, services) =>
@@ -57,7 +57,7 @@ for (const customized of [false, true]) {
         }),
     });
     runtime.registry.registerOperation({
-      id: 'learning.evaluator',
+      id: 'evolution.evaluator',
       contract: inferencebenchContract,
       configSchema: { type: 'object' },
       async create() {
@@ -91,7 +91,7 @@ for (const customized of [false, true]) {
       },
     });
     runtime.registry.registerOperation({
-      id: 'learning.agent',
+      id: 'evolution.agent',
       contract: agentContract,
       configSchema: { type: 'object' },
       async create() {
@@ -116,14 +116,14 @@ for (const customized of [false, true]) {
               events.push('memory');
               assert.match(
                 await readFile(
-                  join(cwd, 'context/learning/training-summary.json'),
+                  join(cwd, 'context/evolution/training-summary.json'),
                   'utf8',
                 ),
                 /score/,
               );
               assert.equal(
                 metadata.evidenceIndex,
-                'context/learning/index.json',
+                'context/evolution/index.json',
               );
               if (memories === 2)
                 throw new Error('Simulated Memory backend failure');
@@ -145,7 +145,7 @@ for (const customized of [false, true]) {
               assert.equal(metadata.evidenceView, 'training-summary');
               assert.match(
                 await readFile(
-                  join(cwd, 'context/learning/index.json'),
+                  join(cwd, 'context/evolution/index.json'),
                   'utf8',
                 ),
                 /proposer/,
@@ -253,9 +253,9 @@ for (const customized of [false, true]) {
       recipe,
       JSON.stringify({
         schemaVersion: 'rsi.recipe/v1',
-        id: 'parameter-learning',
+        id: 'parameter-evolution',
         application: {
-          plugin: 'learning.application',
+          plugin: 'evolution.application',
           config: {
             baseline: { directory: './baseline' },
             target: {
@@ -288,7 +288,7 @@ for (const customized of [false, true]) {
             }
           : {}),
         bindings: {
-          agent: { plugin: 'learning.agent' },
+          agent: { plugin: 'evolution.agent' },
           proposer: {
             config: {
               ...(customized ? { prompt: './propose.md' } : {}),
@@ -296,12 +296,12 @@ for (const customized of [false, true]) {
               evidenceView: 'training-summary',
             },
           },
-          evaluator: { plugin: 'learning.evaluator' },
+          evaluator: { plugin: 'evolution.evaluator' },
           selector: { config: { metric: 'score' } },
         },
       }),
     );
-    const result = await runtime.manager.run(recipe, { id: 'learning' });
+    const result = await runtime.manager.run(recipe, { id: 'evolution' });
     assert.equal(result.status, 'succeeded');
     const output = object(result.output);
     assert.equal(output.stopReason, 'max-proposal-rounds');
@@ -340,7 +340,7 @@ for (const customized of [false, true]) {
     const subsequent = proposerCalls.filter((call) => call !== initial);
     assert.notEqual(initial.revisionRef, subsequent[0]!.revisionRef);
     assert.equal(subsequent[0]!.revisionRef, subsequent[1]!.revisionRef);
-    const runs = (await runtime.manager.facts.list('learning-runs')).filter(
+    const runs = (await runtime.manager.facts.list('evolution-runs')).filter(
       (run) => run.kind === 'memory',
     );
     assert.ok(runs.some((run) => run.status === 'rejected'));
@@ -356,7 +356,7 @@ for (const customized of [false, true]) {
       3,
     );
     const resumed = await runtime.manager.run(recipe, {
-      id: 'learning',
+      id: 'evolution',
       resume: true,
     });
     assert.deepEqual(resumed.output, result.output);

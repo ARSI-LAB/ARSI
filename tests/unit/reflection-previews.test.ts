@@ -488,10 +488,10 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
   });
   const snapshot: JsonObject = {
     experimentId: 'preview',
-    view: 'learning-observations/v1',
+    view: 'evolution-observations/v1',
     moduleKind: 'reflection',
     evidenceView: 'execution',
-    files: { 'context/learning/call.json': '{"status":"succeeded"}' },
+    files: { 'context/evolution/call.json': '{"status":"succeeded"}' },
     index: { callIds: ['call'] },
     sources: [
       {
@@ -519,14 +519,14 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
     ): Promise<JsonObject> {
       const cwd = string(request.cwd);
       const index = JSON.parse(
-        await readFile(join(cwd, 'context/learning/index.json'), 'utf8'),
+        await readFile(join(cwd, 'context/evolution/index.json'), 'utf8'),
       );
       if (previewBudget !== undefined) {
         assert.equal(index.truncated, true);
         const budgetedFiles = [
-          'context/learning/index.json',
-          'context/learning/call.json',
-          'context/learning/previews/0.txt',
+          'context/evolution/index.json',
+          'context/evolution/call.json',
+          'context/evolution/previews/0.txt',
         ];
         let bytes = 0;
         for (const path of budgetedFiles)

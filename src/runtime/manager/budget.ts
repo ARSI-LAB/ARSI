@@ -34,7 +34,7 @@ function counts(value: JsonObject, label: string): Record<string, number> {
   return result;
 }
 
-/** Serializes charges and owns the persisted experiment and learning counters. */
+/** Serializes charges and owns the persisted experiment and runtime evolution counters. */
 export class BudgetLedger {
   private snapshot: BudgetSnapshot = { usage: {}, scopes: {} };
   private pending = Promise.resolve();
@@ -85,7 +85,7 @@ export class BudgetLedger {
           scope.limits.modelCalls !== undefined &&
           count > scope.limits.modelCalls
         )
-          throw new Error('Learning modelCalls budget exceeded');
+          throw new Error('Runtime evolution modelCalls budget exceeded');
         staged.scopes[scope.id] = { ...state, [metric]: count };
       }
       try {

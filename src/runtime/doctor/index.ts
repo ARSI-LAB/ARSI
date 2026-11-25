@@ -13,8 +13,11 @@ import {
   RuntimeCleanupInterruptedError,
 } from '../../shared/errors.js';
 import type { Runtime } from '../context.js';
-import { pathContains, selectedResourceFields } from '../learning/resources.js';
-import { captureMemorySeed, memoryFiles } from '../learning/memory.js';
+import {
+  pathContains,
+  selectedResourceFields,
+} from '../evolution/resources.js';
+import { captureMemorySeed, memoryFiles } from '../evolution/memory.js';
 import { Recipe } from '../loaders/recipe.js';
 import { withBindingInstance } from '../manager/instances.js';
 import type { Registry } from '../registry/index.js';
@@ -96,7 +99,7 @@ export async function doctorRecipe(
     recipeId: recipe.id,
     checks: [{ id: 'recipe.validate', status: 'passed' }],
   };
-  for (const name of recipe.disabledLearning)
+  for (const name of recipe.disabledEvolution)
     report.checks.push({
       id: `${name}.status`,
       status: 'unchecked',

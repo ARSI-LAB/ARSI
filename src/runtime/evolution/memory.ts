@@ -9,8 +9,8 @@ import {
 import { canonical, digest, object, string } from '../../shared/json.js';
 import { inspectPath, stat, validateSnapshotEntry } from './snapshot-paths.js';
 import { excludedArtifactEntries } from '../storage/index.js';
-import type { LearningResult } from './records.js';
-import { runLearningCycle, type CycleOptions } from './runner.js';
+import type { RuntimeEvolutionResult } from './records.js';
+import { runEvolutionCycle, type CycleOptions } from './runner.js';
 import type { MemoryConfig } from './validation.js';
 
 export interface ActiveMemory extends JsonObject {
@@ -104,11 +104,11 @@ export async function initializeMemory(options: {
 interface MemoryOptions extends CycleOptions {
   config: MemoryConfig;
   active(): ActiveMemory | null;
-  saveMemory(memory: ActiveMemory, learningId: string): Promise<void>;
+  saveMemory(memory: ActiveMemory, evolutionId: string): Promise<void>;
 }
 export async function remember(
   options: MemoryOptions,
-): Promise<LearningResult> {
+): Promise<RuntimeEvolutionResult> {
   const { context, config } = options;
   const includes = async (record: JsonObject): Promise<boolean> => {
     let ref: string | null = options.active()?.ref ?? null;
@@ -122,7 +122,7 @@ export async function remember(
     }
     return false;
   };
-  return runLearningCycle(options, 'memory', {
+  return runEvolutionCycle(options, 'memory', {
     includes,
     parentsMatch: (record) =>
       record.parentRef === (options.active()?.ref ?? null),
@@ -212,7 +212,7 @@ export async function remember(
         experimentId: context.experimentId,
         kind: 'generated',
         status: 'validated',
-        learningId: identity,
+        evolutionId: identity,
         changeRef,
         reason,
       });

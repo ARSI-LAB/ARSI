@@ -6,7 +6,7 @@ This resource is an RSI adaptation informed by Harness² appendix H and the [off
 
 ## Inputs and limits
 
-The request supplies a goal and a workspace. Read existing memory files under `candidate/` before replacing them. Read `context/learning/index.json` to locate observed calls, evaluation packets and source references. `context/learning/comparisons.json` groups evaluations with candidate diffs and links the selection to the Selector's decision. Follow the referenced files when a specific change or execution needs closer inspection.
+The request supplies a goal and a workspace. Read existing memory files under `candidate/` before replacing them. Read `context/evolution/index.json` to locate observed calls, evaluation packets and source references. `context/evolution/comparisons.json` groups evaluations with candidate diffs and links the selection to the Selector's decision. Follow the referenced files when a specific change or execution needs closer inspection.
 
 Reserve room to return the update. Once the supplied evidence supports a narrow entry, submit it instead of reading every record. If further investigation cannot resolve uncertainty within the remaining budget, record a limited/confounded observation or return no change; never infer unseen behavior.
 
@@ -23,7 +23,7 @@ A reference is provenance, not a tool permission. Use only the supplied workspac
 5. Preserve useful failures and counterexamples. Selection of an output does not establish that every edit in its harness was beneficial; a rejected output can still contain an informative behavior.
 6. Truncated evidence establishes only what is visible. Write "the excerpt does not demonstrate the check", not "the Agent never checked". An uninspected binary artifact remains unverified.
 
-Scores and verifier feedback are outside this strategy's learning evidence. Do not infer them from filenames, ordering, task labels or confident final text. Do not search for hidden grades or reinterpret an Agent's own PASS message as an external verifier verdict.
+Scores and verifier feedback are outside this strategy's runtime evolution evidence. Do not infer them from filenames, ordering, task labels or confident final text. Do not search for hidden grades or reinterpret an Agent's own PASS message as an external verifier verdict.
 
 ## Write compact, reusable experience
 

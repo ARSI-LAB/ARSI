@@ -920,11 +920,13 @@ new Registry().registerOperation(definition);
 import { RuntimeContext, type OperationDefinition } from 'arsi/contracts';
 import type { IterativeProposerInput, IterativeProposerOutput } from 'arsi';
 import type { IterativeProposerInput as ContractIterativeProposerInput, IterativeProposerOutput as ContractIterativeProposerOutput } from 'arsi/contracts';
-import type { LearningTrigger, LearningDeclaration } from 'arsi';
+import { runtimeEvolutionFileSchema, type RuntimeEvolutionTrigger, type RuntimeEvolutionDeclaration } from 'arsi';
+import { runtimeEvolutionDeclarationSchema, runtimeEvolutionNames, runtimeEvolutionTriggerSchema } from 'arsi/contracts';
+export const evolutionSchemas = [runtimeEvolutionFileSchema('reflection'), runtimeEvolutionDeclarationSchema, runtimeEvolutionNames, runtimeEvolutionTriggerSchema];
 import type { RecipeDeclaration, MemoryActivatedEvent, MemoryOutput } from 'arsi/contracts';
-export const trigger: LearningTrigger = { on:'loop-iteration',every:1 };
-export const memory:LearningDeclaration = { configFile:'./memory.yaml' };
-export const reflection:LearningDeclaration = true;
+export const trigger: RuntimeEvolutionTrigger = { on:'loop-iteration',every:1 };
+export const memory:RuntimeEvolutionDeclaration = { configFile:'./memory.yaml' };
+export const reflection:RuntimeEvolutionDeclaration = true;
 export const modules:Pick<RecipeDeclaration,'memory'|'reflection'>={memory,reflection};
 export function retain(event:MemoryActivatedEvent):string { return event.memoryVersionRef; }
 export const proposal:MemoryOutput = {status:'updated', resourceRef:'a',changeRef:'b',reason:'saved'};

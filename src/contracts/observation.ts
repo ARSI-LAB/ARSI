@@ -30,7 +30,7 @@ export interface ExperimentOverview extends ExperimentSummary {
 export interface CallSummary {
   revisionRef?: string | null;
   memoryRef?: string | null;
-  /** Persisted learning trigger location, separate from the call execution path. */
+  /** Persisted runtime evolution trigger location, separate from the call execution path. */
   triggerPath?: string | null;
   callId: string;
   parentCallId: string | null;

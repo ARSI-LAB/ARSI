@@ -4,10 +4,10 @@ import type {
 } from '../../contracts/runtime/events.js';
 import type { PolicyCheckpoints } from '../policy/checkpoint.js';
 import type { JsonObject } from '../../contracts/json.js';
-import type { LearningKind } from '../../contracts/learning.js';
-import type { LearningActivation } from '../manager/activation.js';
+import type { RuntimeEvolutionKind } from '../../contracts/runtime-evolution.js';
+import type { RuntimeEvolutionActivation } from '../manager/activation.js';
 import { remember } from './memory.js';
-import type { LearningResult } from './records.js';
+import type { RuntimeEvolutionResult } from './records.js';
 import { reflect, type ReflectionOptions } from './reflection.js';
 import type { CycleOptions } from './runner.js';
 import type { MemoryConfig, ReflectionConfig } from './schema.js';
@@ -18,14 +18,14 @@ type CoordinatorOptions = Pick<
 > & {
   memory?: MemoryConfig;
   reflection?: ReflectionConfig;
-  activation: LearningActivation;
+  activation: RuntimeEvolutionActivation;
   attempt?: string;
   sourceResources: ReflectionOptions['sourceResources'];
   checkpoints: PolicyCheckpoints;
 };
 
 /** Dispatch serial Policy hooks against the current activation and their durable attempts. */
-export class LearningCoordinator {
+export class RuntimeEvolutionCoordinator {
   readonly memory: MemoryConfig | undefined;
   readonly reflection: ReflectionConfig | undefined;
   private readonly priorRuns = new Map<string, JsonObject[]>();
@@ -61,8 +61,8 @@ export class LearningCoordinator {
   async restore(): Promise<void> {
     const { context, activation } = this.options;
     const records = context.facts.scan
-      ? context.facts.scan('learning-runs')
-      : await context.facts.list('learning-runs');
+      ? context.facts.scan('evolution-runs')
+      : await context.facts.list('evolution-runs');
     for await (const record of records) {
       if (
         record.experimentId !== context.experimentId ||
@@ -78,10 +78,10 @@ export class LearningCoordinator {
   }
 
   async execute(
-    kind: LearningKind,
+    kind: RuntimeEvolutionKind,
     stepPath: string,
     triggerPath: string,
-  ): Promise<LearningResult> {
+  ): Promise<RuntimeEvolutionResult> {
     const {
       context,
       activation,
@@ -119,7 +119,7 @@ export class LearningCoordinator {
           activation.saveRevisions(changes, revisions, id, head),
       });
     if (kind !== 'memory' || !this.memory)
-      throw new Error('Unknown learning module ' + kind);
+      throw new Error('Unknown runtime evolution module ' + kind);
     return remember({
       ...common,
       config: this.memory,

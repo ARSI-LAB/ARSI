@@ -1,13 +1,13 @@
 import type { JsonObject } from './json.js';
 
-export type LearningKind = 'memory' | 'reflection';
-export type LearningDeclaration = boolean | { configFile: string };
-export type LearningTrigger = {
+export type RuntimeEvolutionKind = 'memory' | 'reflection';
+export type RuntimeEvolutionDeclaration = boolean | { configFile: string };
+export type RuntimeEvolutionTrigger = {
   on: 'loop-iteration' | 'loop-end' | 'experiment-end' | 'after-step';
   every: number;
   step?: string;
 };
-export type LearningBudget = {
+export type RuntimeEvolutionBudget = {
   modelCalls?: number;
   timeoutSeconds?: number;
   evidenceBytes?: number;
@@ -20,30 +20,34 @@ export type EvidenceDeclaration = {
   includeSteps?: string[];
   excludeSteps?: string[];
 };
-type LearningFile = {
-  trigger?: Partial<LearningTrigger>;
+type RuntimeEvolutionFile = {
+  trigger?: Partial<RuntimeEvolutionTrigger>;
   evidence?: EvidenceDeclaration;
   implementation?: { contract?: string; ref?: string; config?: JsonObject };
   goal?: string;
-  budget?: LearningBudget;
+  budget?: RuntimeEvolutionBudget;
 };
-export type MemoryConfiguration = LearningFile & {
+export type MemoryConfiguration = RuntimeEvolutionFile & {
   directory?: string;
   targets?: { include?: string[]; exclude?: string[] };
 };
 export type ResourceSelection = Record<string, string[] | '*' | null>;
-export type ReflectionConfiguration = LearningFile & {
+export type ReflectionConfiguration = RuntimeEvolutionFile & {
   targets?: { include?: ResourceSelection; exclude?: ResourceSelection };
 };
 
 const name = { type: 'string', minLength: 1, pattern: '\\S' };
-export const learningNames = { type: 'array', uniqueItems: true, items: name };
+export const runtimeEvolutionNames = {
+  type: 'array',
+  uniqueItems: true,
+  items: name,
+};
 const positive = {
   type: 'integer',
   minimum: 1,
   maximum: Number.MAX_SAFE_INTEGER,
 };
-export const learningTriggerSchema = {
+export const runtimeEvolutionTriggerSchema = {
   type: 'object',
   properties: {
     on: {
@@ -54,7 +58,7 @@ export const learningTriggerSchema = {
   },
   additionalProperties: false,
 };
-export const learningDeclarationSchema: JsonObject = {
+export const runtimeEvolutionDeclarationSchema: JsonObject = {
   oneOf: [
     { type: 'boolean' },
     {
@@ -73,15 +77,15 @@ function filter(selection: JsonObject): JsonObject {
   };
 }
 const common = {
-  trigger: learningTriggerSchema,
+  trigger: runtimeEvolutionTriggerSchema,
   evidence: {
     type: 'object',
     properties: {
       view: { enum: ['execution', 'training-summary'] },
-      includeBindings: learningNames,
-      excludeBindings: learningNames,
-      includeSteps: learningNames,
-      excludeSteps: learningNames,
+      includeBindings: runtimeEvolutionNames,
+      excludeBindings: runtimeEvolutionNames,
+      includeSteps: runtimeEvolutionNames,
+      excludeSteps: runtimeEvolutionNames,
     },
     additionalProperties: false,
   },
@@ -96,11 +100,13 @@ const common = {
     additionalProperties: false,
   },
 };
-export function learningFileSchema(kind: LearningKind): JsonObject {
+export function runtimeEvolutionFileSchema(
+  kind: RuntimeEvolutionKind,
+): JsonObject {
   const resources: JsonObject = {
     type: 'object',
     additionalProperties: {
-      oneOf: [learningNames, { const: '*' }, { type: 'null' }],
+      oneOf: [runtimeEvolutionNames, { const: '*' }, { type: 'null' }],
     },
   };
   return {
@@ -118,7 +124,7 @@ export function learningFileSchema(kind: LearningKind): JsonObject {
         additionalProperties: false,
       },
       ...(kind === 'memory'
-        ? { directory: name, targets: filter(learningNames) }
+        ? { directory: name, targets: filter(runtimeEvolutionNames) }
         : { targets: filter(resources) }),
     },
   };

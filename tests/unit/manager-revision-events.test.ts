@@ -350,7 +350,7 @@ test('Manager activates committed revisions before notifying, retains the old ch
       (kind === 'activations' &&
         id === 'retry-revision' &&
         value.activationId !== value.reflectionRevisionRef) ||
-      (kind === 'learning-runs' &&
+      (kind === 'evolution-runs' &&
         value.experimentId === 'retry-revision' &&
         value.status === 'rejected')
     )
@@ -362,7 +362,7 @@ test('Manager activates committed revisions before notifying, retains the old ch
     /interrupted before activation/,
   );
   manager.facts.write = write;
-  const pending = (await manager.facts.list('learning-runs')).find(
+  const pending = (await manager.facts.list('evolution-runs')).find(
     (fact) => fact.experimentId === 'retry-revision',
   )!;
   assert.equal(pending.status, 'validated');
@@ -374,8 +374,8 @@ test('Manager activates committed revisions before notifying, retains the old ch
   assert.equal(fixed.status, 'succeeded');
   assert.equal(object(fixed.output).prompt, 'revised');
   const activated = await manager.facts.read(
-    'learning-runs',
-    string(pending.learningId),
+    'evolution-runs',
+    string(pending.evolutionId),
   );
   assert.equal(activated.status, 'activated');
   assert.equal(proposals, 2);

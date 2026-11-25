@@ -28,8 +28,8 @@ import { FileArtifacts, FileFacts } from '../../src/runtime/storage/index.js';
 import {
   MemoryApplication,
   RevisionApplication,
-} from '../../src/runtime/learning/application.js';
-import { acquireResourceGate } from '../../src/runtime/learning/exclusion.js';
+} from '../../src/runtime/evolution/application.js';
+import { acquireResourceGate } from '../../src/runtime/evolution/exclusion.js';
 import {
   resourcePath,
   selectedResourceFields,
@@ -37,7 +37,7 @@ import {
   validateEditableDestinations,
   resolveCoveringRoots,
   pathContains,
-} from '../../src/runtime/learning/resources.js';
+} from '../../src/runtime/evolution/resources.js';
 import { object, string } from '../../src/shared/json.js';
 const file = (path: string, value: string, mode = 0o644): FileTreeFile => ({
   path,
@@ -1122,7 +1122,7 @@ test('concurrent applications in separate processes serialize through the same s
   const script = join(f.root, 'apply.mjs');
   await writeFile(
     script,
-    `import { RevisionApplication } from ${JSON.stringify(source('../../src/runtime/learning/application.ts'))};
+    `import { RevisionApplication } from ${JSON.stringify(source('../../src/runtime/evolution/application.ts'))};
 import { FileArtifacts,FileFacts } from ${JSON.stringify(source('../../src/runtime/storage/index.ts'))};
 const application = new RevisionApplication({directory:${JSON.stringify(f.directory)},rootDirectory:${JSON.stringify(f.project)},facts:new FileFacts(${JSON.stringify(join(f.directory, 'facts'))}),artifacts:new FileArtifacts(${JSON.stringify(join(f.directory, 'artifacts'))})});
 process.send('ready'); await application.apply('revision-next');process.send('applied');`,

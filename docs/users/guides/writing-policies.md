@@ -61,12 +61,12 @@ bestCandidateRef: ${{ state.bestCandidateRef }} # Current shared state
 - Expressions occupy the entire field value. `steps` can reference completed steps in the current or enclosing block.
 - `application.initialCandidate` and `loop.index` are fixed framework properties.
 
-Use serial step IDs in external learning configuration. The Runtime owns the active Memory version and the Policy needs no Memory state or output field.
+Use serial step IDs in external Memory and Reflection configuration files. The Runtime owns the active Memory version and the Policy needs no Memory state or output field.
 
 ### Shared state and parallel execution
 
 - Declare fields with `state_schema`, initialize them with `state`, and update them through `state` steps. Every expression in one update reads the state before that update.
-- Parallel `foreach` branches return results through their own `output`; later serial steps aggregate them and update shared state. State updates and learning triggers require serial execution.
+- Parallel `foreach` branches return results through their own `output`; later serial steps aggregate them and update shared state. State updates and runtime evolution triggers require serial execution.
   - `if` and `foreach` outputs are evaluated inside their blocks; a `loop` output is evaluated after the loop ends.
   - Save loop-local data that must be retained in shared state, and initialize values for the zero-iteration case.
 

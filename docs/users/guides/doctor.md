@@ -27,7 +27,7 @@ flowchart TD
     C -- Yes --> E["Load and validate Recipe<br/>Merge the effective configuration"]
     E --> F{"Validation succeeded?"}
     F -- No --> G["Record recipe.validate failure"]
-    F -- Yes --> H["Prepare a temporary Runtime<br/>Visit the Application, bindings and learning modules"]
+    F -- Yes --> H["Prepare a temporary Runtime<br/>Visit the Application, bindings and runtime evolution modules"]
     H --> I["Check declared paths and binding references"]
     I --> J{"Declared paths and references valid?"}
     J -- Yes --> K["Create the binding and call its optional rsi/doctor"]
@@ -47,7 +47,7 @@ flowchart TD
 2. **Load the effective Recipe.** `Recipe.load` validates Schemas, bindings, contract compatibility, Policy compilation, budgets and enabled Memory and Reflection resources.
    - Probes use the configuration produced by merging Policy defaults and Recipe overrides.
    - A loading error produces a failed diagnostic and stops component probes.
-3. **Check declared prerequisites.** For the Application, each effective binding and each enabled learning module, doctor checks local files and directories marked with `x-rsi-path` for existence, type and readability. It checks that fields marked with `x-rsi-binding` name Recipe bindings that implement the declared contracts.
+3. **Check declared prerequisites.** For the Application, each effective binding and each enabled runtime evolution module, doctor checks local files and directories marked with `x-rsi-path` for existence, type and readability. It checks that fields marked with `x-rsi-binding` name Recipe bindings that implement the declared contracts.
 4. **Run component checks.** If a declared path or binding reference fails validation, doctor reports that failure and continues with the next binding. When these prerequisites pass, doctor creates a temporary instance, awaits its optional `rsi/doctor` reply, then disposes it. An initialization error fails that binding and other bindings continue. A missing handler leaves the `plugin` check `unchecked`.
 5. **Clean up and report.** RSI checks use isolated temporary storage, propagate cancellation, release the instances and processes they create, and remove temporary files. Checks can read existing artifacts as inputs. RSI keeps its captures and writes in the temporary Runtime.
 
@@ -108,7 +108,7 @@ For `application.inference`, Recipe loading checks that `healthcheck.path` and `
 
 ### Proposers, Memory, Reflection and Selectors
 
-Doctor checks enabled learning configurations, the Memory source directory when supplied, and the selected Agent. With no explicit Agent binding it checks the synthesized built-in `agent.pi` configuration. Disabled modules skip resource loading.
+Doctor checks the configurations of enabled runtime evolution modules, the Memory source directory when supplied, and the selected Agent. With no explicit Agent binding it checks the synthesized `_evolutionAgent` binding for the built-in `agent.pi` plugin. Disabled modules skip resource loading.
 
 | Implementation              | Checks performed                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

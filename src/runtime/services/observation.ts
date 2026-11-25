@@ -42,7 +42,7 @@ import { safeId } from '../storage/index.js';
 import type { PolicyStructure } from '../../shared/observation/policy-structure.js';
 import { queryPolicyStructure } from './policy-structure-query.js';
 import { isExecutionActive } from '../manager/execution-lock.js';
-import { isLearningInProgress, revisionDepths } from '../learning/records.js';
+import { isEvolutionInProgress, revisionDepths } from '../evolution/records.js';
 
 function restrictedFile(path: string): boolean {
   return /(^|\/)(\.env(?:\..*)?|\.npmrc|\.?netrc|credentials(?:\.json|\.ya?ml|\.toml)?|secrets?\.(?:json|ya?ml|toml)|id_(?:rsa|ed25519|ecdsa|dsa)|private[-_]?key(?:\.pem|\.key)?|[^/]+\.(?:p12|pfx))$/i.test(
@@ -247,7 +247,7 @@ export class ObservationQueries {
       'calls',
       'revisions',
       'memory-revisions',
-      'learning-runs',
+      'evolution-runs',
     ] as const)
       for await (const entry of this.scanOwned(kind, id)) {
         if (kind === 'revisions') {
@@ -264,25 +264,25 @@ export class ObservationQueries {
     return refs;
   }
 
-  /** Compact learning records; file contents use the existing bounded artifact projection. */
-  private async learningPaths(id: string): Promise<Map<string, string>> {
+  /** Compact runtime evolution records; file contents use the existing bounded artifact projection. */
+  private async evolutionPaths(id: string): Promise<Map<string, string>> {
     const paths = new Map<string, string>();
-    for await (const run of this.scanOwned('learning-runs', id)) {
+    for await (const run of this.scanOwned('evolution-runs', id)) {
       if (typeof run.triggerPath !== 'string') continue;
       if (typeof run.callId === 'string')
         paths.set(run.callId, run.triggerPath);
-      paths.set(`learning/${run.learningId}`, run.triggerPath);
+      paths.set(`evolution/${run.evolutionId}`, run.triggerPath);
     }
     return paths;
   }
 
-  async learning(
+  async evolution(
     id: string,
     collection: 'revisions' | 'memories',
   ): Promise<JsonObject[]> {
     const [secrets, runs, snapshots] = await Promise.all([
       this.secrets(id),
-      this.owned('learning-runs', id),
+      this.owned('evolution-runs', id),
       this.owned(
         collection === 'memories' ? 'memory-revisions' : collection,
         id,
@@ -293,7 +293,7 @@ export class ObservationQueries {
     const attempts = new Map(
       runs
         .filter((run) => run.kind === (memory ? 'memory' : 'reflection'))
-        .map((run) => [run.learningId, run]),
+        .map((run) => [run.evolutionId, run]),
     );
     const artifacts = new Map(
       snapshots.map((snapshot) => [
@@ -302,8 +302,8 @@ export class ObservationQueries {
       ]),
     );
     const records: JsonObject[] = snapshots.map((entry) => {
-      const run = attempts.get(entry.learningId);
-      if (memory) attempts.delete(entry.learningId);
+      const run = attempts.get(entry.evolutionId);
+      if (memory) attempts.delete(entry.evolutionId);
       return {
         id: entry.ref ?? null,
         ...(memory
@@ -332,10 +332,10 @@ export class ObservationQueries {
     if (memory)
       for (const run of attempts.values())
         records.push({
-          id: run.learningId ?? null,
+          id: run.evolutionId ?? null,
           binding: 'memory',
           kind: 'attempt',
-          inProgress: isLearningInProgress(run.status),
+          inProgress: isEvolutionInProgress(run.status),
           parentRef: run.parentRef ?? null,
           parentArtifactRef: run.parentArtifactRef ?? null,
           resourceRef: null,
@@ -744,7 +744,7 @@ export class ObservationQueries {
     };
   }
   async calls(id: string, offset = 0, limit = 50): Promise<Page<CallSummary>> {
-    const paths = await this.learningPaths(id);
+    const paths = await this.evolutionPaths(id);
     const entries = await this.owned('calls', id),
       secrets = await this.secrets(id);
     entries.sort(
@@ -934,7 +934,7 @@ export class ObservationQueries {
     const secrets = await this.secrets(id),
       record = await this.ownedCall(id, callId);
     return {
-      ...this.call(record, secrets, await this.learningPaths(id)),
+      ...this.call(record, secrets, await this.evolutionPaths(id)),
       input: this.preview(record.input, secrets),
       output: this.preview(record.output, secrets),
     };

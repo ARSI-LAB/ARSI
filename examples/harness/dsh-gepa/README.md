@@ -70,8 +70,8 @@ pending-round details stay inside the implementation's state artifacts.
 
 Memory and Reflection reuse the Recipe's `agent` binding. At each optimization
 round they receive training summaries from the proposal and its evaluation.
-Validation measurements and Pareto selection records stay outside both learning
-modules. Memory is delivered to the proposer. Reflection can revise the
+Validation measurements and Pareto selection records are excluded from the evidence for
+both modules. Memory is delivered to the proposer. Reflection can revise the
 proposer's declared resources, which in this Recipe consist of the mutation prompt.
 
 ## Algorithm shape

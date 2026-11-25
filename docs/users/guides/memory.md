@@ -6,7 +6,7 @@ Memory keeps reusable experience in a versioned directory of UTF-8 text files. E
 
 ## Configure Memory
 
-Memory is enabled by default. A Policy can set `defaults.memory` and a Recipe can override it with `memory`. Use `false` to disable it, `true` to enable it with the Policy's configuration or built-in defaults, or `{ configFile: ./memory.yaml }` to select a complete configuration file. A Recipe file replaces the Policy file. Omitted fields use built-in defaults and file paths resolve relative to the file declaring them. Parameter Grid and Optuna disable both learning capabilities by default.
+Memory is enabled by default. A Policy can set `defaults.memory` and a Recipe can override it with `memory`. Use `false` to disable it, `true` to enable it with the Policy's configuration or built-in defaults, or `{ configFile: ./memory.yaml }` to select a complete configuration file. A Recipe file replaces the Policy file. Omitted fields use built-in defaults and file paths resolve relative to the file declaring them. Parameter Grid and Optuna disable both Memory and Reflection by default.
 
 For example, a WikiSkill Recipe can select `memory: { configFile: ./wiki-memory.yaml }` with this configuration:
 
@@ -23,7 +23,7 @@ implementation:
 
 The default trigger is `loop-iteration`, or `experiment-end` for a Policy without a top-level loop. Use `loop-end` for the end of a top-level loop or `after-step` with a serial step ID. `every: 2` runs on the second, fourth and subsequent even matches. Memory and Reflection track their own windows and cadence. Memory runs first when both match.
 
-`evidence.view` defaults to `execution`. Use `training-summary` when the learning task permits scores and feedback. Restrict observations with `includeBindings`, `excludeBindings`, `includeSteps` or `excludeSteps`. The Runtime collects calls, measurement projections, candidate changes and selector decisions. An empty window skips generation. An unsuccessful update keeps the previously active snapshot.
+`evidence.view` defaults to `execution`. Use `training-summary` when the task permits scores and feedback. Restrict observations with `includeBindings`, `excludeBindings`, `includeSteps` or `excludeSteps`. The Runtime collects calls, measurement projections, candidate changes and selector decisions. An empty window skips generation. An unsuccessful update keeps the previously active snapshot.
 
 The built-in `memory.agent` supplies a generic prompt and goal. Set `goal` to a goal file, `implementation.config.prompt` to a prompt file, or `implementation.config.agentRef` to a declared Agent binding. Omitting the Agent binding uses a built-in `agent.pi` with `MODEL_NAME`, `MODEL_ENDPOINT` and `MODEL_API_KEY`. Optional `budget.modelCalls`, `timeoutSeconds` and `evidenceBytes` bound one invocation.
 

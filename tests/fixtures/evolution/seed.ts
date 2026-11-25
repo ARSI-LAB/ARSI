@@ -7,10 +7,10 @@ import {
 import {
   RevisionApplication,
   MemoryApplication,
-} from '../../../src/runtime/learning/application.js';
+} from '../../../src/runtime/evolution/application.js';
 
 /** Real revision application against disposable resources, never repository guidance. */
-export async function seedLearning(root: string) {
+export async function seedEvolution(root: string) {
   root = await realpath(root);
   const directory = join(root, 'runtime');
   const project = join(root, 'project');
@@ -25,13 +25,13 @@ export async function seedLearning(root: string) {
     facts,
     artifacts,
   });
-  await facts.write('experiments', 'learning-run', {
-    id: 'learning-run',
+  await facts.write('experiments', 'evolution-run', {
+    id: 'evolution-run',
     recipeId: 'harness2-office',
     status: 'succeeded',
     startedAt: '2026-11-05T01:00:00.000Z',
     finishedAt: '2026-11-05T01:30:00.000Z',
-    recipe: { config: { api_key: 'learning-secret-value' } },
+    recipe: { config: { api_key: 'evolution-secret-value' } },
   });
   await facts.write('experiments', 'other-run', {
     id: 'other-run',
@@ -56,7 +56,7 @@ export async function seedLearning(root: string) {
   ]) {
     await facts.write('revisions', ref!, {
       ref: ref!,
-      experimentId: 'learning-run',
+      experimentId: 'evolution-run',
       bindings: ['proposer', 'summarizer'],
       ...(ref === 'revision-next'
         ? { changedBindings: ['proposer', 'summarizer'] }
@@ -91,7 +91,7 @@ export async function seedLearning(root: string) {
       reason:
         ref === 'revision-initial'
           ? null
-          : 'Verify saved formula results before delivery. learning-secret-value',
+          : 'Verify saved formula results before delivery. evolution-secret-value',
     });
   }
   const memoryBefore = await tree(
@@ -115,30 +115,30 @@ export async function seedLearning(root: string) {
     await facts.write('memory-revisions', ref, {
       ref,
       artifactRef,
-      experimentId: 'learning-run',
+      experimentId: 'evolution-run',
       rootRef: 'memory-initial',
       parentRef: ref === 'memory-initial' ? null : 'memory-initial',
       kind: ref === 'memory-initial' ? 'initial' : 'generated',
       ...(ref === 'memory-initial'
         ? { sourceDirectory: null, status: 'initial' }
-        : { learningId: 'memory-run', status: 'validated' }),
+        : { evolutionId: 'memory-run', status: 'validated' }),
     });
-  await facts.write('learning-runs', 'memory-run', {
-    experimentId: 'learning-run',
+  await facts.write('evolution-runs', 'memory-run', {
+    experimentId: 'evolution-run',
     kind: 'memory',
-    learningId: 'memory-run',
+    evolutionId: 'memory-run',
     triggerPath: 'steps/search/iteration-1',
     callId: 'memory-update',
     status: 'activated',
     startedAt: '2026-11-05T01:15:00.000Z',
   });
   await facts.write('calls', 'memory-update', {
-    experimentId: 'learning-run',
+    experimentId: 'evolution-run',
     callId: 'memory-update',
     bindingId: '_memory',
     pluginId: 'custom.memory',
     status: 'succeeded',
-    path: 'learning/memory-run',
+    path: 'evolution/memory-run',
   });
   return {
     directory,

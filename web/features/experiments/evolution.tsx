@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  parseLearning,
+  parseEvolution,
   parseApplication,
   applySnapshot,
-  type LearningRecord,
-} from '../../api/learning-client';
+  type EvolutionRecord,
+} from '../../api/evolution-client';
 import { parseArtifact } from '../../api/observation-client';
 import { useRoute, replaceRouteSelection } from '../../app/use-route';
 import { route } from '../../app/routing';
@@ -15,14 +15,14 @@ import { CandidateTextDiff } from './candidate-text-diff';
 import { parseArtifactFiles } from './file-browser-model';
 import { roundLabel } from './round-label-model';
 
-function bindingLabel(record: LearningRecord): string {
+function bindingLabel(record: EvolutionRecord): string {
   if (record.binding) return record.binding;
   return (
     record.kind === 'initial' ? record.bindings : record.changedBindings
   ).join(', ');
 }
 
-function title(record: LearningRecord): string {
+function title(record: EvolutionRecord): string {
   if (record.binding === 'memory') {
     if (record.kind === 'initial') return 'Initial memory';
     return record.kind === 'attempt' ? 'Memory attempt' : 'Memory update';
@@ -57,7 +57,7 @@ function Snapshot({
     <div className="section-stack">
       <Feedback {...index} />
       {files.length ? (
-        <label className="learning-field">
+        <label className="evolution-field">
           File
           <select
             value={selected?.path}
@@ -167,12 +167,12 @@ function ApplySnapshot({
     }
   };
   return (
-    <div className="learning-apply">
+    <div className="evolution-apply">
       <div className="section-heading">
         <p className="muted">Use this snapshot in future experiments.</p>
         <button
           ref={trigger}
-          className="quiet-button learning-primary"
+          className="quiet-button evolution-primary"
           onClick={() => {
             setInspection((value) => value + 1);
             setAcknowledged(false);
@@ -185,15 +185,15 @@ function ApplySnapshot({
         </button>
       </div>
       {result ? (
-        <p role="status" className="learning-success">
+        <p role="status" className="evolution-success">
           {result}
         </p>
       ) : null}
       <dialog
         ref={dialog}
-        className="learning-dialog"
-        aria-labelledby="learning-apply-title"
-        aria-describedby="learning-apply-description"
+        className="evolution-dialog"
+        aria-labelledby="evolution-apply-title"
+        aria-describedby="evolution-apply-description"
         onCancel={(event) => {
           event.preventDefault();
           close();
@@ -204,7 +204,7 @@ function ApplySnapshot({
         }}
       >
         <div className="section-heading">
-          <h2 id="learning-apply-title">Preview snapshot application</h2>
+          <h2 id="evolution-apply-title">Preview snapshot application</h2>
           <button
             className="quiet-button"
             disabled={pending}
@@ -214,7 +214,7 @@ function ApplySnapshot({
             ×
           </button>
         </div>
-        <p id="learning-apply-description" className="muted">
+        <p id="evolution-apply-description" className="muted">
           Selected snapshot: {label}.
         </p>
         <form
@@ -228,7 +228,7 @@ function ApplySnapshot({
             setInspection((value) => value + 1);
           }}
         >
-          <label className="learning-field">
+          <label className="evolution-field">
             Export directory (optional)
             <input
               value={destination}
@@ -249,7 +249,7 @@ function ApplySnapshot({
           <>
             {!preview.data.applicationAllowed ? (
               <section
-                className="learning-blocked"
+                className="evolution-blocked"
                 aria-label="Application unavailable"
               >
                 <h3>Application unavailable</h3>
@@ -285,7 +285,7 @@ function ApplySnapshot({
                 <p className="muted">No files have been changed.</p>
               </section>
             ) : preview.data.changes.length ? (
-              <div className="learning-apply-summary">
+              <div className="evolution-apply-summary">
                 <h3>Files to update</h3>
                 <p className="muted">
                   Local edits in these paths will be replaced by the saved
@@ -298,7 +298,7 @@ function ApplySnapshot({
                 Destination <code>{path}</code>
               </p>
             ))}
-            <ul className="learning-plan">
+            <ul className="evolution-plan">
               {preview.data.changes.map((change, index) => (
                 <li key={index}>
                   <span className="status-badge">{change.action}</span>
@@ -317,7 +317,7 @@ function ApplySnapshot({
               </p>
             ) : null}
             {preview.data.applicationAllowed && preview.data.changes.length ? (
-              <label className="learning-ack">
+              <label className="evolution-ack">
                 <input
                   type="checkbox"
                   disabled={pending}
@@ -358,7 +358,7 @@ function ApplySnapshot({
           ) : null}
           {preview.data?.applicationAllowed && preview.data.changes.length ? (
             <button
-              className="quiet-button learning-primary"
+              className="quiet-button evolution-primary"
               disabled={
                 pending ||
                 attempted ||
@@ -383,7 +383,7 @@ function Detail({
   memory,
 }: {
   id: string;
-  record: LearningRecord;
+  record: EvolutionRecord;
   memory: boolean;
 }): React.JSX.Element {
   const selection = useRoute();
@@ -425,7 +425,7 @@ function Detail({
       </div>
       <div className="ui-card-content section-stack">
         {record.reason ? (
-          <div className="learning-reason">
+          <div className="evolution-reason">
             <h3>{memory ? 'What was learned' : 'Why this changed'}</h3>
             <p>{record.reason}</p>
           </div>
@@ -501,7 +501,7 @@ function Detail({
   );
 }
 
-export function Learning({
+export function Evolution({
   id,
   finished,
 }: {
@@ -509,10 +509,10 @@ export function Learning({
   finished: boolean;
 }): React.JSX.Element {
   const selection = useRoute();
-  const memory = selection.learning === 'memory';
+  const memory = selection.evolution === 'memory';
   const records = useObservation(
     `/${encodeURIComponent(id)}/${memory ? 'memories' : 'revisions'}`,
-    parseLearning,
+    parseEvolution,
     finished ? null : 10000,
   );
   const items = records.data ?? [];
@@ -528,12 +528,12 @@ export function Learning({
   return (
     <section className="section-stack" aria-label="Reflection and Memory">
       <div className="section-heading">
-        <div className="actions" role="group" aria-label="Learning records">
+        <div className="actions" role="group" aria-label="Evolution records">
           <button
             className="quiet-button"
             aria-pressed={!memory}
             onClick={() =>
-              replaceRouteSelection({ ...reset, learning: undefined })
+              replaceRouteSelection({ ...reset, evolution: undefined })
             }
           >
             Reflection
@@ -542,7 +542,7 @@ export function Learning({
             className="quiet-button"
             aria-pressed={memory}
             onClick={() =>
-              replaceRouteSelection({ ...reset, learning: 'memory' })
+              replaceRouteSelection({ ...reset, evolution: 'memory' })
             }
           >
             Memory
@@ -563,22 +563,22 @@ export function Learning({
         </Card>
       ) : null}
       {items.length ? (
-        <div className="learning-workspace">
+        <div className="evolution-workspace">
           <nav
-            className="learning-records"
+            className="evolution-records"
             aria-label={memory ? 'Memory history' : 'Reflection revisions'}
           >
             {items.map((item) => (
               <a
                 key={item.id}
-                className="learning-record"
+                className="evolution-record"
                 aria-current={selected?.id === item.id ? 'true' : undefined}
-                href={route(id, 'learning', undefined, undefined, {
-                  learning: memory ? 'memory' : undefined,
+                href={route(id, 'evolution', undefined, undefined, {
+                  evolution: memory ? 'memory' : undefined,
                   revision: item.id,
                 })}
               >
-                <div className="learning-record-heading">
+                <div className="evolution-record-heading">
                   <strong>{title(item)}</strong>
                   {item.kind !== 'initial' && roundLabel(item.path) ? (
                     <span className="call-round">{roundLabel(item.path)}</span>
@@ -593,7 +593,7 @@ export function Learning({
               </a>
             ))}
           </nav>
-          <div className="learning-detail">
+          <div className="evolution-detail">
             {selected ? (
               <Detail
                 key={`${id}:${selected.id}`}

@@ -38,7 +38,7 @@ defaults:
   reflection: { configFile: ./reflection.yaml }
   # Harness² paper §2.2–2.3 / appendix H: editors and experience extraction
   # use execution evidence, never verifier scores, rewards, rubrics or test verdicts.
-  # Evaluator still archives scoring for reporting; it is not learning input here.
+  # Evaluator still archives scoring for reporting; it is not runtime evolution input here.
   bindings:
     agent:
       plugin: agent.pi

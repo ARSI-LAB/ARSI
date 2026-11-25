@@ -171,14 +171,14 @@ test('operator search shares its benchmark task and limits default Reflection ed
   object(declaration.budget).operations = 1;
   await writeFile(f.recipePath, stringify(declaration));
   await assert.rejects(
-    f.manager.run(f.recipePath, { id: 'default-learning' }),
+    f.manager.run(f.recipePath, { id: 'default-evolution' }),
     /Budget exceeded: operations/,
   );
-  const experiment = await f.manager.get('default-learning');
+  const experiment = await f.manager.get('default-evolution');
   assert.ok(object(experiment.application).initialCandidateRef);
   const activation = await f.manager.facts.read(
     'activations',
-    'default-learning',
+    'default-evolution',
   );
   const initial = await f.manager.facts.read(
     'memory-revisions',

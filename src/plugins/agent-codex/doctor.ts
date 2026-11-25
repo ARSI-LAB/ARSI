@@ -19,7 +19,6 @@ export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
   let command: CodexDiagnostics | undefined;
   let diagnosis: Awaited<ReturnType<typeof runCodexDiagnostics>> | undefined;
   let sandboxOverrides: string[] = [];
-  const mode = context.binding.config.sandbox;
   const isExecutableAvailable = async (
     signal: AbortSignal,
   ): Promise<boolean> => {
@@ -37,32 +36,6 @@ export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
     return true;
   };
 
-  function sandboxRules(): DoctorRule[] {
-    if (mode !== 'read-only' && mode !== 'workspace-write') return [];
-
-    const isSandboxAvailable = async (
-      signal: AbortSignal,
-    ): Promise<boolean> => {
-      const settings = await prepareCodexSandbox({
-        mode,
-        executable: string(context.binding.config.executable ?? 'codex'),
-        directory: context.directory,
-        signal,
-      });
-      sandboxOverrides = settings.config;
-      return true;
-    };
-
-    return [
-      {
-        id: 'sandbox',
-        check: isSandboxAvailable,
-        reason:
-          'Codex could not verify the explicit sandbox prerequisites before native health checks.',
-      },
-    ];
-  }
-
   return [
     {
       id: 'executable',
@@ -70,7 +43,9 @@ export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
       reason:
         'The proposal-side Codex executable could not provide CLI help; check agent.codex.executable and the Codex installation.',
     },
-    ...sandboxRules(),
+    ...codexSandboxRules(context, (config) => {
+      sandboxOverrides = config;
+    }),
     {
       id: 'doctor',
       get check() {
@@ -99,6 +74,34 @@ export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
           ? 'Codex doctor does not establish that a valid model list contains the configured model; proposal-side model availability remains unchecked.'
           : 'Proposal-side model access was not checked because this Codex CLI does not support a machine-readable doctor report.';
       },
+    },
+  ];
+}
+
+function codexSandboxRules(
+  context: DoctorContext,
+  setSandboxOverrides: (config: string[]) => void,
+): DoctorRule[] {
+  const mode = context.binding.config.sandbox;
+  if (mode !== 'read-only' && mode !== 'workspace-write') return [];
+
+  const isSandboxAvailable = async (signal: AbortSignal): Promise<boolean> => {
+    const settings = await prepareCodexSandbox({
+      mode,
+      executable: string(context.binding.config.executable ?? 'codex'),
+      directory: context.directory,
+      signal,
+    });
+    setSandboxOverrides(settings.config);
+    return true;
+  };
+
+  return [
+    {
+      id: 'sandbox',
+      check: isSandboxAvailable,
+      reason:
+        'Codex could not verify the explicit sandbox prerequisites before native health checks.',
     },
   ];
 }

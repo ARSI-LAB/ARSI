@@ -42,6 +42,7 @@ import {
 import { validateDestinationNames } from './destination-names.js';
 
 interface SourceResource {
+  physicalPath?: string;
   pointer?: string;
   directories?: string[];
   kind: 'file' | 'directory';
@@ -249,7 +250,7 @@ class SnapshotApplication {
         );
       const initial =
         record.ref === root.ref
-          ? snapshot
+          ? undefined
           : parseFileTree(
               await this.options.artifacts.readJson(string(root.resourceRef)),
             ).files;
@@ -266,12 +267,14 @@ class SnapshotApplication {
                 'File snapshot replaces a selected directory: ' + path,
               );
           }
+          if (!initial) return true;
           const originals = new Map(
             snapshotFiles(resource, initial).map((file) => [file.path, file]),
           );
           return !sameRoot(resource, originals, snapshot);
         })
-        .map(({ path, kind, artifactPath, members }) => ({
+        .map(({ path, physicalPath, kind, artifactPath, members }) => ({
+          ...(!target && physicalPath ? { physicalPath } : {}),
           kind,
           artifactPath,
           directories: [
@@ -388,7 +391,7 @@ class SnapshotApplication {
         revision.sourceRoots !== undefined &&
         to === undefined &&
         relative(
-          resource.path,
+          resource.physicalPath ?? resource.path,
           await canonicalDestinationPath(resource.path),
         ) !== ''
       )

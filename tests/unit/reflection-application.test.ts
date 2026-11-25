@@ -1399,15 +1399,20 @@ test('joint revisions skip untouched roots and export changed protected resource
   );
   assert.deepEqual(listing[0]!.changedBindings, ['editor']);
   const initialExport = join(f.project, 'initial-export');
-  for (const options of [{}, { to: initialExport }]) {
-    const preview = await f.app.show('joint-initial', options);
-    assert.deepEqual(preview.destinations, []);
-    assert.equal(
-      (await f.app.apply('joint-initial', options)).status,
-      'unchanged',
-    );
-  }
-  await assert.rejects(readdir(initialExport), { code: 'ENOENT' });
+  assert.equal((await f.app.show('joint-initial')).applicationAllowed, false);
+  await assert.rejects(f.app.apply('joint-initial'), /Protected destination/);
+  assert.equal(
+    (await f.app.apply('joint-initial', { to: initialExport })).status,
+    'applied',
+  );
+  assert.equal(
+    await readFile(join(initialExport, 'reader/notes/a.md'), 'utf8'),
+    'old',
+  );
+  assert.equal(
+    await readFile(join(initialExport, 'editor/prompt'), 'utf8'),
+    'protected',
+  );
   const preview = await f.app.show('joint-one');
   assert.equal(preview.applicationAllowed, true, String(preview.restrictions));
   assert.deepEqual(
@@ -1450,7 +1455,7 @@ test('joint revisions skip untouched roots and export changed protected resource
   assert.deepEqual(await readdir(outside), ['keep.md']);
 });
 
-test('joint directory publication retains nested selected empty directories and their ancestors', async (t) => {
+test('joint directory publication preserves selected empty directories and supports baseline rollback', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
   const nested = join(f.guidance, 'container', 'empty');
@@ -1504,5 +1509,13 @@ test('joint directory publication retains nested selected empty directories and 
     assert.deepEqual(await readdir(join(root, 'container', 'empty')), []);
     await assert.rejects(lstat(join(root, 'obsolete')), /ENOENT/);
     assert.equal((await f.app.apply('next', { to })).status, 'unchanged');
+    const baseline = await f.app.show('seed', { to });
+    assert.equal(baseline.applicationAllowed, true);
+    assert.deepEqual(baseline.changes, [
+      { action: 'replace', path: join(root, 'rules.md') },
+    ]);
+    assert.equal((await f.app.apply('seed', { to })).status, 'applied');
+    assert.equal(await readFile(join(root, 'rules.md'), 'utf8'), 'before');
+    assert.equal((await f.app.apply('seed', { to })).status, 'unchanged');
   }
 });

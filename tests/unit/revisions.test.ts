@@ -479,7 +479,7 @@ test('a jointly owned file activates once for both bindings and exports once', a
       const files = tree.files.filter((file) => file.path !== 'manifest.json');
       assert.equal(files.length, 1);
       snapshotPath = files[0]!.path;
-      assert.match(snapshotPath, /^resources\/shared\//);
+      assert.match(snapshotPath, /^resources\/_shared\//);
       return f.proposed(input, { [snapshotPath]: 'shared revision' });
     },
   });

@@ -152,7 +152,7 @@ function ApplySnapshot({
         setResult(
           status === 'applied'
             ? 'Destination files updated.'
-            : 'Destination files already match this version.',
+            : 'No destination files needed updating.',
         );
         setOpen(false);
         trigger.current?.focus();
@@ -310,7 +310,11 @@ function ApplySnapshot({
               ))}
             </ul>
             {preview.data.applicationAllowed && !preview.data.changes.length ? (
-              <p>Destination files already match this version.</p>
+              <p>
+                {preview.data.destinations.length
+                  ? 'Destination files already match this version.'
+                  : 'This revision has no changed resource roots to apply.'}
+              </p>
             ) : null}
             {preview.data.applicationAllowed && preview.data.changes.length ? (
               <label className="learning-ack">

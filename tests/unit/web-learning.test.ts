@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from '../../src/entries/web/server.js';
@@ -12,7 +12,9 @@ import {
 } from '../../web/api/learning-client.js';
 
 test('learning HTTP projects owned records, previews changes and applies through the existing boundary', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'rsi-web-learning-'));
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), 'rsi-web-learning-')),
+  );
   t.after(() => rm(root, { recursive: true, force: true }));
   const f = await seedLearning(root);
   await f.facts.write('learning-runs', 'reflection-test', {
@@ -272,6 +274,27 @@ test('learning HTTP projects owned records, previews changes and applies through
   assert.equal(
     (await server.inject({ method: 'POST', url: applyUrl })).json().status,
     'unchanged',
+  );
+  const initialPreview = parseApplication(
+    (
+      await server.inject(`${base}/revisions/revision-initial/application`)
+    ).json(),
+  );
+  assert.equal(initialPreview.applicationAllowed, true);
+  assert.deepEqual(initialPreview.destinations, [f.guidance]);
+  assert.equal(initialPreview.changes[0]?.action, 'replace');
+  assert.equal(
+    (
+      await server.inject({
+        method: 'POST',
+        url: '/api/experiments/learning-run/revisions/revision-initial/apply',
+      })
+    ).json().status,
+    'applied',
+  );
+  assert.equal(
+    await readFile(join(f.guidance, 'checks.md'), 'utf8'),
+    'Validate the output.\n',
   );
 });
 

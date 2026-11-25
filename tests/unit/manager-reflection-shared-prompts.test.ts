@@ -5,11 +5,13 @@ import {
   readFile,
   realpath,
   rm,
+  symlink,
+  unlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import {
   defineContract,
   parseFileTree,
@@ -20,11 +22,25 @@ import {
 import { object, string } from '../../src/shared/json.js';
 import { managerFixture } from '../helpers/manager-fixture.js';
 
-test('Manager activates shared prompt revisions for the affected consumers and applies both rounds together', async (t) => {
-  const root = await mkdtemp(
-    join(await realpath(tmpdir()), 'rsi-shared-prompts-'),
-  );
-  t.after(() => rm(root, { recursive: true, force: true }));
+test('Manager activates shared prompt revisions for the affected consumers and applies both rounds together', (t) =>
+  exerciseSharedPrompts(t, false));
+test('Manager runs Reflection through a linked ancestor and can export the revision to an independent destination', (t) =>
+  exerciseSharedPrompts(t, true));
+
+async function exerciseSharedPrompts(t: TestContext, linked: boolean) {
+  const temp = await mkdtemp(join(tmpdir(), 'rsi-shared-prompts-'));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  // The direct writeback and export destinations must have no linked ancestors, including macOS /var.
+  const directory = await realpath(temp);
+  const project = join(directory, 'project');
+  await mkdir(project);
+  const root = linked ? join(directory, 'alias') : project;
+  if (linked)
+    await symlink(
+      project,
+      root,
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
   const prompts = join(root, 'prompts');
   const task = join(root, 'task');
   const summary = join(prompts, 'summarize.md');
@@ -190,14 +206,37 @@ test('Manager activates shared prompt revisions for the affected consumers and a
     [['proposer', 'summarizer'], ['proposer'], []],
   );
   assert.equal(await readFile(summary, 'utf8'), 'original summary');
+  const id = string(revisions[0]!.revisionID);
+  const app = fixture.manager.reflection();
+  const destination = linked ? join(directory, 'export') : prompts;
+  if (linked) {
+    const preview = await app.show(id);
+    assert.equal(preview.applicationAllowed, false);
+    await assert.rejects(app.apply(id), /Linked destination rejected/);
+    assert.equal(
+      await readFile(join(prompts, 'diagnose.md'), 'utf8'),
+      'source edited after locking',
+    );
+    // Replacing the link with a regular directory must not redirect in-place publication.
+    await unlink(root);
+    await mkdir(prompts, { recursive: true });
+    await writeFile(join(prompts, 'keep.md'), 'replacement content');
+    await assert.rejects(app.apply(id), /changed its physical path/);
+    assert.equal(
+      await readFile(join(prompts, 'keep.md'), 'utf8'),
+      'replacement content',
+    );
+  }
   assert.equal(
-    (await fixture.manager.reflection().apply(string(revisions[0]!.revisionID)))
-      .status,
+    (await app.apply(id, linked ? { to: destination } : {})).status,
     'applied',
   );
   assert.equal(
-    await readFile(join(prompts, 'diagnose.md'), 'utf8'),
+    await readFile(join(destination, 'diagnose.md'), 'utf8'),
     'revised diagnosis',
   );
-  assert.equal(await readFile(summary, 'utf8'), 'revised summary');
-});
+  assert.equal(
+    await readFile(join(destination, 'summarize.md'), 'utf8'),
+    'revised summary',
+  );
+}

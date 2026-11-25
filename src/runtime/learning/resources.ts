@@ -1,4 +1,4 @@
-import { lstat, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import {
   basename,
   dirname,
@@ -52,7 +52,10 @@ export type ResourceMember = {
   relativePath: string;
 };
 export type CoveringRoot = {
+  /** Original absolute path to inspect before an in-place write. */
   path: string;
+  /** Original physical identity when different from the configured path. */
+  physicalPath?: string;
   artifactPath: string;
   kind: 'file' | 'directory';
   members: ResourceMember[];
@@ -84,7 +87,7 @@ export function coveringArtifactPath(
     basename(path)
       .replace(/[^A-Za-z0-9_-]/g, '-')
       .slice(0, 64) || 'resource';
-  return `resources/shared/${slug}-${digest(owners.map(({ binding, pointer }) => [binding, pointer])).slice(0, 8)}`;
+  return `resources/_shared/${slug}-${digest(owners.map(({ binding, pointer }) => [binding, pointer])).slice(0, 8)}`;
 }
 
 /** Group selected source locations before projecting the isolated binding copies. */
@@ -92,46 +95,44 @@ export async function resolveCoveringRoots(
   entries: readonly EditableRoot[],
 ): Promise<CoveringRoot[]> {
   const physical = await Promise.all(
-    entries.map(async (entry) => {
-      const path = await canonicalDestinationPath(entry.path);
-      // Short names may share a root; a symlink must not confer writeback to its target.
-      if (path !== resolve(entry.path)) {
-        let cursor = resolve(entry.path);
-        while (cursor !== dirname(cursor)) {
-          const info = await lstat(cursor).catch((error: unknown) => {
-            if (
-              error instanceof Error &&
-              'code' in error &&
-              error.code === 'ENOENT'
-            )
-              return null;
-            throw error;
-          });
-          if (info?.isSymbolicLink())
-            throw new Error('Linked destination rejected: ' + cursor);
-          cursor = dirname(cursor);
-        }
-      }
-      return { ...entry, path };
-    }),
+    entries.map(async (entry) => ({
+      ...entry,
+      path: resolve(entry.path),
+      physicalPath: await canonicalDestinationPath(entry.path),
+    })),
   );
   physical.sort(
     (a, b) =>
-      a.path.split(sep).length - b.path.split(sep).length ||
+      a.physicalPath.split(sep).length - b.physicalPath.split(sep).length ||
+      compare(a.physicalPath, b.physicalPath) ||
       compare(a.path, b.path),
   );
   const roots: CoveringRoot[] = [];
-  for (const { path, binding, pointer, kind } of physical) {
-    let root = roots.find((candidate) => pathContains(candidate.path, path));
+  for (const { path, physicalPath, binding, pointer, kind } of physical) {
+    let root = roots.find((candidate) =>
+      pathContains(candidate.physicalPath ?? candidate.path, physicalPath),
+    );
     if (!root) {
-      root = { path, kind, members: [], artifactPath: '' };
+      root = {
+        path,
+        ...(physicalPath !== path ? { physicalPath } : {}),
+        kind,
+        members: [],
+        artifactPath: '',
+      };
       roots.push(root);
     }
+    // All owners must describe the same subtree through the recorded writeback path.
+    const local = relative(root.physicalPath ?? root.path, physicalPath);
+    if (relative(resolve(root.path, local), path) !== '')
+      throw new Error(
+        `Inconsistent Reflection source aliases: ${root.path} and ${path}`,
+      );
     root.members.push({
       binding,
       pointer,
       kind,
-      relativePath: relative(root.path, path).split(sep).join('/'),
+      relativePath: local.split(sep).join('/'),
     });
   }
   for (const root of roots) {
@@ -152,13 +153,18 @@ export function parseCoveringRoots(raw: JsonValue | undefined): CoveringRoot[] {
   }
   const roots = raw.map((value) => {
     const data = object(value);
-    const path = string(data.path),
-      rootKind = kind(data.kind);
+    const path = string(data.path);
+    const physicalPath =
+      data.physicalPath === undefined ? path : string(data.physicalPath);
+    const rootKind = kind(data.kind);
     if (
-      !isAbsolute(path) ||
-      path.includes('\0') ||
-      (process.platform === 'win32' && /^\\\\[?.]\\/.test(path)) ||
-      resolve(path) !== path ||
+      [path, physicalPath].some(
+        (path) =>
+          !isAbsolute(path) ||
+          path.includes('\0') ||
+          (process.platform === 'win32' && /^\\\\[?.]\\/.test(path)) ||
+          resolve(path) !== path,
+      ) ||
       !Array.isArray(data.members)
     )
       throw new Error('Invalid Reflection covering root');
@@ -203,22 +209,39 @@ export function parseCoveringRoots(raw: JsonValue | undefined): CoveringRoot[] {
         )
       )
         throw new Error('Conflicting Reflection file and directory resources');
-    const artifactPath = coveringArtifactPath(path, members);
-    if (artifactPath !== data.artifactPath)
+    const artifactPath = string(data.artifactPath);
+    const expected = coveringArtifactPath(path, members);
+    // Earlier shared roots remain at their saved artifact paths throughout the revision chain.
+    if (
+      artifactPath !== expected &&
+      artifactPath !==
+        expected.replace(/^resources\/_shared\//, 'resources/shared/')
+    )
       throw new Error('Invalid Reflection covering root artifact path');
-    return { path, kind: rootKind, artifactPath, members };
+    return {
+      path,
+      ...(physicalPath !== path ? { physicalPath } : {}),
+      kind: rootKind,
+      artifactPath,
+      members,
+    };
   });
   for (const [index, root] of roots.entries()) {
     for (const other of roots.slice(index + 1))
       if (
-        pathContains(root.path, other.path) ||
-        pathContains(other.path, root.path) ||
-        pathContains(root.artifactPath, other.artifactPath) ||
-        pathContains(other.artifactPath, root.artifactPath)
+        pathsOverlap(root.path, other.path) ||
+        pathsOverlap(
+          root.physicalPath ?? root.path,
+          other.physicalPath ?? other.path,
+        ) ||
+        pathsOverlap(root.artifactPath, other.artifactPath)
       )
         throw new Error('Overlapping Reflection covering roots');
   }
   return roots;
+}
+function pathsOverlap(a: string, b: string): boolean {
+  return pathContains(a, b) || pathContains(b, a);
 }
 export function pathContains(root: string, candidate: string): boolean {
   const local = relative(resolve(root), resolve(candidate));
@@ -232,7 +255,7 @@ export function validateEditableRoots(entries: readonly EditableRoot[]): void {
   for (let index = 0; index < entries.length; index++) {
     const a = entries[index]!;
     for (const b of entries.slice(index + 1)) {
-      if (pathContains(a.path, b.path) || pathContains(b.path, a.path))
+      if (pathsOverlap(a.path, b.path))
         throw new Error(
           `Overlapping editable destinations ${a.binding}${a.pointer} (${resolve(a.path)}) and ${b.binding}${b.pointer} (${resolve(b.path)})`,
         );

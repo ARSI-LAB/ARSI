@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
@@ -26,7 +34,9 @@ import { object, string } from '../../src/shared/json.js';
 import {
   resourcePath,
   assignPointer,
+  parseCoveringRoots,
   pointerValue,
+  resolveCoveringRoots,
 } from '../../src/runtime/learning/resources.js';
 
 test('Reflection addresses escaped Schema keys while keeping snapshot paths portable', () => {
@@ -48,8 +58,9 @@ async function fixture(t: TestContext) {
     await registry.dispose();
     await rm(root, { recursive: true, force: true });
   });
-  const policyDir = join(root, 'policy'),
-    recipeDir = join(root, 'recipe');
+  const policyDir = join(root, 'policy');
+  // Relative Memory seeds in the Recipe are writable destinations and require an unlinked path.
+  const recipeDir = join(await realpath(root), 'recipe');
   await mkdir(policyDir);
   await mkdir(recipeDir);
   await mkdir(join(policyDir, 'guidance'));
@@ -143,6 +154,63 @@ async function fixture(t: TestContext) {
   }
   return { root, registry, policy, policyDir, recipeDir, load };
 }
+
+test('overlapping Reflection members must agree on the linked route to their source', async (t) => {
+  const f = await fixture(t);
+  const alias = join(f.root, 'alias');
+  await symlink(
+    f.policyDir,
+    alias,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
+  const parent = {
+    binding: 'writer',
+    pointer: '/guidance',
+    kind: 'directory',
+    path: f.policyDir,
+  } as const;
+  const member = {
+    binding: 'reader',
+    pointer: '/prompt',
+    kind: 'file',
+    path: join(alias, 'inherited.md'),
+  } as const;
+  for (const entries of [
+    [parent, member],
+    [member, parent],
+  ])
+    await assert.rejects(
+      resolveCoveringRoots(entries),
+      /Inconsistent Reflection source aliases/,
+    );
+});
+
+test('shared roots have a separate namespace from a binding named shared and keep previously recorded artifact paths', async (t) => {
+  const f = await fixture(t);
+  const owners = ['reader', 'writer'].map((binding) => ({
+    binding,
+    pointer: '/prompt',
+    kind: 'file' as const,
+    path: join(f.policyDir, 'inherited.md'),
+  }));
+  const [shared] = await resolveCoveringRoots(owners);
+  assert.ok(shared);
+  assert.match(shared.artifactPath, /^resources\/_shared\//);
+  const name = shared.artifactPath.split('/').at(-1)!;
+  const previous = { ...shared, artifactPath: 'resources/shared/' + name };
+  assert.deepEqual(parseCoveringRoots([previous]), [previous]);
+  const separate = {
+    binding: 'shared',
+    pointer: '/' + name,
+    kind: 'file' as const,
+    path: join(f.recipeDir, 'override.md'),
+  };
+  const roots = await resolveCoveringRoots([separate, ...owners.reverse()]);
+  assert.deepEqual(
+    roots.map((root) => root.artifactPath).sort(),
+    [shared.artifactPath, previous.artifactPath].sort(),
+  );
+});
 
 test('zero-configuration learning resolves real Agent schema defaults and all eligible Policy targets', async (t) => {
   const f = await fixture(t);

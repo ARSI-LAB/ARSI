@@ -46,19 +46,16 @@ export function registerLearningRoutes(
       { schema: { params } },
       (request) => queries.learning(request.params.id, kind),
     );
-    const application = async ({ id, ref }: Params) => {
-      if (kind === 'memories') {
-        await queries.assertMemory(id, ref);
-        return manager.memory();
-      }
-      await queries.assertRevision(id, ref);
-      return manager.reflection();
-    };
+    const service = kind === 'memories' ? 'memory' : 'reflection';
+    const assertOwnership = ({ id, ref }: Params) =>
+      kind === 'memories'
+        ? queries.assertMemory(id, ref)
+        : queries.assertRevision(id, ref);
     app.get<{ Params: Params; Querystring: Destination }>(
       `/api/observation/experiments/:id/${kind}/:ref/application`,
       { schema: { params: snapshotParams, querystring: previewQuery } },
       async ({ params, query }) => {
-        const snapshots = await application(params);
+        await assertOwnership(params);
         if (publicReadOnly)
           return {
             applicationAllowed: false,
@@ -69,7 +66,7 @@ export function registerLearningRoutes(
           };
         return queries.applicationPreview(
           params.id,
-          await snapshots.show(params.ref, { to: query.targetDir }),
+          await manager[service]().show(params.ref, { to: query.targetDir }),
         );
       },
     );
@@ -79,8 +76,8 @@ export function registerLearningRoutes(
       async ({ params, body }) => {
         if (body !== undefined)
           validate(destination, body, 'application destination');
-        const snapshots = await application(params);
-        const result = await snapshots.apply(params.ref, {
+        await assertOwnership(params);
+        const result = await manager[service]().apply(params.ref, {
           to: body?.targetDir,
         });
         return { status: result.status };

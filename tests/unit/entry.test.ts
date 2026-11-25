@@ -147,22 +147,33 @@ test('public dashboard serves external reads and rejects every control before va
     );
   }
   await runtime.manager.facts.write('experiments', 'demo', { id: 'demo' });
-  await runtime.manager.facts.write('revisions', 'rev', {
-    experimentId: 'demo',
-  });
-  t.mock.method(runtime.manager, 'reflection', () => {
-    throw new Error('Public preview must not inspect local files');
-  });
-  const preview = await server.inject(
-    '/api/observation/experiments/demo/revisions/rev/application',
-  );
-  assert.equal(preview.statusCode, 200);
-  assert.equal(preview.json().applicationAllowed, false);
-  assert.deepEqual(preview.json().changes, []);
+  await runtime.manager.facts.write('experiments', 'other', { id: 'other' });
+  for (const [kind, collection, service] of [
+    ['revisions', 'revisions', 'reflection'],
+    ['memories', 'memory-revisions', 'memory'],
+  ] as const) {
+    await runtime.manager.facts.write(collection, 'version', {
+      experimentId: 'demo',
+    });
+    t.mock.method(runtime.manager, service, () => {
+      throw new Error('Public preview must not inspect local files');
+    });
+    const previewPath = (id: string) =>
+      `/api/observation/experiments/${id}/${kind}/version/application?targetDir=export`;
+    const preview = await server.inject({ url: previewPath('demo'), headers });
+    assert.equal(preview.statusCode, 200);
+    assert.equal(preview.json().applicationAllowed, false);
+    assert.deepEqual(preview.json().changes, []);
+    assert.equal(
+      (await server.inject({ url: previewPath('other'), headers })).statusCode,
+      404,
+    );
+  }
   for (const url of [
     '/api/experiments',
     '/api/experiments/demo/cancel',
-    '/api/experiments/demo/revisions/rev/apply',
+    '/api/experiments/demo/revisions/version/apply',
+    '/api/experiments/demo/memories/version/apply',
   ]) {
     const response = await server.inject({ method: 'POST', url, headers });
     assert.equal(response.statusCode, 405);

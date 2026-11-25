@@ -17,6 +17,7 @@ import {
 } from '../../../shared/schema.js';
 import { object } from '../../../shared/json.js';
 import { FileAgentRecorder } from '../../storage/agent-records.js';
+import { agentProgress } from './progress.js';
 
 /** Installed by the registry for every Agent. Plugins need only execute/dispose. */
 export function managedAgentOperation(operation: Operation): Operation {
@@ -52,6 +53,7 @@ export function managedAgentOperation(operation: Operation): Operation {
         };
         // Native detail is optional call-local telemetry. The framework still records
         // details when available; the Manager receipt owns input, result and status.
+        let reportProgress = agentProgress(context);
         const emit = ((
           ...args: Parameters<EventPipeline['emit']>
         ): ReturnType<EventPipeline['emit']> => {
@@ -76,6 +78,14 @@ export function managedAgentOperation(operation: Operation): Operation {
               return;
             }
             record(observation);
+            if (!signal.aborted) {
+              try {
+                reportProgress?.(observation);
+              } catch {
+                // Presentation cannot change the Agent result.
+                reportProgress = undefined;
+              }
+            }
             return;
           }
           return Reflect.apply(context.event.emit, context.event, args);
@@ -100,6 +110,7 @@ export function managedAgentOperation(operation: Operation): Operation {
           }
           return result;
         } finally {
+          reportProgress = undefined;
           try {
             await recorder?.close(!recordingFailed);
           } catch {

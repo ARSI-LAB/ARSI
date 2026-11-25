@@ -8,6 +8,7 @@ import {
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { configureSync, resetSync, type LogRecord } from '@logtape/logtape';
 import { RuntimeContext, type JsonObject } from '../../src/contracts/index.js';
 import { createGymPromotion } from '../../src/plugins/evaluator-gym/promotion/service.js';
 import {
@@ -34,6 +35,7 @@ interface GymFixture {
 }
 
 interface FixtureOptions {
+  runningBeforeComplete?: boolean;
   failureDigest?: string;
   candidateEnvironment?: string;
   rollouts?: number;
@@ -64,6 +66,7 @@ async function gymFixture(
 ): Promise<GymFixture> {
   const posted: PostedPromotion[] = [];
   const jobs = new Map<string, PostedPromotion>();
+  const running = new Set<string>();
   const completedReports = new Map<string, JsonObject>();
   let counter = 0;
   let conflictIssued = false;
@@ -144,6 +147,11 @@ async function gymFixture(
             report: null,
             error: { code: 'EVAL_FAILED', message: 'holdout rollout failed' },
           });
+          return;
+        }
+        if (options.runningBeforeComplete && !running.has(job.id)) {
+          running.add(job.id);
+          json(response, 200, { promotion_id: job.id, state: 'running' });
           return;
         }
         const report = reportFor(job, rewards[digest] ?? 0, options);
@@ -344,11 +352,28 @@ function withSeed(value: GymPromotionConfig, seed: number): GymPromotionConfig {
   };
 }
 
-test('gym promotion compares candidate and incumbent holdout reports without task pinning', async () => {
-  const gym = await gymFixture({
-    [CANDIDATE_DIGEST]: 0.8,
-    [INCUMBENT_DIGEST]: 0.5,
+test('gym promotion compares both holdouts and reports each pending state', async (t) => {
+  const gym = await gymFixture(
+    { [CANDIDATE_DIGEST]: 0.8, [INCUMBENT_DIGEST]: 0.5 },
+    { runningBeforeComplete: true },
+  );
+  const records: LogRecord[] = [];
+  configureSync({
+    sinks: {
+      capture: (record) => {
+        records.push(record);
+      },
+    },
+    loggers: [
+      {
+        category: ['arsi', 'plugin', 'gym'],
+        lowestLevel: 'debug',
+        sinks: ['capture'],
+      },
+      { category: ['logtape', 'meta'], lowestLevel: null },
+    ],
   });
+  t.after(resetSync);
   try {
     const { context, artifacts, charges, instances } = harness();
     const release = await createGymPromotion(config(gym.baseUrl), context);
@@ -381,6 +406,29 @@ test('gym promotion compares candidate and incumbent holdout reports without tas
       { ref: 'candidate:final' },
       { ref: 'candidate:incumbent' },
     ]);
+    const roles = ['candidate', 'incumbent'];
+    const waiting = gym.posted.map(
+      ({ id }, index) => `waiting for gym ${roles[index]} promotion ${id}`,
+    );
+    assert.deepEqual(
+      records
+        .filter(({ properties }) => properties.progressOnly === true)
+        .map(({ properties }) => properties.activeTask),
+      waiting.flatMap((detail, index) =>
+        [
+          `submitting ${roles[index]} holdout to gym`,
+          detail,
+          `${detail} · queued`,
+          `${detail} · running`,
+        ].map((text) => ({ id: context.callId, detail: text })),
+      ),
+    );
+    assert.deepEqual(
+      records
+        .filter(({ properties }) => properties.progressOnly !== true)
+        .map(({ properties }) => properties.detail),
+      waiting,
+    );
     const record = artifacts.get(output.promotionRef)!;
     assert.equal(record.decision, 'promote');
     assert.ok(Math.abs(Number(object(record.comparison).delta) - 0.3) < 1e-12);

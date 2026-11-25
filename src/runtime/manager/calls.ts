@@ -1,11 +1,13 @@
 import { OperationRejectedError } from '../../contracts/runtime/errors.js';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { getLogger } from '@logtape/logtape';
 import {
   agentContract,
   memoryContract,
   reflectionContract,
 } from '../../contracts/index.js';
+import { metricSelectorContract } from '../../contracts/plugin-types/selector-metrics.js';
 import type {
   Binding,
   RuntimeContext,
@@ -21,8 +23,12 @@ import type {
 import { object, digest, json } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { errorText } from '../../shared/errors.js';
+import { formatDuration } from '../../shared/duration.js';
+import { callLabel, selectionLogDetails } from '../../shared/call-log.js';
 import type { Registry } from '../registry/index.js';
 import { agentReplayKey } from './retry.js';
+
+const logger = getLogger(['arsi', 'runtime', 'manager']);
 
 interface CallExecutorOptions {
   id: string;
@@ -31,6 +37,7 @@ interface CallExecutorOptions {
   revisionRefs: Readonly<JsonObject>;
   retryCalls?: ReadonlyMap<string, JsonObject>;
   retryRef?: string;
+  onReusedCall?(receipt: JsonObject): void;
   context(binding: string, id: string, parent: RuntimeContext): RuntimeContext;
   binding(name: string): Binding | undefined;
   operation(
@@ -221,7 +228,17 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         )
           throw error;
       }
-      if (prior?.status === 'succeeded') return checkedOutput(prior.output);
+      const reportReuse =
+        options.onReusedCall &&
+        caller.callId === 'root' &&
+        (path === 'initialize' || path?.startsWith('steps/'))
+          ? options.onReusedCall
+          : undefined;
+      if (prior?.status === 'succeeded') {
+        const output = checkedOutput(prior.output);
+        reportReuse?.(prior);
+        return output;
+      }
       ctx.signal.throwIfAborted();
       // Receipt recovery does not reserve a version; pin it together with its lease.
       const binding = options.binding(bindingId);
@@ -251,7 +268,10 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         prior.output !== undefined
       ) {
         const output = checkedOutput(prior.output);
-        if (object(output).status === 'failed') return output;
+        if (object(output).status === 'failed') {
+          reportReuse?.(prior);
+          return output;
+        }
       }
       const lease = await options.operation(bindingId, binding);
       ctx = ctx.extend({ event: lease.event });
@@ -296,6 +316,21 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           ...(attemptId ? { attemptId } : {}),
         };
         await options.facts.write('calls', callId, receipt);
+        const applicationAction =
+          bindingId === '_application' ? object(input).action : undefined;
+        const label = callLabel(bindingId, path, applicationAction);
+        const activeTask = {
+          id: callId,
+          label,
+          parentId: caller.callId === 'root' ? undefined : caller.callId,
+        };
+        const finishedTask = { ...activeTask, done: true };
+        const start = performance.now();
+        const timing = () => {
+          const durationMs = performance.now() - start;
+          return { durationMs, duration: formatDuration(durationMs) };
+        };
+        logger.debug('Running {label}', { ...info, label, activeTask });
         let committed = false;
         // Serialize final receipts with any late settlement after a cleanup timeout.
         let writes = Promise.resolve();
@@ -323,6 +358,14 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
               error: 'Business work did not settle before cleanup deadline',
             })
           ) {
+            logger.error('{label} {duration}: Outcome unconfirmed', {
+              ...info,
+              label,
+              stage: 'Failed',
+              status: 'unknown',
+              activeTask: finishedTask,
+              ...timing(),
+            });
             try {
               void ctx.event
                 .parallel('rsi/call-unknown', { ...info, status: 'unknown' })
@@ -395,6 +438,24 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
                   : null,
             })
           ) {
+            const details = {
+              ...info,
+              label,
+              status,
+              error,
+              activeTask: finishedTask,
+              ...timing(),
+            };
+            if (status === 'cancelled')
+              logger.warn('{label} {duration}', {
+                ...details,
+                stage: 'Cancelled',
+              });
+            else
+              logger.error('{label} {duration}', {
+                ...details,
+                stage: 'Failed',
+              });
             // Preserve a failure as it propagates through its owning calls,
             // even after supervision has cancelled the other branches.
             if (status === 'failed' && uncertain.has(caller.callId))
@@ -423,6 +484,48 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         } finally {
           childFailures.delete(callId);
           uncertain.delete(callId);
+          logger.trace('Settled {label}', {
+            ...info,
+            label,
+            activeTask: finishedTask,
+          });
+        }
+        const completion = {
+          ...info,
+          label,
+          activeTask: finishedTask,
+          ...timing(),
+        };
+        if (memoryFailed) {
+          logger.error('{label} {duration}', {
+            ...completion,
+            stage: 'Failed',
+            error: object(output).reason,
+          });
+        } else {
+          const refs =
+            output && typeof output === 'object' && !Array.isArray(output)
+              ? output
+              : undefined;
+          const candidateRef = refs?.candidateRef ?? refs?.initialCandidateRef;
+          const measurementRef = refs?.measurementRef;
+          const reference =
+            typeof candidateRef === 'string'
+              ? ` · candidate ${candidateRef}`
+              : typeof measurementRef === 'string'
+                ? ` · measurement ${measurementRef}`
+                : '';
+          logger.info('{label} {duration}{reference}', {
+            ...completion,
+            stage: 'Completed',
+            candidateRef,
+            measurementRef,
+            reference,
+            applicationAction,
+            ...(definition.contract.id === metricSelectorContract.id
+              ? { selection: selectionLogDetails(output) }
+              : {}),
+          });
         }
         // Notification errors do not undo a settled optional update.
         const eventName = memoryFailed

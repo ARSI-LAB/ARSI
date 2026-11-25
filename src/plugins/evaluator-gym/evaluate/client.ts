@@ -97,6 +97,8 @@ export interface GymClientOptions extends GymHttpClientOptions {
 export interface GymEvaluateOptions {
   /** Persist the eval id before polling so an interrupted run is recoverable. */
   onSubmitted?: (evalId: string) => Promise<void> | void;
+  /** Reports queued results with their attempted-rollout count when provided. */
+  onPending?: (evalId: string, rolloutsAttempted: number | null) => void;
 }
 
 export class GymEvaluationError extends Error {
@@ -153,7 +155,12 @@ export class GymEvaluationClient {
           }`,
         );
       }
-      const result = await this.finish(first, evalId, signal);
+      const result = await this.finish(
+        first,
+        evalId,
+        signal,
+        options.onPending,
+      );
       return warnings.length === 0
         ? result
         : { ...result, warnings: [...result.warnings, ...warnings] };
@@ -182,10 +189,10 @@ export class GymEvaluationClient {
   async awaitResult(
     evalId: string,
     signal: AbortSignal,
+    onPending?: GymEvaluateOptions['onPending'],
   ): Promise<GymEvalOutcome> {
-    const deadline = Date.now() + this.timeoutMs;
     try {
-      return await this.finish(null, evalId, signal, deadline);
+      return await this.finish(null, evalId, signal, onPending);
     } catch (error) {
       if (error instanceof GymEvaluationError) throw error;
       throw new GymEvaluationError(
@@ -199,8 +206,9 @@ export class GymEvaluationClient {
     raw: JsonObject | null,
     evalId: string,
     signal: AbortSignal,
-    deadline = Date.now() + this.timeoutMs,
+    onPending?: GymEvaluateOptions['onPending'],
   ): Promise<GymEvalOutcome> {
+    const deadline = Date.now() + this.timeoutMs;
     let current = raw;
     while (current === null || statusOf(current.status) === 'queued') {
       if (Date.now() >= deadline)
@@ -208,6 +216,14 @@ export class GymEvaluationClient {
           `Gym evaluation ${evalId} did not finish within ${this.timeoutMs}ms`,
           { phase: 'poll', evalId, submitted: true, outcomeUnknown: true },
         );
+      if (current && onPending) {
+        const metrics = current.metrics;
+        const attempted =
+          metrics && typeof metrics === 'object' && !Array.isArray(metrics)
+            ? integerOrNull(metrics.rollouts_attempted)
+            : null;
+        onPending(evalId, attempted);
+      }
       await sleep(this.intervalMs, signal);
       current = await this.resultOrNull(evalId, signal);
     }

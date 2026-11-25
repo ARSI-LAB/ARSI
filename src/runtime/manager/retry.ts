@@ -3,6 +3,7 @@ import type {
   JsonObject,
   JsonValue,
 } from '../../contracts/index.js';
+import { memoryContract } from '../../contracts/plugin-types/memory.js';
 import { digest, object, string } from '../../shared/json.js';
 import type { Policy } from '../policy/policy.js';
 
@@ -90,4 +91,31 @@ export async function readRetryCalls(
     steps.set(call.path, call);
   }
   return steps;
+}
+
+export function checkpointedCalls(
+  calls: ReadonlyMap<string, JsonObject> | undefined,
+  restore: JsonObject | undefined,
+  hasInitialCandidate: boolean,
+): JsonObject[] {
+  const journal = restore ? object(restore.journal) : {};
+  return [...(calls?.entries() ?? [])]
+    .filter(([path, call]) => {
+      const entry = journal[path];
+      if (path === 'initialize')
+        return hasInitialCandidate && call.status === 'succeeded';
+      if (!entry || object(object(entry).result).kind !== 'completed')
+        return false;
+      const { output, status, contractId } = call;
+      return (
+        status === 'succeeded' ||
+        (status === 'failed' &&
+          contractId === memoryContract.id &&
+          output !== null &&
+          typeof output === 'object' &&
+          !Array.isArray(output) &&
+          output.status === 'failed')
+      );
+    })
+    .map(([, call]) => call);
 }

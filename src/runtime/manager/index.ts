@@ -1,7 +1,9 @@
 import { agentProcessLauncher } from '../services/agent-execution/process.js';
-import { errorText } from '../../shared/errors.js';
+import { errorText, redactConfiguration } from '../../shared/errors.js';
+import { formatDuration } from '../../shared/duration.js';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { getConfig, getLogger, withContext } from '@logtape/logtape';
 import type {
   ArtifactStore,
   FactStore,
@@ -39,7 +41,11 @@ import {
 } from './definition-lock.js';
 import { ExperimentFacts } from './facts.js';
 import { readExperimentRecord } from './records.js';
-import { assertRetryShape, readRetryCalls } from './retry.js';
+import {
+  assertRetryShape,
+  checkpointedCalls,
+  readRetryCalls,
+} from './retry.js';
 import { BudgetLedger, ExperimentBudgetExceeded } from './budget.js';
 import {
   CleanupLifecycle,
@@ -62,11 +68,28 @@ import {
   type PolicyRecovery,
 } from '../policy/executor.js';
 
+const logger = getLogger(['arsi', 'runtime', 'manager']);
+
 interface RunOptions {
   id?: string;
   signal?: AbortSignal;
   resume?: boolean;
   context?: RuntimeContext;
+  /** Report settled top-level calls reused from an earlier invocation. */
+  onReusedCalls?(receipts: JsonObject[]): void;
+  onLogRedactor?(redact: (message: string) => string): void;
+}
+
+function publishLogRedactor(
+  options: RunOptions,
+  recipe: () => JsonValue | undefined,
+): void {
+  if (!options.onLogRedactor) return;
+  try {
+    options.onLogRedactor(redactConfiguration(recipe()));
+  } catch {
+    // Diagnostic setup is independent of experiment execution.
+  }
 }
 
 export interface RuntimeOptions {
@@ -178,11 +201,8 @@ export class Manager {
     const continuing = options.resume === true;
     const gate = await acquireResourceGate(this.directory);
     let recipe!: Recipe;
-    let resourceOrigins: Record<string, Record<string, string>> = {};
     let id: string;
     const controller = new AbortController();
-    const stopping = new AbortController();
-    let failureCause: unknown;
     let releaseLock: () => Promise<void>;
     try {
       if (continuing) {
@@ -190,8 +210,10 @@ export class Manager {
         id = safeId(options.id);
       } else {
         recipe = await Recipe.load(recipePath, this.options.registry);
+        publishLogRedactor(options, () => recipe.toJSON());
         id = safeId(options.id ?? `${recipe.id}-${randomUUID().slice(0, 8)}`);
       }
+      logger.debug('Resolved experiment {experimentId}', { experimentId: id });
       releaseLock = await acquireExecutionLock(
         this.directory,
         id,
@@ -201,6 +223,49 @@ export class Manager {
     } finally {
       await gate.release();
     }
+    const execute = () =>
+      this.executeExperiment(
+        recipePath,
+        options,
+        { id, continuing, recipe },
+        controller,
+        releaseLock,
+      );
+    return getConfig()?.contextLocalStorage
+      ? withContext({ experimentId: id }, execute)
+      : execute();
+  }
+
+  private async executeExperiment(
+    recipePath: string,
+    options: RunOptions,
+    identity: { id: string; continuing: boolean; recipe: Recipe },
+    controller: AbortController,
+    releaseLock: () => Promise<void>,
+  ): Promise<JsonObject> {
+    const { id, continuing } = identity;
+    const onReusedCalls = continuing ? options.onReusedCalls : undefined;
+    const reported = new Set<string>();
+    const reportReused = onReusedCalls
+      ? (receipts: JsonObject[]): void => {
+          const unreported = receipts.filter(({ callId }) => {
+            if (typeof callId !== 'string' || reported.has(callId))
+              return false;
+            reported.add(callId);
+            return true;
+          });
+          if (receipts.length && !unreported.length) return;
+          try {
+            onReusedCalls(structuredClone(unreported));
+          } catch {
+            // Displaying recovered calls is independent of Policy recovery.
+          }
+        }
+      : undefined;
+    let { recipe } = identity;
+    let resourceOrigins: Record<string, Record<string, string>> = {};
+    const stopping = new AbortController();
+    let failureCause: unknown;
     // Validate persisted identity under the lock before changing experiment facts.
     let resumedRecord: JsonObject | undefined;
     let definition: JsonObject | undefined;
@@ -218,10 +283,15 @@ export class Manager {
         const locked = await this.facts.read('definitions', id);
         assertDefinitionLock(locked);
         if (resumedRecord.status === 'succeeded') {
+          publishLogRedactor(options, () => resumedRecord?.recipe);
           await assertCleanupResolved(this.facts, id);
           controller.signal.throwIfAborted();
           options.signal?.throwIfAborted();
           await releaseLock();
+          logger.info('{experimentId} already succeeded', {
+            stage: 'Skipped',
+            experimentId: id,
+          });
           return resumedRecord;
         }
         const readPolicy = (source = locked) =>
@@ -249,6 +319,7 @@ export class Manager {
           };
         }
         recipe = await Recipe.load(recipePath, this.options.registry);
+        publishLogRedactor(options, () => recipe.toJSON());
         assertRetryShape(locked, recipe.policy);
         retryCalls = await readRetryCalls(this.facts, id);
         restore = await checkpoints.restore();
@@ -322,6 +393,12 @@ export class Manager {
     }, 500);
     cancellationPoll.unref();
     const started = Date.now();
+    logger.info('{experimentId} (policy {policyId})', {
+      stage: 'Preparing',
+      experimentId: id,
+      policyId: recipe.policy.id,
+      resumed: continuing,
+    });
     let experimentStartedAt = new Date(started).toISOString();
     const elapsedWallMs = recipe.budget.elapsedWallMs;
     let wallDeadline =
@@ -386,6 +463,12 @@ export class Manager {
       error: unknown,
       details: JsonObject = {},
     ): void => {
+      logger.debug('Event {eventName} raised a diagnostic', {
+        experimentId: id,
+        eventName,
+        ...details,
+        error,
+      });
       const job = this.facts.write(
         'event-diagnostics',
         `${id}-${randomUUID()}`,
@@ -546,6 +629,7 @@ export class Manager {
         revisionRefs: activation.revisionRefs,
         retryCalls,
         retryRef,
+        onReusedCall: reportReused && ((call) => reportReused([call])),
         context,
         binding: (name) =>
           name === '_application'
@@ -835,6 +919,14 @@ export class Manager {
         services.event.serial('rsi/before-experiment', experimentInfo),
       );
       signal.throwIfAborted();
+      if (reportReused)
+        reportReused(
+          checkpointedCalls(
+            retryCalls,
+            restore,
+            typeof initial.initialCandidateRef === 'string',
+          ),
+        );
       if (!continuing || typeof initial.initialCandidateRef !== 'string')
         initial = object(
           await businessWait(
@@ -872,7 +964,10 @@ export class Manager {
           routing: {
             committedOutput(path) {
               const call = retryCalls?.get(path);
-              return call?.status === 'succeeded' ? call.output : undefined;
+              if (call?.status !== 'succeeded' || call.output === undefined)
+                return undefined;
+              reportReused?.([call]);
+              return call.output;
             },
           },
           events: {
@@ -1026,6 +1121,26 @@ export class Manager {
         await cleanup.within(cleanupJob);
       } catch (error) {
         events.abort(undefined, error);
+      }
+      if (terminal) {
+        const durationMs = Date.now() - started;
+        const usage = budget.usage;
+        logger.info('{experimentId} {status} in {duration}', {
+          stage: 'Finished',
+          experimentId: id,
+          status: terminal,
+          durationMs,
+          duration: formatDuration(durationMs),
+        });
+        logger.info('{totals}', {
+          stage: 'Usage',
+          experimentId: id,
+          usage,
+          totals:
+            Object.entries(usage)
+              .map(([metric, amount]) => `${metric}=${amount}`)
+              .join(' ') || 'operations=0',
+        });
       }
     }
   }

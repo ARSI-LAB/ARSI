@@ -1,6 +1,7 @@
 import { tmpdir } from 'node:os';
 import { mkdir, mkdtempDisposable } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { getLogger } from '@logtape/logtape';
 import { lock } from 'proper-lockfile';
 import type {
   CleanupContext,
@@ -30,6 +31,8 @@ import {
   readExperimentCleanupState,
   readExperimentRecord,
 } from './records.js';
+
+const logger = getLogger(['arsi', 'runtime', 'cleanup']);
 
 type CleanupState = 'idle' | 'pending' | 'failed' | 'released';
 
@@ -613,4 +616,25 @@ export async function collectExperimentCleanup(
   } finally {
     await release?.();
   }
+  const counts = { complete: 0, preview: 0, pending: 0 };
+  for (const entry of report.results) {
+    counts[entry.status]++;
+    if (entry.status === 'pending')
+      logger.warn('{bindingId} ({key}){reason}', {
+        stage: 'Skipped',
+        experimentId,
+        bindingId: entry.bindingId,
+        key: entry.key,
+        reason: entry.error ? `: ${entry.error}` : ' remains pending',
+      });
+  }
+  logger.info(
+    '{experimentId} {mode} cleaned={complete} previewed={preview} pending={pending}',
+    {
+      stage: 'Completed',
+      experimentId,
+      mode: dryRun ? 'preview' : 'cleanup',
+      ...counts,
+    },
+  );
 }

@@ -157,7 +157,7 @@ export async function createOperatorbench(
                         'not-a-secret-no-model-calls',
                     },
                   },
-                  { context, kind: 'kernel' },
+                  { context, cleanup: { kind: 'kernel' } },
                 ),
               );
             } catch (error) {

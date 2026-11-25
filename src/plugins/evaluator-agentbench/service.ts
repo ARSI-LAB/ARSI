@@ -62,8 +62,10 @@ export async function createAgentbench(
               },
               {
                 context,
-                kind: 'agentbundle',
-                workspaceRef: execution.workspaceRef,
+                cleanup: {
+                  kind: 'agentbundle',
+                  workspaceRef: execution.workspaceRef,
+                },
               },
             );
           } catch (error) {

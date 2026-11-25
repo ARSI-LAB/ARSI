@@ -27,6 +27,12 @@ Use `arsi --help` to list commands and `arsi <command> --help` for a command's s
 | `arsi reflection apply <revisionID>`   | Write the snapshot to its recorded user-resource paths; see the [Reflection rules](reflection.md#apply-a-revision-to-future-experiments). |
 | `arsi help [command]`                  | Show the command list or help for a specific command.                                                                                     |
 
+### Interactive CLI
+
+In an interactive terminal, run `arsi` or `arsi shell` to open the command menu. Select a command and enter its arguments, or select **Run custom CLI command** to type a full command. Use single or double quotes around arguments containing spaces. The custom prompt also accepts `help`, `log-level`, `clear`, and `exit`.
+
+Commands in CI or with redirected streams use the standard CLI output. JSON results go to stdout and logs go to stderr.
+
 ## CLI parameters
 
 The basic syntax is shown below. Required positional arguments appear in the command table above.
@@ -43,6 +49,10 @@ These options apply across commands:
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `-h, --help`               | Display help and exit. `arsi --help` lists commands; `arsi <command> --help` shows that command's parameters.                                                                                                                                                      |
 | `--plugin-dir <directory>` | Load custom plugins and Policies from a directory. Repeat the option for multiple directories; see [plugin registration](writing-plugins.md#step-2-register-the-plugin) and [Policy registration and Recipe configuration](writing-policies.md#register-a-policy). |
+
+Interactive commands show one live line for the current call, such as evaluator counts, an Agent's turn and tool, inference readiness, or a queued Gym evaluation. Evaluator task results appear as `Progress` lines. Live updates stay on the spinner. The dashboard and the `debug` and `trace` levels use detailed logs with error stacks. Repeat `--log-level` with a dotted category such as `cli.runtime=trace` to override a module's level. Set `ARSI_LOG_LEVEL` for the global level or `ARSI_LOG_LEVELS` for comma-separated category overrides. CLI options take precedence for the corresponding settings.
+
+Experiments write to `.rsi/logs/<experiment-id>.log` by default. Other invocations append to `.rsi/logs/cli.log` in an existing `.rsi/` workspace. The files include phase changes and other debug context by default and redact credentials from error stacks. Use `--log-file <path>` to choose a log file or `--no-log-file` to disable file logging. Use `-q` or `--quiet` to show errors and the saved log path on failure.
 
 ### Command-specific options
 

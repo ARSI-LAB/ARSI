@@ -36,6 +36,7 @@ async function fixture(
     create?(version: number): Promise<void>;
     listener?(version: number): Promise<void>;
     failCommit?: boolean;
+    bindingVersions?: JsonObject;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-activation-races-'));
@@ -118,7 +119,7 @@ async function fixture(
   const commit = gate();
   const write = facts.write.bind(facts);
   facts.write = async (kind, id, value) => {
-    if (kind === 'activations') {
+    if (kind === 'activations' && value.activationId !== 'revision-old') {
       writing.release();
       await commit.promise;
       if (options.failCommit) throw new Error('activation commit failed');
@@ -126,6 +127,7 @@ async function fixture(
     await write(kind, id, value);
   };
   const activation = new LearningActivation({
+    bindingVersions: options.bindingVersions,
     id: context.experimentId,
     bindings,
     facts,
@@ -145,7 +147,7 @@ async function fixture(
     await registry.dispose();
     await rm(directory, { recursive: true, force: true });
   });
-  activation.initialize({ worker: 'revision-old' });
+  await activation.initialize({ worker: 'revision-old' }, 'revision-old');
   return {
     instances,
     events,
@@ -168,6 +170,7 @@ async function fixture(
         { worker: newBinding },
         { worker: 'revision-new' },
         'activation-new',
+        'revision-new',
       ),
   };
 }
@@ -197,6 +200,31 @@ test('restored activation publishes its binding and revision together to existin
   } finally {
     lease.release();
   }
+});
+
+test('a changed target definition invalidates the saved joint head before another cycle', async (t) => {
+  const f = await fixture(t, { bindingVersions: { worker: 'new definition' } });
+  f.commit.release();
+  await f.facts.write('activations', 'activation-race', {
+    activationId: 'prior-activation',
+    reflectionRevisionRef: 'prior-head',
+    bindings: {
+      worker: { plugin: 'activation.worker', config: { version: 2 } },
+    },
+    revisions: { worker: 'prior-head' },
+    bindingVersions: { worker: 'old definition' },
+  });
+  await f.restore();
+  assert.deepEqual(f.bindings.worker, f.oldBinding);
+  assert.deepEqual(f.revisionRefs, {});
+  assert.equal(f.activation.reflectionRevisionRef, null);
+  assert.equal(
+    (await f.facts.read('activations', 'activation-race'))
+      .reflectionRevisionRef,
+    null,
+  );
+  await f.activation.initialize({ worker: 'new-baseline' }, 'new-baseline');
+  assert.equal(f.activation.revisionRefs.worker, 'new-baseline');
 });
 
 test(
@@ -374,9 +402,11 @@ for (const failure of ['prepare', 'commit'] as const) {
     assert.deepEqual(f.bindings.worker, f.oldBinding);
     assert.equal(f.revisionRefs.worker, 'revision-old');
     assert.deepEqual(f.notifications, []);
-    await assert.rejects(f.facts.read('activations', 'activation-race'), {
-      code: 'ENOENT',
-    });
+    assert.equal(
+      (await f.facts.read('activations', 'activation-race'))
+        .reflectionRevisionRef,
+      'revision-old',
+    );
     const current = await f.instances.acquire('worker', f.bindings.worker!);
     try {
       assert.deepEqual(await current.operation.execute({}, f.context), {

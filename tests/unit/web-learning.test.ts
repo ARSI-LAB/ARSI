@@ -54,7 +54,30 @@ test('learning HTTP projects owned records, previews changes and applies through
   const base = '/api/observation/experiments/learning-run';
   const revisions = await server.inject(`${base}/revisions`);
   assert.equal(revisions.statusCode, 200);
-  assert.equal(parseLearning(revisions.json()).length, 2);
+  const chain = parseLearning(revisions.json());
+  assert.deepEqual(
+    chain.map((r) => [r.id, r.depth]),
+    [
+      ['revision-next', 1],
+      ['revision-initial', 0],
+    ],
+  );
+  assert.deepEqual(chain[0]?.changedBindings, ['proposer', 'summarizer']);
+  assert.deepEqual(chain[1]?.bindings, ['proposer', 'summarizer']);
+  assert.equal(chain[0]?.binding, null);
+  await f.facts.write('revisions', 'legacy-revision', {
+    experimentId: 'other-run',
+    ref: 'legacy-revision',
+    parentRef: null,
+    kind: 'initial',
+    binding: 'worker',
+  });
+  const legacy = parseLearning(
+    (
+      await server.inject('/api/observation/experiments/other-run/revisions')
+    ).json(),
+  );
+  assert.equal(legacy[0]?.binding, 'worker');
   assert.equal(
     parseLearning(revisions.json()).find((r) => r.id === 'revision-next')?.path,
     'loop/3/renamed',

@@ -1,6 +1,9 @@
 export interface LearningRecord {
   id: string;
-  binding: string;
+  binding: string | null;
+  bindings: string[];
+  changedBindings: string[];
+  depth: number;
   kind: string;
   parentRef: string | null;
   resourceRef: string | null;
@@ -37,7 +40,12 @@ export function parseLearning(raw: unknown): LearningRecord[] {
     const item = record(value);
     return {
       id: text(item.id),
-      binding: text(item.binding),
+      binding: optional(item.binding),
+      bindings: Array.isArray(item.bindings) ? item.bindings.map(text) : [],
+      changedBindings: Array.isArray(item.changedBindings)
+        ? item.changedBindings.map(text)
+        : [],
+      depth: typeof item.depth === 'number' ? item.depth : 0,
       kind: text(item.kind),
       parentRef: optional(item.parentRef),
       resourceRef: optional(item.resourceRef),

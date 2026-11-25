@@ -112,7 +112,7 @@ Use the exact `outputSchema` supplied by the Agent runtime. The editing result i
 {
   "edits": [
     {
-      "path": "bindings/invariantProposer/mounts/guidance/proposal-checks.md",
+      "path": "resources/invariantProposer/guidance/proposal-checks.md",
       "content": "Complete new content for this file, including a conditional rule and its actual evidence references."
     }
   ],

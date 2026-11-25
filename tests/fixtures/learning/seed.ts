@@ -37,7 +37,7 @@ export async function seedLearning(root: string) {
     id: 'other-run',
     status: 'succeeded',
   });
-  const prefix = 'bindings/proposer/resources/guidance';
+  const prefix = 'resources/proposer/guidance';
   const tree = async (path: string, text: string) =>
     artifacts.putJson({
       kind: 'file-tree',
@@ -57,20 +57,35 @@ export async function seedLearning(root: string) {
     await facts.write('revisions', ref!, {
       ref: ref!,
       experimentId: 'learning-run',
-      binding: 'proposer',
-      pluginRef: 'proposer.agent',
+      bindings: ['proposer', 'summarizer'],
+      ...(ref === 'revision-next'
+        ? { changedBindings: ['proposer', 'summarizer'] }
+        : {}),
       policyScopeId: 'root',
       rootRef: 'revision-initial',
       parentRef: ref === 'revision-initial' ? null : 'revision-initial',
       kind: ref === 'revision-initial' ? 'initial' : 'generated',
       status: 'validated',
       resourceRef: resourceRef!,
-      sourceResources: [
+      sourceRoots: [
         {
-          pointer: '/guidance',
           kind: 'directory',
           path: guidance,
           artifactPath: prefix,
+          members: [
+            {
+              binding: 'proposer',
+              pointer: '/guidance',
+              kind: 'directory',
+              relativePath: '',
+            },
+            {
+              binding: 'summarizer',
+              pointer: '/promptFile',
+              kind: 'file',
+              relativePath: 'checks.md',
+            },
+          ],
         },
       ],
       reason:

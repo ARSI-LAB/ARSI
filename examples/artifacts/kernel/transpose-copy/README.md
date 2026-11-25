@@ -38,7 +38,7 @@ and external retrieval script placeholders. Keep the hardware description in
 The Policy supplies five generic proposer prompts through
 `bindings.proposer.config.promptsDirectory` and a separate summary prompt
 through `bindings.summarizer.config.promptFile`. The Recipe selects the local
-[prompts directory](./prompts) and its [summary prompt](./summarize.md).
+[prompts directory](./prompts) and its [summary prompt](./prompts/summarize.md).
 Relative paths resolve from the Recipe directory. The Policy's [Reflection defaults](../../../../src/policies/operator-search/reflection.yaml) limit revisions to the proposer prompts and the summarizer prompt. The proposer and evaluator share the same benchmark task directory. Memory and Reflection reuse the Recipe's `agent` binding after each static search iteration and each enabled metrics round.
 
 A custom proposer directory must contain `diagnose.md`, `diagnose-metrics.md`,

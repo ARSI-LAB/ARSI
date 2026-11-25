@@ -21,7 +21,7 @@ import { validateSnapshotDestination } from './snapshot-paths.js';
 import {
   pointerValue,
   selectedResourceFields,
-  validateEditableDestinations,
+  resolveCoveringRoots,
   type EditableRoot,
 } from './resources.js';
 import { compileTrigger, stepLocations } from './trigger.js';
@@ -116,7 +116,7 @@ async function editableTargets(
     }
     if (resources.length) targets[name] = { resources };
   }
-  await validateEditableDestinations(entries);
+  await resolveCoveringRoots(entries);
   return targets;
 }
 

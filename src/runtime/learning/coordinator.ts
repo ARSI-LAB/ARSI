@@ -113,9 +113,10 @@ export class LearningCoordinator {
         ...common,
         config: this.reflection,
         sourceResources,
-        initialize: (parents) => activation.initialize(parents),
-        save: (changes, revisions, id) =>
-          activation.saveRevisions(changes, revisions, id),
+        reflectionRevisionRef: activation.reflectionRevisionRef,
+        initialize: (parents, head) => activation.initialize(parents, head),
+        save: (changes, revisions, id, head) =>
+          activation.saveRevisions(changes, revisions, id, head),
       });
     if (kind !== 'memory' || !this.memory)
       throw new Error('Unknown learning module ' + kind);

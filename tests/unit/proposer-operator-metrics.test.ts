@@ -137,8 +137,8 @@ test('metric diagnosis distinguishes an unsupported search direction from an inv
 
 test('packaged and example summary JSON examples satisfy the model response contract', async () => {
   for (const path of [
-    'src/policies/operator-search/summarize.md',
-    'examples/artifacts/kernel/transpose-copy/summarize.md',
+    'src/policies/operator-search/prompts/summarize.md',
+    'examples/artifacts/kernel/transpose-copy/prompts/summarize.md',
   ]) {
     const prompt = await readFile(path, 'utf8');
     const example = prompt.match(/```json\n([\s\S]*?)\n```/);

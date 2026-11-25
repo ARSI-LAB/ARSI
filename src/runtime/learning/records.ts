@@ -2,6 +2,30 @@ import type { JsonObject, JsonSchema } from '../../contracts/index.js';
 import { object } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 
+/** Initial revisions have depth zero. Imported fragments can omit an older parent. */
+export function revisionDepths(
+  records: readonly JsonObject[],
+): Map<string, number> {
+  const parents = new Map(
+    records.map((record) => [String(record.ref), record.parentRef]),
+  );
+  const depths = new Map<string, number>();
+  for (const ref of parents.keys()) {
+    const pending = new Set<string>();
+    let cursor: string | undefined = ref;
+    while (cursor !== undefined && parents.has(cursor) && !depths.has(cursor)) {
+      if (pending.has(cursor))
+        throw new Error('Cyclic revision ancestry: ' + cursor);
+      pending.add(cursor);
+      const parent = parents.get(cursor);
+      cursor = typeof parent === 'string' ? parent : undefined;
+    }
+    let depth = (cursor === undefined ? undefined : depths.get(cursor)) ?? -1;
+    for (const member of [...pending].reverse()) depths.set(member, ++depth);
+  }
+  return depths;
+}
+
 const terminalStatuses = [
   'activated',
   'no-change',

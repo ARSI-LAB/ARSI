@@ -64,7 +64,10 @@ async function fixture(t: TestContext) {
     contract: { id: 'contract.target', input_schema: {}, output_schema: {} },
     configSchema: {
       type: 'object',
-      properties: { guidance: { type: 'string', 'x-rsi-path': 'directory' } },
+      properties: {
+        guidance: { type: 'string', 'x-rsi-path': 'directory' },
+        prompt: { type: 'string', 'x-rsi-path': 'file' },
+      },
     },
     create: async () => ({
       execute: async () => null,
@@ -90,6 +93,7 @@ async function fixture(t: TestContext) {
   };
   let generations = 0;
   const revisionRefs: JsonObject = {};
+  let reflectionRevisionRef: string | null = null;
   const options: ReflectionOptions = {
     config: {
       trigger: { on: 'experiment-end', every: 1 },
@@ -117,7 +121,11 @@ async function fixture(t: TestContext) {
     get revisionRefs() {
       return Object.freeze({ ...revisionRefs });
     },
-    initialize: (parents) => {
+    get reflectionRevisionRef() {
+      return reflectionRevisionRef;
+    },
+    initialize: async (parents, head) => {
+      reflectionRevisionRef = head;
       for (const [key, parent] of Object.entries(parents))
         if (revisionRefs[key] === undefined) revisionRefs[key] = parent;
     },
@@ -130,9 +138,11 @@ async function fixture(t: TestContext) {
         reason: 'keep useful guidance',
       };
     },
-    save: async (changes, revisions, activationId) => {
+    save: async (changes, revisions, activationId, head) => {
+      reflectionRevisionRef = head;
       await facts.write('activations', context.experimentId, {
         activationId,
+        reflectionRevisionRef,
         revisions: { ...options.revisionRefs, ...revisions },
       });
       Object.assign(bindings, changes);
@@ -286,7 +296,7 @@ test(
       assert.equal((await reflecting).status, 'no-change');
       const initial = (await f.facts.list('revisions')).find(
         (revision) =>
-          revision.experimentId === 'experiment' && revision.binding === 'a',
+          revision.experimentId === 'experiment' && revision.kind === 'initial',
       );
       assert.ok(initial);
       const tree = parseFileTree(
@@ -294,9 +304,9 @@ test(
       );
       assert.deepEqual(
         tree.files
-          .filter((file) => file.path.startsWith(prefix + '/'))
+          .filter((file) => file.path.startsWith('resources/a/guidance/'))
           .map((file) => file.path),
-        [`${prefix}/initial.md`],
+        ['resources/a/guidance/initial.md'],
       );
       assert.equal(probes, 0);
       assert.deepEqual(shown.changes, []);
@@ -322,15 +332,15 @@ test('one observation without a Measurement invokes Reflection; no-change and em
   });
   assert.equal(result.status, 'no-change');
   const revisions = await f.facts.list('revisions');
-  assert.equal(revisions.length, 2);
+  assert.equal(revisions.length, 1);
   for (const revision of revisions) {
     assert.equal(revision.kind, 'initial');
     assert.equal(revision.rootRef, revision.ref);
     assert.ok(typeof revision.resourceRef === 'string');
-    assert.ok(Array.isArray(revision.sourceResources));
+    assert.ok(Array.isArray(revision.sourceRoots));
   }
   assert.equal((await reflect(f.next('second'))).status, 'skipped');
-  assert.equal((await f.facts.list('revisions')).length, 2);
+  assert.equal((await f.facts.list('revisions')).length, 1);
   await writeFile(
     join(f.root, 'a/initial.md'),
     'local edit after first snapshot',
@@ -343,7 +353,7 @@ test('one observation without a Measurement invokes Reflection; no-change and em
         await f.artifacts.readJson(string(object(input).resourceRef)),
       );
       const file = tree.files.find(
-        (entry) => entry.path === 'bindings/a/resources/guidance/initial.md',
+        (entry) => entry.path === 'resources/a/guidance/initial.md',
       )!;
       assert.equal(Buffer.from(file.base64, 'base64').toString(), 'a original');
       return {
@@ -362,12 +372,12 @@ test('only changed targets gain revisions and activation preserves original sour
     ...f.options,
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/rules.md': 'first rule',
+        'resources/a/guidance/rules.md': 'first rule',
       }),
   });
   assert.equal(first.status, 'activated');
   assert.deepEqual(Object.keys(first.revisionRefs), ['a']);
-  assert.equal((await f.facts.list('revisions')).length, 3);
+  assert.equal((await f.facts.list('revisions')).length, 2);
   const unchanged = f.options.revisionRefs.b;
   assert.equal(
     await readFile(join(f.root, 'a/initial.md'), 'utf8'),
@@ -386,7 +396,7 @@ test('only changed targets gain revisions and activation preserves original sour
     ...f.next('second'),
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/second.md': 'second rule',
+        'resources/a/guidance/second.md': 'second rule',
       }),
   });
   assert.equal(second.status, 'activated');
@@ -398,7 +408,7 @@ test('only changed targets gain revisions and activation preserves original sour
   assert.equal(revision.parentRef, first.revisionRefs.a);
   assert.equal(f.options.revisionRefs.a, second.revisionRefs.a);
   const root = await f.facts.read('revisions', string(revision.rootRef));
-  assert.deepEqual(revision.sourceResources, root.sourceResources);
+  assert.deepEqual(revision.sourceRoots, root.sourceRoots);
   assert.equal(
     await readFile(
       join(string(f.bindings.a!.config.guidance), 'rules.md'),
@@ -414,11 +424,95 @@ test('only changed targets gain revisions and activation preserves original sour
     'second rule',
   );
 });
+test('a nested file member is explicitly owned and cannot be deleted through its covering directory', async (t) => {
+  const f = await fixture(t);
+  const prompt = join(string(f.bindings.a!.config.guidance), 'initial.md');
+  f.bindings.b!.config = { prompt };
+  f.options.config.targets.b = { resources: ['prompt'] };
+  const path = 'resources/a/guidance/initial.md';
+  await f.observe();
+  const result = await reflect({
+    ...f.options,
+    invoke: async (_key, input) => {
+      const tree = parseFileTree(
+        await f.artifacts.readJson(string(object(input).resourceRef)),
+      );
+      const manifestFile = tree.files.find(
+        (file) => file.path === 'manifest.json',
+      )!;
+      const manifest = object(
+        JSON.parse(Buffer.from(manifestFile.base64, 'base64').toString('utf8')),
+      );
+      assert.deepEqual(manifest[path], {
+        kind: 'file',
+        owners: [
+          { binding: 'a', pointer: '/guidance' },
+          { binding: 'b', pointer: '/prompt' },
+        ],
+        changes: ['modify'],
+      });
+      return f.proposed(input, { [path]: null });
+    },
+  });
+  assert.equal(result.status, 'rejected');
+  assert.match(result.reason, /required file member/);
+  assert.equal((await f.facts.list('revisions')).length, 1);
+  assert.equal(await readFile(prompt, 'utf8'), 'a original');
+});
+
+test('a jointly owned file activates once for both bindings and exports once', async (t) => {
+  const f = await fixture(t);
+  const shared = join(f.root, 'shared.md');
+  await writeFile(shared, 'shared baseline');
+  for (const key of ['a', 'b']) {
+    f.bindings[key]!.config = { prompt: shared };
+    f.options.config.targets[key] = { resources: ['prompt'] };
+  }
+  let snapshotPath = '';
+  await f.observe();
+  const result = await reflect({
+    ...f.options,
+    invoke: async (_key, input) => {
+      const tree = parseFileTree(
+        await f.artifacts.readJson(string(object(input).resourceRef)),
+      );
+      const files = tree.files.filter((file) => file.path !== 'manifest.json');
+      assert.equal(files.length, 1);
+      snapshotPath = files[0]!.path;
+      assert.match(snapshotPath, /^resources\/shared\//);
+      return f.proposed(input, { [snapshotPath]: 'shared revision' });
+    },
+  });
+  assert.equal(result.status, 'activated', result.reason);
+  assert.deepEqual(Object.keys(result.revisionRefs).sort(), ['a', 'b']);
+  assert.equal(result.revisionRefs.a, result.revisionRefs.b);
+  assert.equal((await f.facts.list('revisions')).length, 2);
+  assert.equal(f.bindings.a!.config.prompt, f.bindings.b!.config.prompt);
+  assert.equal(
+    await readFile(string(f.bindings.b!.config.prompt), 'utf8'),
+    'shared revision',
+  );
+  const app = new RevisionApplication({
+    directory: f.directory,
+    rootDirectory: f.root,
+    facts: f.facts,
+    artifacts: f.artifacts,
+  });
+  await app.apply(string(result.revisionRefs.a));
+  assert.equal(await readFile(shared, 'utf8'), 'shared revision');
+  const to = join(f.root, 'export');
+  await app.apply(string(result.revisionRefs.a), { to });
+  assert.equal(
+    await readFile(join(to, snapshotPath.slice('resources/'.length)), 'utf8'),
+    'shared revision',
+  );
+});
+
 test('local generator failures, invalid edits and budgets preserve activation; global exhaustion propagates', async (t) => {
   const f = await fixture(t);
   const cases: Array<[Record<string, string | null>, RegExp]> = [
-    [{ 'bindings/a/resources/prompt': 'unauthorized' }, /outside authorized/],
-    [{ 'bindings/a/resources/guidance/initial.md': null }, /delete denied/],
+    [{ 'resources/a/prompt': 'unauthorized' }, /outside authorized/],
+    [{ 'resources/a/guidance/initial.md': null }, /delete denied/],
   ];
   for (const [index, [edits, expected]] of cases.entries()) {
     await f.observe();
@@ -485,7 +579,7 @@ test('Reflection accepts authorized edits beyond the former implicit file and by
         input,
         Object.fromEntries(
           Array.from({ length: 17 }, (_, index) => [
-            `bindings/a/resources/guidance/${index}.md`,
+            `resources/a/guidance/${index}.md`,
             'x'.repeat(index === 0 ? 131073 : 1),
           ]),
         ),
@@ -506,13 +600,13 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
       generations++;
       prepared = await f.facts.read('learning-runs', scope.id);
       return f.proposed(input, {
-        'bindings/a/resources/guidance/rules.md': 'saved rule',
+        'resources/a/guidance/rules.md': 'saved rule',
       });
     },
-    save: async (changes, revisions, id) => {
+    save: async (changes, revisions, id, head) => {
       validated = await f.facts.read('learning-runs', id);
       if (fail) throw new Error('preparation failed');
-      await f.options.save(changes, revisions, id);
+      await f.options.save(changes, revisions, id, head);
     },
   };
   const rejected = await reflect(options);
@@ -522,7 +616,11 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
   assert.equal(f.bindings.a!.config.guidance, join(f.root, 'a'));
   await f.facts.write('learning-runs', rejected.learningId, validated);
   fail = false;
-  const recovered = await reflect(options);
+  const recovered = await reflect({
+    ...options,
+    reflectionRevisionRef: f.options.reflectionRevisionRef,
+    revisionRefs: f.options.revisionRefs,
+  });
   assert.equal(recovered.status, 'activated');
   assert.equal(f.options.revisionRefs.a, recovered.revisionRefs.a);
   assert.equal(generations, 1);
@@ -533,7 +631,7 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
     ...f.next('descendant'),
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/descendant.md': 'later active rule',
+        'resources/a/guidance/descendant.md': 'later active rule',
       }),
   });
   assert.equal(descendant.status, 'activated');
@@ -573,7 +671,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
     ...f.options,
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/first.md': 'first scope rule',
+        'resources/a/guidance/first.md': 'first scope rule',
       }),
   });
   await f.observe('a', { parentCallId: 'child-scope' });
@@ -586,7 +684,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
     },
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/second.md': 'second scope rule',
+        'resources/a/guidance/second.md': 'second scope rule',
       }),
   });
   assert.equal(second.status, 'activated');
@@ -641,22 +739,20 @@ test('resource preparation failure leaves existing revisions unchanged and publi
       (await f.facts.read('revisions', string(ref))).kind,
       'initial',
     );
-  const failingContext = f.context.extend({
-    artifacts: {
-      putJson: f.artifacts.putJson.bind(f.artifacts),
-      readJson: f.artifacts.readJson.bind(f.artifacts),
-      materialize: f.artifacts.materialize.bind(f.artifacts),
-      capture: async (): Promise<string> => {
-        throw new Error('controlled snapshot I/O failure');
-      },
-    },
-  });
-  await f.observe();
   const later = await reflect({
-    ...f.next('failed-later-preparation'),
-    context: failingContext,
+    ...f.next('reused-baseline'),
+    context: f.context.extend({
+      artifacts: {
+        putJson: f.artifacts.putJson.bind(f.artifacts),
+        readJson: f.artifacts.readJson.bind(f.artifacts),
+        materialize: f.artifacts.materialize.bind(f.artifacts),
+        capture: async () => {
+          throw new Error('existing snapshot must not be recaptured');
+        },
+      },
+    }),
   });
-  assert.equal(later.status, 'rejected');
+  assert.equal(later.status, 'skipped');
   assert.deepEqual(f.options.revisionRefs, originalRevisions);
   assert.equal(f.generations(), 1);
 });

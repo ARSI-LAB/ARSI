@@ -111,7 +111,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
             return {
               edits: [
                 {
-                  path: 'bindings/proposer/resources/guidance/rules.md',
+                  path: 'resources/proposer/guidance/rules.md',
                   content: 'Activated guidance: verify applicability first.',
                 },
               ],
@@ -304,7 +304,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
               reflections === 1
                 ? [
                     {
-                      path: 'bindings/proposer/resources/guidance/rule.md',
+                      path: 'resources/proposer/guidance/rule.md',
                       content: 'Inspect source asset before editing.',
                     },
                   ]

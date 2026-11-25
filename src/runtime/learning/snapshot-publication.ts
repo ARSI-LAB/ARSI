@@ -30,6 +30,7 @@ export interface SnapshotTarget {
   path: string;
   kind: 'file' | 'directory';
   files: FileTreeFile[];
+  directories?: string[];
 }
 interface Entry {
   path: string;
@@ -108,6 +109,12 @@ function parseJournal(raw: unknown): Journal {
 async function stage(target: SnapshotTarget, next: string): Promise<void> {
   const directoryModes = new Map<string, number>();
   if (target.kind === 'directory') await mkdir(next);
+  const directories = new Set<string>();
+  for (const directory of target.directories ?? []) {
+    const path = join(next, directory);
+    await mkdir(path, { recursive: true });
+    directories.add(path);
+  }
   for (const file of target.files) {
     const path = target.kind === 'directory' ? join(next, file.path) : next;
     await mkdir(dirname(path), { recursive: true });
@@ -117,8 +124,13 @@ async function stage(target: SnapshotTarget, next: string): Promise<void> {
     });
     if (process.platform !== 'win32') {
       await chmod(path, file.mode);
+      directories.add(dirname(path));
+    }
+  }
+  if (target.kind === 'directory' && process.platform !== 'win32') {
+    for (const path of directories) {
       for (
-        let current = dirname(path);
+        let current = path;
         pathContains(next, current) && !directoryModes.has(current);
         current = dirname(current)
       ) {
@@ -136,8 +148,6 @@ async function stage(target: SnapshotTarget, next: string): Promise<void> {
         if (info?.isDirectory()) directoryModes.set(current, info.mode & 0o777);
       }
     }
-  }
-  if (target.kind === 'directory' && process.platform !== 'win32') {
     const old = await stat(target.path);
     if (old) directoryModes.set(next, old.mode & 0o777);
     for (const [path, mode] of [...directoryModes].sort(

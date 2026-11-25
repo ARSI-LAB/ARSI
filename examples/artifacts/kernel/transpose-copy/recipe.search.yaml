@@ -54,7 +54,7 @@ bindings:
     config:
       agentRef: agent
       modelRequestTimeoutMs: 0
-      promptFile: ./summarize.md
+      promptFile: ./prompts/summarize.md
   evaluator:
     plugin: evaluator.operatorbench
     config:

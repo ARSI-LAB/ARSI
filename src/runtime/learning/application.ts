@@ -1,5 +1,5 @@
 import { lstat, readdir, readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type {
   ArtifactStore,
   FactStore,
@@ -16,7 +16,11 @@ import {
   segments,
   validateEditableDestinations,
   canonicalDestinationPath,
+  parseCoveringRoots,
+  memberPath,
+  type CoveringRoot,
 } from './resources.js';
+import { revisionDepths } from './records.js';
 import { acquireResourceGate, blockingExperiments } from './exclusion.js';
 import {
   inspectPath,
@@ -38,10 +42,38 @@ import {
 import { validateDestinationNames } from './destination-names.js';
 
 interface SourceResource {
-  pointer: string;
+  pointer?: string;
+  directories?: string[];
   kind: 'file' | 'directory';
   path: string;
   artifactPath: string;
+}
+function snapshotFiles(
+  resource: SourceResource,
+  files: FileTreeFile[],
+): FileTreeFile[] {
+  return files.filter((file) =>
+    resource.kind === 'file'
+      ? file.path === resource.artifactPath
+      : !resource.artifactPath ||
+        file.path.startsWith(resource.artifactPath + '/'),
+  );
+}
+
+/** Compare immutable tree entries independent of their serialization order. */
+function sameRoot(
+  resource: CoveringRoot,
+  initial: Map<string, FileTreeFile>,
+  files: FileTreeFile[],
+): boolean {
+  const selected = snapshotFiles(resource, files);
+  return (
+    selected.length === initial.size &&
+    selected.every((file) => {
+      const prior = initial.get(file.path);
+      return prior?.mode === file.mode && prior.base64 === file.base64;
+    })
+  );
 }
 interface Change {
   action: 'add' | 'replace' | 'remove';
@@ -67,12 +99,21 @@ function summary(revision: JsonObject): JsonObject {
     policyScopeId: revision.policyScopeId ?? null,
     generationPolicyScopeId:
       revision.generationPolicyScopeId ?? revision.policyScopeId ?? null,
-    binding: revision.binding ?? null,
-    pluginRef: revision.pluginRef ?? revision.pluginId ?? null,
+    ...(Array.isArray(revision.sourceRoots)
+      ? {
+          bindings: revision.bindings ?? [],
+          changedBindings: revision.changedBindings ?? [],
+          sourceRoots: revision.sourceRoots,
+        }
+      : {
+          binding: revision.binding ?? null,
+          pluginRef: revision.pluginRef ?? revision.pluginId ?? null,
+        }),
     kind: revision.kind ?? 'legacy',
     learningId: revision.learningId ?? null,
     applicationMetadata:
-      Array.isArray(revision.sourceResources) &&
+      (Array.isArray(revision.sourceRoots) ||
+        Array.isArray(revision.sourceResources)) &&
       typeof revision.rootRef === 'string' &&
       typeof revision.resourceRef === 'string',
   };
@@ -97,12 +138,19 @@ class SnapshotApplication {
 
   async list(experimentId?: string): Promise<JsonObject[]> {
     if (experimentId !== undefined) safeId(experimentId);
-    return (await this.options.facts.list(this.collection))
-      .filter(
-        (record) =>
-          experimentId === undefined || record.experimentId === experimentId,
-      )
-      .map((record) => this.summary(record));
+    const records = (await this.options.facts.list(this.collection)).filter(
+      (record) =>
+        experimentId === undefined || record.experimentId === experimentId,
+    );
+    if (this.collection === 'revisions') {
+      const depths = revisionDepths(records);
+      records.sort(
+        (a, b) =>
+          String(a.experimentId).localeCompare(String(b.experimentId)) ||
+          (depths.get(String(b.ref)) ?? 0) - (depths.get(String(a.ref)) ?? 0),
+      );
+    }
+    return records.map((record) => this.summary(record));
   }
   private async read(revisionID: string): Promise<JsonObject> {
     safeId(revisionID);
@@ -119,7 +167,9 @@ class SnapshotApplication {
       throw error;
     }
   }
-  private resources(revision: JsonObject): SourceResource[] {
+  private legacyResources(
+    revision: JsonObject,
+  ): (SourceResource & { pointer: string })[] {
     if (
       !Array.isArray(revision.sourceResources) ||
       typeof revision.rootRef !== 'string' ||
@@ -152,10 +202,15 @@ class SnapshotApplication {
   }
   private async destinations(
     record: JsonObject,
+    snapshot: FileTreeFile[],
     to?: string,
   ): Promise<SourceResource[]> {
+    const joint =
+      record.sourceRoots !== undefined && this.collection === 'revisions';
     const revisionResources =
-      this.collection === 'revisions' ? this.resources(record) : [];
+      this.collection === 'revisions' && !joint
+        ? this.legacyResources(record)
+        : [];
     const root = await this.read(string(record.rootRef));
     if (root.rootRef !== root.ref || root.experimentId !== record.experimentId)
       throw new Error('Snapshot does not belong to its recorded root');
@@ -180,6 +235,62 @@ class SnapshotApplication {
         throw new Error('Invalid Memory seed directory');
       return [{ pointer: '', path, kind: 'directory', artifactPath: '' }];
     }
+    if (joint) {
+      const roots = parseCoveringRoots(record.sourceRoots);
+      if (
+        !['initial', 'generated'].includes(String(record.kind)) ||
+        root.kind !== 'initial' ||
+        root.policyScopeId !== record.policyScopeId ||
+        canonical(root.sourceRoots ?? null) !== canonical(record.sourceRoots) ||
+        canonical(root.bindings ?? null) !== canonical(record.bindings ?? null)
+      )
+        throw new Error(
+          'Revision destination mapping differs from its initial root',
+        );
+      const initial =
+        record.ref === root.ref
+          ? snapshot
+          : parseFileTree(
+              await this.options.artifacts.readJson(string(root.resourceRef)),
+            ).files;
+      const direct = roots.length === 1 && roots[0]!.kind === 'directory';
+      const paths = new Set(snapshot.map((file) => file.path));
+      return roots
+        .filter((resource) => {
+          for (const member of resource.members) {
+            const path = memberPath(resource, member);
+            if (member.kind === 'file' && !paths.has(path))
+              throw new Error('File snapshot missing: ' + path);
+            if (member.kind === 'directory' && paths.has(path))
+              throw new Error(
+                'File snapshot replaces a selected directory: ' + path,
+              );
+          }
+          const originals = new Map(
+            snapshotFiles(resource, initial).map((file) => [file.path, file]),
+          );
+          return !sameRoot(resource, originals, snapshot);
+        })
+        .map(({ path, kind, artifactPath, members }) => ({
+          kind,
+          artifactPath,
+          directories: [
+            ...new Set(
+              members
+                .filter(
+                  (member) =>
+                    member.kind === 'directory' && member.relativePath,
+                )
+                .map((member) => member.relativePath),
+            ),
+          ],
+          path: !target
+            ? path
+            : direct
+              ? target
+              : join(target, ...artifactPath.split('/').slice(1)),
+        }));
+    }
     const resources = revisionResources;
     if (
       !['initial', 'generated'].includes(String(record.kind)) ||
@@ -187,7 +298,7 @@ class SnapshotApplication {
       root.binding !== record.binding ||
       root.policyScopeId !== record.policyScopeId ||
       root.pluginRef !== record.pluginRef ||
-      canonical(this.resources(root)) !== canonical(resources)
+      canonical(this.legacyResources(root)) !== canonical(resources)
     )
       throw new Error(
         'Revision destination mapping differs from its initial root',
@@ -208,14 +319,6 @@ class SnapshotApplication {
     }));
   }
   private async plan(revision: JsonObject, to?: string): Promise<Plan> {
-    const resources = await this.destinations(revision, to);
-    await validateEditableDestinations(
-      resources.map((resource) => ({
-        ...resource,
-        binding:
-          this.collection === 'revisions' ? string(revision.binding) : 'memory',
-      })),
-    );
     const snapshot = parseFileTree(
       await this.options.artifacts.readJson(
         string(
@@ -225,6 +328,14 @@ class SnapshotApplication {
         ),
       ),
     ).files;
+    const resources = await this.destinations(revision, snapshot, to);
+    await validateEditableDestinations(
+      resources.map((resource) => ({
+        ...resource,
+        binding: String(revision.binding ?? this.collection),
+        pointer: resource.pointer ?? resource.artifactPath,
+      })),
+    );
     const changes: Change[] = [],
       removedDirectories: { path: string; resource: SourceResource }[] = [],
       desiredPaths: string[] = [];
@@ -273,12 +384,18 @@ class SnapshotApplication {
         this.options.rootDirectory,
         this.options.directory,
       );
-      const selected = snapshot.filter((file) =>
-        resource.kind === 'file'
-          ? file.path === resource.artifactPath
-          : !resource.artifactPath ||
-            file.path.startsWith(resource.artifactPath + '/'),
-      );
+      if (
+        revision.sourceRoots !== undefined &&
+        to === undefined &&
+        relative(
+          resource.path,
+          await canonicalDestinationPath(resource.path),
+        ) !== ''
+      )
+        throw new Error(
+          'Recorded destination changed its physical path: ' + resource.path,
+        );
+      const selected = snapshotFiles(resource, snapshot);
       if (resource.kind === 'file' && selected.length !== 1)
         throw new Error(`File snapshot missing: ${resource.pointer}`);
       const files: FileTreeFile[] = [];
@@ -313,7 +430,24 @@ class SnapshotApplication {
         });
       }
       const targetPaths = [...wanted.keys()];
-      desiredPaths.push(...targetPaths);
+      const declaredDirectories: string[] = [];
+      for (const local of resource.directories ?? []) {
+        validateSnapshotEntry(local);
+        const directory = join(resource.path, ...local.split('/'));
+        await inspectPath(directory, true);
+        await requireDirectory(directory, resource);
+        declaredDirectories.push(directory);
+      }
+      // Name probes use leaves: files imply all their parent directories, while
+      // an explicitly selected empty directory has no file to represent it.
+      const leaves = [...targetPaths, ...declaredDirectories];
+      desiredPaths.push(
+        ...targetPaths,
+        ...declaredDirectories.filter(
+          (directory) =>
+            !leaves.some((path) => path.startsWith(directory + sep)),
+        ),
+      );
       const currentFiles = new Map<string, { content: Buffer; mode: number }>();
       const walk = async (path: string): Promise<void> => {
         await inspectPath(path);
@@ -356,6 +490,9 @@ class SnapshotApplication {
       for (const path of directories)
         if (
           path !== resource.path &&
+          !declaredDirectories.some((directory) =>
+            pathContains(path, directory),
+          ) &&
           !targetPaths.some(
             (wanted) => wanted !== path && pathContains(path, wanted),
           )
@@ -377,6 +514,7 @@ class SnapshotApplication {
         path: resource.path,
         kind: resource.kind,
         files: filesByResource.get(resource)!,
+        directories: resource.directories,
       }));
     return {
       resources,
@@ -422,21 +560,18 @@ class SnapshotApplication {
           await this.options.artifacts.readJson(resourceRef),
         ).files;
         // Legacy records may show their own binding tree even when application metadata is absent.
-        const prefix =
-          this.collection === 'memory-revisions'
-            ? ''
-            : `bindings/${safeId(string(revision.binding))}/resources/`;
-        snapshot = tree.filter((file) => file.path.startsWith(prefix));
-        if (Array.isArray(revision.sourceResources)) {
-          const resources = this.resources(revision);
-          snapshot = snapshot.filter((file) =>
-            resources.some((resource) =>
-              resource.kind === 'file'
-                ? file.path === resource.artifactPath
-                : !resource.artifactPath ||
-                  file.path.startsWith(resource.artifactPath + '/'),
-            ),
+        if (this.collection === 'memory-revisions') snapshot = tree;
+        else if (revision.sourceRoots !== undefined)
+          snapshot = parseCoveringRoots(revision.sourceRoots).flatMap((root) =>
+            snapshotFiles(root, tree),
           );
+        else if (Array.isArray(revision.sourceResources))
+          snapshot = this.legacyResources(revision).flatMap((resource) =>
+            snapshotFiles(resource, tree),
+          );
+        else {
+          const prefix = `bindings/${safeId(string(revision.binding))}/resources/`;
+          snapshot = tree.filter((file) => file.path.startsWith(prefix));
         }
       } catch (error) {
         restrictions.push(`Snapshot unavailable: ${errorText(error)}`);
@@ -469,10 +604,12 @@ class SnapshotApplication {
     return {
       ...this.summary(revision),
       rootRef: revision.rootRef ?? null,
-      sourceResources: revision.sourceResources ?? [],
+      ...(revision.sourceRoots === undefined
+        ? { sourceResources: revision.sourceResources ?? [] }
+        : {}),
       destinations:
-        plan?.resources.map(({ pointer, kind, path }) => ({
-          pointer,
+        plan?.resources.map(({ pointer, artifactPath, kind, path }) => ({
+          ...(pointer === undefined ? { artifactPath } : { pointer }),
           kind,
           path,
         })) ?? [],

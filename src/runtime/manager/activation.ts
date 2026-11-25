@@ -17,6 +17,7 @@ const logger = getLogger(['arsi', 'runtime', 'manager']);
 
 type PreparedInstance = Awaited<ReturnType<Instances['prepare']>>;
 interface Activation {
+  reflectionRevisionRef: string | null;
   memory: ActiveMemory | null;
   activationId: string;
   bindings: Record<string, Binding>;
@@ -44,6 +45,10 @@ function parseActivation(value: JsonObject): Activation {
     };
   }
   return {
+    reflectionRevisionRef:
+      value.reflectionRevisionRef == null
+        ? null
+        : string(value.reflectionRevisionRef),
     activationId: string(value.activationId),
     bindings,
     memory: value.memory ? parseActiveMemory(value.memory) : null,
@@ -55,6 +60,7 @@ function parseActivation(value: JsonObject): Activation {
 export class LearningActivation {
   private readonly bindingState: Record<string, Binding>;
   private readonly revisionState: JsonObject = {};
+  private reflectionHead: string | null = null;
 
   private memoryState: ActiveMemory | null = null;
   private writes: Promise<void> = Promise.resolve();
@@ -65,6 +71,10 @@ export class LearningActivation {
 
   get memory(): ActiveMemory | null {
     return this.memoryState;
+  }
+
+  get reflectionRevisionRef(): string | null {
+    return this.reflectionHead;
   }
   get summary(): JsonObject {
     return {
@@ -114,11 +124,13 @@ export class LearningActivation {
     bindings: Record<string, Binding>,
     revisions: JsonObject,
     memory: ActiveMemory | null,
+    reflectionRevisionRef = this.reflectionHead,
   ): Promise<void> {
     const record = {
       activationId,
       bindings: object(structuredClone(bindings)),
       revisions: { ...revisions },
+      reflectionRevisionRef,
       memory,
       ...(this.options.bindingVersions
         ? { bindingVersions: this.options.bindingVersions }
@@ -142,11 +154,20 @@ export class LearningActivation {
     return this.revisionState;
   }
 
-  /** All initial revision facts and resource snapshots must already be durable. */
-  initialize(parents: JsonObject): void {
-    for (const [target, parent] of Object.entries(parents))
-      if (this.revisionState[target] === undefined)
-        this.revisionState[target] = parent;
+  /** Publish the baseline after its complete resource snapshot is durable. */
+  initialize(parents: JsonObject, head: string): Promise<void> {
+    return this.serialize(async () => {
+      if (this.reflectionHead === head) return;
+      await this.persist(
+        head,
+        this.bindingState,
+        { ...this.revisionState, ...parents },
+        this.memoryState,
+        head,
+      );
+      Object.assign(this.revisionState, parents);
+      this.reflectionHead = head;
+    });
   }
 
   async restore(): Promise<void> {
@@ -161,35 +182,56 @@ export class LearningActivation {
     const activation = parseActivation(saved);
     this.memoryState = activation.memory;
     const savedVersions = object(saved.bindingVersions ?? {});
+    let incompatible = false;
     for (const [name, binding] of Object.entries(activation.bindings)) {
       if (
         this.options.bindingVersions &&
         savedVersions[name] !== this.options.bindingVersions?.[name]
-      )
+      ) {
+        if (Object.hasOwn(activation.revisions, name)) {
+          incompatible = true;
+          delete this.revisionState[name];
+        }
         continue;
+      }
       const ref = activation.revisions[name];
       if (
         !this.options.bindingVersions ||
         (typeof ref === 'string' &&
-          (await this.options.facts.read('revisions', ref)).kind ===
-            'generated')
+          (activation.reflectionRevisionRef !== null ||
+            (await this.options.facts.read('revisions', ref)).kind ===
+              'generated'))
       )
         this.bindingState[name] = binding;
       if (ref !== undefined) this.revisionState[name] = ref;
     }
+    this.reflectionHead = incompatible
+      ? null
+      : activation.reflectionRevisionRef;
+    if (incompatible)
+      await this.persist(
+        activation.activationId,
+        this.bindingState,
+        this.revisionState,
+        this.memoryState,
+      );
   }
 
   saveRevisions(
     changes: Record<string, Binding>,
     revisions: JsonObject,
     activationId: string,
+    head: string,
   ): Promise<void> {
-    return this.serialize(() => this.replace(changes, revisions, activationId));
+    return this.serialize(() =>
+      this.replace(changes, revisions, activationId, head),
+    );
   }
   private async replace(
     changes: Record<string, Binding>,
     revisions: JsonObject,
     activationId: string,
+    head: string,
   ): Promise<void> {
     const { id, registry, instances, cleanup, event, diagnose } = this.options;
     const prepared = new Map<string, PreparedInstance>();
@@ -205,6 +247,7 @@ export class LearningActivation {
         { ...this.bindingState, ...changes },
         { ...this.revisionState, ...revisions },
         this.memoryState,
+        head,
       );
     } catch (error) {
       for (const [target, instance] of prepared)
@@ -212,6 +255,7 @@ export class LearningActivation {
       throw error;
     }
     Object.assign(this.revisionState, revisions);
+    this.reflectionHead = head;
     for (const [target, binding] of Object.entries(changes)) {
       this.bindingState[target] = binding;
       const prior = instances.activate(target, prepared.get(target)!);

@@ -42,7 +42,7 @@ import { safeId } from '../storage/index.js';
 import type { PolicyStructure } from '../../shared/observation/policy-structure.js';
 import { queryPolicyStructure } from './policy-structure-query.js';
 import { isExecutionActive } from '../manager/execution-lock.js';
-import { isLearningInProgress } from '../learning/records.js';
+import { isLearningInProgress, revisionDepths } from '../learning/records.js';
 
 function restrictedFile(path: string): boolean {
   return /(^|\/)(\.env(?:\..*)?|\.npmrc|\.?netrc|credentials(?:\.json|\.ya?ml|\.toml)?|secrets?\.(?:json|ya?ml|toml)|id_(?:rsa|ed25519|ecdsa|dsa)|private[-_]?key(?:\.pem|\.key)?|[^/]+\.(?:p12|pfx))$/i.test(
@@ -289,6 +289,7 @@ export class ObservationQueries {
       ),
     ]);
     const memory = collection === 'memories';
+    const depths = memory ? undefined : revisionDepths(snapshots);
     const attempts = new Map(
       runs
         .filter((run) => run.kind === (memory ? 'memory' : 'reflection'))
@@ -305,7 +306,17 @@ export class ObservationQueries {
       if (memory) attempts.delete(entry.learningId);
       return {
         id: entry.ref ?? null,
-        binding: memory ? 'memory' : (entry.binding ?? null),
+        ...(memory
+          ? { binding: 'memory' }
+          : {
+              ...(Array.isArray(entry.bindings)
+                ? {
+                    bindings: entry.bindings,
+                    changedBindings: entry.changedBindings ?? [],
+                  }
+                : { binding: entry.binding ?? null }),
+              depth: depths!.get(String(entry.ref)) ?? 0,
+            }),
         kind: entry.kind ?? 'legacy',
         parentRef: entry.parentRef ?? null,
         parentArtifactRef:
@@ -334,6 +345,12 @@ export class ObservationQueries {
           callId: run.callId ?? null,
           startedAt: run.startedAt ?? null,
         });
+    records.sort(
+      (a, b) =>
+        Number(b.depth ?? 0) - Number(a.depth ?? 0) ||
+        String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')) ||
+        String(a.id).localeCompare(String(b.id)),
+    );
     return records.map((record) => object(this.clean(record, secrets)));
   }
 

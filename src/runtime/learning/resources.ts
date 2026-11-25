@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import {
   basename,
   dirname,
@@ -12,7 +12,7 @@ import type {
   JsonValue,
   JsonSchema,
 } from '../../contracts/index.js';
-import { digest, object } from '../../shared/json.js';
+import { digest, object, string } from '../../shared/json.js';
 import { safeId } from '../storage/index.js';
 import { configPathFields, type ConfigPathField } from '../../shared/paths.js';
 /** Match a selected field and the configured Schema paths beneath collections. */
@@ -44,6 +44,181 @@ export interface EditableRoot {
   pointer: string;
   path: string;
   kind: 'file' | 'directory';
+}
+export type ResourceMember = {
+  binding: string;
+  pointer: string;
+  kind: 'file' | 'directory';
+  relativePath: string;
+};
+export type CoveringRoot = {
+  path: string;
+  artifactPath: string;
+  kind: 'file' | 'directory';
+  members: ResourceMember[];
+};
+export function memberPath(root: CoveringRoot, member: ResourceMember): string {
+  return member.relativePath
+    ? root.artifactPath + '/' + member.relativePath
+    : root.artifactPath;
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function byOwner(a: ResourceMember, b: ResourceMember): number {
+  return compare(a.binding, b.binding) || compare(a.pointer, b.pointer);
+}
+export function coveringArtifactPath(
+  path: string,
+  members: readonly ResourceMember[],
+): string {
+  const owners = members
+    .filter((member) => member.relativePath === '')
+    .sort(byOwner);
+  if (!owners.length) throw new Error('Covering root requires a root owner');
+  const owner = owners[0]!;
+  if (owners.length === 1)
+    return `resources/${safeId(owner.binding)}/${segments(owner.pointer).join('/')}`;
+  const slug =
+    basename(path)
+      .replace(/[^A-Za-z0-9_-]/g, '-')
+      .slice(0, 64) || 'resource';
+  return `resources/shared/${slug}-${digest(owners.map(({ binding, pointer }) => [binding, pointer])).slice(0, 8)}`;
+}
+
+/** Group selected source locations before projecting the isolated binding copies. */
+export async function resolveCoveringRoots(
+  entries: readonly EditableRoot[],
+): Promise<CoveringRoot[]> {
+  const physical = await Promise.all(
+    entries.map(async (entry) => {
+      const path = await canonicalDestinationPath(entry.path);
+      // Short names may share a root; a symlink must not confer writeback to its target.
+      if (path !== resolve(entry.path)) {
+        let cursor = resolve(entry.path);
+        while (cursor !== dirname(cursor)) {
+          const info = await lstat(cursor).catch((error: unknown) => {
+            if (
+              error instanceof Error &&
+              'code' in error &&
+              error.code === 'ENOENT'
+            )
+              return null;
+            throw error;
+          });
+          if (info?.isSymbolicLink())
+            throw new Error('Linked destination rejected: ' + cursor);
+          cursor = dirname(cursor);
+        }
+      }
+      return { ...entry, path };
+    }),
+  );
+  physical.sort(
+    (a, b) =>
+      a.path.split(sep).length - b.path.split(sep).length ||
+      compare(a.path, b.path),
+  );
+  const roots: CoveringRoot[] = [];
+  for (const { path, binding, pointer, kind } of physical) {
+    let root = roots.find((candidate) => pathContains(candidate.path, path));
+    if (!root) {
+      root = { path, kind, members: [], artifactPath: '' };
+      roots.push(root);
+    }
+    root.members.push({
+      binding,
+      pointer,
+      kind,
+      relativePath: relative(root.path, path).split(sep).join('/'),
+    });
+  }
+  for (const root of roots) {
+    root.members.sort(byOwner);
+    root.artifactPath = coveringArtifactPath(root.path, root.members);
+  }
+  return parseCoveringRoots(roots);
+}
+
+/** Recheck saved mappings before deriving filesystem or artifact destinations. */
+export function parseCoveringRoots(raw: JsonValue | undefined): CoveringRoot[] {
+  if (!Array.isArray(raw)) throw new Error('Invalid Reflection sourceRoots');
+  const owners = new Set<string>();
+  function kind(value: JsonValue | undefined): 'file' | 'directory' {
+    if (value !== 'file' && value !== 'directory')
+      throw new Error('Invalid Reflection resource kind');
+    return value;
+  }
+  const roots = raw.map((value) => {
+    const data = object(value);
+    const path = string(data.path),
+      rootKind = kind(data.kind);
+    if (
+      !isAbsolute(path) ||
+      path.includes('\0') ||
+      (process.platform === 'win32' && /^\\\\[?.]\\/.test(path)) ||
+      resolve(path) !== path ||
+      !Array.isArray(data.members)
+    )
+      throw new Error('Invalid Reflection covering root');
+    const members = data.members.map((value) => {
+      const member = object(value);
+      const binding = safeId(string(member.binding)),
+        pointer = string(member.pointer);
+      segments(pointer);
+      const id = JSON.stringify([binding, pointer]);
+      if (owners.has(id))
+        throw new Error('Duplicate Reflection resource owner');
+      owners.add(id);
+      const relativePath = member.relativePath,
+        memberKind = kind(member.kind);
+      if (typeof relativePath !== 'string')
+        throw new Error('Invalid Reflection member relative path');
+      if (
+        relativePath === ''
+          ? memberKind !== rootKind
+          : rootKind !== 'directory' ||
+            relativePath.includes('\\') ||
+            relativePath.includes('\0') ||
+            relativePath
+              .split('/')
+              .some(
+                (part) =>
+                  !part ||
+                  part === '.' ||
+                  part === '..' ||
+                  /^[A-Za-z]:/.test(part),
+              )
+      )
+        throw new Error('Invalid Reflection resource member path or kind');
+      return { binding, pointer, kind: memberKind, relativePath };
+    });
+    for (const member of members.filter((member) => member.kind === 'file'))
+      if (
+        members.some((other) =>
+          other.relativePath === member.relativePath
+            ? other.kind !== 'file'
+            : other.relativePath.startsWith(member.relativePath + '/'),
+        )
+      )
+        throw new Error('Conflicting Reflection file and directory resources');
+    const artifactPath = coveringArtifactPath(path, members);
+    if (artifactPath !== data.artifactPath)
+      throw new Error('Invalid Reflection covering root artifact path');
+    return { path, kind: rootKind, artifactPath, members };
+  });
+  for (const [index, root] of roots.entries()) {
+    for (const other of roots.slice(index + 1))
+      if (
+        pathContains(root.path, other.path) ||
+        pathContains(other.path, root.path) ||
+        pathContains(root.artifactPath, other.artifactPath) ||
+        pathContains(other.artifactPath, root.artifactPath)
+      )
+        throw new Error('Overlapping Reflection covering roots');
+  }
+  return roots;
 }
 export function pathContains(root: string, candidate: string): boolean {
   const local = relative(resolve(root), resolve(candidate));

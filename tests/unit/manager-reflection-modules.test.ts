@@ -199,7 +199,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   );
   assert.equal(completed.length, 1);
   const initialRevision = (await manager.facts.list('revisions')).find(
-    (record) => record.experimentId === 'scoped' && record.binding === 'worker',
+    (record) => record.experimentId === 'scoped' && record.kind === 'initial',
   );
   assert(initialRevision);
   const preview = await manager.reflection().show(string(initialRevision.ref));
@@ -211,7 +211,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   assert.equal(
     object(
       (
-        initialRevision.sourceResources as import('../../src/contracts/index.js').JsonValue[]
+        initialRevision.sourceRoots as import('../../src/contracts/index.js').JsonValue[]
       )[0],
     ).path,
     join(root, 'prompt.md'),

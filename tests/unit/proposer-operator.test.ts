@@ -287,7 +287,7 @@ async function setup(
       agentRef: 'agent',
       promptFile: fileURLToPath(
         new URL(
-          '../../src/policies/operator-search/summarize.md',
+          '../../src/policies/operator-search/prompts/summarize.md',
           import.meta.url,
         ),
       ),

@@ -35,6 +35,7 @@ import {
   selectedResourceFields,
   validateEditableRoots,
   validateEditableDestinations,
+  resolveCoveringRoots,
   pathContains,
 } from '../../src/runtime/learning/resources.js';
 import { object, string } from '../../src/shared/json.js';
@@ -1339,4 +1340,169 @@ test('multiple revision exports map each resource by binding and pointer', async
     await readFile(join(to, 'worker', 'prompt'), 'utf8'),
     'prompt text',
   );
+});
+
+test('joint revisions skip untouched roots and export changed protected resources under their snapshot paths', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.root, { recursive: true, force: true }));
+  const builtIn = fileURLToPath(
+    new URL('../../src/plugins/reflection-agent/prompt.md', import.meta.url),
+  );
+  const roots = await resolveCoveringRoots([
+    {
+      binding: 'reader',
+      pointer: '/notes',
+      kind: 'directory',
+      path: f.guidance,
+    },
+    { binding: 'editor', pointer: '/prompt', kind: 'file', path: builtIn },
+  ]);
+  const notes = 'resources/reader/notes',
+    prompt = 'resources/editor/prompt';
+  const save = async (
+    ref: string,
+    parentRef: string | null,
+    edited: string,
+    mode: number,
+  ) => {
+    const initial = parentRef === null;
+    const resourceRef = await f.artifacts.putJson({
+      kind: 'file-tree',
+      files: [
+        file('manifest.json', '{}'),
+        file(notes + '/a.md', edited),
+        file(prompt, 'protected', mode),
+      ],
+    });
+    await f.facts.write('revisions', ref, {
+      ref,
+      parentRef,
+      rootRef: 'joint-initial',
+      kind: initial ? 'initial' : 'generated',
+      experimentId: 'joint',
+      policyScopeId: 'root',
+      bindings: ['editor', 'reader'],
+      sourceRoots: roots,
+      resourceRef,
+      ...(!initial
+        ? { changedBindings: mode === 0o644 ? ['reader'] : ['editor'] }
+        : {}),
+    });
+  };
+  await save('joint-initial', null, 'old', 0o644);
+  await save('joint-one', 'joint-initial', 'new', 0o644);
+  await save('joint-two', 'joint-one', 'new', 0o600);
+  const listing = await f.app.list('joint');
+  assert.deepEqual(
+    listing.map((r) => r.revisionID),
+    ['joint-two', 'joint-one', 'joint-initial'],
+  );
+  assert.deepEqual(listing[0]!.changedBindings, ['editor']);
+  const initialExport = join(f.project, 'initial-export');
+  for (const options of [{}, { to: initialExport }]) {
+    const preview = await f.app.show('joint-initial', options);
+    assert.deepEqual(preview.destinations, []);
+    assert.equal(
+      (await f.app.apply('joint-initial', options)).status,
+      'unchanged',
+    );
+  }
+  await assert.rejects(readdir(initialExport), { code: 'ENOENT' });
+  const preview = await f.app.show('joint-one');
+  assert.equal(preview.applicationAllowed, true, String(preview.restrictions));
+  assert.deepEqual(
+    (preview.destinations as JsonObject[]).map((r) => r.path),
+    [f.guidance],
+  );
+  assert.deepEqual(
+    (preview.snapshot as FileTreeFile[]).map((r) => r.path).sort(),
+    [prompt, notes + '/a.md'],
+  );
+  assert.equal((await f.app.apply('joint-one')).status, 'applied');
+  assert.equal(await readFile(join(f.guidance, 'a.md'), 'utf8'), 'new');
+  assert.equal((await f.app.show('joint-two')).applicationAllowed, false);
+  await assert.rejects(f.app.apply('joint-two'), /Protected destination/);
+  const to = join(f.project, 'export');
+  await f.app.apply('joint-one', { to });
+  assert.deepEqual(await readdir(to), ['reader']);
+  await f.app.apply('joint-two', { to });
+  assert.equal(await readFile(join(to, 'reader/notes/a.md'), 'utf8'), 'new');
+  assert.equal(await readFile(join(to, 'editor/prompt'), 'utf8'), 'protected');
+  const outside = join(f.project, 'outside');
+  await mkdir(outside);
+  await writeFile(join(outside, 'keep.md'), 'untouched');
+  const one = await f.facts.read('revisions', 'joint-one');
+  await f.facts.write('revisions', 'redirected', {
+    ...one,
+    ref: 'redirected',
+    sourceRoots: roots.map((root) =>
+      root.path === f.guidance ? { ...root, path: outside } : root,
+    ),
+  });
+  await assert.rejects(f.app.apply('redirected'), /mapping differs/);
+  await rm(f.guidance, { recursive: true });
+  await symlink(
+    outside,
+    f.guidance,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
+  await assert.rejects(f.app.apply('joint-one'), /Linked destination/);
+  assert.deepEqual(await readdir(outside), ['keep.md']);
+});
+
+test('joint directory publication retains nested selected empty directories and their ancestors', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.root, { recursive: true, force: true }));
+  const nested = join(f.guidance, 'container', 'empty');
+  await mkdir(nested, { recursive: true });
+  await mkdir(join(f.guidance, 'obsolete'));
+  const roots = await resolveCoveringRoots([
+    {
+      binding: 'worker',
+      pointer: '/guidance',
+      kind: 'directory',
+      path: f.guidance,
+    },
+    { binding: 'reader', pointer: '/notes', kind: 'directory', path: nested },
+  ]);
+  const prefix = roots[0]!.artifactPath;
+  for (const [ref, parentRef, text] of [
+    ['seed', null, 'before'],
+    ['next', 'seed', 'after'],
+  ] as const) {
+    const resourceRef = await f.artifacts.putJson({
+      kind: 'file-tree',
+      files: [file(prefix + '/rules.md', text)],
+    });
+    await f.facts.write('revisions', ref, {
+      ref,
+      parentRef,
+      rootRef: 'seed',
+      kind: parentRef ? 'generated' : 'initial',
+      experimentId: 'nested',
+      policyScopeId: 'root',
+      bindings: ['reader', 'worker'],
+      sourceRoots: roots,
+      resourceRef,
+    });
+  }
+  for (const to of [undefined, join(f.project, 'export')]) {
+    const root = to ?? f.guidance;
+    const preview = await f.app.show('next', { to });
+    assert.equal(
+      preview.applicationAllowed,
+      true,
+      String(preview.restrictions),
+    );
+    assert.ok(
+      !(preview.changes as JsonObject[]).some(
+        (change) => change.action === 'remove' && change.path === nested,
+      ),
+    );
+    await f.app.apply('next', { to });
+    assert.equal(await readFile(join(root, 'rules.md'), 'utf8'), 'after');
+    assert.deepEqual(await readdir(join(root, 'container', 'empty')), []);
+    await assert.rejects(lstat(join(root, 'obsolete')), /ENOENT/);
+    assert.equal((await f.app.apply('next', { to })).status, 'unchanged');
+  }
 });

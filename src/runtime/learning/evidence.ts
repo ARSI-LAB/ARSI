@@ -1,3 +1,5 @@
+import { memberPath, parseCoveringRoots } from './resources.js';
+import { parseFileTree } from '../../contracts/index.js';
 import { persistFact } from '../storage/persistence-error.js';
 import { readAgentTrace } from '../storage/agent-records.js';
 import { join } from 'node:path';
@@ -497,11 +499,24 @@ export async function collectLearningEvidence(
   /** Compare observed revision calls and resource contents without claiming causality. */
   const collectRevisionComparisons = async (): Promise<JsonObject[]> => {
     const comparisons: JsonObject[] = [];
-    const revisionFiles = new Set<string>();
-    for (const binding of new Set([
-      ...(options.observe.bindings ?? []),
-      ...selected.map((call) => String(call.record.bindingId)),
-    ])) {
+    const pairs = new Map<
+      string,
+      {
+        parent: JsonObject;
+        revision: JsonObject;
+        bindings: Set<string>;
+        callId?: JsonValue;
+      }
+    >();
+    const ownedBy = (revision: JsonObject, binding: string): boolean =>
+      Array.isArray(revision.bindings)
+        ? revision.bindings.includes(binding)
+        : revision.binding === binding;
+    for (const binding of new Set(
+      options.observe.bindings ??
+        selected.map((call) => String(call.record.bindingId)),
+    )) {
+      if (options.observe.excludeBindings?.includes(binding)) continue;
       const bindingCalls = selected.filter(
         (call) => call.record.bindingId === binding,
       );
@@ -512,8 +527,9 @@ export async function collectLearningEvidence(
       if (typeof currentRef !== 'string') continue;
       const revision = await context.facts.read('revisions', currentRef);
       if (
+        revision.ref !== currentRef ||
         revision.experimentId !== context.experimentId ||
-        revision.binding !== binding
+        !ownedBy(revision, binding)
       ) {
         note(
           'revision-comparison-ownership-unavailable',
@@ -534,8 +550,10 @@ export async function collectLearningEvidence(
           : null;
       if (!parent) continue;
       if (
+        parent.ref !== revision.parentRef ||
         parent.experimentId !== context.experimentId ||
-        parent.binding !== binding
+        parent.rootRef !== revision.rootRef ||
+        !ownedBy(parent, binding)
       ) {
         note(
           'parent-revision-comparison-ownership-unavailable',
@@ -543,12 +561,37 @@ export async function collectLearningEvidence(
         );
         continue;
       }
+      // A joint parent may only have reloaded a different binding. Receipts
+      // keep the last version actually activated for this particular binding.
+      let priorVersion = parent;
+      const visited = new Set<string>();
+      while (
+        Array.isArray(priorVersion.changedBindings) &&
+        priorVersion.kind !== 'initial' &&
+        !priorVersion.changedBindings.includes(binding) &&
+        typeof priorVersion.parentRef === 'string'
+      ) {
+        const ref = priorVersion.parentRef;
+        if (visited.has(ref))
+          throw new Error('Cyclic revision ancestry: ' + ref);
+        visited.add(ref);
+        const earlier = await context.facts.read('revisions', ref);
+        if (
+          earlier.ref !== ref ||
+          earlier.rootRef !== parent.rootRef ||
+          earlier.experimentId !== context.experimentId ||
+          !ownedBy(earlier, binding)
+        )
+          throw new Error('Invalid binding ancestry for revision: ' + ref);
+        priorVersion = earlier;
+      }
       const priorCalls = (currentCall ? calls : bindingCalls).filter(
         (call) =>
           matchesPrimary(call.record, options) &&
           call.record.bindingId === binding &&
-          (call.record.revisionRef === parent.ref ||
-            (call.record.revisionRef == null && parent.kind === 'initial')) &&
+          (call.record.revisionRef === priorVersion.ref ||
+            (call.record.revisionRef == null &&
+              priorVersion.kind === 'initial')) &&
           (!currentCall ||
             finished(call.record) <= finished(currentCall.record)),
       );
@@ -578,85 +621,89 @@ export async function collectLearningEvidence(
           : 'No current-version execution call is included in this window. Resource differences do not establish after-change execution or benefit.',
       };
       comparisons.push(comparison);
-      for (const record of [parent, revision]) {
+      const pair = pairs.get(currentRef) ?? {
+        parent,
+        revision,
+        bindings: new Set<string>(),
+        callId: currentCall?.record.callId,
+      };
+      pair.bindings.add(binding);
+      pairs.set(currentRef, pair);
+    }
+
+    // A shared revision contributes one patch covering the members authorized in this window.
+    for (const { parent, revision, bindings, callId } of pairs.values()) {
+      const contents = async (
+        record: JsonObject,
+      ): Promise<Map<string, { text: string; mode: number }> | undefined> => {
         if (
           typeof record.resourceRef !== 'string' ||
           typeof record.ref !== 'string'
         ) {
-          note('historical-resource-unavailable', currentCall?.record.callId);
-          continue;
+          note('historical-resource-unavailable', callId);
+          return;
         }
-        if (revisionFiles.has(record.ref)) continue;
-        revisionFiles.add(record.ref);
-        const tree = asObject(
+        const scopes =
+          record.sourceRoots === undefined
+            ? [...bindings].map((binding) => ({
+                path: `bindings/${binding}/resources`,
+                directory: true,
+              }))
+            : parseCoveringRoots(record.sourceRoots).flatMap((root) =>
+                root.members
+                  .filter((member) => bindings.has(member.binding))
+                  .map((member) => ({
+                    path: memberPath(root, member),
+                    directory: member.kind === 'directory',
+                  })),
+              );
+        const tree = parseFileTree(
           await context.artifacts.readJson(record.resourceRef),
         );
-        const resourceFiles = Array.isArray(tree.files) ? tree.files : [];
-        for (const raw of resourceFiles) {
-          const file = object(raw);
+        const entries = new Map<string, { text: string; mode: number }>();
+        for (const { path, mode, base64 } of tree.files) {
           if (
-            typeof file.path !== 'string' ||
-            !file.path.startsWith(`bindings/${binding}/resources/`) ||
-            typeof file.base64 !== 'string'
+            !scopes.some(
+              (scope) =>
+                scope.path === path ||
+                (scope.directory && path.startsWith(scope.path + '/')),
+            )
           )
             continue;
+          let text: string;
           try {
-            const content = new TextDecoder('utf8', { fatal: true }).decode(
-              Buffer.from(file.base64, 'base64'),
+            text = new TextDecoder('utf8', { fatal: true }).decode(
+              Buffer.from(base64, 'base64'),
             );
-            store(
-              `context/learning/versions/${record.ref}/${file.path}`,
-              safeText(content, 'text'),
-            );
+            const output = `context/learning/versions/${record.ref}/${path}`;
+            if (!Object.hasOwn(files, output))
+              store(output, safeText(text, 'text'));
           } catch {
-            note(
-              'binary-resource-content-uninspected',
-              currentCall?.record.callId,
-            );
+            text = `[uninspected binary resource ${digest(base64)}]`;
+            note('binary-resource-content-uninspected', callId);
           }
+          entries.set(path, { text, mode });
         }
-      }
-      if (
-        typeof parent.resourceRef === 'string' &&
-        typeof revision.resourceRef === 'string'
-      ) {
-        const before = asObject(
-          await context.artifacts.readJson(parent.resourceRef),
-        );
-        const after = asObject(
-          await context.artifacts.readJson(revision.resourceRef),
-        );
-        const scoped = (tree: JsonObject): Map<string, string> =>
-          new Map(
-            (Array.isArray(tree.files) ? tree.files : [])
-              .map(asObject)
-              .filter(
-                (file) =>
-                  typeof file.path === 'string' &&
-                  String(file.path).startsWith(
-                    `bindings/${binding}/resources/`,
-                  ) &&
-                  typeof file.base64 === 'string',
-              )
-              .map((file) => {
-                let content: string;
-                try {
-                  content = new TextDecoder('utf8', { fatal: true }).decode(
-                    Buffer.from(String(file.base64), 'base64'),
-                  );
-                } catch {
-                  content = `[uninspected binary resource ${digest(file.base64!)}]`;
-                }
-                return [String(file.path), content];
-              }),
-          );
-        const oldFiles = scoped(before),
-          newFiles = scoped(after);
+        return entries;
+      };
+      const oldFiles = await contents(parent);
+      const newFiles = await contents(revision);
+      if (oldFiles && newFiles) {
         const patches: string[] = [];
         for (const path of new Set([...oldFiles.keys(), ...newFiles.keys()])) {
-          const oldText = oldFiles.get(path),
-            newText = newFiles.get(path);
-          if (oldText === newText) continue;
+          const before = oldFiles.get(path),
+            after = newFiles.get(path);
+          const oldText = before?.text,
+            newText = after?.text;
+          if (oldText === newText && before?.mode === after?.mode) continue;
+          if (
+            typeof before?.mode === 'number' &&
+            typeof after?.mode === 'number' &&
+            before.mode !== after.mode
+          )
+            patches.push(
+              `old mode ${before.mode.toString(8)}\nnew mode ${after.mode.toString(8)}`,
+            );
           patches.push(
             `--- ${parent.ref}/${path}\n+++ ${revision.ref}/${path}\n` +
               (oldText === undefined

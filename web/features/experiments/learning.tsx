@@ -15,28 +15,21 @@ import { CandidateTextDiff } from './candidate-text-diff';
 import { parseArtifactFiles } from './file-browser-model';
 import { roundLabel } from './round-label-model';
 
-function revisionDepth(
-  record: LearningRecord,
-  records: LearningRecord[],
-): number {
-  const visited = new Set<string>();
-  let current: LearningRecord | undefined = record;
-  let depth = 0;
-  while (current?.parentRef && !visited.has(current.id)) {
-    visited.add(current.id);
-    depth++;
-    current = records.find((item) => item.id === current?.parentRef);
-  }
-  return depth;
+function bindingLabel(record: LearningRecord): string {
+  if (record.binding) return record.binding;
+  return (
+    record.kind === 'initial' ? record.bindings : record.changedBindings
+  ).join(', ');
 }
-function title(record: LearningRecord, records: LearningRecord[]): string {
+
+function title(record: LearningRecord): string {
   if (record.binding === 'memory') {
     if (record.kind === 'initial') return 'Initial memory';
     return record.kind === 'attempt' ? 'Memory attempt' : 'Memory update';
   }
   return record.kind === 'initial'
     ? 'Initial version'
-    : `Revision ${revisionDepth(record, records)}`;
+    : `Revision ${record.depth}`;
 }
 
 function Snapshot({
@@ -383,23 +376,25 @@ function ApplySnapshot({
 function Detail({
   id,
   record,
-  records,
   memory,
 }: {
   id: string;
   record: LearningRecord;
-  records: LearningRecord[];
   memory: boolean;
 }): React.JSX.Element {
   const selection = useRoute();
   const parent = record.parentArtifactRef;
   const full = !parent || selection.content === 'full';
-  const prefix = memory ? '' : `bindings/${record.binding}/resources/`;
+  const prefix = memory
+    ? ''
+    : record.binding
+      ? `bindings/${record.binding}/resources/`
+      : 'resources/';
   return (
     <Card>
       <div className="ui-card-header">
         <div className="section-heading">
-          <h2>{title(record, records)}</h2>
+          <h2>{title(record)}</h2>
           <span
             className="status-badge"
             data-status={memory ? record.status : undefined}
@@ -412,7 +407,7 @@ function Detail({
           </span>
         </div>
         <p className="muted">
-          {record.binding}
+          {bindingLabel(record)}
           {record.kind !== 'initial' && roundLabel(record.path)
             ? ` · ${memory ? '' : 'Triggered after '}${roundLabel(record.path)}`
             : null}
@@ -495,7 +490,7 @@ function Detail({
           id={id}
           revision={record.id}
           collection={memory ? 'memories' : 'revisions'}
-          label={`${title(record, records)} · ${record.binding}`}
+          label={`${title(record)} · ${bindingLabel(record)}`}
         />
       ) : null}
     </Card>
@@ -516,13 +511,7 @@ export function Learning({
     parseLearning,
     finished ? null : 10000,
   );
-  const items = [...(records.data ?? [])].sort((a, b) =>
-    memory
-      ? (b.startedAt ?? '').localeCompare(a.startedAt ?? '')
-      : a.binding.localeCompare(b.binding) ||
-        revisionDepth(b, records.data ?? []) -
-          revisionDepth(a, records.data ?? []),
-  );
+  const items = records.data ?? [];
   const selected = selection.revision
     ? items.find((item) => item.id === selection.revision)
     : items[0];
@@ -586,12 +575,12 @@ export function Learning({
                 })}
               >
                 <div className="learning-record-heading">
-                  <strong>{title(item, items)}</strong>
+                  <strong>{title(item)}</strong>
                   {item.kind !== 'initial' && roundLabel(item.path) ? (
                     <span className="call-round">{roundLabel(item.path)}</span>
                   ) : null}
                 </div>
-                <span>{item.binding}</span>
+                <span>{bindingLabel(item)}</span>
                 {memory ? (
                   <span className="muted">
                     {item.status} · <Timestamp value={item.startedAt} />
@@ -606,7 +595,6 @@ export function Learning({
                 key={`${id}:${selected.id}`}
                 id={id}
                 record={selected}
-                records={items}
                 memory={memory}
               />
             ) : (

@@ -18,6 +18,7 @@ import {
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
 import { collectLearningEvidence } from '../../src/runtime/learning/evidence.js';
+import { resolveCoveringRoots } from '../../src/runtime/learning/resources.js';
 import { object, string } from '../../src/shared/json.js';
 import { createReflectionAgent } from '../../src/plugins/reflection-agent/service.js';
 
@@ -995,6 +996,125 @@ test('an observed binding with no new current-version call exposes only its dire
       .afterExecution,
     'not-in-window',
   );
+});
+
+test('a joint revision comparison emits one patch restricted to observed resource members', async (t) => {
+  const f = await fixture(t);
+  const roots = await resolveCoveringRoots([
+    {
+      binding: 'proposer',
+      pointer: '/guidance',
+      kind: 'directory',
+      path: join(f.root, 'guidance'),
+    },
+    {
+      binding: 'summarizer',
+      pointer: '/prompt',
+      kind: 'file',
+      path: join(f.root, 'guidance/summary.md'),
+    },
+    {
+      binding: 'other',
+      pointer: '/prompt',
+      kind: 'file',
+      path: join(f.root, 'other.md'),
+    },
+  ]);
+  const guidance = 'resources/proposer/guidance';
+  for (const [ref, parentRef, suffix] of [
+    ['first', null, 'initial'],
+    ['second', 'first', 'updated'],
+  ] as const) {
+    const resourceRef = await f.artifacts.putJson({
+      kind: 'file-tree',
+      files: [
+        [guidance + '/summary.md', suffix + ' summary'],
+        [guidance + '/proposal.md', suffix + ' proposal'],
+        ['resources/other/prompt', 'private-other-content'],
+        ['manifest.json', 'private-manifest-content'],
+      ].map(([path, content]) => ({
+        path: path!,
+        mode: 0o644,
+        base64: Buffer.from(content!).toString('base64'),
+      })),
+    });
+    await f.facts.write('revisions', ref, {
+      ref,
+      parentRef,
+      rootRef: 'first',
+      experimentId: 'experiment',
+      kind: parentRef ? 'generated' : 'initial',
+      bindings: ['proposer', 'summarizer', 'other'],
+      sourceRoots: roots,
+      resourceRef,
+    });
+  }
+  const currentRevisionRefs = {
+    proposer: 'second',
+    summarizer: 'second',
+    other: 'second',
+  };
+  const parentAndChild = await f.collect('r1', 1, {
+    observe: {
+      bindings: ['proposer', 'summarizer', 'other'],
+      excludeBindings: ['other'],
+    },
+    currentRevisionRefs,
+  });
+  const files = object(parentAndChild.snapshot.files);
+  assert.deepEqual(
+    Object.keys(files).filter((p) => p.endsWith('-difference.patch')),
+    ['context/learning/versions/second-difference.patch'],
+  );
+  assert.match(
+    string(files['context/learning/versions/second-difference.patch']),
+    /updated proposal/,
+  );
+  assert.match(
+    string(files['context/learning/versions/second-difference.patch']),
+    /updated summary/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(files),
+    /private-other-content|private-manifest-content/,
+  );
+  const childOnly = await f.collect('r2', 2, {
+    observe: { bindings: ['summarizer'] },
+    currentRevisionRefs,
+  });
+  const childFiles = object(childOnly.snapshot.files);
+  assert.match(
+    string(childFiles['context/learning/versions/second-difference.patch']),
+    /updated summary/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(childFiles),
+    /updated proposal|proposal\.md|private-other-content/,
+  );
+  const initial = await f.facts.read('revisions', 'first');
+  await f.facts.write('revisions', 'intervening', {
+    ...initial,
+    ref: 'intervening',
+    parentRef: 'first',
+    kind: 'generated',
+    changedBindings: ['proposer'],
+  });
+  await f.facts.write('revisions', 'latest', {
+    ...(await f.facts.read('revisions', 'second')),
+    ref: 'latest',
+    parentRef: 'intervening',
+    changedBindings: ['summarizer'],
+  });
+  await f.call('previous-summary', 'summarizer', 3, { revisionRef: 'first' });
+  await f.collect('r3', 4, { observe: { bindings: ['summarizer'] } });
+  await f.call('next-summary', 'summarizer', 5, { revisionRef: 'latest' });
+  const { snapshot } = await f.collect('r4', 6, {
+    observe: { bindings: ['summarizer'] },
+  });
+  const [comparison] = object(snapshot.index).comparisons as JsonObject[];
+  assert.equal(comparison?.parentRevisionRef, 'intervening');
+  assert.equal(comparison?.previousCallId, 'previous-summary');
+  assert.equal(comparison?.callId, 'next-summary');
 });
 
 test('Reflection reads the current retry conversation and its payloads', async (t) => {

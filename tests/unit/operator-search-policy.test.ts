@@ -200,7 +200,7 @@ test('operator search inherits policy prompt paths while resolving recipe overri
     recipe.bindings.summarizer!.config.promptFile,
     fileURLToPath(
       new URL(
-        '../../src/policies/operator-search/summarize.md',
+        '../../src/policies/operator-search/prompts/summarize.md',
         import.meta.url,
       ),
     ),

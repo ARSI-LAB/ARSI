@@ -51,11 +51,7 @@ recipe.budget={operations:256,evaluationRuns:14,modelCalls:32,elapsedWallMs:2400
 const path=join(example,'recipe.search.fixture.yaml');await writeFile(path,stringify(recipe));
 const runtime=await createRuntime({rootDirectory:join(example,'search-workspace')});const stages=[];
 const promptStages=['diagnose','generate','summarize'];
-const readPrompts=async (directory,summaryPath)=>({
- diagnose:await readFile(join(directory,'diagnose.md'),'utf8'),
- generate:await readFile(join(directory,'generate.md'),'utf8'),
- summarize:await readFile(summaryPath,'utf8'),
-});
+const readPrompts=async directory=>Object.fromEntries(await Promise.all(promptStages.map(async stage=>[stage,await readFile(join(directory,stage+'.md'),'utf8')])));
 let expectedPrompts;
 runtime.registry.registerOperation({id:'agent.installed-operator-fixture',contract:agentContract,configSchema:{type:'object'},async create(){return{async execute(request,context){await context.charge('modelCalls',1);const input=JSON.parse(await readFile(join(request.cwd,'context/input.json'),'utf8'));const stage=input.stage;stages.push(stage);
 const instructions=await readFile(join(request.cwd,'AGENTS.md'),'utf8');
@@ -68,9 +64,8 @@ if(stage==='summarize')return{explanation:'Synthetic measured result',lessons:[]
 return{edits:[{path:input.sourcePath,content:source('fixture:latency=8')}],reason:'Installed fixture change'};
 },async dispose(){}};}});
 try{
-const policyDirectory=dirname(runtime.registry.policy('policy.operator-search'));
-expectedPrompts=await readPrompts(join(policyDirectory,'prompts'),join(policyDirectory,'summarize.md'));
-const examplePrompts=await readPrompts(resolve(example,examplePromptsDirectory),resolve(example,exampleSummaryBinding.config.promptFile));
+expectedPrompts=await readPrompts(join(dirname(runtime.registry.policy('policy.operator-search')),'prompts'));
+const examplePrompts=await readPrompts(resolve(example,examplePromptsDirectory));
 assert.notEqual(expectedPrompts.generate,examplePrompts.generate,'the packaged default and Ascend example supply distinct generation guidance');
 const result=await runtime.manager.run(path,{id:'installed-static-search'});
 assert.equal(result.status,'succeeded');assert.equal(result.output.stopReason,'accepted');assert.equal(result.output.finalValidity,'valid');assert.equal(result.output.finalTimingStable,true);

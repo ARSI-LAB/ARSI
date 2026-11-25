@@ -154,7 +154,7 @@ for (const customized of [false, true]) {
                 ? {
                     edits: [
                       {
-                        path: 'bindings/proposer/resources/guidance/search.md',
+                        path: 'resources/proposer/guidance/search.md',
                         content:
                           'Revised method: distinguish graph coverage from batch capacity.',
                       },

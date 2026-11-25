@@ -165,11 +165,11 @@ test('Manager activates committed revisions before notifying, retains the old ch
           );
           try {
             await writeFile(
-              join(workspace.directory, 'bindings/worker/resources/prompt'),
+              join(workspace.directory, 'resources/worker/prompt'),
               'revised',
             );
             await writeFile(
-              join(workspace.directory, 'bindings/unused/resources/prompt'),
+              join(workspace.directory, 'resources/unused/prompt'),
               'revised-unused',
             );
             return {
@@ -293,10 +293,23 @@ test('Manager activates committed revisions before notifying, retains the old ch
   assert.equal(object(result.output).prompt, 'revised');
   assert.equal(activations.length, 1);
   assert.equal(workerContexts.length, 3);
-  assert.equal(workerContexts[2]!.bindingId, 'unused');
+  assert.deepEqual(
+    workerContexts
+      .slice(1)
+      .map((ctx) => ctx.bindingId)
+      .sort(),
+    ['unused', 'worker'],
+  );
   assert.notEqual(workerContexts[0]!.callId, workerContexts[1]!.callId);
   assert.notEqual(workerContexts[0]!.directory, workerContexts[1]!.directory);
-  assert.deepEqual(activations[0]!.bindingIds, ['worker', 'unused']);
+  assert.deepEqual([...activations[0]!.bindingIds].sort(), [
+    'unused',
+    'worker',
+  ]);
+  assert.equal(
+    activations[0]!.revisionRefs.worker,
+    activations[0]!.revisionRefs.unused,
+  );
   assert.ok(
     trace.indexOf('activation-committed') < trace.indexOf('dispose:original'),
   );
@@ -334,7 +347,9 @@ test('Manager activates committed revisions before notifying, retains the old ch
   const write = manager.facts.write.bind(manager.facts);
   manager.facts.write = async (kind, id, value) => {
     if (
-      (kind === 'activations' && id === 'retry-revision') ||
+      (kind === 'activations' &&
+        id === 'retry-revision' &&
+        value.activationId !== value.reflectionRevisionRef) ||
       (kind === 'learning-runs' &&
         value.experimentId === 'retry-revision' &&
         value.status === 'rejected')

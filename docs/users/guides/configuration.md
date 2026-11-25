@@ -160,44 +160,9 @@ On Windows, RSI removes the Desktop-only `CODEX_WINDOWS_REGISTERED_CORE` variabl
 
 ### Per-call sandbox on Linux
 
-`agent.codex`, `agent.claudecode`, and `agent.dsh` accept `config.sandbox`. Configure it in the Recipe binding or in the Policy's `defaults.bindings`. The Recipe overrides the Policy value through the existing binding merge rules.
+`agent.codex`, `agent.claudecode`, and `agent.dsh` accept `config.sandbox` in Recipe bindings and Policy defaults. The explicit modes, `read-only` and `workspace-write`, constrain filesystem writes for one Agent call on Linux without changing host-wide configuration.
 
-```yaml
-# Recipe fragment
-bindings:
-  agent:
-    plugin: agent.codex
-    config:
-      sandbox: read-only
-```
-
-```yaml
-# Policy fragment
-defaults:
-  bindings:
-    agent:
-      plugin: agent.codex
-      config:
-        sandbox: workspace-write
-```
-
-| Value                | File writes from model tools and their confined child processes                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `inherit` or omitted | Use the existing backend behavior. Explicit `inherit` overrides a Policy's sandbox default.                              |
-| `read-only`          | Deny writes to ordinary files, including workspace and temporary files.                                                  |
-| `workspace-write`    | Allow writes within the current Agent call's workspace and the platform temporary areas permitted by the native sandbox. |
-
-The workspace is the input directory prepared for one Agent call. Candidate changes are submitted through the existing structured proposal and Application validation. Explicit modes exclude inherited extra writable roots and executable host extensions outside the enforced boundary. Subagent tools are available only where their restrictions can be established.
-
-The first Linux implementation disables subagent tools for all three backends. Claude Code exposes Glob and Grep in `read-only` for text reading, and adds Read and sandboxed Bash in `workspace-write`. The native Read tool is excluded in `read-only` because PDF rendering can create temporary files. Claude Code and DSH exclude direct Edit and Write tools in explicit modes; workspace writes use confined Bash. Call-local Skill files remain readable. Claude Code requires `bubblewrap` and `socat`. Native executable authentication helpers such as `apiKeyHelper` are excluded along with executable extensions. Use environment credentials or native OAuth credentials for these calls.
-
-These modes govern direct filesystem writes by enabled tools. Read access, native network controls, writes performed by network or IPC services, and the trusted CLI's own session bookkeeping follow their existing owners. CLI settings are supplied for the call. User and system configuration files retain their contents.
-
-DSH explicit modes use a private native home with the installation's base/headless components. Literal native model/provider settings, environment configuration, and native credentials are carried into that call. Custom executable profile components are excluded. The verified `0.1.7-rc.2` headless protocol reports completion through the native process exit status; the adapter accepts its legacy final event only after checking the installed CLI and headless versions.
-
-Explicit modes require Linux and supported native sandbox capabilities. Missing dependencies, conflicting settings, or incomplete enforcement fail before a model task is submitted. A sandboxed tool's denied write is returned as a native tool error. `doctor` checks the same sandbox preparation used by execution.
-
-Run the explicit native integration checks separately from the default unit suite with `pnpm test:integration:agent-sandbox`. These checks require the three native CLIs and their Linux sandbox dependencies. They exercise local tools and controlled files without benchmark tasks or external model inference.
+See [Use an Agent sandbox](agent-sandbox.md) for supported scope, mode selection, configuration examples, backend differences and troubleshooting.
 
 ### Check and start
 

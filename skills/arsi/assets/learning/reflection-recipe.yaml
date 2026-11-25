@@ -31,7 +31,7 @@ bindings:
       config: { metric: checkPhrase, direction: maximize },
     }
 memory: false
-reflection: { configFile: ./reflection.yaml }
+reflection: { configFile: ./reflection-only.yaml }
 budget:
   modelCalls: 20
   evaluationRuns: 3

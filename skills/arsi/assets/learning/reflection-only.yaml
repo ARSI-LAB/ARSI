@@ -1,0 +1,8 @@
+evidence:
+  includeBindings: [proposer, evaluator, selector]
+targets:
+  include: { proposer: [guidance] }
+goal: ./reflection-goal.md
+implementation:
+  config: { agentRef: agent, prompt: ./reflection.md }
+budget: { modelCalls: 6, timeoutSeconds: 90 }

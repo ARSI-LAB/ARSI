@@ -250,6 +250,8 @@ To migrate a custom Proposer prompt, remove `editProtocol` from the binding and 
 
 When an experiment budget is exhausted, the Runtime records `stopReason: budget-exhausted` and the limit in `budgetMetric`. Use `arsi show <experiment-id>` to inspect the record. If the Policy output can be evaluated and validated from the last committed checkpoint, the record includes it as `partialOutput`. For `policy.parameter-agent`, this retains the incumbent candidate and its measurement when available, even when `candidateFeasible` is false. Use the experiment record’s top-level `stopReason` to determine why the run ended.
 
+Policies that declare `partial_output` also publish it on handled errors and cancellation. For operator search, `bestCandidateRef` and `bestMeasurementRef` identify the confirmed incumbent. A null `finalMeasurementRef` or `finalDecisionRef` means the corresponding final step has no committed result. If the worker process exits before saving its terminal record, `arsi show <experiment-id> --checkpoint` reads the ordered checkpoint without resuming execution or changing experiment status.
+
 Omitted Recipe binding settings first inherit Policy defaults. The “When omitted” column describes settings that remain unset; limits at other layers can still apply.
 
 | Location                              | Setting                                            | Meaning                                                                                                                                                               | When omitted                                                                                                      |

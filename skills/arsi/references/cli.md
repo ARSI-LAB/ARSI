@@ -26,6 +26,10 @@ Output is JSON for ordinary commands, not a versioned CLI envelope. Exit 0 means
 
 The process running the experiment owns execution. Cancellation is a request: observe terminal state and released instances afterward. Do not cancel a terminal experiment; it has no active work, and this supported revision has a known unhandled rejection risk on the HTTP cancel route for terminal IDs.
 
+## Inspect a checkpoint result
+
+After a failed or cancelled run, inspect `arsi show <experiment-id>` in the run directory. A Policy may return `partialOutput` with the original failure status. For operator search, use its `bestCandidateRef` and `bestMeasurementRef` together. A null final measurement or decision means that step has no committed result. Pass the candidate through the caller's acceptance checks before reporting deployment or speedup. If the process stopped before publishing its terminal record, `arsi show <experiment-id> --checkpoint` projects the committed journal read-only for Policies that declared a checkpoint output.
+
 ## Resume an existing experiment
 
 Use `--resume --id <experiment-id>` with the current Recipe from the original working directory. Runtime compares the ordered Policy step IDs, types, nesting, and required contract IDs. A compatible Recipe can replace plugin implementations, model endpoints, configuration, and code. Runtime reuses completed-step outputs and committed calls, then executes unfinished steps with the supplied configuration.

@@ -49,6 +49,38 @@ state:
   metricRound: null
 output_schema:
   $ref: ./schemas/result.yaml
+partial_output:
+  when: ${{ state.bestMeasurementRef != null && (state.bestCandidateRef != input.candidateRef || steps.check_baseline.output.candidateFeasible) }}
+  schema:
+    type: object
+    additionalProperties: false
+    required:
+      [
+        bestCandidateRef,
+        bestMeasurementRef,
+        finalMeasurementRef,
+        finalDecisionRef,
+        finalValidity,
+      ]
+    properties:
+      bestCandidateRef:
+        $ref: ./schemas/result.yaml#/properties/bestCandidateRef
+      bestMeasurementRef:
+        $ref: ./schemas/result.yaml#/properties/bestMeasurementRef
+      finalMeasurementRef:
+        type: [string, 'null']
+        minLength: 1
+      finalDecisionRef:
+        type: [string, 'null']
+        minLength: 1
+      finalValidity:
+        enum: [valid, invalid, null]
+  value:
+    bestCandidateRef: ${{ state.bestCandidateRef }}
+    bestMeasurementRef: ${{ state.bestMeasurementRef }}
+    finalMeasurementRef: ${{ if(steps.evaluate_final.output == null, null, steps.evaluate_final.output.measurementRef) }}
+    finalDecisionRef: ${{ if(steps.check_final.output == null, null, steps.check_final.output.decisionRef) }}
+    finalValidity: ${{ if(steps.check_final.output == null, null, if(steps.check_final.output.candidateFeasible, 'valid', 'invalid')) }}
 require:
   agent:
     contract: contract.agent

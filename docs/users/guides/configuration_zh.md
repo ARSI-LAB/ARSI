@@ -241,6 +241,8 @@ Evaluator 绑定仍要求 `contract.inferencebench`，selector 要求
 
 实验预算耗尽时，Runtime 会记录 `stopReason: budget-exhausted`，并用 `budgetMetric` 标明触及的上限。使用 `arsi show <experiment-id>` 查看记录。如果能用最近一次已保存的检查点计算并验证 Policy 输出，记录还会包含 `partialOutput`。对于 `policy.parameter-agent`，部分结果会保留已有的当前最优候选和测量，即使 `candidateFeasible` 为 false。实际停止原因以实验记录顶层的 `stopReason` 为准。
 
+声明 `partial_output` 的策略在运行错误或取消得到处理时也会保存部分结果。算子搜索返回的 `bestCandidateRef` 和 `bestMeasurementRef` 指向已确认的最佳候选及其测量。`finalMeasurementRef` 或 `finalDecisionRef` 为 null 表示对应的最终步骤尚无已提交结果。如果进程退出前未能保存终态，使用 `arsi show <experiment-id> --checkpoint` 可以只读查询已提交的检查点，实验状态和执行进度保持不变。
+
 Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺省时”指对应配置最终仍未设置该项的情况；其他层的限制仍可能生效。
 
 | 位置                                  | 配置项                                             | 含义                                                                                                    | 缺省时                                                                            |

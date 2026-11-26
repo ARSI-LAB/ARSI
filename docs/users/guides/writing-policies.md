@@ -26,6 +26,9 @@ Policies use `rsi.policy/v1` with `rsi.recipe/v1` Recipes. The main fields are:
 | `steps`               | Ordered execution steps, each declaring `id` and `type`.                                                                        |
 | `output_schema`       | Define the structure of the Policy's final result.                                                                              |
 | `output`              | Select return values from step outputs or shared state.                                                                         |
+| `partial_output` | Optional checkpoint projection. Declare `schema`, a `value` template and an optional boolean `when` (default true). |
+
+The projection reads committed state and top-level step outputs. An unfinished step has `output: null` here, so guard it before accessing its fields. A false `when` omits the partial result. The normal `output` and its schema still apply to completed runs.
 
 ## Steps and data flow
 

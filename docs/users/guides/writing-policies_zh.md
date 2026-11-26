@@ -26,6 +26,9 @@ Policy 使用 `rsi.policy/v1`，与 `rsi.recipe/v1` 的 Recipe 配合使用。�
 | `steps`               | 按顺序执行的步骤列表，每步声明 `id` 和 `type`。                                |
 | `output_schema`       | 定义 Policy 最终返回结果的结构。                                               |
 | `output`              | 指定返回哪些值，可读取步骤输出或共享状态。                                     |
+| `partial_output` | 可选的检查点输出。声明 `schema`、结果模板 `value` 以及可选的布尔条件 `when`（默认 true）。 |
+
+模板可以读取已提交的状态和顶层步骤输出。尚未完成的步骤在这里的 `output` 为 `null`，读取子字段前应先判断。条件为 false 时省略部分结果。正常完成仍使用 `output` 及其 Schema。
 
 ## 步骤与数据传递
 

@@ -8,6 +8,7 @@ import {
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
+import { partialPolicyOutput } from '../../src/runtime/policy/executor.js';
 import { Policy } from '../../src/runtime/policy/index.js';
 import { object, string } from '../../src/shared/json.js';
 
@@ -22,6 +23,7 @@ async function run(
     noHypothesisRound?: number;
     profileFailure?: number;
     infrastructureFailure?: boolean;
+    invalidFinal?: boolean;
   } = {},
 ) {
   const registry = new Registry();
@@ -39,6 +41,7 @@ async function run(
   const invoke = async (
     binding: string,
     raw: JsonValue,
+    path: string,
   ): Promise<JsonValue> => {
     const input = object(raw);
     calls.push({ binding, input: structuredClone(input) });
@@ -57,10 +60,12 @@ async function run(
       const candidate = string(input.candidateRef);
       const round = Number(candidate.replace(/^c/, ''));
       const value =
-        candidate === 'baseline'
-          ? 10
-          : (options.values?.[round - 1] ??
-            (candidate.startsWith('bad') ? 0 : 10));
+        options.invalidFinal && path === 'steps/evaluate_final'
+          ? 0
+          : candidate === 'baseline'
+            ? 10
+            : (options.values?.[round - 1] ??
+              (candidate.startsWith('bad') ? 0 : 10));
       const ref = `m${++evaluation}`;
       measurements.set(ref, { candidate, value });
       return { action: 'evaluate', measurementRef: ref };
@@ -192,7 +197,21 @@ async function run(
     });
     assert.deepEqual(resumed, output);
     assert.equal(calls.length, count);
-    return { output, calls };
+    function partialAfter(path: string) {
+      assert.ok(checkpoint);
+      const entries = Object.entries(object(checkpoint.journal));
+      const end = entries.findIndex(([key]) => key === path);
+      assert.notEqual(end, -1, path);
+      return partialPolicyOutput(
+        policy,
+        { application: execution.application, config },
+        {
+          ...checkpoint,
+          journal: Object.fromEntries(entries.slice(0, end + 1)),
+        },
+      );
+    }
+    return { output, calls, partialAfter };
   } finally {
     await registry.dispose();
   }
@@ -392,4 +411,32 @@ test('near misses get bounded diagnostics while the next round keeps its incumbe
     control.calls.filter(({ input }) => input.action === 'profile').length,
     1,
   );
+});
+
+test('operator checkpoint keeps the selected fifth round after a slower sixth and distinguishes the final verdict', async () => {
+  const { partialAfter } = await run({
+    values: [10, 10, 10, 10, 8, 9, 9],
+    maxRounds: 7,
+    maxNoImprovement: 10,
+    invalidFinal: true,
+  });
+  assert.equal(partialAfter('steps/evaluate_baseline'), undefined);
+  const selected = {
+    bestCandidateRef: 'c5',
+    bestMeasurementRef: 'm6',
+    finalMeasurementRef: null,
+    finalDecisionRef: null,
+    finalValidity: null,
+  };
+  assert.deepEqual(
+    partialAfter('steps/run_metrics/then/metrics_loop/iteration-6/begin_round'),
+    selected,
+  );
+  const measured = { ...selected, finalMeasurementRef: 'm9' };
+  assert.deepEqual(partialAfter('steps/evaluate_final'), measured);
+  assert.deepEqual(partialAfter('steps/check_final'), {
+    ...measured,
+    finalDecisionRef: 'd9',
+    finalValidity: 'invalid',
+  });
 });

@@ -28,7 +28,9 @@ export interface ExperimentOverview extends ExperimentSummary {
   output: JsonPreview | null;
 }
 export interface CallSummary {
-  /** Persisted Reflection trigger location, separate from the call execution path. */
+  revisionRef?: string | null;
+  memoryRef?: string | null;
+  /** Persisted runtime evolution trigger location, separate from the call execution path. */
   triggerPath?: string | null;
   callId: string;
   parentCallId: string | null;

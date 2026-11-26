@@ -7,9 +7,9 @@ import {
   InvalidArgumentError,
   type CommanderError,
 } from 'commander';
+import type { RuntimeEvolutionKind } from '../../contracts/runtime-evolution.js';
 import type { Runtime } from '../../runtime/context.js';
 import { formatDoctorSummary } from '../../runtime/doctor/report.js';
-import type { RevisionApplication } from '../../runtime/revisions/application.js';
 import {
   addLogOptions,
   attachWebLogging,
@@ -136,6 +136,8 @@ export async function runCommand(
       '\nWith no ID or flags, cleanup previews the workspace. Checkpoints, results and logs are kept for --resume. Required images may be pulled or built again.',
     )
     .action(cleanup);
+  registerSnapshotCommands('memory', 'versionID', 'Memory ID');
+  registerSnapshotCommands('reflection', 'revisionID', 'Revision ID');
   program
     .command('catalog')
     .description('Show registered contracts, plugins, and policies')
@@ -161,25 +163,42 @@ export async function runCommand(
       4317,
     )
     .action(startDashboard);
-  const reflection = program
-    .command('reflection')
-    .description('Inspect and apply reflection revisions');
-  reflection
-    .command('list [experiment-id]')
-    .description('List reflection revisions')
-    .action(forRevision((revisions, id) => revisions.list(id)));
-  reflection
-    .command('show <revisionID>')
-    .description('Show reflection revisions')
-    .action(forRevision((revisions, id) => revisions.show(requireId(id))));
-  reflection
-    .command('apply <revisionID>')
-    .description('Apply reflection revisions')
-    .action(forRevision((revisions, id) => revisions.apply(requireId(id))));
   program
     .command('shell')
     .description('Open the interactive CLI')
     .action(openShell);
+
+  function registerSnapshotCommands(
+    kind: RuntimeEvolutionKind,
+    idParameter: string,
+    idLabel: string,
+  ): void {
+    const group = program
+      .command(kind)
+      .description(`Inspect and apply ${kind} snapshots`);
+    group
+      .command('list [experiment-id]')
+      .description(`List ${kind} snapshots`)
+      .action((id: string | undefined, _options: unknown, command: Command) =>
+        runJson(command, ({ manager }) =>
+          manager[kind]().list(id || undefined),
+        ),
+      );
+    for (const operation of ['show', 'apply'] as const) {
+      group
+        .command(`${operation} <${idParameter}>`)
+        .description(
+          `${operation === 'show' ? 'Preview' : 'Apply'} a ${kind} snapshot`,
+        )
+        .option('--to <directory>', 'Export to a dedicated directory')
+        .action((id: string, options: { to?: string }, command: Command) => {
+          if (!id) throw new Error(`${idLabel} is required`);
+          return runJson(command, ({ manager }) =>
+            manager[kind]()[operation](id, options),
+          );
+        });
+    }
+  }
 
   function openRuntime(): Promise<Runtime> {
     return context.openRuntime(commandOptions().pluginDir);
@@ -312,24 +331,6 @@ export async function runCommand(
         stdout: JSON.stringify(report, null, 2) + '\n',
       };
     });
-  }
-
-  function forRevision(
-    execute: (revisions: RevisionApplication, id?: string) => Promise<unknown>,
-  ): (
-    id: string | undefined,
-    options: unknown,
-    command: Command,
-  ) => Promise<void> {
-    return (id, _options, command) =>
-      runJson(command, ({ manager }) =>
-        execute(manager.reflection(), id || undefined),
-      );
-  }
-
-  function requireId(id?: string): string {
-    if (!id) throw new Error('Revision ID is required');
-    return id;
   }
 
   function startDashboard(

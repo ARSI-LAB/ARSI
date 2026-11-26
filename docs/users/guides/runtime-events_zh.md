@@ -140,6 +140,7 @@ ctx.event.emit('rsi/agent-observation', {
 | `rsi/candidate-recorded`   | 候选保存后                                       | `emit`   | `callId: string`：写入该记录的调用 ID。<br>`bindingId: string`：写入该记录的绑定名。<br>`candidateRef: string`：已保存的候选引用。<br>`parentRef: string \| null`：父候选引用；初始候选为 `null`。                                                                                                                          |
 | `rsi/measurement-recorded` | 测量校验并保存后                                 | `emit`   | `callId: string`：写入该记录的调用 ID。<br>`bindingId: string`：写入该记录的绑定名。<br>`measurementRef: string`：已保存的测量引用。                                                                                                                                                                                        |
 | `rsi/revision-activated`   | 激活记录保存、有效绑定及已有插件实例的订阅切换后 | `emit`   | `activationId: string`：本次修订启用记录的 ID。<br>`bindingIds: readonly string[]`：本次启用修订涉及的绑定名列表。<br>`revisionRefs: Readonly<Record<string, string>>`：本次启用的修订映射，键为绑定名，值为修订引用。<br>`policyRevisionRef?: string`：可选。契约预留的 Policy 修订引用；当前 Runtime 发布该事件时不设置。 |
+| `rsi/memory-activated` | 新生成的 Memory 版本持久化并生效后。设置初始种子或恢复已有活动版本时均不触发。 | `emit` | `activationId: string` 为本次激活的 ID。`memoryVersionRef: string` 为生效的 Memory 版本引用。`artifactRef: string` 为该版本的文件快照引用。 |
 
 ### 插件诊断与资源清理
 
@@ -186,7 +187,7 @@ factoryCtx.event.on('rsi/before-call', async (event, next) => {
 
 对于 `rsi/before-call`，默认决策为 `{ kind: 'proceed' }`，允许调用时可通过 `metadata` 为回执添加元数据。两个调用准入钩子都支持返回 `{ kind: 'reject', reason }` 拒绝请求，`reason` 必须为非空字符串。
 
-对于 `rsi/before-agent-invoke`，默认决策包含一份独立的请求副本。要调整 Agent 请求，在返回的 `proceed` 决策中提供更新后的 `input`。下面的监听保留后续监听返回的修改，并为来自 `proposer` 绑定的请求添加审计标记。
+对于 `rsi/before-agent-invoke`，默认决策包含一份独立的请求副本。要调整 Agent 请求，在返回的 `proceed` 决策中提供更新后的 `input`。绑定监听器调用 `await next()` 后，可以检查和修改已完成 Memory 准备的请求。两个钩子返回同名的回执元数据时，Runtime 使用 Agent 请求准备阶段的最终值。下面的监听保留后续监听返回的修改，并为来自 `proposer` 绑定的请求添加审计标记。
 
 ```ts
 factoryCtx.event.on('rsi/before-agent-invoke', async (event, next) => {

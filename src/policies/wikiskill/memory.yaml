@@ -1,0 +1,5 @@
+trigger: { on: after-step, step: train }
+evidence:
+  excludeSteps: [baseline, baseline_score, validate, test]
+implementation:
+  config: { prompt: ./memory.md }

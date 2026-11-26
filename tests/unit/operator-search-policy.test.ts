@@ -149,6 +149,46 @@ async function setup(
   return { ...fixture, ...runtime, requests };
 }
 
+test('operator search shares its benchmark task and limits default Reflection edits to prompts', async (t) => {
+  const f = await setup(t);
+  const declaration = object(parse(await readFile(f.recipePath, 'utf8')));
+  delete declaration.memory;
+  delete declaration.reflection;
+  const recipe = await Recipe.fromJSON(declaration, f.registry, {
+    sourcePath: f.recipePath,
+  });
+  assert.equal(recipe.memory?.trigger.on, 'loop-iteration');
+  assert.equal(recipe.memory?.evidenceView, 'training');
+  assert.equal(recipe.reflection?.evidenceView, 'training');
+  assert.equal(recipe.memory?.config.agentRef, 'agent');
+  assert.equal(recipe.reflection?.config.agentRef, 'agent');
+  assert.deepEqual(recipe.reflection?.targets, {
+    proposer: { resources: ['/promptsDirectory'] },
+    summarizer: { resources: ['/promptFile'] },
+  });
+  assert.equal(
+    object(recipe.bindings.evaluator!.config.task).directory,
+    object(recipe.bindings.proposer!.config.task).directory,
+  );
+  object(declaration.budget).operations = 1;
+  await writeFile(f.recipePath, stringify(declaration));
+  await assert.rejects(
+    f.manager.run(f.recipePath, { id: 'default-evolution' }),
+    /Budget exceeded: operations/,
+  );
+  const experiment = await f.manager.get('default-evolution');
+  assert.ok(object(experiment.application).initialCandidateRef);
+  const activation = await f.manager.facts.read(
+    'activations',
+    'default-evolution',
+  );
+  const initial = await f.manager.facts.read(
+    'memory-revisions',
+    string(object(activation.memory).ref),
+  );
+  assert.equal(initial.kind, 'initial');
+  assert.equal(initial.sourceDirectory, null);
+});
 test('operator search inherits policy prompt paths while resolving recipe overrides from the recipe', async (t) => {
   const f = await setup(t);
   const recipe = await Recipe.load(f.recipePath, f.registry);

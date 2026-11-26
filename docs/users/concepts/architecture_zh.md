@@ -67,17 +67,20 @@ arsi（Recursive Self-Improvement）是面向 Agent 和 AI 基础设施的插件
 
 **Evidence（证据）** 是运行过程中保存的执行轨迹、日志、交付物等材料，为后续分析、学习和选择提供依据。Runtime 为声明不同证据视图的插件提供不同的输入内容：
 
-| 视图               | 视图提供的内容                                                                  |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `execution`        | 脱敏执行证据，排除结构化评测分数、Reward 和判题反馈。                           |
-| `training-summary` | 执行证据，加上训练分数和有界评测反馈。                                          |
-| `delivery`         | 被记录为交付物的内容预览，例如 `report.md` 的内容；不提供执行轨迹和结构化评分。 |
+| 视图 | 执行证据 | 评测反馈 |
+| --- | --- | --- |
+| `training` | 证据预算内的完整脱敏轨迹与文件。 | 授权的测量指标、指标定义、检查结果和诊断。 |
+| `execution` | 完整脱敏轨迹与文件，适合对评判结果盲测。 | 屏蔽评分及判题字段。 |
+| `training-summary` | 有字节上限的 JSON 预览，包括轨迹的开头和结尾。 | 授权的测量指标、指标定义、检查结果和诊断。 |
+| `delivery` | 供交付物选择器使用的匿名交付物预览。 | 无。 |
+
+Memory 和 Reflection 默认使用 `training`。需要对评判结果盲测时，显式设置 `evidence: { view: execution }`。底层 `context.readEvidence` 和 `proposer.agent` 默认使用 `execution`。
 
 因此插件在编写时，可以通过 [Runtime 证据服务](../../../src/runtime/services/facts/evidence.ts) 向优化模型提供输入，读取接口与限制见[编写插件](../guides/writing-plugins_zh.md)。
 
 ## 插件级自进化
 
-框架提供 Memory、Reflection 等插件级自进化组件。选用已接入这些组件的 Policy，并配置相应的插件绑定、学习目标和授权资源，即可在实验流程中使用。
+Memory 和 Reflection 在插件层提供运行时演进能力。在 Policy 或 Recipe 中引用外部文件，在文件中配置串行触发边界、证据范围和目标。
 
 具体配置与更新生效方式见 [Memory 使用指南](../guides/memory_zh.md)和 [Reflection 使用指南](../guides/reflection_zh.md)；可用实现见[内置组件](../guides/built-in-components_zh.md)。
 
@@ -111,10 +114,11 @@ sequenceDiagram
   Core->>App: 初始化
   App-->>Core: 初始候选
 
-  Core->>Proposer: domainProposer<br/>候选、目标、证据和可选 Memory
+  Core->>Proposer: domainProposer<br/>候选、目标和证据
   Proposer->>Core: 读取候选和授权执行记录
   Core-->>Proposer: 候选文件与执行记录
-  Proposer->>Agent: 请求文件修改方案
+  Proposer->>Core: 使用当前项目调用 Agent
+  Core->>Agent: 请求文件修改方案，有可用 Memory 时附上固定版本
   Agent-->>Proposer: 修改方案
   Proposer->>Proposer: 校验方案<br/>在临时工作区应用修改
   Proposer->>Core: 提交修改（commit）

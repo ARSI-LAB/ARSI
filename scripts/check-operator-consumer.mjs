@@ -34,6 +34,8 @@ await chmod(embeddingPython,0o755);
 const resourcesDirectory=join(example,'external-knowledge');await mkdir(join(resourcesDirectory,'knowledge'),{recursive:true});
 await writeFile(join(resourcesDirectory,'knowledge/manifest.json'),JSON.stringify({schemaVersion:'rsi.operator-knowledge/v1',techniques:[],metrics:[],resources:[]}));
 const recipe=parse(await readFile(join(example,'recipe.search.yaml'),'utf8'));
+recipe.memory=false;
+recipe.reflection=false;
 const examplePromptsDirectory=recipe.bindings.proposer.config.promptsDirectory;
 assert.equal(typeof examplePromptsDirectory,'string','the example explicitly selects its local prompts');
 const exampleSummaryBinding=recipe.bindings.summarizer;

@@ -22,10 +22,15 @@ Use `arsi --help` to list commands and `arsi <command> --help` for a command's s
 | `arsi cancel <experiment-id>`          | Send a cancellation request to the specified experiment.                                                                                  |
 | `arsi cleanup [experiment-id]`         | [Preview or release experiment resources](#clean-up-experiment-resources).                                                                |
 | `arsi dashboard`                       | Serve a local web dashboard for inspecting experiments.                                                                                   |
+| `arsi memory list [experiment-id]` | List the experiment’s Memory snapshots. |
+| `arsi memory show <versionID> [--to <directory>]` | Preview the snapshot and destination changes. |
+| `arsi memory apply <versionID> [--to <directory>]` | Write a snapshot to its configured source directory or the export destination. |
 | `arsi reflection list [experiment-id]` | List persisted revisions, optionally for one experiment.                                                                                  |
-| `arsi reflection show <revisionID>`    | Inspect revision content and planned resource changes.                                                                                    |
-| `arsi reflection apply <revisionID>`   | Write the snapshot to its recorded user-resource paths; see the [Reflection rules](reflection.md#apply-a-revision-to-future-experiments). |
+| `arsi reflection show <revisionID> [--to <directory>]` | Preview the revision and changes at the selected destination. |
+| `arsi reflection apply <revisionID> [--to <directory>]` | Apply the revision at its recorded paths or export it to a dedicated directory. See the [Reflection guide](reflection.md#apply-a-revision-to-future-experiments). |
 | `arsi help [command]`                  | Show the command list or help for a specific command.                                                                                     |
+
+Before writing back a Reflection revision, run `arsi reflection show <revisionID>` to inspect its destinations. An Agent Policy using `proposer: '*'` can revise your configured `prompt`, `skills` and `subagents` resources. Apply a revision in place when its changed resources are user-owned. To export changes to built-in prompts, use `arsi reflection apply <revisionID> --to ./exported-resources`.
 
 ### Interactive CLI
 
@@ -72,7 +77,7 @@ arsi doctor my-experiment/recipe.yaml
 arsi run my-experiment/recipe.yaml --id terminal-skills-01
 ```
 
-- `doctor` checks the Recipe, plugin configuration, contract compatibility, Policy compilation and declared Reflection resources, then dispatches `rsi/doctor` to bindings with valid local paths and a handler. It prints a readable summary by default. Add `--json` to get the report with `recipeId` and `checks`.
+- `doctor` checks the Recipe, plugin configuration, contract compatibility, Policy compilation and enabled Memory and Reflection resources, then dispatches `rsi/doctor` to bindings with valid local paths, valid binding references and a handler. It prints a readable summary by default. Add `--json` to get the report with `recipeId` and `checks`.
   - Statuses are `passed`, `failed` and `unchecked`.
   - For the diagnostic flow, report interpretation, built-in checks and custom-component integration, see the [doctor guide](doctor.md).
 
@@ -106,9 +111,9 @@ To continue a failed, cancelled, or interrupted experiment, use the same workspa
 arsi run my-experiment/recipe.yaml --id terminal-skills-01 --resume
 ```
 
-Runtime restores budget usage, compatible effective revisions, call receipts, and checkpoints. It checks the supplied Policy shape before executing unfinished steps.
+Runtime restores budget usage, the active Memory snapshot, compatible Reflection revisions, call receipts, and checkpoints. It checks the supplied Policy shape before executing unfinished steps.
 
-Experiments created before the Runtime saved control-flow decisions require a new experiment ID.
+Resume requires an experiment saved with `rsi.definition-lock/v3`. For an experiment with a v1 or v2 definition lock, start a run with a new experiment ID.
 
 - Resuming a successful experiment returns the saved result with its original usage.
 - Keep the ordered Policy step IDs, types, nesting, and required plugin contract IDs. New calls use the currently registered input and output schemas.
@@ -156,4 +161,4 @@ Metrics that share a display label include their recorded metric names so distin
 | Unknown plugin, Policy, or undeclared binding                     | Inspect the current catalog, load the extension in this process, and match the Policy's `require`. File presence alone does not register it.                                |
 | Budget exceeded or request timed out                              | Distinguish operation/evaluator/model counters, wall time, individual request time, full Agent time, and benchmark time. See [limits](configuration.md#limits-and-budgets). |
 | Dashboard reports a missing `.rsi` or shows different experiments | Start it from the original experiment workspace and use the same data store.                                                                                                |
-| Memory failed or Reflection was rejected                          | Inspect saved reasons and subsequent flow. The experiment can continue with the previous experience or guidance after a learning failure.                                   |
+| Memory or Reflection rejected an update                          | Inspect saved reasons and subsequent flow. The experiment can continue with the previous Memory snapshot or plugin revision after an update fails. Cancellation and experiment-wide budget exhaustion still stop the experiment.                                   |

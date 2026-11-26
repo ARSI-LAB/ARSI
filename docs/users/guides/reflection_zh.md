@@ -1,255 +1,160 @@
 # Reflection 使用指南
 
-[English](reflection.md) | 简体中文 · [快速入门](../getting-started_zh.md) · [运行时事件](runtime-events_zh.md)
+[English](reflection.md) | 简体中文 · [快速入门](../getting-started_zh.md)
 
-Reflection 根据执行证据改进目标插件，使后续调用采用改进后的行为。本指南介绍如何选择目标插件、配置修改范围并在 Policy 中调用 Reflection。
+Reflection 为插件资源文件提出修订。Runtime 检查修改，激活通过校验的版本，并用修订后的配置创建插件实例。后续调用记录实际取得的修订版本。
 
-- 内置 Harness² Policy 已配置 Reflection 来改进 Invariant Proposer 和 Domain Proposer，目前允许修改它们的 `guidance`。`improve_guidance` 步骤默认处于注释状态。参见 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 和 [Reflection 配置](../../../src/policies/harness2/reflection.yaml)。
+## 在 Policy 和 Recipe 中启用或覆盖 Reflection
 
-内置 `policy.parameter-agent` Policy 声明了[配置搜索 Reflection
-模块](../../../src/policies/parameter/agent/reflection.yaml)。设置
-`policy.config.reflection: true` 后，在每轮提案后（包括空提案）且仍有后续轮数和候选次数时调用；默认关闭，
-与 Memory 开关独立。它通过 `training-summary` 读取提案、评测、selector 和已有
-Memory 调用记录，仅可修订 Proposer 的 `guidance`，不能修改选择规则、负载或候选参数。
-下一次提案加载已激活的版本；空提案在有限次数内继续搜索，达到候选或提案轮数上限
-（`maxTrials`）后不再进行收尾 Reflection。Runtime 预算和取消操作仍可提前结束实验。
-RSI 提供通用 Reflection 目标和默认 Proposer 指引。场景可复制这些资源，通过
-`bindings.proposer.config.guidance` 选择自己的指引目录，并通过本地
-`reflection.configFile` 选择配置副本。开关只控制调用；沿用现有 Runtime 行为，
-即使 `policy.config.reflection` 为 false，Recipe 加载时仍会校验选中的配置和资源。
+Policy 通过 `defaults.reflection` 设置默认行为，Recipe 通过 `reflection` 覆盖：
 
-## 1. 配置 Reflection 模块
+| 取值 | 行为 |
+| --- | --- |
+| 省略 | Recipe 沿用 Policy 的 `defaults.reflection`；若 Policy 也省略，则 Reflection 保持**关闭**。 |
+| `false` | 关闭 Reflection。 |
+| `true` | 启用 Reflection 并沿用 Policy 的 `defaults.reflection` 配置文件。如果 Policy 未提供配置文件，会在**加载时报错**（Reflection 必须声明 `targets.include`）。 |
+| `{ configFile: <路径> }` | 加载一份声明了 `targets.include` 的完整 Reflection YAML 配置文件。路径相对于声明该字段的 Policy 或 Recipe 解析。Recipe 指定的配置文件会完整替换 Policy 文件。 |
 
-`reflection.yaml` 指定参考哪些执行记录、改进哪些插件、允许修改插件的哪些内容，以及由哪个 Reflection 插件和 Agent 完成反思。将文件放在 Policy 旁；下面使用 Harness² 已声明的绑定名，接入自己的 Policy 时按实际绑定名调整：
+### 内置 Policy 默认配置
+
+六个内置 Agent Policy 都提供 Reflection 配置文件；Parameter Grid 和 Optuna 默认关闭 Reflection：
+
+| Policy | 默认 Reflection 配置 |
+| --- | --- |
+| `policy.wikiskill` | 启用（`./reflection.yaml`）：`trigger: { on: loop-iteration }`，`evidence.view: training`，`excludeSteps: [baseline, baseline_score, validate, test]`，`targets.include: { proposer: '*' }`。 |
+| `policy.gym-rsi` | 启用（`./reflection.yaml`）：`trigger: { on: loop-iteration }`，`evidence.view: training`，`excludeSteps: [baseline, baseline_score, validate, promotion]`，`targets.include: { proposer: '*' }`。 |
+| `policy.harness2` | 启用（`./reflection.yaml`）：`trigger: { on: loop-iteration }`（每个任务结束后），`evidence.view: execution`（对评判结果盲测），`targets.include: { invariantProposer: '*', domainProposer: '*' }`，`budget: { timeoutSeconds: 3600 }`。 |
+| `policy.gepa` | 启用（`./reflection.yaml`）：`trigger: { on: loop-iteration }`，`evidence.view: training`，`includeSteps: [proposal, proposal_evaluation]`，`targets.include: { proposer: '*' }`。 |
+| `policy.parameter-agent` | 启用（`./reflection.yaml`）：`trigger: { on: loop-iteration }`，`evidence.view: training`，`targets.include: { proposer: '*' }`。 |
+| `policy.operator-search` | 启用（`./reflection.yaml`）：`trigger: { on: loop-iteration }`，`evidence.view: training`，`targets.include: { proposer: [promptsDirectory], summarizer: [promptFile] }`。 |
+| `policy.parameter-grid`、`policy.parameter-optuna` | 默认关闭（`defaults.reflection: false`）。 |
+
+## 配置文件字段说明
+
+Reflection YAML 配置文件必须声明 `targets.include`，其余字段均可选，不允许出现未声明字段。文件内的相对路径均相对于该配置文件所在目录解析。完整校验规则见[运行时演进 Schema](../../../src/contracts/runtime-evolution.ts)。
+
+以下 Harness² 风格的配置授权两个 Proposer 各自的本地资源：
 
 ```yaml
-evidence:
-  - invariantProposer
-  - domainProposer
-  - composer
-  - memoryUpdater
+trigger: { on: loop-iteration, every: 2 }
+evidence: { view: execution }
 targets:
-  invariantProposer:
-    resources: [guidance]
-  domainProposer:
-    resources: [guidance]
-goal: ./reflection-goal.md # The goal file describes what Reflection should improve.
-implementation:
-  contract: contract.reflection
-  ref: reflection.agent
-  config:
-    evidenceView: execution
-    agentRef: agent
-budget:
-  timeoutSeconds: 3600
+  include:
+    invariantProposer: '*'
+    domainProposer: '*'
+budget: { timeoutSeconds: 3600 }
 ```
 
-### 参考哪些记录、改进哪些插件
+### 顶层字段
 
-| 字段                         | 必填 | 作用                                         | 如何填写                                                                                                  |
-| ---------------------------- | ---- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `evidence`                   | 是   | 选择哪些插件调用的执行记录作为反思材料。     | 填 Policy 中已有的绑定名列表，如 `[domainProposer, composer]`；至少一项，不能重复。                       |
-| `targets`                    | 是   | 选择本次要改进的目标插件。                   | 以 Policy 绑定名为键，如 `domainProposer`，并在每项下填写 `resources`；至少选择一个绑定。                 |
-| `targets.<绑定名>.resources` | 是   | 限定对该插件可以修改的配置资源。             | 填插件配置中的资源字段名，如 `[guidance]`。这些字段需已配置路径，并在插件 Schema 中声明为文件或目录资源。 |
-| `goal`                       | 是   | 说明希望目标插件解决什么问题、达到什么效果。 | 填目标说明文件的路径，如 `./reflection-goal.md`。文件须为非空 UTF-8 文本。                                |
+| 字段 | 必填 | 类型 / 取值 | 默认值 | 用途 |
+| --- | --- | --- | --- | --- |
+| `targets` | **是** | 对象（`include` 必填，`exclude` 可选） | 无 | 指定授权 Reflection 修改的 Policy 绑定及其本地 `x-rsi-path` 资源字段。 |
+| `trigger` | 否 | 对象 | `{ on: 'loop-iteration', every: 1 }` | 触发 Reflection 的串行 Policy 边界与频次。 |
+| `evidence` | 否 | 对象 | `{ view: 'training' }` | 证据视图及每次反思窗口的绑定/步骤过滤条件。 |
+| `goal` | 否 | 非空路径字符串 | 内置 [`reflection-agent/goals/generic/prompt.md`](../../../src/plugins/reflection-agent/goals/generic/prompt.md) | UTF-8 非空文本文件，说明 Reflection 应改进什么问题。 |
+| `implementation` | 否 | 对象 | `reflection.agent`（`contract.reflection`） | 选择并配置负责生成修订提案的插件实现。 |
+| `budget` | 否 | 对象 | `{}`（不额外限制） | 单次 Reflection 调用的资源上限（`modelCalls`、`timeoutSeconds`、`evidenceBytes`）。 |
 
-- 上例参考四个绑定的执行记录，改进的对象是两个 Proposer，具体通过修改它们的 `guidance` 来实现。例如，若 `domainProposer` 的配置中写了 `guidance: ./guidance`，那么 `resources: [guidance]` 授权修改的就是这个 `./guidance` 目录内的文件。
+### `targets` 字段
 
-### 由谁执行 Reflection
+| 字段 | 必填 | 可选值 | 行为 |
+| --- | --- | --- | --- |
+| `targets.include` | **是** | 非空映射：`<绑定名>: '*' \| ['*'] \| string[]` | 授权修改所列 Policy 绑定上已配置的本地 `x-rsi-path` 资源。 |
+| `targets.exclude` | 否 | 映射：`<绑定名>: '*' \| ['*'] \| string[]` | 从 `targets.include` 中移除整个绑定（`'*'` / `['*']`）或特定字段；最终必须保留至少一个可编辑资源。 |
 
-`implementation` 选择负责提出目标插件改进方案的 Reflection 插件，`implementation.config` 是传给该插件的配置。下表中的配置字段以内置 `reflection.agent` 为例：
+单个绑定的字段选择语法：
 
-| 字段                                 | 必填 | 作用                                         | 如何填写                                                                                                   |
-| ------------------------------------ | ---- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `implementation.contract`            | 是   | 声明所选插件需要遵循的公共接口。             | 当前内置为 `contract.reflection`。                                                                         |
-| `implementation.ref`                 | 是   | 选择执行反思并提出插件改进方案的实现。       | 填已注册且符合上述契约的插件 ID，如 `reflection.agent`。                                                   |
-| `implementation.config.agentRef`     | 是   | 选择实际执行反思的 Agent。                   | 填 Policy 中已有的 Agent 绑定名，如 `agent`；它使用哪个后端和模型，由该绑定配置。                          |
-| `implementation.config.evidenceView` | 否   | 决定反思可读取哪些证据内容。                 | `execution`（默认）使用执行证据；允许使用已有、授权评分反馈时，可选 `training-summary`。详见下文证据范围。 |
-| `implementation.config.prompt`       | 否   | 指导 Reflection 如何分析证据、改进目标插件。 | 填自定义提示词文件的路径，如 `./reflection-prompt.md`；省略时使用内置提示词。                              |
+- `'*'` 或 `['*']`：选择该绑定已配置的全部本地 `x-rsi-path` 资源。对 `proposer.agent` 而言，涵盖主提示词 `prompt`、`skills` 目录和 `subagents` 中的角色提示词。通配符会自动跳过远程 URL；若未匹配到任何本地路径，校验会报错。
+- `[字段, ...]`（非空、无重复的字段名或以 `/` 开头的 JSON Pointer 列表，不能包含 `'*'`）：将权限缩小到具体 `x-rsi-path` 字段，例如 `proposer: [prompt]`、`proposer: [promptsDirectory]`、`summarizer: [promptFile]` 或 `proposer: ['/subagents/0/prompt']`。填写集合字段名（如 `skills` 或 `subagents`）会匹配其下全部已配置的 `x-rsi-path` 条目。显式列出未在插件 `configSchema` 中声明、未配置或指向远程 URL 的字段会在加载时报错。
+- 每个选中的目标在磁盘上都必须是普通本地文件或目录（拒绝符号链接）。
 
-### 限制一次 Reflection 的开销
+**共享与嵌套资源。** 两个选中的字段引用同一文件时，Reflection 只编辑一份副本。选中的目录也覆盖其内部被选中的文件。如果通过符号链接访问项目，共享资源的字段应使用同一条项目路径。例如，提案器使用 `prompts/`，总结器使用 `prompts/summarize.md`。修改该文件会重新加载两个绑定，修改目录中的其他文件只会重新加载提案器。每次通过校验的更新只为实验生成一个联合修订版本，涵盖全部受影响的绑定。
 
-`budget` 整体可省略，以下两项也可分别省略：
+### `trigger` 字段
 
-| 字段                    | 作用                                         | 如何填写                                                                |
-| ----------------------- | -------------------------------------------- | ----------------------------------------------------------------------- |
-| `budget.modelCalls`     | 限制一次 Reflection 最多新增多少次模型调用。 | 非负整数，如 `10`；`0` 表示禁止新增模型调用。省略时不设置这项局部上限。 |
-| `budget.timeoutSeconds` | 限制一次 Reflection 最长运行多久，单位为秒。 | 正整数，如 `3600` 表示 60 分钟。省略时不设置这项局部上限。              |
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `trigger.on` | 否 | `'loop-iteration'` \| `'loop-end'` \| `'experiment-end'` \| `'after-step'` | `'loop-iteration'` | `loop-iteration`：顶层循环每轮结束时触发；若 Policy 无顶层循环，则在实验结束时触发。<br>`loop-end`：顶层循环结束时触发一次。<br>`experiment-end`：最后一个顶层步骤结束后、生成最终输出前触发一次。<br>`after-step`：匹配 `trigger.step` 的串行步骤结束后触发。 |
+| `trigger.every` | 否 | `>= 1` 的整数 | `1` | 每匹配 *N* 次边界执行一次（如 `every: 2` 在第 2、4、6 等次匹配时执行）。 |
+| `trigger.step` | 条件必填 | 非空步骤 ID 字符串 | 无 | 仅当 `trigger.on` 为 `'after-step'` 时必填，其他触发类型禁止填写。必须是 Policy 中位于并行 `foreach` 分支之外的串行步骤 ID。 |
 
-注意，实验总预算和 Agent 自身的限制仍同时生效，例如 `agent.pi` 的 `executionTimeoutMs`。
+Memory 和 Reflection 在同一边界同时命中时，先执行 Memory。
 
-### Reflection 收到哪些证据
+### `evidence` 字段
 
-**Runtime 按完成时间选择相邻两次 Reflection 边界之间、匹配 `evidence` 绑定的调用；**
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `evidence.view` | 否 | `'training'` \| `'execution'` \| `'training-summary'` | `'training'` | `training`：同时提供 `context/evolution/training-summary.json` 中已授权的评分反馈、脱敏执行文件、调用记录、符合条件的子 Agent 诊断与工作区，以及本次更新产生的 Memory 快照（如有）。<br>`execution`：提供脱敏执行文件、调用记录、符合条件的子 Agent 诊断与工作区及 Memory 快照，屏蔽评分与判题反馈，适合对评判结果盲测。<br>`training-summary`：提供精简调用摘要、有界预览、已授权的评分反馈，对 Memory 仅保留更新回执（不含快照文本）。<br>详见 [Evidence](../concepts/architecture_zh.md#evidence)。 |
+| `evidence.includeBindings` | 否 | 无重复的 Policy 绑定名和/或 `'memory'` 数组 | 全部 Policy 绑定；Memory 启用时另含 `'memory'` | 仅观察指定绑定的主调用。显式填写 `'memory'` 要求启用 Memory。 |
+| `evidence.excludeBindings` | 否 | 无重复的 Policy 绑定名和/或 `'memory'` 数组 | 无 | 排除指定绑定的调用。即使 Recipe 关闭了 Memory，共用的 Reflection 配置文件仍可在 `excludeBindings` 中列出 `'memory'`。 |
+| `evidence.includeSteps` | 否 | 无重复的 Policy 步骤 ID 数组 | 全部 Policy 步骤 | 仅观察指定步骤内的 Policy 调用（不作用于 Memory 更新回执）。 |
+| `evidence.excludeSteps` | 否 | 无重复的 Policy 步骤 ID 数组 | 无 | 排除指定步骤内的 Policy 调用（例如留出的验证集或测试集步骤）。 |
 
-- 首个窗口从实验开始计算，终态中的成功、失败、取消和未知结果分别保留。
-- 大小限制、缺失或截断的证据会明确标注。
+**Memory 快照隔离。** 观察 `memory` 绑定时，`training` 和 `execution` 视图会提供本次更新产生的 Memory 快照（如有），其中可能保留 Memory 自身证据窗口中的观察结果。需要隔离留出集时，应让两者的过滤范围一致，或在 Reflection 中设置 `excludeBindings: [memory]`。证据窗口为空时跳过本次生成。
 
-**`implementation.config.evidenceView` 默认 `execution`，排除评分侧反馈；`training-summary` 额外允许读取已有、授权的评分、诊断及返回提示。**
+### `implementation` 字段
 
-各视图的定义与可见范围见 [Evidence](../concepts/architecture_zh.md#evidence)。
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `implementation.contract` | 否 | `'contract.reflection'` | `'contract.reflection'` | 所选插件必须遵循的公共契约。 |
+| `implementation.ref` | 否 | 已注册的插件 ID | `'reflection.agent'` | 实现 `contract.reflection` 的插件。 |
+| `implementation.config` | 否 | 插件配置对象 | `{}` | 传给所选插件的配置，按其 `configSchema` 校验（内置 `reflection.agent` 支持的字段见下表）。 |
 
-- 读取的资源快照包含目标绑定配置中 Schema 声明的路径资源，但修改权限仅限 `targets` 列出的名称。
+内置 `reflection.agent` 在 `implementation.config` 下支持以下字段（见[共享编辑 Schema](../../../src/plugins/shared/agent-editing/schema.ts)），并内置 `reflection-reviewer` 子 Agent 用于委派聚焦证据核查：
 
-- 只有窗口内没有可用观察（包括可归因的迟到结果）时，Reflection 才返回 `skipped` 而不调用生成器；
-- 源码见 [证据收集](../../../src/runtime/revisions/evidence.ts) 和 [执行流程](../../../src/runtime/revisions/index.ts)。
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `implementation.config.agentRef` | 否 | Policy 已声明的 `contract.agent` 绑定名 | 唯一 `contract.agent` 绑定，否则 `_evolutionAgent` | 指定执行 Reflection 的 Agent。省略时复用 Policy 声明的唯一 `contract.agent` 绑定；若 Policy 未声明或声明了多个这类绑定，Runtime 会用内置 `agent.pi` 创建 `_evolutionAgent`（读取 `MODEL_NAME`、`MODEL_ENDPOINT` 和 `MODEL_API_KEY`）。 |
+| `implementation.config.prompt` | 否 | 非空文件路径字符串 | 内置 [`reflection-agent/prompt.md`](../../../src/plugins/reflection-agent/prompt.md) | 自定义提示词文件，指导 Reflection 如何分析证据并修改目标资源。 |
+| `implementation.config.skills` | 否 | 目录路径字符串数组 | `[]` | 本地 Skill 目录列表，会复制到 Reflection Agent 工作区的 `.agents/skills/` 中。 |
 
-### Reflection 机制
+### `budget` 字段
 
-默认的 [Reflection 提示词](../../../src/plugins/reflection-agent/prompt.md) 说明“怎么反思”，`goal` 文件说明“希望改进什么”。一次反思按下面的流程进行：
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `budget.modelCalls` | 否 | `>= 0` 的整数 | 无局部上限 | 单次 Reflection 调用允许的新增模型请求上限；`0` 阻止新增模型请求。 |
+| `budget.timeoutSeconds` | 否 | `1`–`2147483` 的整数 | 无局部上限 | 单次 Reflection 调用的墙钟时长上限（秒）。 |
+| `budget.evidenceBytes` | 否 | `>= 1` 的整数 | 无模块级上限 | 单次证据投影的最大字节数。 |
 
-1. **先看材料。** 主 Agent 拿到目标、当前资源和本轮执行证据，阅读相关记录，找出值得改进的问题。
-2. **自主决定是否分工。** 主 Agent 可以自己分析，也可以把具体问题交给同一 workspace 中的 `reflection-reviewer`。Pi 使用 `subagent`，主 Agent 和子 Agent 共用 Reflection 的预算和取消机制。Codex 使用原生角色委派。参见 [Agent 后端](configuration_zh.md#agent-与环境变量)。
-3. **汇总插件改进方案。** 主 Agent 根据证据整理对目标插件的改进建议、处理相互矛盾的建议，并给出授权文件的完整新内容和修改理由。没有有用的改进，就说明原因并保持不变。
-4. **检查并生效。** Runtime 检查修改是否符合授权范围、内容要求和版本约束，通过后，会保存并启用插件的修订版本，供当前实验的后续调用使用。
+Recipe 的实验级预算及 Agent 后端自身的超时设置仍会同时生效，见[限制与预算](configuration_zh.md#限制与预算)。
 
-## 2. 显式调用 Reflection
+## 自定义插件如何接入 Reflection
 
-### 第一步：声明 Reflection 配置文件
+如需让 Reflection 修订自定义插件的资源：
 
-在 Policy 的 `defaults.reflection.configFile` 中指定第 1 节编写的配置文件。路径相对于 Policy 文件解析：
+1. 在插件的 `configSchema` 中用 `'x-rsi-path': 'file'` 或 `'x-rsi-path': 'directory'` 标记可编辑的文件或目录字段（参见 [`configSchema`](writing-plugins_zh.md#configschema)）。
+2. 在 Policy 或 Recipe 中为该绑定配置本地文件或目录路径，并在 `reflection.yaml` 的 `targets.include` 中授权对应字段。
+3. 在 `create(config, context)` 中读取 Runtime 传入的修订后 `config` 路径，使已激活的修订在后续调用中生效。
 
-```yaml
-# Policy excerpt
-defaults:
-  reflection:
-    configFile: ./reflection.yaml
-```
+## 执行结果与持久化
 
-Runtime 加载 Recipe 时会校验选中的配置，实际执行由第二步添加的 Reflection 步骤触发。
+| 状态 | 含义 |
+| --- | --- |
+| `activated` | 校验通过的修改已保存为联合修订、物化到 `.rsi/experiments/<experiment-id>/revisions/<revision-id>/resources/`，并为所有受影响的绑定（`changedBindings`）激活。 |
+| `no-change` | 生成器未提出实质改动，继续沿用当前活动修订。 |
+| `skipped` | 当前证据窗口没有可用观察，跳过本次调用。 |
+| `rejected` | 生成器失败、触及局部超时或提出了非法修改（如修改 `targets` 之外的路径、删除文件、变更文件权限或写入非 UTF-8 内容）。当前活动修订保持不变，实验继续运行。 |
 
-#### 通过 Recipe 替换文件
+实验取消、实验级预算耗尽和关键持久化失败仍会停止实验。记录保存在 `.rsi/facts/`（`revisions`、`activations`、`evolution-runs`）与 `.rsi/artifacts/` 下。
 
-如果某个实验需要使用不同的 Reflection 配置，在 Recipe 中指定：
+## 将版本应用到后续实验
 
-```yaml
-# Recipe excerpt
-reflection:
-  configFile: ./reflection-custom.yaml
-```
+用 `arsi reflection list <experiment-id>` 按从新到旧的顺序查看修订。生成的修订在 `changedBindings` 中列出受影响的绑定。同一存储下的所有实验结束或完成恢复后，先用 `arsi reflection show <revisionID>` 预览累计变更，再用 `arsi reflection apply <revisionID>` 将变更写回原路径。
 
-这里的 `reflection.configFile` 相对于 Recipe 文件解析，选择的文件仍按第 1 节编写。它会完整替换 Policy 声明的默认配置，因此 Policy 需要先声明 `defaults.reflection`。调用时机仍由 Policy 决定。
-适配 `policy.parameter-agent` 时，可将
-它的 `reflection.yaml` 和 `reflection.md` 复制到场景目录，修改本地目标，再在此处
-选择该 YAML 文件。通用目标、组件和编排仍留在 RSI，场景维护自己的特化副本。
+> [!IMPORTANT]
+> **受保护路径与原地写回。** 实验运行期间，Reflection 将通过校验的修订保存在 `.rsi/` 中，后续调用会热重载受影响的绑定。原始文件保持原样，包括内置 Policy 提供的资源。
+>
+> 原地 `apply` 禁止覆盖框架的 `src/policies/` 和 `src/plugins/`、`dist/`、`node_modules/`、`.rsi/` 或 `.git/` 下的路径，也禁止以整个项目根目录或文件系统根目录为写入目标。目标本身或任一祖先目录是符号链接或 Windows 目录联接（junction）时，写回也会被拒绝。
+>
+> 生成的联合修订只写回相对初始快照发生内容或文件权限变化的资源根。如果只有用户自有资源发生变化，未改动的内置根不会阻止原地写回。如果受保护的根发生了变化，请导出该修订。
 
-### 第二步：指定 Reflection 调用时机
+**在后续实验中复用已修订的内置资源**
 
-在 Policy 的 `steps` 中，把 `type: reflection` 步骤放到需要反思的位置。例如，放在一轮提案、评测、选择和 Memory 调用之后，让下一轮插件调用使用改进后的版本：
+1. 执行 `arsi reflection show <revisionID> --to ./exported-resources` 预览变更。通过 `sourceRoots` 核对资源及其所属绑定，通过 `destinations` 确认实际导出路径。也可在工作台打开 **Reflection & Memory → Reflection → Preview application**，填写导出目录并选择 **Preview destination**。
+2. 执行 `arsi reflection apply <revisionID> --to ./exported-resources`，导出到用户自有的专用目录。整个目标路径中都不能有符号链接或目录联接。修订只有一个目录根时，其内容直接写入该目录。共享资源根的绑定共用同一个导出路径。
+3. 修改 `recipe.yaml` 中对应绑定的资源路径，指向导出的文件或目录。以 Proposer 为例，可修改主提示词 `prompt`、`skills` 中的目录或角色提示词 `subagents[].prompt`。后续实验就可以使用这些副本并原地写回。
 
-```yaml
-# Policy steps excerpt
-steps:
-  # Existing proposal, evaluation, selection and Memory steps go here.
-  - id: improve_guidance
-    type: reflection
-  # Later calls to target plugins use the activated revisions.
-```
+**需要跨实验持续原地写回时**，建议在编写 Recipe 时就将所有计划演化的资源放入自己项目的专用子目录，并让绑定指向这些副本。启动前运行 `arsi doctor recipe.yaml`，查看 `reflection.targets` 是否提示需要导出内置资源。应用具体修订前，再用 `reflection show` 确认写入路径。
 
-`id: improve_guidance` 是这一步的名称，可以自行命名；`type: reflection` 表示执行反思。**Policy 会先等待这次反思结束，再继续后面的步骤。**
-
-- **Reflection 必须串行执行，不能放入并行分支。**
-- 如需在后续步骤查看处理结果，可读取 `steps.improve_guidance.output`。
-
-可以自主调整语句在 Policy 的调用处来实现频率安排：
-
-- **每轮优化后反思**：放在优化循环末尾，顺序为“本轮优化 → Reflection → 下一轮优化”。
-- **全部优化完成后只反思一次**：放在优化循环之后，顺序为“所有轮次优化 → Reflection”。
-
-## 3. 让自定义插件接入 Reflection
-
-下面以自定义提案插件 `proposer.custom` 为例：它读取提示词和指导文档来生成提案。Reflection 可以通过更新这些内容改进它的提案行为。
-
-### 第一步：声明插件使用哪些文件和目录
-
-在插件的配置 Schema 中，标明 `prompt` 填文件路径、`guidance` 填目录路径。`x-rsi-path` 是给 Runtime 识别路径用的标记，让它能够读取相应内容：
-
-```ts
-import type { JsonSchema } from 'arsi/contracts';
-
-export const configSchema: JsonSchema = {
-  type: 'object',
-  properties: {
-    prompt: { type: 'string', 'x-rsi-path': 'file' },
-    guidance: { type: 'string', 'x-rsi-path': 'directory' },
-  },
-  required: ['prompt', 'guidance'],
-  additionalProperties: false,
-};
-```
-
-### 第二步：在 Policy 中填写实际路径
-
-在 Policy 中声明 `domainProposer` 绑定，选择已注册的 `proposer.custom`，并为它指定要读取的文件和目录：
-
-```yaml
-# Policy excerpt
-require:
-  domainProposer:
-    contract: contract.proposer
-defaults:
-  bindings:
-    domainProposer:
-      plugin: proposer.custom
-      config:
-        prompt: ./prompts/domain.md
-        guidance: ./guidance
-```
-
-- Runtime 会在反思开始前检查文件和目录是否存在、类型是否与 Schema 声明一致。
-
-### 第三步：选择要改进的插件及允许修改的内容
-
-在第 1 节的 `reflection.yaml` 中，选择这个插件作为观察和改进对象：
-
-```yaml
-# Reflection configuration excerpt
-evidence: [domainProposer]
-targets:
-  domainProposer:
-    resources: [guidance]
-```
-
-这里的 `domainProposer` 对应第二步的插件绑定，`resources: [guidance]` 对应该绑定配置的 `./guidance` 目录。Reflection 会参考这个插件的执行记录，通过修改该目录内的指导文档改进插件。若也允许修改提示词，将列表写为 `resources: [prompt, guidance]`。
-
-### 第四步：在插件中使用修改后的内容
-
-**插件需要在后续调用中读取并使用 Runtime 提供的修订配置，才能让 Reflection 的修改影响其行为。**
-
-- 例如，内置 `proposer.agent` 会读取 `prompt` 文件及 `guidance` 目录中的 Markdown 文件，再将内容交给 Agent 使用；
-
-- 自定义插件需按自身逻辑使用修订后的内容。
-
-## 4. 持久化、启用与恢复
-
-实验执行期间，Reflection **不会覆盖**源 Policy 包或原始插件内容。通过检查的内容保存为实验版本，但保留显式应用的路径，下文说明如何显式应用到原始用户资源。
-
-使用默认本地存储时：
-
-| 数据                        | 位置                                                                  |
-| --------------------------- | --------------------------------------------------------------------- |
-| 各版本资源内容与修改记录    | `.rsi/artifacts/`                                                     |
-| 供插件读取的版本资源        | `.rsi/experiments/<experiment-id>/revisions/<version-key>/resources/` |
-| 版本、Reflection 与启用记录 | `.rsi/facts/`                                                         |
-
-### 将版本应用到后续实验
-
-使用与实验相同的 Runtime 数据目录执行：
-
-```text
-arsi reflection list [experimentId]
-arsi reflection show <revisionID>
-arsi reflection apply <revisionID>
-```
-
-- `list` 列出初始版、生成版和旧版，可按实验筛选。
-- `show` 展示所选内容、记录的目标路径及应用时会新增、覆盖、删除的文件，不执行写入。
-- `apply` 将完整快照恢复到记录的原始用户资源路径，后续选用这些路径的新实验即可读取。
-
-也可在[工作台](running-experiments_zh.md#工作台)打开实验详情，进入 **Reflection & Memory → Reflection**，选择版本后点击 `Preview application`。在 `Apply to source files` 对话框中检查目标路径及将新增、覆盖、删除的文件，勾选确认后点击 `Apply changes`。
-
-CLI 和工作台应用时都遵循以下规则，源码见[应用校验与写入](../../../src/runtime/revisions/application.ts)：
-
-1. 在**生成 revision 之前**，通过 Recipe 绑定配置专属用户指导目录，如果之后修改 Recipe 则无法应用之前的reflection内容。
-2. **Apply(应用) 会覆盖本地修改，并删除专属目标目录中快照没有的文件；**
-3. 同一 Runtime 数据目录中有活跃或状态尚未解决的实验时，应用会被阻止，需先完成或恢复实验；`list` 和 `show` 仍可使用。
+如需恢复基线，请预览并应用初始版本（**Initial version**）。其预览会将所有选中的根与当前目标逐一比较。用 `arsi reflection apply <initialRevisionID> --to ./baseline` 可导出完整基线。共享经验目录见 [Memory](memory_zh.md)。

@@ -1,4 +1,8 @@
 import type { JsonObject, JsonSchema } from './json.js';
+import {
+  runtimeEvolutionDeclarationSchema,
+  type RuntimeEvolutionDeclaration,
+} from './runtime-evolution.js';
 
 /** A declaration may inherit its plugin and individual configuration fields. */
 export interface BindingDeclaration {
@@ -20,7 +24,8 @@ export interface RecipeDeclaration {
   policy: { id: string; config?: JsonObject; input?: JsonObject };
   bindings?: Record<string, BindingDeclaration>;
   budget?: Record<string, number>;
-  reflection?: { configFile: string };
+  memory?: RuntimeEvolutionDeclaration;
+  reflection?: RuntimeEvolutionDeclaration;
 }
 
 /** A normalized declaration, without runtime instances or executable definitions. */
@@ -68,12 +73,8 @@ export const recipeDeclarationSchema: JsonSchema = {
       type: 'object',
       additionalProperties: { type: 'number', minimum: 0 },
     },
-    reflection: {
-      type: 'object',
-      properties: { configFile: { type: 'string', minLength: 1 } },
-      required: ['configFile'],
-      additionalProperties: false,
-    },
+    memory: runtimeEvolutionDeclarationSchema,
+    reflection: runtimeEvolutionDeclarationSchema,
   },
   required: ['schemaVersion', 'id', 'application', 'policy'],
   additionalProperties: false,

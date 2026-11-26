@@ -7,7 +7,7 @@
 @source '../';
 @import './experiment-details.css';
 
-@import './learning.css';
+@import './evolution.css';
 @import './policy-structure.css';
 
 @import './inference-report.css';

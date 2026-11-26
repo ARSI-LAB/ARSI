@@ -1,21 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   RuntimeContext,
   agentContract,
   gymContract,
-  memoryContract,
   proposerContract,
   metricSelectorContract,
   type JsonObject,
 } from '../../src/contracts/index.js';
 import { Policy } from '../../src/runtime/policy/index.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
+import { readYaml } from '../../src/runtime/loaders/yaml.js';
+import { registerBuiltins } from '../../src/runtime/builtins.js';
+import { Registry } from '../../src/runtime/registry/index.js';
 import { object, string } from '../../src/shared/json.js';
 
 const policyContracts = {
   [agentContract.id]: agentContract,
   [gymContract.id]: gymContract,
-  [memoryContract.id]: memoryContract,
   [proposerContract.id]: proposerContract,
   [metricSelectorContract.id]: metricSelectorContract,
 };
@@ -36,6 +41,57 @@ async function loadGymPolicy(): Promise<Policy> {
     policyContractResolver,
   );
 }
+
+test('WikiSkill and Gym defaults exclude held-out evidence and authorize configured Proposer prompts, skills and roles', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  const skill = await mkdtemp(join(tmpdir(), 'rsi-wiki-skill-'));
+  t.after(() => rm(skill, { recursive: true, force: true }));
+  const role = join(skill, 'role.md');
+  await writeFile(role, 'Review candidate skills.');
+  for (const [example, holdout] of [
+    ['dsh-wikiskill', 'test'],
+    ['dsh-gym-gaia', 'promotion'],
+  ] as const) {
+    const sourcePath = 'examples/harness/' + example + '/recipe.yaml';
+    const declaration = await readYaml(sourcePath);
+    delete declaration.reflection;
+    object(object(declaration.policy).config).maxRounds = 2;
+    object(declaration.bindings).proposer = {
+      config: {
+        skills: [skill],
+        subagents: [
+          {
+            name: 'reviewer',
+            description: 'Review skill changes',
+            prompt: role,
+          },
+        ],
+      },
+    };
+    const recipe = await Recipe.fromJSON(declaration, registry, { sourcePath });
+    assert.deepEqual(
+      new Set(recipe.reflection?.targets.proposer?.resources),
+      new Set(['/prompt', '/skills/0', '/subagents/0/prompt']),
+    );
+    assert.deepEqual(recipe.memory?.trigger, {
+      on: 'after-step',
+      step: 'train',
+      every: 1,
+    });
+    for (const capability of [recipe.memory, recipe.reflection]) {
+      assert.equal(capability?.evidenceView, 'training');
+      const excluded = new Set(
+        capability?.observe.excludeSteps?.map((path) => path.split('/').at(-1)),
+      );
+      for (const step of ['baseline', 'baseline_score', 'validate', holdout]) {
+        assert.ok(excluded.has(step), example + ' must exclude ' + step);
+      }
+      assert.ok(!excluded.has('train'));
+    }
+  }
+});
 
 test('policy.gym-rsi keeps promotion as a top-level post-search step', async () => {
   const policy = await loadGymPolicy();
@@ -124,13 +180,6 @@ test('policy.gym-rsi promotes after search and exposes the effective candidate',
                   : 'm-val',
           };
         }
-        if (name === 'memoryUpdater')
-          return {
-            status: 'updated',
-            memoryRef: 'wiki',
-            changeRef: 'memory-change',
-            reason: 'Training evidence recorded.',
-          };
         if (name === 'proposer')
           return {
             status: 'created',
@@ -170,10 +219,6 @@ test('policy.gym-rsi promotes after search and exposes the effective candidate',
   );
 
   assert.equal(calls.at(-1)!.name, 'promotion');
-  assert.deepEqual(
-    calls.find((call) => call.name === 'memoryUpdater')!.input.evidenceRefs,
-    ['m-train'],
-  );
   assert.equal(result.searchCandidateRef, 'c1');
   assert.equal(result.effectiveRef, 'c1');
   assert.equal(result.candidateRef, 'c1');
@@ -208,13 +253,6 @@ test('policy.gym-rsi keeps the original incumbent effective when promotion is de
                   : 'm-val',
           };
         }
-        if (name === 'memoryUpdater')
-          return {
-            status: 'no-change',
-            memoryRef: input.memoryRef,
-            changeRef: null,
-            reason: 'No update.',
-          };
         if (name === 'proposer')
           return {
             status: 'created',
@@ -271,13 +309,6 @@ test('policy.gym-rsi always runs its explicit promotion step', async () => {
         const input = object(raw);
         if (name === 'evaluator')
           return { action: 'evaluate', measurementRef: 'm-train' };
-        if (name === 'memoryUpdater')
-          return {
-            status: 'no-change',
-            memoryRef: input.memoryRef,
-            changeRef: null,
-            reason: 'No update.',
-          };
         if (name === 'proposer')
           return {
             status: 'no-change',
@@ -328,13 +359,6 @@ test('policy.gym-rsi advances a tied candidate to holdout', async () => {
             measurementRef: taskId === 'train' ? 'm-train' : 'm-val',
           };
         }
-        if (name === 'memoryUpdater')
-          return {
-            status: 'no-change',
-            memoryRef: input.memoryRef,
-            changeRef: null,
-            reason: 'No update.',
-          };
         if (name === 'proposer')
           return {
             status: 'created',
@@ -400,13 +424,6 @@ test('policy.gym-rsi does not advance an infeasible tie to holdout', async () =>
             measurementRef: taskId === 'train' ? 'm-train' : 'm-val',
           };
         }
-        if (name === 'memoryUpdater')
-          return {
-            status: 'no-change',
-            memoryRef: input.memoryRef,
-            changeRef: null,
-            reason: 'No update.',
-          };
         if (name === 'proposer')
           return {
             status: 'created',
@@ -471,13 +488,6 @@ test('policy.gym-rsi keeps the incumbent when validation regresses', async () =>
             measurementRef: taskId === 'train' ? 'm-train' : 'm-val',
           };
         }
-        if (name === 'memoryUpdater')
-          return {
-            status: 'no-change',
-            memoryRef: input.memoryRef,
-            changeRef: null,
-            reason: 'No update.',
-          };
         if (name === 'proposer')
           return {
             status: 'created',

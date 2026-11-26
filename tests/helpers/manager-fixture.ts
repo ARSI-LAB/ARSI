@@ -1,3 +1,4 @@
+import { object } from '../../src/shared/json.js';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -118,6 +119,11 @@ export async function managerFixture(
         steps: [{ id: 'drive', type: 'invoke', use: 'driver', with: {} }],
         output: '${{ steps.drive.output }}',
         ...options.policy,
+        defaults: {
+          memory: false,
+          reflection: false,
+          ...object(options.policy?.defaults ?? {}),
+        },
       }),
     );
     registry.registerPolicy('test.policy', join(root, 'policy.yaml'));

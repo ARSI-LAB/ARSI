@@ -48,7 +48,8 @@ function roundFor(path: string): { key: string; label: string } | undefined {
   const key = round[0];
   const stage = key.startsWith('steps/static_search/')
     ? 'Static · '
-    : key.startsWith('steps/run_metrics/then/metrics_loop/')
+    : key.startsWith('steps/metrics_loop/') ||
+        key.startsWith('steps/run_metrics/then/metrics_loop/')
       ? 'Metrics · '
       : '';
   return { key, label: stage + 'Round ' + (Number(round[1]) + 1) };

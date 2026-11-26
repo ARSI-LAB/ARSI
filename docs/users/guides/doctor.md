@@ -27,7 +27,7 @@ flowchart TD
     C -- Yes --> E["Load and validate Recipe<br/>Merge the effective configuration"]
     E --> F{"Validation succeeded?"}
     F -- No --> G["Record recipe.validate failure"]
-    F -- Yes --> H["Prepare a temporary Runtime<br/>Visit the Application, bindings and Reflection"]
+    F -- Yes --> H["Prepare a temporary Runtime<br/>Visit the Application, bindings and runtime evolution modules"]
     H --> I["Check declared paths and binding references"]
     I --> J{"Declared paths and references valid?"}
     J -- Yes --> K["Create the binding and call its optional rsi/doctor"]
@@ -44,10 +44,10 @@ flowchart TD
 ```
 
 1. **Load registrations.** The CLI uses the usual Runtime registration to load built-in components, user extensions in `~/.arsi/plugins/<name>/index.mjs` and extensions specified by `--plugin-dir`.
-2. **Load the effective Recipe.** `Recipe.load` validates Schemas, bindings, contract compatibility, Policy compilation, budgets and declared Reflection resources.
+2. **Load the effective Recipe.** `Recipe.load` validates Schemas, bindings, contract compatibility, Policy compilation, budgets and enabled Memory and Reflection resources.
    - Probes use the configuration produced by merging Policy defaults and Recipe overrides.
    - A loading error produces a failed diagnostic and stops component probes.
-3. **Check declared prerequisites.** For the Application, each effective binding and the configured Reflection implementation, doctor checks local files and directories marked with `x-rsi-path` for existence, type and readability. It checks that fields marked with `x-rsi-binding` name Recipe bindings that implement the declared contracts.
+3. **Check declared prerequisites.** For the Application, each effective binding and each enabled runtime evolution module, doctor checks local files and directories marked with `x-rsi-path` for existence, type and readability. It checks that fields marked with `x-rsi-binding` name Recipe bindings that implement the declared contracts.
 4. **Run component checks.** If a declared path or binding reference fails validation, doctor reports that failure and continues with the next binding. When these prerequisites pass, doctor creates a temporary instance, awaits its optional `rsi/doctor` reply, then disposes it. An initialization error fails that binding and other bindings continue. A missing handler leaves the `plugin` check `unchecked`.
 5. **Clean up and report.** RSI checks use isolated temporary storage, propagate cancellation, release the instances and processes they create, and remove temporary files. Checks can read existing artifacts as inputs. RSI keeps its captures and writes in the temporary Runtime.
 
@@ -108,18 +108,20 @@ For `application.inference`, Recipe loading checks that `healthcheck.path` and `
 
 ### Proposers, Memory, Reflection and Selectors
 
+Doctor checks the configurations of enabled runtime evolution modules, the Memory source directory when supplied, and the selected Agent. When `memory.agent` or `reflection.agent` omits `implementation.config.agentRef`, Doctor checks the Policy’s sole declared `contract.agent` binding. If the Policy declares zero or multiple Agent bindings, Doctor checks the synthesized `_evolutionAgent` (`agent.pi`) used by that module. Disabled modules skip resource loading. For Reflection, `proposer: '*'` selects the named binding's configured local resources, including `prompt`, `skills` directories and `subagents` prompt files. When the selection includes a built-in resource, Doctor adds an export note to `reflection.targets`.
+
 | Implementation              | Checks performed                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `proposer.agent`            | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and role prompts.<br>3. Prepare an isolated editing project and confirm that these inputs can be assembled.                         |
+| `proposer.agent`            | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, skills and role prompts.<br>3. Prepare an isolated editing project and confirm that these inputs can be assembled.                         |
 | `proposer.operator`         | 1. Check the selected Agent binding and compatibility.<br>2. Read the operator task and cases, and validate their identifiers.<br>3. Read stage prompts, external knowledge, retrieval resources and optional hardware context. |
 | `proposer.grid`             | 1. Check the parameter path, search-axis names and grid size.<br>2. Read the Application baseline file at `config.path` and require a JSON object.                                                                              |
 | `proposer.optuna`           | 1. Validate the sampler, search space and constraint-handling settings.<br>2. Read the Application baseline file at `config.path` and require a JSON object.<br>3. Check Python dependencies and their versions.                |
 | `proposer.pareto-evolution` | 1. Validate the prompt-module definitions.<br>2. Check that each module file exists in the local baseline or file-tree artifact.                                                                                                |
 | `summarizer.operator`       | Check that `promptFile` is readable and contains non-whitespace text.                                                                                                                                                           |
-| `memory.agent`              | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and role prompts.<br>3. Assemble the editing environment in an isolated project.                                                    |
-| `reflection.agent`          | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, guidance, skills and the built-in reviewer prompt.<br>3. Assemble the editing environment in an isolated project.                                    |
+| `memory.agent`              | 1. Check the selected Agent binding and compatibility.<br>2. Read the prompt and skills.<br>3. Assemble the editing environment in an isolated project.                                                             |
+| `reflection.agent`          | 1. Check the selected Agent binding and compatibility.<br>2. Read prompts, skills and the built-in reviewer prompt.<br>3. Assemble the editing environment in an isolated project.                                    |
 | `selector.metric`           | 1. Validate the metric-selection settings.<br>2. Check candidate eligibility conditions and constraint bounds, and confirm that the component can be created and disposed.                                                      |
-| `selector.artifact`         | 1. Check the selected Agent binding and compatibility.<br>2. Read selection prompts, guidance, skills and role prompts.<br>3. Prepare an isolated selection project.                                                            |
+| `selector.artifact`         | 1. Check the selected Agent binding and compatibility.<br>2. Read selection prompts, skills and role prompts.<br>3. Prepare an isolated selection project.                                                            |
 | `selector.inference`        | 1. Validate the inference selection settings.<br>2. Check constraint bounds and confirm that the component can be created and disposed.                                                                                         |
 
 ### Evaluators

@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { check, lock } from 'proper-lockfile';
-import type { ResourceGate } from '../revisions/exclusion.js';
+import type { ResourceGate } from '../evolution/exclusion.js';
 import { safeId } from '../storage/index.js';
 
 /** Lock acquisition and read-only observation must use the same heartbeat window. */

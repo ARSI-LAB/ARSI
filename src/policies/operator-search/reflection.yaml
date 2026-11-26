@@ -1,0 +1,4 @@
+targets:
+  include:
+    proposer: [promptsDirectory]
+    summarizer: [promptFile]

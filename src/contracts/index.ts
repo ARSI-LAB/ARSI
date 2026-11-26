@@ -23,6 +23,21 @@ export type {
   RecipeDeclaration,
 } from './recipe.js';
 export { bindingDeclarationSchema, recipeDeclarationSchema } from './recipe.js';
+export type {
+  RuntimeEvolutionKind,
+  RuntimeEvolutionEvidenceView,
+  RuntimeEvolutionTrigger,
+  RuntimeEvolutionBudget,
+  RuntimeEvolutionDeclaration,
+  MemoryConfiguration,
+  ReflectionConfiguration,
+} from './runtime-evolution.js';
+export {
+  runtimeEvolutionNames,
+  runtimeEvolutionTriggerSchema,
+  runtimeEvolutionDeclarationSchema,
+  runtimeEvolutionFileSchema,
+} from './runtime-evolution.js';
 export type { Candidate } from './models/candidate.js';
 export * from './models/measurement.js';
 export * from './models/file-tree.js';

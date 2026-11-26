@@ -1,11 +1,13 @@
 import { getLogger } from '@logtape/logtape';
+import { persistFact } from '../storage/persistence-error.js';
+import { parseActiveMemory, type ActiveMemory } from '../evolution/memory.js';
 import type {
   Binding,
   EventPipeline,
   FactStore,
   JsonObject,
 } from '../../contracts/index.js';
-import { object, string } from '../../shared/json.js';
+import { canonical, object, string } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import type { Registry } from '../registry/index.js';
 import type { Instances } from './instances.js';
@@ -15,11 +17,13 @@ const logger = getLogger(['arsi', 'runtime', 'manager']);
 
 type PreparedInstance = Awaited<ReturnType<Instances['prepare']>>;
 interface Activation {
+  reflectionRevisionRef: string | null;
+  memory: ActiveMemory | null;
   activationId: string;
   bindings: Record<string, Binding>;
   revisions: JsonObject;
 }
-interface RevisionActivationOptions {
+interface RuntimeEvolutionActivationOptions {
   id: string;
   bindings: Record<string, Binding>;
   facts: FactStore;
@@ -41,19 +45,105 @@ function parseActivation(value: JsonObject): Activation {
     };
   }
   return {
+    reflectionRevisionRef:
+      value.reflectionRevisionRef == null
+        ? null
+        : string(value.reflectionRevisionRef),
     activationId: string(value.activationId),
     bindings,
+    memory: value.memory ? parseActiveMemory(value.memory) : null,
     revisions: object(value.revisions),
   };
 }
 
 /** Saves the replacement set before switching live instances and retiring prior owners. */
-export class RevisionActivation {
+export class RuntimeEvolutionActivation {
   private readonly bindingState: Record<string, Binding>;
   private readonly revisionState: JsonObject = {};
+  private reflectionHead: string | null = null;
 
-  constructor(private readonly options: RevisionActivationOptions) {
+  private memoryState: ActiveMemory | null = null;
+  private writes: Promise<void> = Promise.resolve();
+
+  constructor(private readonly options: RuntimeEvolutionActivationOptions) {
     this.bindingState = structuredClone(options.bindings);
+  }
+
+  get memory(): ActiveMemory | null {
+    return this.memoryState;
+  }
+
+  get reflectionRevisionRef(): string | null {
+    return this.reflectionHead;
+  }
+  get summary(): JsonObject {
+    return {
+      memoryRef: this.memoryState?.ref ?? null,
+      memoryArtifactRef: this.memoryState?.artifactRef ?? null,
+      revisionRefs: { ...this.revisionState },
+    };
+  }
+  private serialize(write: () => Promise<void>): Promise<void> {
+    const result = this.writes.then(write);
+    this.writes = result.catch(() => {});
+    return result;
+  }
+  initializeMemory(memory: ActiveMemory): Promise<void> {
+    // The seed establishes the starting version before experiment lifecycle events.
+    return this.serialize(() => this.persistMemory(memory, memory.ref));
+  }
+  private async persistMemory(
+    memory: ActiveMemory,
+    activationId: string,
+  ): Promise<void> {
+    await this.persist(
+      activationId,
+      this.bindingState,
+      this.revisionState,
+      memory,
+    );
+    this.memoryState = memory;
+  }
+  saveMemory(memory: ActiveMemory, activationId: string): Promise<void> {
+    return this.serialize(async () => {
+      await this.persistMemory(memory, activationId);
+      try {
+        this.options.event.emit('rsi/memory-activated', {
+          experimentId: this.options.id,
+          activationId,
+          memoryVersionRef: memory.ref,
+          artifactRef: memory.artifactRef,
+        });
+      } catch (error) {
+        this.options.diagnose('rsi/memory-activated', error);
+      }
+    });
+  }
+  private async persist(
+    activationId: string,
+    bindings: Record<string, Binding>,
+    revisions: JsonObject,
+    memory: ActiveMemory | null,
+    reflectionRevisionRef = this.reflectionHead,
+  ): Promise<void> {
+    const record = {
+      activationId,
+      bindings: object(structuredClone(bindings)),
+      revisions: { ...revisions },
+      reflectionRevisionRef,
+      memory,
+      ...(this.options.bindingVersions
+        ? { bindingVersions: this.options.bindingVersions }
+        : {}),
+    };
+    const { facts, id } = this.options;
+    try {
+      await persistFact(facts, 'activations', id, record);
+    } catch (error) {
+      // A storage adapter can lose the acknowledgement after publishing the pointer.
+      const published = await facts.read('activations', id).catch(() => null);
+      if (!published || canonical(published) !== canonical(record)) throw error;
+    }
   }
 
   get bindings(): Readonly<Record<string, Binding>> {
@@ -64,11 +154,20 @@ export class RevisionActivation {
     return this.revisionState;
   }
 
-  /** All initial revision facts and resource snapshots must already be durable. */
-  initialize(parents: JsonObject): void {
-    for (const [target, parent] of Object.entries(parents))
-      if (this.revisionState[target] === undefined)
-        this.revisionState[target] = parent;
+  /** Publish the baseline after its complete resource snapshot is durable. */
+  initialize(parents: JsonObject, head: string): Promise<void> {
+    return this.serialize(async () => {
+      if (this.reflectionHead === head) return;
+      await this.persist(
+        head,
+        this.bindingState,
+        { ...this.revisionState, ...parents },
+        this.memoryState,
+        head,
+      );
+      Object.assign(this.revisionState, parents);
+      this.reflectionHead = head;
+    });
   }
 
   async restore(): Promise<void> {
@@ -81,32 +180,60 @@ export class RevisionActivation {
       throw error;
     }
     const activation = parseActivation(saved);
+    this.memoryState = activation.memory;
     const savedVersions = object(saved.bindingVersions ?? {});
+    let incompatible = false;
     for (const [name, binding] of Object.entries(activation.bindings)) {
       if (
         this.options.bindingVersions &&
         savedVersions[name] !== this.options.bindingVersions?.[name]
-      )
+      ) {
+        if (Object.hasOwn(activation.revisions, name)) {
+          incompatible = true;
+          delete this.revisionState[name];
+        }
         continue;
+      }
       const ref = activation.revisions[name];
       if (
         !this.options.bindingVersions ||
         (typeof ref === 'string' &&
-          (await this.options.facts.read('revisions', ref)).kind ===
-            'generated')
+          (activation.reflectionRevisionRef !== null ||
+            (await this.options.facts.read('revisions', ref)).kind ===
+              'generated'))
       )
         this.bindingState[name] = binding;
       if (ref !== undefined) this.revisionState[name] = ref;
     }
+    this.reflectionHead = incompatible
+      ? null
+      : activation.reflectionRevisionRef;
+    if (incompatible)
+      await this.persist(
+        activation.activationId,
+        this.bindingState,
+        this.revisionState,
+        this.memoryState,
+      );
   }
 
-  async save(
+  saveRevisions(
     changes: Record<string, Binding>,
     revisions: JsonObject,
     activationId: string,
+    head: string,
   ): Promise<void> {
-    const { id, facts, registry, instances, cleanup, event, diagnose } =
-      this.options;
+    return this.serialize(() =>
+      this.replace(changes, revisions, activationId, head),
+    );
+  }
+  private async replace(
+    changes: Record<string, Binding>,
+    revisions: JsonObject,
+    activationId: string,
+    head: string,
+  ): Promise<void> {
+    const { id, registry, instances, cleanup, event, diagnose } = this.options;
     const prepared = new Map<string, PreparedInstance>();
     const previous = new Map<string, Promise<PreparedInstance>>();
     try {
@@ -115,20 +242,20 @@ export class RevisionActivation {
         validate(definition.configSchema, binding.config, 'revision config');
         prepared.set(target, await instances.prepare(target, binding));
       }
-      await facts.write('activations', id, {
+      await this.persist(
         activationId,
-        bindings: object(structuredClone({ ...this.bindingState, ...changes })),
-        revisions: { ...this.revisionState, ...revisions },
-        ...(this.options.bindingVersions
-          ? { bindingVersions: this.options.bindingVersions }
-          : {}),
-      });
+        { ...this.bindingState, ...changes },
+        { ...this.revisionState, ...revisions },
+        this.memoryState,
+        head,
+      );
     } catch (error) {
       for (const [target, instance] of prepared)
         cleanup.retire(instance, `${activationId}-${target}-prepared`);
       throw error;
     }
     Object.assign(this.revisionState, revisions);
+    this.reflectionHead = head;
     for (const [target, binding] of Object.entries(changes)) {
       this.bindingState[target] = binding;
       const prior = instances.activate(target, prepared.get(target)!);

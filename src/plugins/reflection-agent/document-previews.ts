@@ -385,7 +385,7 @@ export async function prepareDocumentPreviews(options: {
     const content = Buffer.from(projected.text);
     const limit = remaining;
     const truncated = content.length > limit;
-    const path = `context/reflection/previews/${previews.length - 1}.txt`;
+    const path = `context/evolution/previews/${previews.length - 1}.txt`;
     let end = Math.min(content.length, limit);
     while (end > 0 && end < content.length && (content[end]! & 0xc0) === 0x80)
       end--;

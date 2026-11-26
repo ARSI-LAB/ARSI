@@ -1,5 +1,7 @@
 schemaVersion: rsi.recipe/v1
 id: recipe.skill-search
+memory: false
+reflection: false
 application:
   plugin: application.agentbundle
   config:

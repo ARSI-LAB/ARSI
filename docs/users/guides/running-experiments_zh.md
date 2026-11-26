@@ -22,10 +22,15 @@
 | `arsi cancel <experiment-id>`          | 向指定实验发送取消请求。                                                                      |
 | `arsi cleanup [experiment-id]`         | [预览或清理实验资源](#清理实验资源)。                                                         |
 | `arsi dashboard`                       | 在本机提供网页版的实验观察界面。                                                              |
+| `arsi memory list [experiment-id]` | 查看实验的 Memory 快照。 |
+| `arsi memory show <versionID> [--to <directory>]` | 预览 Memory 快照和目标文件变更。 |
+| `arsi memory apply <versionID> [--to <directory>]` | 将快照写入配置的源目录或指定导出目录。 |
 | `arsi reflection list [experiment-id]` | 列出持久化版本，可按实验筛选。                                                                |
-| `arsi reflection show <revisionID>`    | 检查版本内容与计划中的资源变更。                                                              |
-| `arsi reflection apply <revisionID>`   | 将快照写到记录的用户资源路径；参见 [Reflection 规则](reflection_zh.md#将版本应用到后续实验)。 |
+| `arsi reflection show <revisionID> [--to <directory>]` | 预览修订内容及所选目标的文件变更。 |
+| `arsi reflection apply <revisionID> [--to <directory>]` | 在记录的路径应用修订，或导出到专用目录。参见 [Reflection 指南](reflection_zh.md#将版本应用到后续实验)。 |
 | `arsi help [command]`                  | 显示命令列表或指定命令的帮助。                                                                |
+
+写回 Reflection 修订前，先用 `arsi reflection show <revisionID>` 检查目标路径。使用 `proposer: '*'` 的 Agent Policy 可修订你配置的 `prompt`、`skills` 和 `subagents` 资源。如果变更的资源都属于用户，可以原地应用。对内置提示词的修改可用 `arsi reflection apply <revisionID> --to ./exported-resources` 导出。
 
 ### 交互式 CLI
 
@@ -72,7 +77,7 @@ arsi doctor my-experiment/recipe.yaml
 arsi run my-experiment/recipe.yaml --id terminal-skills-01
 ```
 
-- `doctor` 检查 Recipe、插件配置、契约兼容性、Policy 编译和已声明的 Reflection 资源，再为本地路径检查通过的绑定创建临时实例并调用其可选的 `rsi/doctor`。默认输出可读摘要，加 `--json` 可获取包含 `recipeId` 和 `checks` 的报告。
+- `doctor` 检查 Recipe、插件配置、契约兼容性、Policy 编译以及已启用的 Memory 和 Reflection 资源，再为本地路径和绑定引用均检查通过的绑定创建临时实例并调用其可选的 `rsi/doctor`。默认输出可读摘要，加 `--json` 可获取包含 `recipeId` 和 `checks` 的报告。
   - 状态为 `passed`（通过）、`failed`（失败）或 `unchecked`（未检查）。
   - 检查流程、报告解读、内置检查和自定义组件接入方式，参见 [doctor 指南](doctor_zh.md)。
 
@@ -106,9 +111,9 @@ arsi show terminal-skills-01
 arsi run my-experiment/recipe.yaml --id terminal-skills-01 --resume
 ```
 
-Runtime 恢复预算用量、兼容的生效版本、调用收据和检查点，校验传入的 Policy 形状后执行未完成的步骤。
+Runtime 恢复预算用量、当前生效的 Memory 快照、兼容的 Reflection 修订、调用收据和检查点，校验传入的 Policy 结构后执行未完成的步骤。
 
-旧版 Runtime 未保存控制流决策的实验需要用新实验 ID 重新启动。
+恢复实验要求保存的定义锁版本为 `rsi.definition-lock/v3`。使用 v1 或 v2 定义锁的实验需要用新的实验 ID 重新运行。
 
 - 续跑已成功的实验会返回已保存的结果和原有用量。
 - Policy 步骤的顺序、ID、类型、嵌套结构和所需的插件 contract ID 需要一致。新的调用按当前注册的输入和输出 schema 校验。
@@ -156,4 +161,4 @@ arsi dashboard --port <端口号>
 | 未知插件、Policy 或未声明绑定          | 检查当前 catalog，在此进程加载扩展，并匹配 Policy 的 `require`。注意只有文件时并不构成注册。                                 |
 | 预算耗尽或请求超时                     | 区分操作、评测、模型计数，墙钟时长，单请求时长，整个 Agent 时长，以及基准时长。参见 [限制](configuration_zh.md#限制与预算)。 |
 | 工作台提示缺少 `.rsi` 或展示了其他实验 | 从原实验工作区启动，使用同一存储；                                                                                           |
-| Memory 失败或 Reflection 被拒绝        | 检查保存的原因和后续流程。之前的经验或指导可能仍有效；失败与正常都不会影响整体实验流程。                                     |
+| Memory 或 Reflection 更新被拒绝        | 检查保存的原因和后续流程。更新失败后，实验可以继续使用之前的 Memory 快照或插件修订。取消或耗尽实验级预算仍会终止实验。                                     |

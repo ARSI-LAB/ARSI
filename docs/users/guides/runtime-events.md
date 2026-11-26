@@ -140,6 +140,7 @@ Step and loop boundaries identify the step with `stepId` and `stepPath`. `hasTop
 | `rsi/candidate-recorded`   | After the candidate is saved.                                                                                      | `emit`   | `callId: string`: ID of the call that recorded this data.<br>`bindingId: string`: Name of the binding that recorded this data.<br>`candidateRef: string`: Reference to the saved candidate.<br>`parentRef: string \| null`: Parent candidate reference, or `null` for an initial candidate.                                                                                                                        |
 | `rsi/measurement-recorded` | After the measurement is validated and saved.                                                                      | `emit`   | `callId: string`: ID of the call that recorded this data.<br>`bindingId: string`: Name of the binding that recorded this data.<br>`measurementRef: string`: Reference to the saved measurement.                                                                                                                                                                                                                    |
 | `rsi/revision-activated`   | After activation persistence, effective binding updates, and subscription switching for existing plugin instances. | `emit`   | `activationId: string`: ID of this revision activation record.<br>`bindingIds: readonly string[]`: Names of the bindings affected by this activation.<br>`revisionRefs: Readonly<Record<string, string>>`: Map of revisions activated in this operation, keyed by binding name.<br>`policyRevisionRef?: string`: Optional Policy revision reference reserved by the contract; the current Runtime does not set it. |
+| `rsi/memory-activated` | After a generated Memory version is persisted and becomes active. Initial seed setup and restoration of an active version are silent. | `emit` | `activationId: string` identifies the activation. `memoryVersionRef: string` identifies the active Memory version. `artifactRef: string` identifies its file snapshot. |
 
 ### Plugin diagnostics and resource cleanup
 
@@ -186,7 +187,7 @@ factoryCtx.event.on('rsi/before-call', async (event, next) => {
 
 For `rsi/before-call`, the default decision is `{ kind: 'proceed' }`. A successful decision accepts optional `metadata` for the call receipt. Both call admission hooks accept `{ kind: 'reject', reason }` with a nonempty reason.
 
-For `rsi/before-agent-invoke`, the default decision includes a separate copy of the input. To change the Agent request, return the updated `input` in a `proceed` decision. This listener keeps downstream changes and adds an audit tag to requests from the `proposer` binding.
+For `rsi/before-agent-invoke`, the default decision includes a separate copy of the input. To change the Agent request, return the updated `input` in a `proceed` decision. Calling `await next()` lets a binding inspect and transform the request after Memory preparation. When both hooks supply the same receipt metadata key, the final Agent preparation result takes precedence. This listener keeps downstream changes and adds an audit tag to requests from the `proposer` binding.
 
 ```ts
 factoryCtx.event.on('rsi/before-agent-invoke', async (event, next) => {

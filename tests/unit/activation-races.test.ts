@@ -11,7 +11,7 @@ import {
 } from '../../src/contracts/index.js';
 import { CleanupLifecycle } from '../../src/runtime/manager/cleanup.js';
 import { Instances } from '../../src/runtime/manager/instances.js';
-import { RevisionActivation } from '../../src/runtime/manager/activation.js';
+import { RuntimeEvolutionActivation } from '../../src/runtime/manager/activation.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { ManagedEvents } from '../../src/runtime/services/events.js';
 import { FileFacts } from '../../src/runtime/storage/index.js';
@@ -36,6 +36,7 @@ async function fixture(
     create?(version: number): Promise<void>;
     listener?(version: number): Promise<void>;
     failCommit?: boolean;
+    bindingVersions?: JsonObject;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-activation-races-'));
@@ -118,14 +119,15 @@ async function fixture(
   const commit = gate();
   const write = facts.write.bind(facts);
   facts.write = async (kind, id, value) => {
-    if (kind === 'activations') {
+    if (kind === 'activations' && value.activationId !== 'revision-old') {
       writing.release();
       await commit.promise;
       if (options.failCommit) throw new Error('activation commit failed');
     }
     await write(kind, id, value);
   };
-  const activation = new RevisionActivation({
+  const activation = new RuntimeEvolutionActivation({
+    bindingVersions: options.bindingVersions,
     id: context.experimentId,
     bindings,
     facts,
@@ -145,7 +147,7 @@ async function fixture(
     await registry.dispose();
     await rm(directory, { recursive: true, force: true });
   });
-  activation.initialize({ worker: 'revision-old' });
+  await activation.initialize({ worker: 'revision-old' }, 'revision-old');
   return {
     instances,
     events,
@@ -153,6 +155,7 @@ async function fixture(
     context,
     bindings: activation.bindings,
     revisionRefs: activation.revisionRefs,
+    activation,
     oldBinding,
     writing,
     commit,
@@ -163,10 +166,11 @@ async function fixture(
     restore: () => activation.restore(),
     disposedVersion: (version: number) => disposal.get(version)!.promise,
     save: () =>
-      activation.save(
+      activation.saveRevisions(
         { worker: newBinding },
         { worker: 'revision-new' },
         'activation-new',
+        'revision-new',
       ),
   };
 }
@@ -196,6 +200,31 @@ test('restored activation publishes its binding and revision together to existin
   } finally {
     lease.release();
   }
+});
+
+test('a changed target definition invalidates the saved joint head before another cycle', async (t) => {
+  const f = await fixture(t, { bindingVersions: { worker: 'new definition' } });
+  f.commit.release();
+  await f.facts.write('activations', 'activation-race', {
+    activationId: 'prior-activation',
+    reflectionRevisionRef: 'prior-head',
+    bindings: {
+      worker: { plugin: 'activation.worker', config: { version: 2 } },
+    },
+    revisions: { worker: 'prior-head' },
+    bindingVersions: { worker: 'old definition' },
+  });
+  await f.restore();
+  assert.deepEqual(f.bindings.worker, f.oldBinding);
+  assert.deepEqual(f.revisionRefs, {});
+  assert.equal(f.activation.reflectionRevisionRef, null);
+  assert.equal(
+    (await f.facts.read('activations', 'activation-race'))
+      .reflectionRevisionRef,
+    null,
+  );
+  await f.activation.initialize({ worker: 'new-baseline' }, 'new-baseline');
+  assert.equal(f.activation.revisionRefs.worker, 'new-baseline');
 });
 
 test(
@@ -373,9 +402,11 @@ for (const failure of ['prepare', 'commit'] as const) {
     assert.deepEqual(f.bindings.worker, f.oldBinding);
     assert.equal(f.revisionRefs.worker, 'revision-old');
     assert.deepEqual(f.notifications, []);
-    await assert.rejects(f.facts.read('activations', 'activation-race'), {
-      code: 'ENOENT',
-    });
+    assert.equal(
+      (await f.facts.read('activations', 'activation-race'))
+        .reflectionRevisionRef,
+      'revision-old',
+    );
     const current = await f.instances.acquire('worker', f.bindings.worker!);
     try {
       assert.deepEqual(await current.operation.execute({}, f.context), {
@@ -395,3 +426,77 @@ for (const failure of ['prepare', 'commit'] as const) {
     );
   });
 }
+
+test('initializing and restoring Memory are silent; a learned version notifies listeners after activation', async (t) => {
+  const f = await fixture(t);
+  const observer = f.events.prepare('observer');
+  const notifications: string[] = [];
+  observer.event.on('rsi/memory-activated', (event) => {
+    notifications.push(event.memoryVersionRef);
+  });
+  f.events.activate(observer);
+  f.commit.release();
+  const seed = { ref: 'seed', rootRef: 'seed', artifactRef: 'artifact:seed' };
+  await f.activation.initializeMemory(seed);
+  assert.deepEqual(f.activation.memory, seed);
+  assert.deepEqual(
+    (await f.facts.read('activations', 'activation-race')).memory,
+    seed,
+  );
+  await f.restore();
+  assert.deepEqual(notifications, []);
+
+  const learned = { ...seed, ref: 'learned', artifactRef: 'artifact:learned' };
+  await f.activation.saveMemory(learned, 'evolution-update');
+  await f.restore();
+  assert.deepEqual(f.activation.memory, learned);
+  assert.deepEqual(notifications, [learned.ref]);
+});
+
+test('simultaneous Memory and revision saves preserve both active pointers without restarting Memory consumers', async (t) => {
+  const f = await fixture(t);
+  const lease = await f.instances.acquire('worker', f.bindings.worker!);
+  try {
+    const memory = {
+      ref: 'memory-first',
+      artifactRef: 'artifact:immutable',
+      rootRef: 'memory-first',
+    };
+    const saving = f.activation.saveMemory(memory, 'evolution-memory-first');
+    await f.writing.promise;
+    assert.equal(f.activation.memory, null);
+    const revising = f.save();
+    f.commit.release();
+    await Promise.all([saving, revising]);
+    assert.deepEqual(f.created, [1, 2]);
+    const saved = await f.facts.read('activations', 'activation-race');
+    assert.deepEqual(saved.memory, memory);
+    assert.deepEqual(saved.revisions, { worker: 'revision-new' });
+  } finally {
+    lease.release();
+  }
+});
+
+test('a lost acknowledgement after durable activation publishes both pointers to live readers', async (t) => {
+  const f = await fixture(t);
+  f.commit.release();
+  const write = f.facts.write.bind(f.facts);
+  f.facts.write = async (kind, id, data) => {
+    await write(kind, id, data);
+    if (kind === 'activations') throw new Error('lost acknowledgement');
+  };
+  const memory = {
+    ref: 'memory-first',
+    artifactRef: 'artifact:immutable',
+    rootRef: 'memory-first',
+  };
+  await f.activation.saveMemory(memory, 'evolution-memory-first');
+  await f.save();
+  assert.equal(f.activation.memory?.ref, memory.ref);
+  assert.equal(f.activation.revisionRefs.worker, 'revision-new');
+  assert.equal(f.activation.bindings.worker!.config.version, 2);
+  assert.deepEqual(
+    (await f.facts.read('activations', 'activation-race')).memory,
+    memory,
+  );
+});

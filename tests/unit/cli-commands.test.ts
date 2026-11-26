@@ -1,7 +1,7 @@
 import test, { after, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CommanderError } from 'commander';
@@ -148,6 +148,7 @@ test('CLI prints command-specific and nested help to stdout', () => {
     ['run', '--help'],
     ['help', 'run'],
     ['reflection', 'apply', '--help'],
+    ['memory', 'show', '--help'],
   ]) {
     const result = launch(...args);
     assert.equal(result.status, 0, result.stderr);
@@ -164,6 +165,8 @@ test('CLI prints command-specific and nested help to stdout', () => {
       assert.match(result.stdout, /--all/);
       assert.match(result.stdout, /previews the workspace/);
     }
+    if (args.includes('show') || args.includes('apply'))
+      assert.match(result.stdout, /--to <directory>/);
     if (args.includes('apply')) assert.match(result.stdout, /revisionID/);
   }
 });
@@ -198,7 +201,17 @@ test('CLI reports invalid input and focused help to stderr before runtime initia
   }
 });
 
-test('CLI dispatches experiment actions and nested reflection actions', async (t) => {
+test('snapshot lists log the nested command and print JSON to stdout', async () => {
+  const log = join(home, 'snapshots.log');
+  for (const kind of ['memory', 'reflection']) {
+    const result = launch(kind, 'list', '--quiet', '--log-file', log);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), []);
+    assert.ok((await readFile(log, 'utf8')).includes(`Starting ${kind} list`));
+  }
+});
+
+test('CLI dispatches experiment actions and nested snapshot actions', async (t) => {
   const { manager, context } = commandFixture(t);
   const cancel = t.mock.method(manager, 'cancel', async () => {});
   t.mock.method(manager, 'get', async (id: string) => ({ experiment: id }));
@@ -208,14 +221,31 @@ test('CLI dispatches experiment actions and nested reflection actions', async (t
   t.mock.method(revisions, 'list', async (id?: string) => [
     { id: id ?? 'all' },
   ]);
-  t.mock.method(revisions, 'show', async (id: string) => ({ shown: id }));
-  t.mock.method(revisions, 'apply', async (id: string) => ({ applied: id }));
+  t.mock.method(revisions, 'show', async (id: string, options = {}) => ({
+    shown: id,
+    ...options,
+  }));
+  t.mock.method(revisions, 'apply', async (id: string, options = {}) => ({
+    applied: id,
+    ...options,
+  }));
 
   const run = async (...args: string[]): Promise<unknown> => {
     const result = await runCommand(args, context);
     assert.equal(result.exitCode, 0);
     return JSON.parse(result.stdout ?? '');
   };
+  const memories = manager.memory();
+  t.mock.method(manager, 'memory', () => memories);
+  t.mock.method(
+    memories,
+    'apply',
+    async (id: string, options: { to?: string } = {}) => ({ id, ...options }),
+  );
+  assert.deepEqual(
+    await run('memory', 'apply', 'snapshot', '--to', 'destination'),
+    { id: 'snapshot', to: 'destination' },
+  );
   assert.deepEqual(await run('list'), [{ experiment: 'exp' }]);
   assert.deepEqual(await run('show', 'exp'), { experiment: 'exp' });
   assert.deepEqual(await run('cancel', 'exp'), {
@@ -228,6 +258,14 @@ test('CLI dispatches experiment actions and nested reflection actions', async (t
   assert.deepEqual(await run('reflection', 'list', 'exp'), [{ id: 'exp' }]);
   assert.deepEqual(await run('reflection', 'show', 'rev'), { shown: 'rev' });
   assert.deepEqual(await run('reflection', 'apply', 'rev'), { applied: 'rev' });
+  assert.deepEqual(await run('reflection', 'show', 'rev', '--to', 'export'), {
+    shown: 'rev',
+    to: 'export',
+  });
+  assert.deepEqual(await run('reflection', 'apply', 'rev', '--to', 'export'), {
+    applied: 'rev',
+    to: 'export',
+  });
   await assert.rejects(
     run('reflection', 'apply', ''),
     /Revision ID is required/,

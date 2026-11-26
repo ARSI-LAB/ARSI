@@ -21,17 +21,9 @@ state_schema:
     round:
       type: integer
       minimum: 0
-    wikiRef:
-      type:
-        - string
-        - 'null'
     score:
       type:
         - number
-        - 'null'
-    observations:
-      type:
-        - object
         - 'null'
     testMeasurement:
       type:
@@ -41,18 +33,14 @@ state_schema:
     - incumbent
     - measurement
     - round
-    - wikiRef
     - score
-    - observations
     - testMeasurement
   additionalProperties: false
 state:
   incumbent: ${{ input.candidateRef }}
   measurement: null
   round: 0
-  wikiRef: null
   score: null
-  observations: null
   testMeasurement: null
 output_schema:
   $ref: ./schemas/optimization-result.yaml
@@ -61,13 +49,13 @@ require:
     contract: contract.agent
   proposer:
     contract: contract.proposer
-  memoryUpdater:
-    contract: contract.memory
   evaluator:
     contract: contract.agentbench
   selector:
     contract: contract.selector-metrics
 defaults:
+  memory: { configFile: ./memory.yaml }
+  reflection: { configFile: ./reflection.yaml }
   bindings:
     agent:
       plugin: agent.pi
@@ -77,15 +65,6 @@ defaults:
         api_key: ${MODEL_API_KEY}
         retries: 3
         retryBaseDelayMs: 2000
-    # WikiSkill §3.2 / appendix E: Wiki maintenance and skill proposals use
-    # authorized training scores, outcomes and execution evidence.
-    # This Policy evaluates test tasks only after its learning loop finishes.
-    memoryUpdater:
-      plugin: memory.agent
-      config:
-        agentRef: agent
-        prompt: ./memory.md
-        evidenceView: training-summary
     proposer:
       plugin: proposer.agent
       config:
@@ -142,25 +121,6 @@ steps:
         with:
           candidateRef: ${{ state.incumbent }}
           taskIds: ${{ config.dataset.trainTaskIds }}
-      - id: remember
-        type: invoke
-        use: memoryUpdater
-        with:
-          memoryRef: ${{ state.wikiRef }}
-          goal:
-            Consolidate current training experience into the Wiki index, supported
-            action patterns and chronological log. Preserve known rejected
-            approaches, sources and uncertainty without inventing missing gate
-            history.
-          evidenceRefs:
-            - ${{ steps.train.output.measurementRef }}
-          observations: ${{ state.observations }}
-          sources:
-            - candidateRef: ${{ state.incumbent }}
-      - id: save_memory
-        type: state
-        state:
-          wikiRef: ${{ steps.remember.output.memoryRef }}
       - id: propose
         type: invoke
         use: proposer
@@ -171,19 +131,11 @@ steps:
             evidence, while preserving unrelated behavior.
           evidenceRefs:
             - ${{ steps.train.output.measurementRef }}
-          memoryRef: ${{ state.wikiRef }}
       - id: no_change
         type: if
         if: ${{ steps.propose.output.status == 'no-change' }}
         then:
           steps:
-            - id: save_no_change
-              type: state
-              state:
-                observations:
-                  status: no-change
-                  candidateRef: ${{ state.incumbent }}
-                  rationale: ${{ steps.propose.output.rationale }}
             - id: next_round
               type: control
               control: continue
@@ -204,17 +156,6 @@ steps:
         type: state
         state:
           score: ${{ steps.select.output.selectedValue }}
-          observations:
-            status: evaluated
-            candidateRef: ${{ steps.propose.output.candidateRef }}
-            diffRef: ${{ steps.propose.output.diffRef }}
-            rationale: ${{ steps.propose.output.rationale }}
-            metric: ${{ steps.select.output.metric }}
-            incumbentValue: ${{ steps.select.output.incumbentValue }}
-            candidateValue: ${{ steps.select.output.candidateValue }}
-            selectedValue: ${{ steps.select.output.selectedValue }}
-            accepted: ${{ steps.select.output.accepted }}
-            reason: ${{ steps.select.output.reason }}
       - id: adopt
         type: if
         if: ${{ steps.select.output.accepted }}
@@ -243,5 +184,4 @@ steps:
 output:
   candidateRef: ${{ state.incumbent }}
   measurementRef: ${{ state.measurement }}
-  memoryRef: ${{ state.wikiRef }}
   testMeasurementRef: ${{ state.testMeasurement }}

@@ -17,7 +17,12 @@ import {
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
-import { collectReflectionEvidence } from '../../src/runtime/revisions/evidence.js';
+import { evolutionContext } from '../../src/plugins/shared/agent-editing/evolution-context.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
+import { registerBuiltins } from '../../src/runtime/builtins.js';
+import { Registry } from '../../src/runtime/registry/index.js';
+import { collectEvolutionEvidence } from '../../src/runtime/evolution/evidence.js';
+import { resolveCoveringRoots } from '../../src/runtime/evolution/resources.js';
 import { object, string } from '../../src/shared/json.js';
 import { createReflectionAgent } from '../../src/plugins/reflection-agent/service.js';
 
@@ -56,15 +61,16 @@ async function fixture(t: TestContext) {
   const collect = async (
     id: string,
     second: number,
-    extra: Partial<Parameters<typeof collectReflectionEvidence>[0]> = {},
+    extra: Partial<Parameters<typeof collectEvolutionEvidence>[0]> = {},
   ) => {
-    const result = await collectReflectionEvidence({
+    const result = await collectEvolutionEvidence({
+      kind: 'reflection',
       context,
-      names: ['proposer'],
+      observe: { bindings: ['proposer'] },
       identity: id,
       capturedAt: at(second),
       policyScopeId: 'root',
-      moduleKey: 'module',
+      configDigest: 'module',
       directory: root,
       isAgentBinding: (binding) => binding === 'agent',
       ...extra,
@@ -85,9 +91,9 @@ test('Reflection respects the supplied evidence byte limit and reports omitted c
   const { result, snapshot } = await f.collect('bounded', 2, { maxBytes: 256 });
   assert.deepEqual(result.callIds, ['large']);
   const content = string(
-    object(snapshot.files)['context/reflection/calls/large.json'],
+    object(snapshot.files)['context/evolution/calls/large.json'],
   );
-  assert.match(content, /truncated: Reflection evidence byte limit/);
+  assert.match(content, /truncated: runtime evolution evidence byte limit/);
   assert.doesNotMatch(content, /END_OF_OBSERVATION/);
   assert.ok(Buffer.byteLength(content) < 512);
   assert.ok(
@@ -174,11 +180,11 @@ test('the same qualified binding in separate Policy executions does not share ob
   await f.call('a-work', 'child.worker', 1, { parentCallId: 'scope-a' });
   await f.call('b-work', 'child.worker', 2, { parentCallId: 'scope-b' });
   const a = await f.collect('a1', 3, {
-    names: ['child.worker'],
+    observe: { bindings: ['child.worker'] },
     policyScopeId: 'scope-a',
   });
   const b = await f.collect('b1', 3, {
-    names: ['child.worker'],
+    observe: { bindings: ['child.worker'] },
     policyScopeId: 'scope-b',
   });
   assert.deepEqual(a.result.callIds, ['a-work']);
@@ -186,47 +192,29 @@ test('the same qualified binding in separate Policy executions does not share ob
   assert.equal(b.snapshot.windowStart, null);
 });
 
-test('late associated results are narrowly attributable, deduplicated and usable without new primary calls', async (t) => {
+test('evidence filters also apply to late evaluations referencing an admitted candidate', async (t) => {
   const f = await fixture(t);
   await f.call('proposal', 'proposer', 1, {
-    input: { parent: 'base', taskId: 'task' },
-    output: { candidateRef: 'candidate' },
-  });
-  const first = await f.collect('r1', 2);
-  assert.equal(first.result.callCount, 1);
-  await f.call('late-eval', 'evaluator', 3, {
-    input: { candidateRef: 'candidate' },
-    output: {},
-    status: 'failed',
-    error: 'evaluation failed before measurement',
-  });
-  await f.call('future-eval', 'evaluator', 8, {
-    input: { candidateRef: 'candidate' },
-    output: {},
-  });
-  const second = await f.collect('r2', 4);
-  assert.deepEqual(second.result.callIds, []);
-  assert.equal(second.result.callCount, 1);
-  assert.deepEqual(
-    (object(second.snapshot.index).lateResults as JsonObject[]).map(
-      (entry) => entry.callId,
-    ),
-    ['late-eval'],
-  );
-  assert.equal(JSON.stringify(second.snapshot).includes('future-eval'), false);
-  const third = await f.collect('r3', 5);
-  assert.equal(third.result.callCount, 0);
-  await f.call('ambiguous-producer', 'otherProposer', 6, {
     input: { parent: 'base' },
     output: { candidateRef: 'candidate' },
   });
-  const fourth = await f.collect('r4', 9);
-  assert.equal(fourth.result.callCount, 0);
-  assert.ok(
-    (object(fourth.snapshot.index).diagnostics as JsonObject[]).some(
-      (entry) => entry.code === 'ambiguous-candidate-result',
-    ),
-  );
+  await f.collect('first', 2);
+  await f.call('held-out', 'evaluator', 3, {
+    input: { candidateRef: 'candidate' },
+    output: {},
+    error: 'held-out marker',
+  });
+  const restricted = await f.collect('next', 4);
+  assert.equal(restricted.result.callCount, 0);
+  assert.doesNotMatch(JSON.stringify(restricted.snapshot), /held-out marker/);
+  const independent = await f.collect('memory', 4, {
+    kind: 'memory',
+    observe: {
+      bindings: ['proposer', 'evaluator'],
+      excludeBindings: ['proposer'],
+    },
+  });
+  assert.deepEqual(independent.result.callIds, ['held-out']);
 });
 
 test('actual request, workspace, diagnostic trace and patch files are readable and scoring fields are projected out', async (t) => {
@@ -247,7 +235,13 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
     kind: 'file-tree',
     files: Object.entries({
       'AGENTS.md': 'Inspect the proposed changes.',
-      'context/input.json': JSON.stringify({ privateAnswer: 'hidden answer' }),
+      'context/input.json': JSON.stringify({
+        privateAnswer: 'hidden answer',
+        evidence: {
+          view: 'training',
+          measurements: [{ checks: ['nested scoring marker'] }],
+        },
+      }),
       'candidate/context.txt': JSON.stringify({
         visible: 'project context marker',
         returnedHints: 'hidden answer in a text file',
@@ -288,12 +282,12 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
   const { snapshot } = await f.collect('r1', 3);
   const files = object(snapshot.files);
   assert.match(
-    string(files['context/reflection/calls/proposal-descendant-agent.json']),
+    string(files['context/evolution/calls/proposal-descendant-agent.json']),
     /actual agent task/,
   );
   const workspace = JSON.parse(
     string(
-      files['context/reflection/calls/proposal-workspace-agent/index.json'],
+      files['context/evolution/calls/proposal-workspace-agent/index.json'],
     ),
   ) as JsonObject[];
   const instructions = workspace.find(
@@ -305,21 +299,22 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
     /Inspect the proposed changes/,
   );
   assert.match(
-    string(files['context/reflection/calls/proposal-trace-agent.jsonl']),
+    string(files['context/evolution/calls/proposal-trace-agent.jsonl']),
     /read_file/,
   );
   assert.match(
-    string(files['context/reflection/calls/proposal-patch.json']),
+    string(files['context/evolution/calls/proposal-patch.json']),
     /useful actual patch/,
   );
   const delivered = JSON.stringify(files);
   assert.equal(delivered.includes('private grading marker'), false);
   assert.equal(delivered.includes('grading trace marker'), false);
   assert.equal(delivered.includes('hidden answer'), false);
+  assert.equal(delivered.includes('nested scoring marker'), false);
   assert.match(delivered, /project context marker/);
 });
 
-test('Memory snapshots are explicit, decoded and source-referenced', async (t) => {
+test('Reflection step filters keep Memory receipts and binding filters can exclude them', async (t) => {
   const f = await fixture(t);
   const memoryRef = await f.artifacts.putJson({
     kind: 'file-tree',
@@ -331,24 +326,49 @@ test('Memory snapshots are explicit, decoded and source-referenced', async (t) =
       },
     ],
   });
-  await f.call('memory', 'memoryUpdater', 1, { output: { memoryRef } });
-  const absent = await f.collect('r1', 2);
+  await f.call('memory', '_memory', 1, {
+    path: 'evolution/evolution-memory-update',
+    output: { resourceRef: memoryRef },
+  });
+  await f.call('propose', 'proposer', 1, { path: 'steps/propose' });
+  await f.call('other', 'proposer', 1, { path: 'steps/other' });
+  await f.call('generator', 'agent', 1, {
+    parentCallId: 'memory',
+    path: 'steps/propose',
+  });
+  const steps = ['steps/propose'];
+  const absent = await f.collect('r1', 2, {
+    observe: { steps, excludeBindings: ['memory'] },
+  });
+  assert.deepEqual(absent.result.callIds, ['propose']);
   assert.equal(
     JSON.stringify(absent.snapshot).includes('retained reported experience'),
     false,
   );
   const present = await f.collect('selected', 2, {
-    names: ['memoryUpdater'],
-    moduleKey: 'memory-module',
+    observe: { steps, bindings: ['proposer', 'memory', 'agent'] },
+    configDigest: 'memory-module',
   });
+  assert.deepEqual(present.result.callIds, ['memory', 'propose']);
+  assert.equal(present.snapshot.evidenceView, 'training');
   const files = object(present.snapshot.files);
   assert.equal(
-    files['context/reflection/calls/memory-memoryRef.json/0.txt'],
+    files['context/evolution/calls/memory-memory/0.txt'],
     'retained reported experience',
   );
   assert.match(
-    string(files['context/reflection/calls/memory-memoryRef.json/index.json']),
+    string(files['context/evolution/calls/memory-memory/index.json']),
     /experience.md/,
+  );
+  const training = await f.collect('summary', 2, {
+    observe: { steps },
+    view: 'training-summary',
+    configDigest: 'training-module',
+  });
+  assert.deepEqual(training.result.callIds, ['memory', 'propose']);
+  assert.doesNotMatch(
+    JSON.stringify(training.snapshot),
+    /retained reported experience/,
   );
 });
 
@@ -359,7 +379,7 @@ test('one latest direct-previous-version call per binding supplies readable vers
       kind: 'file-tree',
       files: [
         {
-          path: 'bindings/proposer/resources/guidance/rules.md',
+          path: 'bindings/proposer/resources/instructions/rules.md',
           mode: 0o644,
           base64: Buffer.from(text).toString('base64'),
         },
@@ -408,20 +428,20 @@ test('one latest direct-previous-version call per binding supplies readable vers
   assert.match(
     string(
       object(snapshot.files)[
-        'context/reflection/versions/current-difference.patch'
+        'context/evolution/versions/current-difference.patch'
       ],
     ),
     /-before\n\+after/,
   );
   assert.equal(
     object(snapshot.files)[
-      'context/reflection/versions/initial/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/initial/bindings/proposer/resources/instructions/rules.md'
     ],
     'before',
   );
 });
 
-test('execution filters scoring inputs while training-summary supplies only authorized normalized feedback and public bytes', async (t) => {
+test('Harness² execution is verifier-blind while training views include authorized feedback', async (t) => {
   const f = await fixture(t);
   const publicRef = await f.artifacts.putJson({
     kind: 'file-tree',
@@ -511,19 +531,30 @@ test('execution filters scoring inputs while training-summary supplies only auth
       metrics: { secretScore: 42 },
     },
   });
-  const execution = await f.collect('execution', 2);
-  assert.equal(
-    JSON.stringify(execution.snapshot).includes('scoring input marker'),
-    false,
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  const harness = await Recipe.load(
+    'examples/harness/dsh-harness2/recipe.yaml',
+    registry,
   );
-  assert.equal(
-    JSON.stringify(execution.snapshot).includes('dataset hint marker'),
-    false,
-  );
-  assert.equal(
-    JSON.stringify(execution.snapshot).includes('authorized returned hint'),
-    false,
-  );
+  const collectBlind = (kind: 'memory' | 'reflection') =>
+    f.collect('blind-' + kind, 2, {
+      kind,
+      view: harness[kind]?.evidenceView,
+    });
+  const execution = await collectBlind('reflection');
+  for (const blind of [execution, await collectBlind('memory')]) {
+    assert.equal(blind.snapshot.evidenceView, 'execution');
+    assert.equal(
+      object(blind.snapshot.files)['context/evolution/training-summary.json'],
+      undefined,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(blind.snapshot.files),
+      /authorized returned hint|secretScore|scoring input marker|dataset hint marker/,
+    );
+  }
   const descriptors = execution.snapshot.sources as JsonObject[];
   assert.equal(descriptors.length, 1);
   assert.equal(descriptors[0]!.artifactRef, publicRef);
@@ -536,7 +567,7 @@ test('execution filters scoring inputs while training-summary supplies only auth
     1,
   );
   const training = await f.collect('training', 2, {
-    moduleKey: 'training-module',
+    configDigest: 'training-module',
     view: 'training-summary',
     maxBytes: 4 * 1024 * 1024,
   });
@@ -546,6 +577,186 @@ test('execution filters scoring inputs while training-summary supplies only auth
   assert.equal(delivered.includes('private verifier marker'), false);
   assert.equal(delivered.includes('public execution'), true);
   assert.equal(delivered.includes('scoring input marker'), false);
+});
+
+test('default training reserves access to comparisons, metrics and the window index under a tight evidence budget', async (t) => {
+  const f = await fixture(t);
+  const trace = JSON.stringify({
+    text: 'a large execution trace '.repeat(10_000),
+    type: 'output',
+  });
+  const artifactRef = await f.artifacts.putJson({
+    kind: 'file-tree',
+    files: [
+      {
+        path: 'trajectory.jsonl',
+        mode: 0o644,
+        base64: Buffer.from(trace).toString('base64'),
+      },
+    ],
+  });
+  const evidenceIndexRef = await f.artifacts.putJson({
+    entries: [{ kind: 'trajectory', access: 'execution', artifactRef }],
+  });
+  await f.facts.write('measurements', 'measurement', {
+    schemaVersion: 'rsi.measurement/v1',
+    experimentId: 'experiment',
+    ref: 'measurement',
+    evidenceIndexRef,
+    metrics: { latency: 12.75 },
+  });
+  await f.call('observe', 'proposer', 1, {
+    output: {
+      measurementRef: 'measurement',
+      reason: 'large receipt '.repeat(4000),
+    },
+  });
+  const limit = 8192;
+  const signal = new AbortController().signal;
+  const context = f.context.extend({
+    signal,
+    scope: { id: 'memory', signal, limits: { evidenceBytes: limit } },
+  });
+  const { result, snapshot } = await f.collect('bounded-training', 2, {
+    kind: 'memory',
+    context,
+    maxBytes: limit,
+    observe: { includeCandidateDiffs: true },
+  });
+  assert.equal(snapshot.evidenceView, 'training');
+  const delivered = await evolutionContext(
+    'memory',
+    [string(result.ref)],
+    context,
+  );
+  const files = delivered.files;
+  assert.ok(files);
+  const scores = JSON.parse(
+    string(files['context/evolution/training-summary.json']),
+  );
+  assert.equal(scores.measurements[0].metrics.latency, 12.75);
+  assert.deepEqual(
+    JSON.parse(string(files['context/evolution/comparisons.json'])).candidates,
+    [],
+  );
+  assert.equal(
+    JSON.parse(string(files['context/evolution/index.json'])).indexes[0]
+      .calls[0].callId,
+    'observe',
+  );
+  assert.ok(
+    Object.values(files).reduce<number>((sum, text) => {
+      assert.equal(typeof text, 'string');
+      return sum + Buffer.byteLength(String(text));
+    }, 0) <= limit,
+  );
+  assert.doesNotMatch(
+    string(files['context/evolution/calls/observe.json']),
+    /12\.75/,
+  );
+  const { snapshot: full } = await f.collect('full-training', 2, {
+    kind: 'memory',
+    configDigest: 'unbounded',
+  });
+  const details = object(full.files);
+  assert.match(
+    string(details['context/evolution/evaluation-index.json']),
+    /0\.txt/,
+  );
+  assert.match(
+    string(details['context/evolution/packets/index.json']),
+    /packets/,
+  );
+  assert.equal(string(details['context/evolution/evidence/0/0/0.txt']), trace);
+});
+
+test('held-out measurements cannot expose selector values or nested Agent receipts and workspaces', async (t) => {
+  const f = await fixture(t);
+  await f.call('validate', 'evaluator', 1, {
+    path: 'steps/validate',
+    output: {
+      measurementRef: 'holdout-result',
+      reason: 'HELD_OUT_MEASUREMENT',
+    },
+  });
+  const workspace = await f.artifacts.putJson({
+    kind: 'file-tree',
+    files: [
+      {
+        path: 'held-out.txt',
+        mode: 0o644,
+        base64: Buffer.from('PRIVATE_WORKSPACE').toString('base64'),
+      },
+    ],
+  });
+  await f.facts.write('evidence-views', 'evidence-prior', {
+    experimentId: 'experiment',
+    capturedAt: at(0),
+    measurementRefs: ['holdout-result'],
+  });
+  const inputs: JsonObject[] = [
+    { incumbentMeasurementRef: 'holdout-result' },
+    { candidateMeasurementRef: 'holdout-result' },
+    {},
+    { measurementRef: 'holdout-result' },
+    { measurementRefs: ['holdout-result'] },
+    { evidenceRefs: ['evidence-prior'] },
+  ];
+  for (const [i, input] of inputs.entries()) {
+    const id = 'select-' + i;
+    await f.call(id, 'selector', 2, {
+      path: 'steps/select',
+      contractId: 'contract.selector-metrics',
+      input,
+      output: {
+        ...(i === 2 ? { measurementRef: 'holdout-result' } : {}),
+        accepted: true,
+        selectedValue: 734.51,
+        candidateValue: 734.52,
+        incumbentValue: 734.53,
+      },
+    });
+    await f.call('nested-' + i, 'agent', 2, {
+      parentCallId: id,
+      output: { text: 'PRIVATE_CHILD' },
+      agentProjectArtifactRef: workspace,
+    });
+  }
+  await f.call('safe-parent', 'proposer', 2);
+  await f.call('restricted-agent', 'agent', 2, {
+    parentCallId: 'safe-parent',
+    input: { measurementRefs: ['holdout-result'] },
+    output: { text: 'PRIVATE_CHILD' },
+    agentProjectArtifactRef: workspace,
+  });
+  await f.call('nested-grandchild', 'agent', 2, {
+    parentCallId: 'restricted-agent',
+    output: { text: 'PRIVATE_CHILD' },
+    agentProjectArtifactRef: workspace,
+  });
+  for (const view of ['execution', 'training', 'training-summary'] as const) {
+    const { snapshot } = await f.collect(view, 3, {
+      view,
+      configDigest: view,
+      observe: { excludeSteps: ['steps/validate'] },
+    });
+    assert.deepEqual(snapshot.measurementRefs, []);
+    const files = object(snapshot.files);
+    for (const i of inputs.keys()) {
+      const record = JSON.parse(
+        string(files[`context/evolution/calls/select-${i}.json`]),
+      );
+      assert.equal(record.output.accepted, true);
+      assert.doesNotMatch(
+        JSON.stringify(record),
+        /selectedValue|incumbentValue|candidateValue|734\.5/,
+      );
+    }
+    assert.doesNotMatch(
+      JSON.stringify(files),
+      /HELD_OUT_MEASUREMENT|PRIVATE_CHILD|PRIVATE_WORKSPACE|nested-|restricted-agent/,
+    );
+  }
 });
 
 test('recovery finds a durably prepared snapshot before its controller link was saved', async (t) => {
@@ -590,7 +801,7 @@ test('composition source identities survive projection without expanding unselec
     output: { candidateRef: 'composed' },
   });
   const { snapshot } = await f.collect('composition-reflection', 3, {
-    names: ['composer'],
+    observe: { bindings: ['composer'] },
   });
   const calls = object(snapshot.index).calls as JsonObject[];
   assert.equal(calls.length, 1);
@@ -625,11 +836,12 @@ test('a rejected trigger with failed evidence preparation still bounds the next 
     /Invalid Measurement evidence index/,
   );
   assert.deepEqual(await f.facts.list('evidence-views'), []);
-  await f.facts.write('reflection', 'rejected-trigger', {
-    reflectionId: 'rejected-trigger',
+  await f.facts.write('evolution-runs', 'rejected-trigger', {
+    kind: 'reflection',
+    evolutionId: 'rejected-trigger',
     experimentId: 'experiment',
     policyScopeId: 'root',
-    configFile: 'module',
+    configDigest: 'module',
     stepPath: 'first',
     startedAt: at(2),
     status: 'rejected',
@@ -723,7 +935,7 @@ test('authorized empty execution files remain readable by the Reflection Agent a
     .map(([path]) => path);
   assert.equal(emptyPaths.length, 1);
   const emptyPath = emptyPaths[0]!;
-  const resourcePath = 'bindings/proposer/resources/guidance/initial.md';
+  const resourcePath = 'bindings/proposer/resources/instructions/initial.md';
   const resourceRef = await f.artifacts.putJson({
     kind: 'file-tree',
     files: [
@@ -770,10 +982,7 @@ test('authorized empty execution files remain readable by the Reflection Agent a
       };
     },
   });
-  const operation = await createReflectionAgent(
-    { prompt, evidenceView: 'execution' },
-    context,
-  );
+  const operation = await createReflectionAgent({ prompt }, context);
   try {
     const output = await operation.execute(
       {
@@ -850,7 +1059,7 @@ test('ASCII PDF delivery reaches the Reflection Agent as page previews through e
       const index = object(
         JSON.parse(
           await readFile(
-            join(directory, 'context/reflection/index.json'),
+            join(directory, 'context/evolution/index.json'),
             'utf8',
           ),
         ),
@@ -883,10 +1092,7 @@ test('ASCII PDF delivery reaches the Reflection Agent as page previews through e
       return { edits: [], reason: 'Read all three pages' };
     },
   });
-  const operation = await createReflectionAgent(
-    { prompt, evidenceView: 'execution' },
-    context,
-  );
+  const operation = await createReflectionAgent({ prompt }, context);
   try {
     assert.equal(
       (
@@ -916,7 +1122,7 @@ test('an observed binding with no new current-version call exposes only its dire
       kind: 'file-tree',
       files: [
         {
-          path: 'bindings/proposer/resources/guidance/rules.md',
+          path: 'bindings/proposer/resources/instructions/rules.md',
           mode: 0o644,
           base64: Buffer.from(content).toString('base64'),
         },
@@ -962,26 +1168,26 @@ test('an observed binding with no new current-version call exposes only its dire
   const files = object(emptyWindow.snapshot.files);
   assert.match(
     string(
-      files['context/reflection/versions/generated-final-difference.patch'],
+      files['context/evolution/versions/generated-final-difference.patch'],
     ),
     /-original rule\n\+revised rule/,
   );
   assert.equal(
     files[
-      'context/reflection/versions/initial/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/initial/bindings/proposer/resources/instructions/rules.md'
     ],
     'original rule',
   );
   assert.equal(
     files[
-      'context/reflection/versions/generated-final/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/generated-final/bindings/proposer/resources/instructions/rules.md'
     ],
     'revised rule',
   );
   assert.equal(JSON.stringify(files).includes('before-call'), false);
   await f.call('new-memory-call', 'memoryUpdater', 4);
   const next = await f.collect('r3', 5, {
-    names: ['proposer', 'memoryUpdater'],
+    observe: { bindings: ['proposer', 'memoryUpdater'] },
     currentRevisionRefs: { proposer: 'generated-final' },
   });
   assert.equal(next.result.callCount, 1);
@@ -997,6 +1203,125 @@ test('an observed binding with no new current-version call exposes only its dire
       .afterExecution,
     'not-in-window',
   );
+});
+
+test('a joint revision comparison emits one patch restricted to observed resource members', async (t) => {
+  const f = await fixture(t);
+  const roots = await resolveCoveringRoots([
+    {
+      binding: 'proposer',
+      pointer: '/instructions',
+      kind: 'directory',
+      path: join(f.root, 'instructions'),
+    },
+    {
+      binding: 'summarizer',
+      pointer: '/prompt',
+      kind: 'file',
+      path: join(f.root, 'instructions/summary.md'),
+    },
+    {
+      binding: 'other',
+      pointer: '/prompt',
+      kind: 'file',
+      path: join(f.root, 'other.md'),
+    },
+  ]);
+  const instructions = 'resources/proposer/instructions';
+  for (const [ref, parentRef, suffix] of [
+    ['first', null, 'initial'],
+    ['second', 'first', 'updated'],
+  ] as const) {
+    const resourceRef = await f.artifacts.putJson({
+      kind: 'file-tree',
+      files: [
+        [instructions + '/summary.md', suffix + ' summary'],
+        [instructions + '/proposal.md', suffix + ' proposal'],
+        ['resources/other/prompt', 'private-other-content'],
+        ['manifest.json', 'private-manifest-content'],
+      ].map(([path, content]) => ({
+        path: path!,
+        mode: 0o644,
+        base64: Buffer.from(content!).toString('base64'),
+      })),
+    });
+    await f.facts.write('revisions', ref, {
+      ref,
+      parentRef,
+      rootRef: 'first',
+      experimentId: 'experiment',
+      kind: parentRef ? 'generated' : 'initial',
+      bindings: ['proposer', 'summarizer', 'other'],
+      sourceRoots: roots,
+      resourceRef,
+    });
+  }
+  const currentRevisionRefs = {
+    proposer: 'second',
+    summarizer: 'second',
+    other: 'second',
+  };
+  const parentAndChild = await f.collect('r1', 1, {
+    observe: {
+      bindings: ['proposer', 'summarizer', 'other'],
+      excludeBindings: ['other'],
+    },
+    currentRevisionRefs,
+  });
+  const files = object(parentAndChild.snapshot.files);
+  assert.deepEqual(
+    Object.keys(files).filter((p) => p.endsWith('-difference.patch')),
+    ['context/evolution/versions/second-difference.patch'],
+  );
+  assert.match(
+    string(files['context/evolution/versions/second-difference.patch']),
+    /updated proposal/,
+  );
+  assert.match(
+    string(files['context/evolution/versions/second-difference.patch']),
+    /updated summary/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(files),
+    /private-other-content|private-manifest-content/,
+  );
+  const childOnly = await f.collect('r2', 2, {
+    observe: { bindings: ['summarizer'] },
+    currentRevisionRefs,
+  });
+  const childFiles = object(childOnly.snapshot.files);
+  assert.match(
+    string(childFiles['context/evolution/versions/second-difference.patch']),
+    /updated summary/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(childFiles),
+    /updated proposal|proposal\.md|private-other-content/,
+  );
+  const initial = await f.facts.read('revisions', 'first');
+  await f.facts.write('revisions', 'intervening', {
+    ...initial,
+    ref: 'intervening',
+    parentRef: 'first',
+    kind: 'generated',
+    changedBindings: ['proposer'],
+  });
+  await f.facts.write('revisions', 'latest', {
+    ...(await f.facts.read('revisions', 'second')),
+    ref: 'latest',
+    parentRef: 'intervening',
+    changedBindings: ['summarizer'],
+  });
+  await f.call('previous-summary', 'summarizer', 3, { revisionRef: 'first' });
+  await f.collect('r3', 4, { observe: { bindings: ['summarizer'] } });
+  await f.call('next-summary', 'summarizer', 5, { revisionRef: 'latest' });
+  const { snapshot } = await f.collect('r4', 6, {
+    observe: { bindings: ['summarizer'] },
+  });
+  const [comparison] = object(snapshot.index).comparisons as JsonObject[];
+  assert.equal(comparison?.parentRevisionRef, 'intervening');
+  assert.equal(comparison?.previousCallId, 'previous-summary');
+  assert.equal(comparison?.callId, 'next-summary');
 });
 
 test('Reflection reads the current retry conversation and its payloads', async (t) => {
@@ -1023,7 +1348,7 @@ test('Reflection reads the current retry conversation and its payloads', async (
   assert.match(
     string(
       object(snapshot.files)[
-        'context/reflection/calls/proposal-trace-agent.jsonl'
+        'context/evolution/calls/proposal-trace-agent.jsonl'
       ],
     ),
     /CURRENT_RETRY_TAIL/,

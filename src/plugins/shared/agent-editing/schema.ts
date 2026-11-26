@@ -1,12 +1,20 @@
 import type { JsonSchema } from '../../../contracts/index.js';
+import {
+  runtimeEvolutionEvidenceViews,
+  type RuntimeEvolutionEvidenceView,
+} from '../../../contracts/runtime-evolution.js';
 
 export type AgentEditingConfig = {
   prompt: string;
   agentRef?: string;
-  guidance?: string;
-  evidenceView?: 'execution' | 'training-summary';
+  evidenceView?: RuntimeEvolutionEvidenceView;
   skills?: string[];
 };
+
+export type RuntimeEvolutionAgentConfig = Omit<
+  AgentEditingConfig,
+  'evidenceView'
+>;
 
 export const agentConfigSchema = {
   type: 'object',
@@ -17,9 +25,8 @@ export const agentConfigSchema = {
       'x-rsi-binding': 'contract.agent',
     },
     prompt: { type: 'string', 'x-rsi-path': 'file' },
-    guidance: { type: 'string', 'x-rsi-path': 'directory' },
     evidenceView: {
-      enum: ['execution', 'training-summary'],
+      enum: [...runtimeEvolutionEvidenceViews],
       default: 'execution',
     },
     skills: {
@@ -31,3 +38,17 @@ export const agentConfigSchema = {
   required: ['prompt'],
   additionalProperties: false,
 } satisfies JsonSchema;
+
+/** The runtime evolution coordinator selects the evidence view before the editor runs. */
+export function runtimeEvolutionAgentConfigSchema(prompt: string): JsonSchema {
+  const { agentRef, skills } = agentConfigSchema.properties;
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      agentRef,
+      skills,
+      prompt: { ...agentConfigSchema.properties.prompt, default: prompt },
+    },
+  };
+}

@@ -1,7 +1,7 @@
 import type { JsonObject, JsonValue } from '../../contracts/index.js';
 import { json, object, string } from '../../shared/json.js';
 import type { ReadOnlyEditContext } from '../shared/agent-editing/index.js';
-import { excerpt } from '../shared/agent-editing/evidence-packets.js';
+import { excerpt } from '../../runtime/services/facts/evidence-packets.js';
 
 const toolResultCharacters = 2000;
 const thinkingTypes = new Set([
@@ -101,10 +101,12 @@ function shortenToolResult(event: JsonObject): JsonObject {
 /** All available sanitized events survive; only thinking and tool-return payloads change. */
 export function proposerExecutionContext(
   full: JsonObject,
-): ReadOnlyEditContext {
+): ReadOnlyEditContext & {
+  evidence: JsonObject & { measurements: JsonObject[] };
+} {
   if (
     full.schemaVersion !== 'rsi.evidence-files/v1' ||
-    full.view !== 'execution' ||
+    (full.view !== 'execution' && full.view !== 'training') ||
     !Array.isArray(full.measurements)
   )
     throw new Error('Proposer requires file-backed execution evidence');
@@ -225,7 +227,7 @@ export function proposerExecutionContext(
     if (final.length) blocks.push(`Final replies:\n${final.join('\n\n')}`);
     const path = `context/runs/${mi}.txt`;
     if (blocks.length) files[path] = blocks.join('\n\n');
-    measurements.push({
+    const summary: JsonObject = {
       measurementRef: measurement.measurementRef!,
       status: measurement.status ?? 'unknown',
       coverage: measurement.coverage ?? 'unknown',
@@ -233,13 +235,28 @@ export function proposerExecutionContext(
       supplementaryPath: blocks.length ? path : null,
       finalReply: excerpt(final.join('\n'), 3000),
       unavailable,
-    });
+    };
+    if (full.view === 'training') {
+      for (const field of [
+        'metrics',
+        'metricsOmitted',
+        'items',
+        'metricDefinitions',
+        'omittedItems',
+        'itemsTruncated',
+        'metricDefinitionsOmitted',
+      ]) {
+        if (measurement[field] !== undefined)
+          summary[field] = measurement[field];
+      }
+    }
+    measurements.push(summary);
   }
   return {
     files,
     evidence: {
       schemaVersion: 'rsi.proposer-execution/v1',
-      view: 'execution',
+      view: full.view,
       measurements,
       toolResultLimit: {
         value: toolResultCharacters,

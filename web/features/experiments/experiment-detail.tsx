@@ -12,7 +12,7 @@ import {
 } from '../../components/observation-feedback';
 import { Recipe } from './recipe';
 import { Results } from './results';
-import { Learning } from './learning';
+import { Evolution } from './evolution';
 import { Calls } from './calls';
 import { Candidates } from './candidates';
 import { Measurements } from './measurements';
@@ -34,7 +34,7 @@ const views = [
   'calls',
   'candidates',
   'measurements',
-  'learning',
+  'evolution',
   'policy',
   'recipe',
   'results',
@@ -96,7 +96,7 @@ export function Experiment({
             }
             aria-current={selected === item ? 'page' : undefined}
           >
-            {item === 'learning'
+            {item === 'evolution'
               ? 'Reflection & Memory'
               : item === 'calls'
                 ? 'Call history'
@@ -112,10 +112,10 @@ export function Experiment({
       ) : result.data ? (
         <RoundLabels id={id} finished={!!result.data.finishedAt}>
           <PresentationReady
-            required={selected !== 'learning' && selected !== 'recipe'}
+            required={selected !== 'evolution' && selected !== 'recipe'}
           >
-            {selected === 'learning' ? (
-              <Learning id={id} finished={!!result.data.finishedAt} />
+            {selected === 'evolution' ? (
+              <Evolution id={id} finished={!!result.data.finishedAt} />
             ) : selected === 'recipe' ? (
               <Recipe id={id} />
             ) : selected === 'results' ? (

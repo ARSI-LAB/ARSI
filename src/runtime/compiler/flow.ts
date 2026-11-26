@@ -4,7 +4,13 @@ import type {
   PluginContract,
 } from '../../contracts/index.js';
 import { scopeRoots, validateTemplate, type Scope } from './scope.js';
-import type { Step, StepValidationContext, Template } from '../policy/steps.js';
+import {
+  ForEachStep,
+  type Step,
+  type StepValidationContext,
+  type Template,
+} from '../policy/steps.js';
+import { type FlowIndex, type StepLocation } from '../evolution/trigger.js';
 
 export function compileFlow(policy: {
   inputDefaults: JsonObject;
@@ -15,7 +21,8 @@ export function compileFlow(policy: {
   partialOutput?: { when: Template; value: Template };
   requirements: Readonly<Record<string, PluginContract>>;
   defaults: JsonObject;
-}): void {
+}): FlowIndex {
+  const locations: StepLocation[] = [];
   const base: Scope = {
     names: scopeRoots,
     frames: [],
@@ -37,6 +44,7 @@ export function compileFlow(policy: {
     scope: Scope,
     label: string,
     output?: Template,
+    possiblyParallel = false,
   ): Scope {
     const completed = new Set<string>();
     const local = {
@@ -53,7 +61,6 @@ export function compileFlow(policy: {
         stateSchema: policy.stateSchema,
         parallel: local.parallel,
         loopDepth: local.loopDepth,
-        reflectionDeclared: policy.defaults.reflection !== undefined,
         names: local.names,
         validateTemplate(template, locals = []) {
           validateTemplate(template, local, this.label, locals);
@@ -67,13 +74,22 @@ export function compileFlow(policy: {
               parallel: local.parallel || (options.parallel ?? false),
               loopDepth: options.loopDepth ?? local.loopDepth,
             },
-            `${this.label}/${options.scope}`,
+            options.scope === 'then' || options.scope === 'else'
+              ? `${this.label}/${options.scope}/steps`
+              : `${this.label}/steps`,
             options.output,
+            possiblyParallel ||
+              (step instanceof ForEachStep && step.concurrency !== 1),
           );
         },
       };
       step.validate(context);
       if (step.type !== 'control') completed.add(step.id);
+      locations.push({
+        step,
+        location: context.label,
+        parallel: possiblyParallel,
+      });
     }
     if (output !== undefined)
       validateTemplate(output, local, `${label}.output`);
@@ -84,4 +100,5 @@ export function compileFlow(policy: {
     validateTemplate(policy.partialOutput.when, scope, 'partial_output.when');
     validateTemplate(policy.partialOutput.value, scope, 'partial_output.value');
   }
+  return { locations };
 }

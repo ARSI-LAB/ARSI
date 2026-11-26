@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   DoctorBinding,
   DoctorContext,
@@ -12,6 +13,11 @@ import {
   RuntimeCleanupInterruptedError,
 } from '../../shared/errors.js';
 import type { Runtime } from '../context.js';
+import {
+  pathContains,
+  selectedResourceFields,
+} from '../evolution/resources.js';
+import { captureMemorySeed, memoryFiles } from '../evolution/memory.js';
 import { Recipe } from '../loaders/recipe.js';
 import { withBindingInstance } from '../manager/instances.js';
 import type { Registry } from '../registry/index.js';
@@ -75,7 +81,10 @@ export async function doctorRecipe(
   signal.throwIfAborted();
   let recipe: Recipe;
   try {
-    recipe = await Recipe.load(resolve(recipePath), sourceRuntime.registry);
+    recipe = await Recipe.load(resolve(recipePath), sourceRuntime.registry, {
+      rootDirectory: sourceRuntime.context.rootDirectory,
+      runtimeDirectory: sourceRuntime.manager.directory,
+    });
   } catch (error) {
     signal.throwIfAborted();
     return createFailureReport('recipe.validate', error);
@@ -83,12 +92,47 @@ export async function doctorRecipe(
 
   const redact = redactConfiguration({
     recipe: recipe.toJSON(),
-    reflection: recipe.reflection?.implementation.config ?? {},
+    reflection: recipe.reflection?.config ?? {},
+    memory: recipe.memory?.config ?? {},
   });
   const report: DoctorReport = {
     recipeId: recipe.id,
     checks: [{ id: 'recipe.validate', status: 'passed' }],
   };
+  for (const name of recipe.disabledEvolution)
+    report.checks.push({
+      id: `${name}.status`,
+      status: 'unchecked',
+      reason: 'Not enabled for this Recipe.',
+    });
+  if (recipe.reflection) {
+    const builtins = ['policies', 'plugins'].map((kind) =>
+      fileURLToPath(new URL(`../../${kind}/`, import.meta.url)),
+    );
+    const protectedTarget = Object.entries(recipe.reflection.targets).some(
+      ([name, target]) => {
+        const binding = recipe.bindings[name]!;
+        return selectedResourceFields(
+          binding.definition.configSchema,
+          binding.config,
+          target.resources,
+        ).some(({ reference }) =>
+          builtins.some((root) => pathContains(root, reference)),
+        );
+      },
+    );
+    report.checks.push({
+      id: 'reflection.targets',
+      status: 'passed',
+      ...(protectedTarget
+        ? {
+            details: {
+              note: 'Revisions activate in this experiment. Export built-in resources with arsi reflection apply <id> --to <directory>.',
+            },
+          }
+        : {}),
+    });
+  }
   await checkBindings(sourceRuntime, recipe, report, signal);
   signal.throwIfAborted();
   return redactDoctorReport(report, redact);
@@ -135,30 +179,45 @@ function getDoctorBindings(
   recipe: Recipe,
   registry: DoctorRegistry,
 ): DoctorBinding[] {
-  const bindings = [recipe.application, ...Object.values(recipe.bindings)];
-  if (!recipe.reflection) return bindings;
-
-  const { ref, config } = recipe.reflection.implementation;
-  return [
-    ...bindings,
-    {
-      name: 'reflection',
-      pluginId: ref,
-      definition: registry.get(ref),
-      config,
-    },
+  const bindings: DoctorBinding[] = [
+    recipe.application,
+    ...Object.values(recipe.bindings),
   ];
+  for (const name of ['memory', 'reflection'] as const) {
+    const module = recipe[name];
+    if (module)
+      bindings.push({
+        name,
+        pluginId: module.plugin,
+        definition: registry.get(module.plugin),
+        config: module.config,
+      });
+  }
+  return bindings;
 }
 
 async function checkBinding(
-  context: DoctorContext & { registry: Registry },
+  context: DoctorContext & { registry: Registry; recipe: Recipe },
   report: DoctorReport,
 ): Promise<void> {
   const { binding, signal } = context;
-  const prerequisites = await runDoctorRules(
-    [...declaredPathRules(binding), ...bindingReferenceRules(context)],
-    signal,
-  );
+  const rules = [
+    ...declaredPathRules(binding),
+    ...bindingReferenceRules(context),
+  ];
+  const seed = context.recipe.memory?.seed;
+  if (binding.name === 'memory' && seed)
+    rules.push({
+      id: 'directory',
+      reason: 'Correct the files in the configured Memory seed directory.',
+      check: async () => {
+        const { artifacts } = context.runtime;
+        const ref = await captureMemorySeed(artifacts, seed.directory);
+        memoryFiles(await artifacts.readJson(ref));
+        return true;
+      },
+    });
+  const prerequisites = await runDoctorRules(rules, signal);
   appendBindingResult(report, binding, prerequisites);
   if (prerequisites.checks.some((check) => check.status === 'failed')) {
     appendBindingResult(report, binding, {

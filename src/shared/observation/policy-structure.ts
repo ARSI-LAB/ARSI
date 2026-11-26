@@ -8,8 +8,7 @@ export type PolicyStepType =
   | 'if'
   | 'loop'
   | 'foreach'
-  | 'control'
-  | 'reflection';
+  | 'control';
 export interface StructureDiagnostic {
   category:
     | 'missing-source'

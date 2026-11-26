@@ -106,6 +106,8 @@ test('retry preserves completed steps and locks updated resources for unfinished
     recipe,
     JSON.stringify({
       schemaVersion: 'rsi.recipe/v1',
+      memory: false,
+      reflection: false,
       id: 'recipe.locked',
       application: { plugin: 'application.test' },
       policy: { id: 'policy.locked' },
@@ -159,6 +161,7 @@ test('Manager resumes after a committed loop boundary without replaying calls', 
       JSON.stringify({
         schemaVersion: 'rsi.policy/v1',
         id: 'test.policy',
+        defaults: { memory: false, reflection: false },
         input_schema: { type: 'object' },
         output_schema: { type: 'object' },
         require: { driver: { contract: 'contract.test-driver' } },

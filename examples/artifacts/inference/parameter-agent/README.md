@@ -4,6 +4,8 @@ The [`parameter-agent` Recipe](recipe.yaml) measures a vLLM Ascend baseline with
 AISBench. An agent proposes serving parameter changes, and RSI tests them on
 the same workload to select a configuration based on throughput and latency.
 
+Memory and Reflection reuse the Recipe’s Codex `agent` and read `training` evidence, including execution traces and measured feedback. Reflection uses `proposer: '*'` to select all configured local Proposer resources. This Recipe owns its tuning prompt (`prompts/tuning.md`), skill directory (`skills/vllm-ascend-tuning`) and subagent prompts (`roles/*.md`), so `arsi reflection apply <revisionID>` can write an accepted revision back in place.
+
 ## Usage
 
 1. Install the `arsi` CLI and companion skill by following the

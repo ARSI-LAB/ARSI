@@ -25,9 +25,6 @@ properties:
     required:
       - taskIds
     additionalProperties: false
-  memory:
-    type: boolean
-    default: true
 required:
   - dataset
 additionalProperties: false

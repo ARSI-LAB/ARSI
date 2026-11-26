@@ -7,6 +7,32 @@ import type {
 import { configPathFields, isResourceUrl } from '../../shared/paths.js';
 import { object, string } from '../../shared/json.js';
 
+export function pointerParent(
+  value: JsonObject,
+  pointer: string,
+): { parent: JsonObject | JsonValue[]; key: string } {
+  const parts = pointer
+    .slice(1)
+    .split('/')
+    .map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~'));
+  const key = parts.pop()!;
+  let current: JsonValue = value;
+  for (const part of parts) {
+    const container: JsonObject | JsonValue[] = Array.isArray(current)
+      ? current
+      : object(current);
+    if (!Object.hasOwn(container, part))
+      throw new Error(`Missing configuration path ${pointer}`);
+    current = Array.isArray(container)
+      ? container[Number(part)]!
+      : container[part]!;
+  }
+  const parent = Array.isArray(current) ? current : object(current);
+  if (!Object.hasOwn(parent, key))
+    throw new Error(`Missing configuration path ${pointer}`);
+  return { parent, key };
+}
+
 /** Resolve only Schema-marked fields, using each field's declaration directory. */
 export function resolvePaths(
   config: JsonObject,
@@ -15,16 +41,7 @@ export function resolvePaths(
 ): JsonObject {
   const result = structuredClone(config);
   for (const field of configPathFields(schema, result)) {
-    const parts = field.pointer
-      .slice(1)
-      .split('/')
-      .map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~'));
-    const last = parts.pop()!;
-    let current: JsonValue = result;
-    for (const part of parts)
-      current = Array.isArray(current)
-        ? current[Number(part)]
-        : object(current)[part];
+    const { parent: current, key: last } = pointerParent(result, field.pointer);
     const path = string(
       Array.isArray(current) ? current[Number(last)] : object(current)[last],
     );

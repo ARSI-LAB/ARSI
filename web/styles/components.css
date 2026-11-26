@@ -313,7 +313,7 @@ select:not([multiple]):not([size]) {
   .quiet-button,
   .view-nav a,
   .compact-call,
-  .learning-record,
+  .evolution-record,
   .harness-version,
   .diff-file-option,
   .inspector-row,
@@ -330,7 +330,7 @@ select:not([multiple]):not([size]) {
 }
 @media (hover: hover) {
   .compact-call:hover:not([aria-current='true']),
-  .learning-record:hover:not([aria-current='true']) {
+  .evolution-record:hover:not([aria-current='true']) {
     background: var(--muted);
     border-color: var(--input);
   }
@@ -355,7 +355,7 @@ select:not([multiple]):not([size]) {
   }
 }
 .compact-call:focus-visible,
-.learning-record:focus-visible,
+.evolution-record:focus-visible,
 .view-nav a:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -3px;

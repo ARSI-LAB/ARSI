@@ -95,6 +95,8 @@ test('Manager locks startup resources and resumes completed or interrupted runs 
       recipePath,
       stringify({
         schemaVersion: 'rsi.recipe/v1',
+        memory: false,
+        reflection: false,
         id: 'live',
         application: { plugin: 'test.application', config: {} },
         policy: { id: 'test.policy', config: {}, input: {} },
@@ -243,6 +245,8 @@ test('Manager persists receipts and completed resume does not repeat calls or sp
     registry.registerPolicy('test.policy', join(root, 'policy.yaml'));
     const recipe = {
       schemaVersion: 'rsi.recipe/v1',
+      memory: false,
+      reflection: false,
       id: 'probe',
       application: {
         plugin: 'test.application',

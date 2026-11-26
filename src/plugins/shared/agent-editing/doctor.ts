@@ -4,7 +4,6 @@ import type { DoctorContext, DoctorRule } from '../../../contracts/index.js';
 import { missingInputError } from '../../../shared/doctor-check.js';
 import { parseConfig } from '../../../shared/schema.js';
 import { missingPath } from '../doctor/checks.js';
-import { loadAgentPrompt } from './index.js';
 import { prepareAgentProject, type AgentRole } from './project.js';
 import type { AgentEditingConfig } from './schema.js';
 
@@ -45,8 +44,7 @@ export function agentEditorDoctorRules<C extends AgentEditingConfig>(
     {
       id: 'editing-inputs',
       check: areEditingInputsReadable,
-      reason:
-        'Restore the configured prompt, guidance, skills and role prompt files.',
+      reason: 'Restore the configured prompt, skills and role prompt files.',
     },
     {
       id: 'prepare-project',
@@ -62,37 +60,23 @@ async function readEditingInputs(
   roles: readonly CheckedRole[],
   signal: AbortSignal,
 ): Promise<string> {
-  const skills = config.skills ?? [];
-  try {
-    signal.throwIfAborted();
-    const prompt = await loadAgentPrompt(config);
-    for (const directory of skills)
-      await readFile(join(directory, 'SKILL.md'), { signal });
-    for (const { role } of roles) await readFile(role.prompt, { signal });
-    return prompt;
-  } catch (error) {
-    const path = missingPath(error);
-    if (path) {
-      const skillIndex = skills.findIndex(
-        (directory) =>
-          path === directory || path === join(directory, 'SKILL.md'),
-      );
-      const checkedRole = roles.find(({ role }) => role.prompt === path);
-      const field =
-        path === config.prompt
-          ? 'prompt'
-          : skillIndex >= 0
-            ? `skills.${skillIndex}`
-            : (checkedRole?.promptField ?? 'guidance');
-      throw missingInputError(
-        {
-          field,
-          kind: path === config.guidance ? 'directory' : 'file',
-          reference: path,
-        },
-        error,
-      );
+  async function readInput(path: string, field: string): Promise<string> {
+    try {
+      return await readFile(path, { encoding: 'utf8', signal });
+    } catch (error) {
+      if (missingPath(error))
+        throw missingInputError(
+          { field, kind: 'file', reference: path },
+          error,
+        );
+      throw error;
     }
-    throw error;
   }
+
+  const prompt = await readInput(config.prompt, 'prompt');
+  for (const [index, directory] of (config.skills ?? []).entries())
+    await readInput(join(directory, 'SKILL.md'), `skills.${index}`);
+  for (const { role, promptField } of roles)
+    await readInput(role.prompt, promptField);
+  return prompt;
 }

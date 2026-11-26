@@ -98,6 +98,7 @@ try {
     'installed executable works outside its source checkout',
   );
   assert.match(help, /reflection/);
+  assert.match(help, /memory/);
   assert.match(help, /^\s+doctor \[options\] <recipe\.yaml>/m);
   assert.doesNotMatch(help, /^\s+validate(?:\s|$)/m);
   assert.throws(
@@ -119,6 +120,8 @@ try {
     ['reflection', '-h'],
     ['reflection', 'apply', '-h'],
     ['reflection', 'apply', '--help'],
+    ['memory', '-h'],
+    ['memory', 'apply', '--help'],
   ]) {
     const detail = execFileSync(process.execPath, [command, ...args], {
       env: consumerEnv,
@@ -126,14 +129,15 @@ try {
       encoding: 'utf8',
       timeout: 30000,
     });
-    assert.match(
-      detail,
-      args[0] === 'run'
-        ? /--resume/
-        : args.length === 2
-          ? /apply/
-          : /<revisionID>/,
-    );
+    if (args[0] === 'run') assert.match(detail, /--resume/);
+    else if (args.length === 2) assert.match(detail, /apply/);
+    else {
+      assert.match(
+        detail,
+        args[0] === 'memory' ? /<versionID>/ : /<revisionID>/,
+      );
+      assert.match(detail, /--to <directory>/);
+    }
   }
   const installedManifest = JSON.parse(
     await readFile(join(consumer, 'node_modules/arsi/package.json'), 'utf8'),
@@ -179,6 +183,8 @@ try {
       id: 'consumer.doctor',
       application: { plugin: 'consumer.doctor-application', config: {} },
       policy: { id: 'consumer.doctor' },
+      memory: false,
+      reflection: false,
       bindings: {
         custom: {
           plugin: 'proposer.consumer-doctor',
@@ -357,36 +363,51 @@ export function register(registry){
   }
   console.log('Installed extension cleanup passed for preview and execution.');
 
-  assert.deepEqual(
-    JSON.parse(
-      execFileSync(process.execPath, [command, 'reflection', 'list'], {
-        env: consumerEnv,
-        cwd: outside,
-        encoding: 'utf8',
-        timeout: 30000,
-      }),
-    ),
-    [],
-    'installed Reflection list works outside the source checkout',
-  );
-  for (const action of ['show', 'apply']) {
-    assert.throws(
-      () =>
-        execFileSync(
-          process.execPath,
-          [command, 'reflection', action, 'revision-missing'],
-          {
-            env: consumerEnv,
-            cwd: outside,
-            encoding: 'utf8',
-            stdio: 'pipe',
-            timeout: 30000,
-          },
-        ),
-      (error) =>
-        /Unknown revision ID revision-missing/.test(String(error.stderr)),
-      `installed Reflection ${action} resolves exact revision identities`,
+  for (const [kind, label] of [
+    ['reflection', 'revision'],
+    ['memory', 'memory'],
+  ]) {
+    assert.deepEqual(
+      JSON.parse(
+        execFileSync(process.execPath, [command, kind, 'list'], {
+          env: consumerEnv,
+          cwd: outside,
+          encoding: 'utf8',
+          timeout: 30000,
+        }),
+      ),
+      [],
+      `installed ${kind} list works outside the source checkout`,
     );
+    for (const action of ['show', 'apply']) {
+      const missing = label + '-missing';
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              command,
+              kind,
+              action,
+              missing,
+              '--to',
+              join(outside, 'exported-resource'),
+            ],
+            {
+              env: consumerEnv,
+              cwd: outside,
+              encoding: 'utf8',
+              stdio: 'pipe',
+              timeout: 30000,
+            },
+          ),
+        (error) =>
+          new RegExp('Unknown ' + label + ' ID ' + missing, 'i').test(
+            String(error.stderr),
+          ),
+        `installed ${kind} ${action} resolves exact identities`,
+      );
+    }
   }
   const extension = join(consumer, 'external-extension');
   await mkdir(extension);
@@ -669,7 +690,7 @@ try {
  for(const name of ['dsh-harness2','dsh-wikiskill','dsh-gepa','parameter-grid','parameter-tpe','parameter-agent']){
   const recipe=await Recipe.load(resolve(${JSON.stringify(outside)},name,'recipe.yaml'),runtime.registry);
   assert.equal(recipe.schemaVersion,'rsi.recipe/v1','installed package resolves example bindings and Policy schemas');
-  if(name==='dsh-harness2')assert.equal(recipe.reflection.implementation.ref,'reflection.agent','installed consumer assembles Reflection with its packaged default prompt');
+  if(name==='dsh-harness2')assert.equal(recipe.memory.plugin,'memory.agent','installed consumer assembles managed Memory');
   if(name==='dsh-gepa'){
    assert.equal(recipe.policy.id,'policy.gepa');
    assert.equal(recipe.bindings.evolutionProposer.pluginId,'proposer.pareto-evolution','installed consumer assembles built-in GEPA without an extension directory');
@@ -696,7 +717,6 @@ try {
  assert.deepEqual(runtime.registry.get('proposer.operator').contract,operatorProposerContract);
  assert.deepEqual(runtime.registry.get('summarizer.operator').contract,operatorSummarizerContract);
  const {prepareDocumentPreviews}=await import(new URL('plugins/reflection-agent/document-previews.js',installed));
- const {validateReflection}=await import(new URL('runtime/revisions/validation.js',installed));
  const require=createRequire(await realpath(fileURLToPath(new URL('./node_modules/arsi/package.json',import.meta.url))));
  const ExcelJS=require('exceljs');
  const workbook=new ExcelJS.Workbook();workbook.addWorksheet('Consumer').getCell('A1').value={formula:'1+1',result:2};
@@ -707,7 +727,6 @@ try {
  const previews=await prepareDocumentPreviews({sources:sourceFiles.map((file,index)=>({artifactRef,path:file.path,pointer:'/files/'+index,access:'delivery'})),files:previewFiles,artifacts:runtime.manager.artifacts,signal:new AbortController().signal});
  assert.deepEqual(previews.map(preview=>preview.inspection),['complete','complete','complete'],'installed parsers extract all supported formats');
  assert.match(JSON.stringify(previewFiles),/Top left/);assert.match(JSON.stringify(previewFiles),/Second page/);assert.match(JSON.stringify(previewFiles),/savedResult/);
- const targetDirectory=resolve(${JSON.stringify(outside)},'reflection-guidance');await mkdir(targetDirectory);
  const prompt=fileURLToPath(new URL('plugins/reflection-agent/prompt.md',installed));
  assert.match(await readFile(prompt,'utf8'),/selected plugin/);
  const reviewer=await packageResource(fileURLToPath(new URL('plugins/reflection-agent/reviewer.md',installed)));
@@ -718,11 +737,17 @@ try {
  assert.equal((await createProjectSubagentTool(project,async()=>({findings:'consumer'}))).name,'subagent','installed delegation tool loads without source checkout resources');
  for(const goal of ['generic','proposer','proposer-office','memory','selector']){
   const goalFile=fileURLToPath(new URL('plugins/reflection-agent/goals/'+goal+'/prompt.md',installed));
-  const configFile=resolve(${JSON.stringify(outside)},'reflection-'+goal+'.json');
-  await writeFile(configFile,JSON.stringify({evidence:['proposer'],targets:{proposer:{resources:['guidance']}},goal:goalFile,implementation:{contract:'contract.reflection',ref:'reflection.agent',config:{agentRef:'agent'}}}));
-  const configuration=await validateReflection(configFile,{proposer:Binding.resolve({name:'proposer',registry:runtime.registry,required:proposerContract,override:{declaration:{plugin:'proposer.agent',config:{prompt,guidance:targetDirectory,agentRef:'agent'}},directory:${JSON.stringify(outside)}}}).toJSON(),agent:Binding.resolve({name:'agent',registry:runtime.registry,required:runtime.registry.get('agent.pi').contract,override:{declaration:{plugin:'agent.pi',config:{}},directory:${JSON.stringify(outside)}}}).toJSON()},id=>runtime.registry.get(id),id=>runtime.registry.contract(id));
+  const recipePath=resolve(${JSON.stringify(outside)},'dsh-harness2','recipe.yaml');
+  const recipe=(await Recipe.load(recipePath,runtime.registry)).toJSON();
+  const configFile=resolve(${JSON.stringify(outside)},'reflection-config-'+goal+'.json');
+  await writeFile(configFile,JSON.stringify({trigger:{on:'experiment-end'},evidence:{includeBindings:['selector']},goal:goalFile,targets:{include:{domainProposer:['prompt']}},implementation:{config:{agentRef:'agent'}}}));
+  recipe.reflection={configFile};
+  const path=resolve(${JSON.stringify(outside)},'reflection-'+goal+'.json');
+  await writeFile(path,JSON.stringify(recipe));
+  const configuration=(await Recipe.load(path,runtime.registry)).reflection;
+  assert.deepEqual(configuration.targets,{domainProposer:{resources:['/prompt']}},'the Recipe grants only its named Reflection resource');
   assert.equal(configuration.goal,await readFile(goalFile,'utf8'),'explicit installed goal selection loads contents');
-  assert.equal(await realpath(configuration.implementation.config.prompt),await realpath(prompt),'installed generic prompt is the default');
+  assert.equal(await realpath(configuration.config.prompt),await realpath(prompt),'installed generic prompt is the default');
  }
  for(const id of runtime.registry.catalog().policies){
   const path=await packageResource(runtime.registry.policy(id)),policy=await Policy.load(path,runtime.registry);
@@ -736,8 +761,9 @@ try {
    assert.deepEqual(requirement,id==='policy.parameter-grid'?gridProposerContract:id==='policy.parameter-optuna'?iterativeProposerContract:id==='policy.operator-search'?operatorProposerContract:proposerContract,'installed Policy and implementation share the public Proposer type');
   }
   assert.deepEqual(runtime.registry.get('proposer.agent').contract,proposerContract);
-  const reflection=policy.defaults.reflection;
-  if(reflection&&typeof reflection==='object'&&!Array.isArray(reflection))await readFile(await packageResource(resolve(dirname(path),reflection.configFile)),'utf8');
+  for (const module of [policy.defaults.memory,policy.defaults.reflection]) {
+    if(module?.configFile)assert.ok((await readFile(await packageResource(resolve(dirname(path),module.configFile)),'utf8')).length);
+  }
   const bindings=policy.defaults.bindings??{};
   for(const binding of Object.values(bindings)){
    if(binding.config?.prompt)assert.ok((await readFile(await packageResource(resolve(dirname(path),binding.config.prompt)),'utf8')).length);
@@ -764,7 +790,7 @@ try {
  runtime.registry.registerPolicy('consumer.policy',policyPath);
  const recipePath=resolve(${JSON.stringify(outside)},'consumer-recipe.yaml');
  await writeFile(recipePath,JSON.stringify({
-  schemaVersion:'rsi.recipe/v1',id:'consumer.recipe',application:{plugin:'consumer.application',config:{}},
+  schemaVersion:'rsi.recipe/v1',id:'consumer.recipe',memory:false,reflection:false,application:{plugin:'consumer.application',config:{}},
   policy:{id:'consumer.policy',config:{},input:{}},budget:{operations:10,elapsedWallMs:10000},
   bindings:{worker:{plugin:'consumer.worker',config:{}},unused:{plugin:'consumer.worker',config:{}}}
  }));
@@ -895,6 +921,21 @@ new Registry().registerOperation(definition);
 import { RuntimeContext, type OperationDefinition } from 'arsi/contracts';
 import type { IterativeProposerInput, IterativeProposerOutput } from 'arsi';
 import type { IterativeProposerInput as ContractIterativeProposerInput, IterativeProposerOutput as ContractIterativeProposerOutput } from 'arsi/contracts';
+import { runtimeEvolutionFileSchema, type RuntimeEvolutionTrigger, type RuntimeEvolutionDeclaration } from 'arsi';
+import { runtimeEvolutionDeclarationSchema, runtimeEvolutionNames, runtimeEvolutionTriggerSchema } from 'arsi/contracts';
+export const evolutionSchemas = [runtimeEvolutionFileSchema('reflection'), runtimeEvolutionDeclarationSchema, runtimeEvolutionNames, runtimeEvolutionTriggerSchema];
+import type { RecipeDeclaration, ReflectionConfiguration, RuntimeEvolutionEvidenceView, MemoryActivatedEvent, MemoryOutput } from 'arsi/contracts';
+export const reflectionFile:ReflectionConfiguration={targets:{include:{proposer:['prompt']}}};
+export function readTrainingFiles(context:RuntimeContext,refs:string[]) {
+ const view:RuntimeEvolutionEvidenceView='training';
+ return context.readEvidence(refs,{view,format:'files'});
+}
+export const trigger: RuntimeEvolutionTrigger = { on:'loop-iteration',every:1 };
+export const memory:RuntimeEvolutionDeclaration = { configFile:'./memory.yaml' };
+export const reflection:RuntimeEvolutionDeclaration = true;
+export const modules:Pick<RecipeDeclaration,'memory'|'reflection'>={memory,reflection};
+export function retain(event:MemoryActivatedEvent):string { return event.memoryVersionRef; }
+export const proposal:MemoryOutput = {status:'updated', resourceRef:'a',changeRef:'b',reason:'saved'};
 declare module 'arsi/contracts' {
  interface RuntimeContext { contractsOnlyTrace?: string; }
 }

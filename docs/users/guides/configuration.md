@@ -17,7 +17,8 @@ The following table lists the top-level Recipe fields. For a complete Recipe exa
 | `policy`        | Yes      | Choose the experiment flow and provide its parameters and initial data. | Set `id` to a Policy ID, such as `policy.wikiskill`; fill `config` with parameters required by the Policy, such as round counts and datasets, and `input` with its required input data, such as an initial candidate.                                     |
 | `bindings`      | No       | Specify the plugins and configuration used by actions in the flow.      | Keys match the selected Policy's `require` names. The Policy uses these names to call plugins; the corresponding Recipe entry selects the implementation and parameters through `plugin` and `config`.                                                    |
 | `budget`        | No       | Limit experiment calls, execution time, and other resources.            | For example, `evaluationRuns: 20` or `elapsedWallMs: 21600000`; see [Limits and budgets](#limits-and-budgets) for the fields.                                                                                                                             |
-| `reflection`    | No       | Replace the Policy's default Reflection configuration.                  | Provide a configuration object whose `configFile` points to the Reflection configuration file, for example `{ configFile: ./reflection.yaml }`, following its separate [declaration and invocation rules](reflection.md#override-the-file-from-a-recipe). |
+| `memory` | No | Update experience at a serial boundary. | Use a boolean or `{ configFile: ./memory.yaml }`. See [Memory](memory.md). |
+| `reflection` | No | Revise selected binding resources. | Omit it to inherit the Policy setting. `true` requires a Policy configuration file. Use `false` to disable, or `{ configFile: ./reflection.yaml }` to supply a complete file with `targets.include`. See [Reflection](reflection.md). |
 
 - A Recipe's `config` objects configure the selected Application, Policy, or plugin. Each component's configuration Schema defines the fields and their requirements.
   - You can use Schema defaults, and plugin bindings can also inherit the Policy's default configuration.
@@ -202,31 +203,14 @@ proposal rounds so repeated empty responses cannot create an unbounded loop.
 A no-change proposal preserves its reason in `observations.previousNoChangeReason`
 and requests another proposal from the same incumbent while limits permit. It
 consumes a proposal round, not a candidate attempt, and does not restart the
-baseline. Enabled Reflection also runs after an empty proposal when another
-round and candidate attempt remain; Memory stays tied to measured batches.
+baseline.
 Runtime time, operation and evaluation budgets, cancellation, errors and
 unconfirmed cleanup remain independent stopping conditions. Policy `stopReason`
 is `max-trials` when the candidate limit is reached, `max-proposal-rounds` when
 the round limit is reached first, otherwise `null`. Budget exhaustion is recorded
 at experiment level and preserves the last committed incumbent in `partialOutput`.
 
-`policy.parameter-agent` also supports independent `policy.config.memory` and
-`policy.config.reflection` switches, both `false` by default. Memory consolidates
-measured batches and passes the saved `memoryRef` to subsequent proposals;
-Reflection revises only Proposer `guidance` between batches when another trial
-can run. Both reuse the configured `agent` binding and `training-summary` evidence.
-The Policy supplies generic Proposer, Memory and Reflection prompts, plus default
-[guidance](../../../src/policies/parameter/agent/guidance/search.md). To specialize
-that guidance, copy it to a dedicated directory and set
-`bindings.proposer.config.guidance` to that directory. The Reflection switch only
-controls invocation: its configuration and resources are validated at Recipe load
-time even when the switch is false. Custom Proposers must expose the configured
-Reflection target resources, or the Recipe must select a compatible Reflection file.
-Scene-specific copies of prompts can be selected through
-`bindings.proposer.config.prompt`, `bindings.memoryUpdater.config.prompt` and
-`reflection.configFile`; they do not require a copy of the Policy.
-The result includes `memoryRef` (`null` when absent).
-See [Memory](memory.md) and [Reflection](reflection.md) for storage and activation.
+Parameter Agent's Proposer uses `training-summary` by default to read measured throughput and latency. The Policy enables Memory and Reflection after each search iteration. Both reuse the declared `agent` binding and default to `training`, which includes execution files and authorized scoring feedback. To keep a module verifier-blind, set `evidence: { view: execution }` in its configuration file, as Harness² does. For scores with compact execution previews, choose `training-summary`. Set `memory: false` or `reflection: false` in the Recipe to disable either. For custom goals, prompts, targets or budgets, select an external configuration file. See [Memory](memory.md) and [Reflection](reflection.md).
 
 This is reusable single-file configuration-search orchestration: objectives,
 research methods and specialist roles come from the Recipe and its resources.
@@ -277,8 +261,9 @@ Omitted Recipe binding settings first inherit Policy defaults. The “When omitt
 | Pareto Evolution Proposer             | `maxRollouts`                                      | Task-rollout allowance across initial scoring, parent/proposal comparison, and population selection; separate from the evaluation-call budget.                        | Required; no default.                                                                                             |
 | Optuna Proposer                       | `python.timeoutMs`                                 | Duration limit for one Python worker invocation, in milliseconds.                                                                                                     | No separate duration limit for a worker invocation.                                                               |
 | Optuna Proposer                       | `maxSamplingAttempts`                              | Maximum sampling attempts across the search, including duplicate combinations that skip evaluation; `policy.config.maxTrials` separately limits evaluations.          | No additional sampling-attempt limit.                                                                             |
-| Reflection file                       | `budget.modelCalls`                                | Maximum model requests for one Reflection call; 0 prevents the built-in generator from starting, and positive limits require backend accounting.                      | No model-call limit specific to this Reflection call.                                                             |
-| Reflection file                       | `budget.timeoutSeconds`                            | Duration limit for one Reflection call, in seconds.                                                                                                                   | No separate duration limit for this Reflection call.                                                              |
+| Memory or Reflection | `budget.modelCalls` | Maximum new model calls per Memory or Reflection invocation. Zero blocks new model calls. | No additional model-call cap. |
+| Memory or Reflection | `budget.timeoutSeconds` | Maximum wall time per Memory or Reflection invocation, in seconds. | No additional time limit. |
+| Memory or Reflection | `budget.evidenceBytes` | Maximum bytes in the projected evidence. | No additional module-level byte limit. |
 | Target                                | `entries[].content.maxBytes`                       | Maximum content size per file in the Target entry, in bytes.                                                                                                          | The Target sets no per-file size limit.                                                                           |
 | Target                                | `constraints.maxChangedFiles`                      | Maximum changed files in one candidate commit.                                                                                                                        | The Target sets no changed-file count limit.                                                                      |
 | Target                                | `constraints.maxChangedBytes`                      | Maximum total content size of changed files in one candidate commit, in bytes.                                                                                        | The Target sets no total changed-content size limit.                                                              |

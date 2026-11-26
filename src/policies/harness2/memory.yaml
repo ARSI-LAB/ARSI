@@ -1,0 +1,4 @@
+evidence: { view: execution }
+targets: { exclude: [selector] }
+implementation:
+  config: { prompt: ./memory.md }

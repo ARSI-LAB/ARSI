@@ -1,13 +1,13 @@
+import { persistFact } from '../storage/persistence-error.js';
 import { OperationRejectedError } from '../../contracts/runtime/errors.js';
-import { lstat, mkdir, realpath } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { getLogger } from '@logtape/logtape';
-import {
-  agentContract,
-  memoryContract,
-  reflectionContract,
-} from '../../contracts/index.js';
+import { agentContract } from '../../contracts/index.js';
 import { metricSelectorContract } from '../../contracts/plugin-types/selector-metrics.js';
+import { assertOwnedAgentProject } from '../services/agent-project.js';
+import { pinnedMemory } from '../evolution/memory-delivery.js';
+import type { ActiveMemory } from '../evolution/memory.js';
 import type {
   Binding,
   RuntimeContext,
@@ -38,6 +38,7 @@ interface CallExecutorOptions {
   registry: Registry;
   facts: FactStore;
   revisionRefs: Readonly<JsonObject>;
+  memoryForBinding?(bindingId: string): ActiveMemory | null;
   retryCalls?: ReadonlyMap<string, JsonObject>;
   retryRef?: string;
   onReusedCall?(receipt: JsonObject): void;
@@ -86,8 +87,40 @@ export function assertCallAdmitted<T extends CallDecision>(
     object(decision.metadata, 'Call admission metadata');
 }
 
+export function callIdentity(
+  experiment: string,
+  bindingId: string,
+  path: string,
+  input: JsonValue,
+  attempt?: string,
+): string {
+  return (
+    'call-' +
+    digest({
+      experiment,
+      bindingId,
+      path,
+      input,
+      ...(attempt ? { attempt } : {}),
+    }).slice(0, 32)
+  );
+}
+
 export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
   const { id, context, charge } = options;
+  const facts = options.facts;
+  const evolutionFacts: FactStore = {
+    read: facts.read.bind(facts),
+    list: facts.list.bind(facts),
+    ...(facts.scan ? { scan: facts.scan.bind(facts) } : {}),
+    async write(kind, key, value) {
+      if (kind === 'candidates')
+        throw new Error(
+          'Runtime evolution calls cannot write Application candidates',
+        );
+      await persistFact(facts, kind, key, value);
+    },
+  };
   const active = new Map<string, Promise<JsonValue>>();
   const uncertain = new Map<string, () => Promise<void>>();
   const childFailures = new Map<string, unknown>();
@@ -116,6 +149,14 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
       input = structuredClone(input);
       if (metadata !== undefined) metadata = structuredClone(metadata);
       validate(definition.contract.input_schema, input, `${bindingId} input`);
+      if (
+        optionalCalls.has(caller.callId) &&
+        definition.contract.id === 'contract.application' &&
+        ['commit', 'initialize'].includes(String(object(input).action))
+      )
+        throw new Error(
+          'Runtime evolution calls cannot create Application candidates',
+        );
       agentInput =
         definition.contract.id === agentContract.id ? object(input) : undefined;
       project =
@@ -158,19 +199,6 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
             `artifact:${basename(dirname(project))}`,
           )
         : undefined;
-    const identity = (value: JsonValue): string =>
-      'call-' +
-      digest({
-        experiment: id,
-        bindingId,
-        path: path ?? caller.callId,
-        input: value,
-        ...(bindingId === '_application' &&
-        ['acquire', 'release'].includes(String(object(input).action)) &&
-        caller.idempotencyKey !== caller.callId
-          ? { attempt: caller.idempotencyKey }
-          : {}),
-      }).slice(0, 32);
     const policyReceipt =
       caller.callId === 'root' && path !== undefined
         ? options.retryCalls?.get(path)
@@ -180,7 +208,17 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
     const callId =
       typeof policyReceipt?.callId === 'string'
         ? policyReceipt.callId
-        : identity(input);
+        : callIdentity(
+            id,
+            bindingId,
+            path ?? caller.callId,
+            input,
+            bindingId === '_application' &&
+              ['acquire', 'release'].includes(String(object(input).action)) &&
+              caller.idempotencyKey !== caller.callId
+              ? caller.idempotencyKey
+              : undefined,
+          );
     const existing = active.get(callId);
     if (existing) return existing;
     const checkedOutput = (value: unknown): JsonValue => {
@@ -198,21 +236,22 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         throw new Error('Application returned wrong action');
       return output;
     };
+    const evolutionCall =
+      bindingId === '_memory' ||
+      bindingId === '_reflection' ||
+      optionalCalls.has(caller.callId);
+    const memory = evolutionCall
+      ? null
+      : (options.memoryForBinding?.(bindingId) ?? null);
     const job = (async (): Promise<JsonValue> => {
-      let ctx = context(bindingId, callId, caller);
+      let ctx: RuntimeContext = context(bindingId, callId, caller).extend({
+        [pinnedMemory]: memory,
+      });
       let projectArtifactRef: string | undefined;
       if (project !== undefined) {
         if (caller.agentProject === undefined) {
           const hash = basename(dirname(project));
-          const root = await realpath(caller.directory);
-          if (
-            (await realpath(project)) !==
-              join(root, 'agent-projects', hash, 'project') ||
-            !(await lstat(join(project, '.rsi-project'))).isFile()
-          )
-            throw new Error(
-              'Agent cwd does not resolve to its authorized project',
-            );
+          await assertOwnedAgentProject(caller.directory, project);
           projectArtifactRef = `artifact:${hash}`;
         }
         ctx = ctx.extend({ agentProject: project });
@@ -256,25 +295,16 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         bindingRef: binding.plugin,
         revisionRef: typeof revisionRef === 'string' ? revisionRef : null,
       };
-      const isMemory = definition.contract.id === memoryContract.id;
-      if (
-        isMemory ||
-        definition.contract.id === reflectionContract.id ||
-        optionalCalls.has(caller.callId)
-      )
+      if (evolutionCall) {
         optionalCalls.add(callId);
-      // A handled Memory failure is a completed update boundary, even when its
-      // Policy checkpoint was interrupted. Reuse its old reference on resume.
-      if (
-        isMemory &&
-        prior?.status === 'failed' &&
-        prior.output !== undefined
-      ) {
-        const output = checkedOutput(prior.output);
-        if (object(output).status === 'failed') {
-          reportReuse?.(prior);
-          return output;
-        }
+        ctx = ctx.extend({
+          facts: evolutionFacts,
+          async recordCandidate() {
+            throw new Error(
+              'Runtime evolution calls cannot create Application candidates',
+            );
+          },
+        });
       }
       const lease = await options.operation(bindingId, binding);
       ctx = ctx.extend({ event: lease.event });
@@ -302,7 +332,12 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         await charge('operations', 1, ctx);
         await mkdir(ctx.directory, { recursive: true });
         if (prior && recoveredFrom)
-          await options.facts.write('call-attempts', recoveredFrom, prior);
+          await persistFact(
+            options.facts,
+            'call-attempts',
+            recoveredFrom,
+            prior,
+          );
         const receipt: JsonObject = {
           ...info,
           pluginId: binding.plugin,
@@ -318,7 +353,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           ...(options.retryRef ? { retryRef: options.retryRef } : {}),
           ...(attemptId ? { attemptId } : {}),
         };
-        await options.facts.write('calls', callId, receipt);
+        await persistFact(options.facts, 'calls', callId, receipt);
         const applicationAction =
           bindingId === '_application' ? object(input).action : undefined;
         const label = callLabel(bindingId, path, applicationAction);
@@ -340,7 +375,7 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         const commit = (value: JsonObject): Promise<boolean> => {
           const write = writes.then(async () => {
             if (committed) return false;
-            await options.facts.write('calls', callId, {
+            await persistFact(options.facts, 'calls', callId, {
               ...receipt,
               ...value,
               finishedAt: new Date().toISOString(),
@@ -382,7 +417,6 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         });
         const parentSignal = ctx.signal;
         let output: JsonValue;
-        let memoryFailed = false;
         try {
           const decision = await ctx.event.waterfall(
             'rsi/before-call',
@@ -396,8 +430,9 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
             const write = writes.then(async () => {
               if (committed)
                 throw new Error(`Call ${callId} outcome remains unconfirmed`);
-              receipt.metadata = { ...metadata, ...admitted };
-              await options.facts.write('calls', callId, receipt);
+              // Agent preparation owns the provenance of the submitted input.
+              receipt.metadata = { ...admitted, ...metadata };
+              await persistFact(options.facts, 'calls', callId, receipt);
             });
             writes = write.then(
               () => {},
@@ -406,12 +441,11 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
             await write;
           }
           output = checkedOutput(await lease.operation.execute(input, ctx));
-          memoryFailed = isMemory && object(output).status === 'failed';
+          if (ctx.scope) ctx.signal.throwIfAborted();
           if (
             !(await commit({
-              status: memoryFailed ? 'failed' : 'succeeded',
+              status: 'succeeded',
               output,
-              ...(memoryFailed ? { error: object(output).reason! } : {}),
             }))
           )
             throw new Error(`Call ${callId} outcome remains unconfirmed`);
@@ -499,58 +533,37 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
           activeTask: finishedTask,
           ...timing(),
         };
-        if (memoryFailed) {
-          logger.error('{label} {duration}', {
-            ...completion,
-            stage: 'Failed',
-            error: object(output).reason,
-          });
-        } else {
-          const refs =
-            output && typeof output === 'object' && !Array.isArray(output)
-              ? output
-              : undefined;
-          const candidateRef = refs?.candidateRef ?? refs?.initialCandidateRef;
-          const measurementRef = refs?.measurementRef;
-          const reference =
-            typeof candidateRef === 'string'
-              ? ` · candidate ${candidateRef}`
-              : typeof measurementRef === 'string'
-                ? ` · measurement ${measurementRef}`
-                : '';
-          logger.info('{label} {duration}{reference}', {
-            ...completion,
-            stage: 'Completed',
-            candidateRef,
-            measurementRef,
-            reference,
-            applicationAction,
-            ...(definition.contract.id === metricSelectorContract.id
-              ? { selection: selectionLogDetails(output) }
-              : {}),
-          });
-        }
+        const refs =
+          output && typeof output === 'object' && !Array.isArray(output)
+            ? output
+            : undefined;
+        const candidateRef = refs?.candidateRef ?? refs?.initialCandidateRef;
+        const measurementRef = refs?.measurementRef;
+        const reference =
+          typeof candidateRef === 'string'
+            ? ` · candidate ${candidateRef}`
+            : typeof measurementRef === 'string'
+              ? ` · measurement ${measurementRef}`
+              : '';
+        logger.info('{label} {duration}{reference}', {
+          ...completion,
+          stage: 'Completed',
+          candidateRef,
+          measurementRef,
+          reference,
+          applicationAction,
+          ...(definition.contract.id === metricSelectorContract.id
+            ? { selection: selectionLogDetails(output) }
+            : {}),
+        });
         // Notification errors do not undo a settled optional update.
-        const eventName = memoryFailed
-          ? 'rsi/call-failed'
-          : 'rsi/call-succeeded';
+        const eventName = 'rsi/call-succeeded';
         try {
-          if (memoryFailed)
-            await ctx.event.parallel('rsi/call-failed', {
-              ...info,
-              status: 'failed',
-            });
-          else
-            await ctx.event.parallel('rsi/call-succeeded', {
-              ...info,
-              status: 'succeeded',
-              ...(output &&
-              typeof output === 'object' &&
-              !Array.isArray(output) &&
-              typeof output.measurementRef === 'string'
-                ? { measurementRef: output.measurementRef }
-                : {}),
-            });
+          await ctx.event.parallel(eventName, {
+            ...info,
+            status: 'succeeded',
+            ...(typeof measurementRef === 'string' ? { measurementRef } : {}),
+          });
         } catch (error) {
           if (optionalCalls.has(callId)) options.diagnose(eventName, error);
           else

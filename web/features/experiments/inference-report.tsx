@@ -86,7 +86,7 @@ export function InferenceReport({
             Output throughput, latency and the evidence behind each candidate.
           </p>
         </div>
-        <a className="quiet-button" href={route(id, 'learning')}>
+        <a className="quiet-button" href={route(id, 'evolution')}>
           Explore Reflection & Memory
         </a>
       </div>

@@ -174,18 +174,18 @@ for (const id of [
   });
 }
 
-test('editor checks diagnose missing guidance and reject duplicate roles and skills', async (t) => {
+test('editor checks diagnose missing skill instructions and reject duplicate roles and skills', async (t) => {
   const f = await fixture(t);
-  const missingGuidance = f.probe('memory.agent', {
+  const missingSkill = f.probe('memory.agent', {
     agentRef: 'agent',
     prompt: f.prompt,
-    guidance: join(f.root, 'missing-guidance'),
+    skills: [join(f.root, 'missing-skill')],
   });
-  const missingGuidanceResult = await runDoctor(missingGuidance);
-  const reason = missingGuidanceResult.checks.find(
+  const missingSkillResult = await runDoctor(missingSkill);
+  const reason = missingSkillResult.checks.find(
     ({ id }) => id === 'editing-inputs',
   )?.reason;
-  assert.match(reason ?? '', /Missing directory.*correct guidance/);
+  assert.match(reason ?? '', /Missing file.*SKILL\.md.*correct skills\.0/);
 
   const role = { name: 'reviewer', description: 'Review', prompt: f.prompt };
   const duplicateRoles = f.probe('proposer.agent', {

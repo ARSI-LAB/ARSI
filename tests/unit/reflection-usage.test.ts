@@ -1,13 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -19,7 +12,7 @@ import {
 import { createRuntime } from '../../src/runtime/context.js';
 import { object, string } from '../../src/shared/json.js';
 import { measurementFixture } from '../helpers/manager-fixture.js';
-test('Reflection without a local budget exceeds 50 calls and a subsequent Proposer uses activated guidance', async (t) => {
+test('Reflection without a local budget exceeds 50 calls and a subsequent Proposer uses the revised prompt', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-reflection-use-'));
   const runtime = await createRuntime({ rootDirectory: directory });
   t.after(async () => {
@@ -27,8 +20,6 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
     await rm(directory, { recursive: true, force: true });
   });
   const { registry, manager } = runtime;
-  await mkdir(join(directory, 'guidance'));
-  await writeFile(join(directory, 'guidance/rules.md'), 'Original guidance.');
   await writeFile(join(directory, 'propose.md'), 'Propose carefully.');
   let generated = 0;
   const prompts: string[] = [];
@@ -97,7 +88,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
       return {
         async execute(raw, context) {
           const request = object(raw);
-          if (request.goal === 'Improve guidance') {
+          if (request.goal === 'Improve the Proposer prompt') {
             generated++;
             assert.equal(request.maxModelCalls, undefined);
             assert.equal(context.scope?.limits.modelCalls, undefined);
@@ -111,11 +102,11 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
             return {
               edits: [
                 {
-                  path: 'bindings/proposer/resources/guidance/rules.md',
-                  content: 'Activated guidance: verify applicability first.',
+                  path: 'resources/proposer/prompt',
+                  content: 'Verify applicability first.',
                 },
               ],
-              reason: 'Deterministic guidance update',
+              reason: 'Clarify the verification step',
             };
           }
           prompts.push(
@@ -138,6 +129,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
       agent: { contract: agentContract.id },
     },
     defaults: {
+      memory: false,
       reflection: { configFile: './reflection.yaml' },
       bindings: {
         observer: { plugin: 'usage.observer', config: {} },
@@ -145,14 +137,13 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
           plugin: 'proposer.agent',
           config: {
             prompt: './propose.md',
-            guidance: './guidance',
             agentRef: 'agent',
           },
         },
         agent: { plugin: 'usage.agent', config: {} },
       },
     },
-    output: { reflection: '${{ steps.improve.output }}' },
+    output: {},
     steps: [
       ...[1, 2, 3].map((i) => ({
         id: `observe_${i}`,
@@ -160,14 +151,13 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
         use: 'observer',
         with: { candidateRef: '${{ application.initialCandidate }}' },
       })),
-      { id: 'improve', type: 'reflection' },
       {
         id: 'propose',
         type: 'invoke',
         use: 'proposer',
         with: {
           parent: '${{ application.initialCandidate }}',
-          goal: 'Use guidance',
+          goal: 'Propose a candidate',
           evidenceRefs: [],
         },
       },
@@ -178,17 +168,17 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
   await writeFile(
     join(directory, 'reflection.yaml'),
     JSON.stringify({
-      evidence: ['observer'],
-      targets: { proposer: { resources: ['guidance'] } },
+      trigger: { on: 'after-step', step: 'observe_3' },
+      evidence: { includeBindings: ['observer'] },
+      targets: { include: { proposer: ['prompt'] } },
       goal: './goal.md',
       implementation: {
-        contract: 'contract.reflection',
         ref: 'reflection.agent',
         config: { agentRef: 'agent' },
       },
     }),
   );
-  await writeFile(join(directory, 'goal.md'), 'Improve guidance');
+  await writeFile(join(directory, 'goal.md'), 'Improve the Proposer prompt');
   const recipePath = join(directory, 'recipe.yaml');
   await writeFile(
     recipePath,
@@ -203,19 +193,21 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
   );
   const result = await manager.run(recipePath, { id: 'usage.experiment' });
   assert.equal(result.status, 'succeeded');
-  const output = object(result.output);
-  assert.equal(object(output.reflection).status, 'activated');
+  assert.equal(
+    (await manager.facts.list('evolution-runs'))[0]?.status,
+    'activated',
+  );
   assert.equal(generated, 1);
   assert.equal(prompts.length, 1);
-  assert.match(prompts[0]!, /Activated guidance: verify applicability first/);
+  assert.match(prompts[0]!, /Verify applicability first/);
   assert.equal(
-    await readFile(join(directory, 'guidance/rules.md'), 'utf8'),
-    'Original guidance.',
+    await readFile(join(directory, 'propose.md'), 'utf8'),
+    'Propose carefully.',
   );
   const calls = await manager.facts.list('calls');
   const proposerCall = calls.find((call) => call.bindingId === 'proposer');
   assert.ok(proposerCall);
-  const revisions = object(object(output.reflection).revisionRefs);
+  const revisions = object(object(result.evolution).revisionRefs);
   assert.equal(proposerCall.revisionRef, revisions.proposer);
   const budgets: JsonObject = await manager.facts.read(
     'budgets',
@@ -233,8 +225,6 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
     await rm(directory, { recursive: true, force: true });
   });
   const { registry, manager } = runtime;
-  await mkdir(join(directory, 'guidance'));
-  await writeFile(join(directory, 'guidance/initial.md'), '');
   await writeFile(
     join(directory, 'proposer.md'),
     'Use the current evidence to propose a concrete edit.',
@@ -302,7 +292,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
               reflections === 1
                 ? [
                     {
-                      path: 'bindings/proposer/resources/guidance/rule.md',
+                      path: 'resources/proposer/prompt',
                       content: 'Inspect source asset before editing.',
                     },
                   ]
@@ -350,11 +340,11 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
   await writeFile(
     join(directory, 'reflection.yaml'),
     JSON.stringify({
-      evidence: ['proposer'],
-      targets: { proposer: { resources: ['guidance'] } },
+      trigger: { on: 'loop-iteration' },
+      evidence: { includeBindings: ['proposer'] },
+      targets: { include: { proposer: ['prompt'] } },
       goal: './goal.md',
       implementation: {
-        contract: 'contract.reflection',
         ref: 'reflection.agent',
         config: { agentRef: 'agent' },
       },
@@ -378,25 +368,27 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
         agent: { contract: agentContract.id },
       },
       defaults: {
+        memory: false,
         reflection: { configFile: './reflection.yaml' },
         bindings: {
           proposer: {
             plugin: 'proposer.agent',
             config: {
               prompt: './proposer.md',
-              guidance: './guidance',
               agentRef: 'agent',
             },
           },
           agent: { plugin: 'comparison.agent', config: {} },
         },
       },
-      output: { reflection: '${{ steps.reflectSecond.output }}' },
+      output: {},
       steps: [
-        call('first', '${{ application.initialCandidate }}'),
-        { id: 'reflectFirst', type: 'reflection' },
-        call('second', '${{ steps.first.output.candidateRef }}'),
-        { id: 'reflectSecond', type: 'reflection' },
+        {
+          id: 'round',
+          type: 'loop',
+          maxIterations: 2,
+          steps: [call('propose', '${{ application.initialCandidate }}')],
+        },
       ],
     }),
   );
@@ -415,7 +407,11 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
     id: 'comparison',
   });
   assert.equal(result.status, 'succeeded');
-  assert.equal(object(object(result.output).reflection).status, 'no-change');
+  assert.ok(
+    (await manager.facts.list('evolution-runs')).some(
+      (run) => run.status === 'no-change',
+    ),
+  );
   assert.equal(reflections, 2);
   assert.deepEqual(await manager.facts.list('measurements'), []);
   const cwd = reflectionProjects[1]!;

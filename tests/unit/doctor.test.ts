@@ -114,6 +114,7 @@ async function fixture(): Promise<{
         right: { contract: 'contract.selector-metrics' },
       },
       defaults: {
+        memory: false,
         bindings: {
           left: {
             plugin: 'selector.metric',
@@ -639,7 +640,7 @@ test('agent editor doctor uses declared path failures and still checks skill con
   bindings.agent = { plugin: 'agent.pi' };
   const cases: [JsonObject, string][] = [
     [{ prompt: './skill' }, 'resource.prompt'],
-    [{ guidance: './prompt.md' }, 'resource.guidance'],
+    [{ skills: ['./prompt.md'] }, 'resource.skills.0'],
     [{ skills: ['./missing-skill'] }, 'resource.skills.0'],
     [
       {
@@ -762,11 +763,11 @@ test('doctor retains Recipe schema, Policy, binding, budget and Reflection valid
         reason: /budget.*operations/,
       },
       {
-        name: 'Reflection authorization',
+        name: 'unknown Reflection field',
         change(recipe) {
           recipe.reflection = { configFile: 'missing.yaml' };
         },
-        reason: /recipe.reflection/,
+        reason: /reflection|configFile/i,
       },
     ];
     let probes = 0;
@@ -1079,13 +1080,18 @@ test('doctor aggregates complete valid results and isolates callback errors by b
       report.checks.map(({ id, status }) => [id, status]),
       [
         ['recipe.validate', 'passed'],
+        ['memory.status', 'unchecked'],
+        ['reflection.status', 'unchecked'],
         ['application.script', 'failed'],
         ['left.script', 'failed'],
         ['right.input', 'failed'],
         ['right.dependent', 'unchecked'],
       ],
     );
-    assert.match(report.checks[1]?.reason ?? '', /Unexpected callback error/);
+    assert.match(
+      report.checks.find(({ id }) => id === 'application.script')?.reason ?? '',
+      /Unexpected callback error/,
+    );
     assert.match(
       report.checks.find(({ id }) => id === 'left.script')?.reason ?? '',
       /nonempty and unique/,
@@ -1335,4 +1341,18 @@ test('CLI doctor emits one JSON diagnostic with --json and reports usage separat
   } finally {
     await f.dispose();
   }
+});
+
+test('Doctor reports unchecked status for disabled Memory and unconfigured Reflection', async (t) => {
+  const f = await fixture();
+  t.after(() => f.dispose());
+  const report = await doctorRecipe(f.runtime, f.path);
+  assert.ok(report.checks.every(({ status }) => status !== 'failed'));
+  for (const name of ['memory', 'reflection'])
+    assert.deepEqual(
+      report.checks
+        .filter((check) => check.id.startsWith(name + '.'))
+        .map((check) => [check.id, check.status]),
+      [[name + '.status', 'unchecked']],
+    );
 });

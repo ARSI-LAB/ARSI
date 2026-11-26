@@ -38,6 +38,9 @@ test('observation HTTP projects existing facts, isolates experiments and never m
   const before = await snapshot();
   const server = await createServer({
     manager: {
+      memory: () => {
+        throw new Error('Unexpected Memory application');
+      },
       reflection: () => {
         throw new Error('Unexpected reflection call');
       },

@@ -16,6 +16,12 @@ export { RuntimeContext } from './contracts/runtime/context.js';
 export * from './contracts/plugin-types/index.js';
 export type * from './contracts/index.js';
 export {
+  runtimeEvolutionNames,
+  runtimeEvolutionTriggerSchema,
+  runtimeEvolutionDeclarationSchema,
+  runtimeEvolutionFileSchema,
+} from './contracts/runtime-evolution.js';
+export {
   prepareAgentProject,
   type AgentRole,
 } from './plugins/shared/agent-editing/project.js';
@@ -29,7 +35,6 @@ export {
   LoopStep,
   ForEachStep,
   ControlStep,
-  ReflectionStep,
 } from './runtime/policy/steps.js';
 
 // Extensions can request edits without committing candidates before domain validation.

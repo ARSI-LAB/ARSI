@@ -11,7 +11,7 @@
 
 A Candidate identifies immutable content (`artifactRef`) and parent lineage. An Instance leases execution resources for that Candidate. A Measurement identifies candidate, evaluation conditions, metric definitions/values and evidence; existence of a candidate does not mean it has been evaluated. Keep selected candidate and measurement together.
 
-Memory is a business operation whose returned `memoryRef` must be passed into subsequent calls. Reflection proposes resource revisions; Runtime controls structural acceptance and activation. Neither implies quality gain without comparable evaluation.
+Memory proposes experience snapshots delivered through `ctx.invokeAgent` to authorized calling bindings. Reflection proposes revisions to plugin resources. Runtime validates, activates and records both modules' outputs. Verify improvement with comparable evaluations.
 
 The current embedding flow is: author files → load/register extensions → assemble with `Recipe.load` → await `manager.run` or poll an accepted HTTP job → inspect result, facts and cleanup → dispose the owning host. Use `arsi doctor` in the intended execution environment for prerequisite checks. There are no saved-Recipe CRUD, preview tokens, pause/continue or `runs.start` APIs.
 

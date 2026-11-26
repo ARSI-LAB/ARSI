@@ -81,7 +81,7 @@ The table lists common rule fields used when writing `configSchema`:
 
 Runtime merges Policy and Recipe configuration, fills defaults, validates it, and passes the result to `create`.
 
-- Relative paths marked with `x-rsi-path` are resolved against the file declaring the configuration.
+- `x-rsi-path` tells the Runtime how to resolve paths relative to the declaring file, lets Doctor check them and lets the definition lock capture local resources for resume. Reflection edit access comes from the binding and resource fields explicitly selected in `targets.include` in the Reflection configuration.
 - Use `'local-file'` or `'local-directory'` for an input that requires a local file or directory. Doctor rejects URLs and paths that are themselves symbolic links for these declarations.
 
 - Plugins can also support reading configuration from environment variables. For example, `agent.pi` accepts the following `api_key` setting:
@@ -314,6 +314,8 @@ Runtime passes `context` to `create` and every `execute` call. Plugins use it to
 | Read evidence                        | `readEvidence(refs, options?)`                           | Select `view`, file or JSON format, and `maxBytes` to read the evidence available to this call.                                          |
 | Record usage                         | `charge(metric, amount)`                                 | Record usage and check budgets; call with `await`.                                                                                       |
 | Subscribe to events                  | `event`                                                  | Listen for runtime events and unsubscribe when finished; see [Runtime events](runtime-events.md).                                        |
+
+`context.readEvidence(refs)` defaults to `view: 'execution'` in JSON mode (bounded previews). Pass `{ format: 'files', view: 'training' }` to receive full redacted execution files together with authorized metrics and per-item verifier feedback; `format: 'files'` supports `'execution'` and `'training'`. In JSON mode, `'training-summary'` (and `'training'`) returns bounded previews with authorized feedback, and `'delivery'` returns anonymous deliverable previews. Memory and Reflection default to `training`, so verifier-blind Policies must set `evidence: { view: execution }` explicitly. See [Evidence](../concepts/architecture.md#evidence).
 
 Inside `execute`, build the managed workspace with `prepareAgentProject` from `arsi`. Put instructions in the second argument and authorized text files in the third. The last two arguments accept skill directories and role definitions. Prepare a workspace for each independent call. Use distinct project content for independent calls from the same plugin execution when they must not share local edits.
 

@@ -1,8 +1,8 @@
 import { isCancel, select, text } from '@clack/prompts';
 import { renderBanner } from './banner.js';
-import type { CommandOptions } from './commands.js';
-import { formatLogError } from './log-text.js';
-import { parseLogLevels, terminalLogLevel } from './logging.js';
+import type { CommandOptions } from '../commands.js';
+import { parseLogLevels, terminalLogLevel } from '../logging/index.js';
+import { formatLogError } from '../logging/log-text.js';
 import { parseShellLine, shellHelp } from './shell-parser.js';
 
 const choices = [

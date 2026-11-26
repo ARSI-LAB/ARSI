@@ -7,18 +7,18 @@ import test from 'node:test';
 import { stripVTControlCharacters } from 'node:util';
 import { withContext } from '@logtape/logtape';
 import stringWidth from 'string-width';
-import { renderBanner } from '../../src/entries/cli/banner.js';
 import {
   cliLogger,
   configureCliLogging,
   parseLogLevels,
   runtimeLogger,
-} from '../../src/entries/cli/logging.js';
+} from '../../src/entries/cli/logging/index.js';
+import { renderBanner } from '../../src/entries/cli/ui/banner.js';
 import {
   parseShellLine,
   splitCommandLine,
-} from '../../src/entries/cli/shell-parser.js';
-import { runWithSpinner } from '../../src/entries/cli/task-runner.js';
+} from '../../src/entries/cli/ui/shell-parser.js';
+import { runWithSpinner } from '../../src/entries/cli/ui/task-runner.js';
 import { reportTaskProgress } from '../../src/shared/task-progress.js';
 
 test('log levels use the most specific category and quiet still permits logging to a file', async (t) => {

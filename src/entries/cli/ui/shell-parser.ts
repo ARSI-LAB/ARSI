@@ -13,6 +13,7 @@ type ShellLine =
   | { kind: 'command'; argv: string[] }
   | { kind: 'builtin'; name: ShellBuiltin; args: string[] };
 
+// Tokenize one line of interactive input into argv for Commander to parse ordinary CLI commands.
 export function splitCommandLine(line: string): string[] {
   const argv: string[] = [];
   let word = '';

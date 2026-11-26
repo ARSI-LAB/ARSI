@@ -1,12 +1,12 @@
 import ora from 'ora';
 import stringWidth from 'string-width';
-import { formatDuration } from '../../shared/duration.js';
+import { formatDuration } from '../../../shared/call-log.js';
 import {
   formatCargoLine,
   formatLogLine,
   type CliLogging,
   type RunningTask,
-} from './logging.js';
+} from '../logging/index.js';
 
 const segmenter = new Intl.Segmenter();
 

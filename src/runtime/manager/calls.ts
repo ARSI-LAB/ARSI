@@ -23,8 +23,11 @@ import type {
 import { object, digest, json } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
 import { errorText } from '../../shared/errors.js';
-import { formatDuration } from '../../shared/duration.js';
-import { callLabel, selectionLogDetails } from '../../shared/call-log.js';
+import {
+  callLabel,
+  formatDuration,
+  selectionLogDetails,
+} from '../../shared/call-log.js';
 import type { Registry } from '../registry/index.js';
 import { agentReplayKey } from './retry.js';
 

@@ -13,11 +13,11 @@ import {
   type LogRecord,
 } from '@logtape/logtape';
 import { InvalidArgumentError } from 'commander';
-import { safeId } from '../../runtime/storage/index.js';
+import { safeId } from '../../../runtime/storage/index.js';
 import {
   selectionLogDetails,
   type SelectionLogDetails,
-} from '../../shared/call-log.js';
+} from '../../../shared/call-log.js';
 import {
   formatLogError,
   formatErrorStack,

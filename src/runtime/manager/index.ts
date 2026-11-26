@@ -1,6 +1,6 @@
 import { agentProcessLauncher } from '../services/agent-execution/process.js';
 import { errorText, redactConfiguration } from '../../shared/errors.js';
-import { formatDuration } from '../../shared/duration.js';
+import { formatDuration } from '../../shared/call-log.js';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getConfig, getLogger, withContext } from '@logtape/logtape';

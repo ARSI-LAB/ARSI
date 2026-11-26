@@ -22,7 +22,6 @@ import {
   runCommand,
   type CommandOptions,
 } from '../../src/entries/cli/commands.js';
-import { formatErrorStack } from '../../src/entries/cli/log-text.js';
 import {
   cliLogger,
   configureCliLogging,
@@ -31,11 +30,12 @@ import {
   runtimeLogger,
   type CliLogging,
   type RunningTask,
-} from '../../src/entries/cli/logging.js';
+} from '../../src/entries/cli/logging/index.js';
+import { formatErrorStack } from '../../src/entries/cli/logging/log-text.js';
 import {
   createResumeReport,
   reportRunSummary,
-} from '../../src/entries/cli/run-report.js';
+} from '../../src/entries/cli/run/report.js';
 import { prepareAgentProject } from '../../src/plugins/shared/agent-editing/project.js';
 import { sdkRunner } from '../../src/plugins/shared/evaluator-adapter/sdk.js';
 import { object } from '../../src/shared/json.js';

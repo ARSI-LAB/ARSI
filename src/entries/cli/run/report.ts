@@ -1,19 +1,19 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import type { JsonObject, JsonValue } from '../../contracts/index.js';
-import { metricSelectorContract } from '../../contracts/plugin-types/selector-metrics.js';
-import type { Manager } from '../../runtime/manager/index.js';
+import type { JsonObject, JsonValue } from '../../../contracts/index.js';
+import { metricSelectorContract } from '../../../contracts/plugin-types/selector-metrics.js';
+import type { Manager } from '../../../runtime/manager/index.js';
 import {
   checkpointedCalls,
   readRetryCalls,
-} from '../../runtime/manager/retry.js';
-import { PolicyCheckpoints } from '../../runtime/policy/checkpoint.js';
+} from '../../../runtime/manager/retry.js';
+import { PolicyCheckpoints } from '../../../runtime/policy/checkpoint.js';
 import {
   callLabel,
+  formatDuration,
   selectionLogDetails,
   type SelectionLogDetails,
-} from '../../shared/call-log.js';
-import { formatDuration } from '../../shared/duration.js';
-import { cliLogger, formatSelection } from './logging.js';
+} from '../../../shared/call-log.js';
+import { cliLogger, formatSelection } from '../logging/index.js';
 
 function record(value?: JsonValue): JsonObject | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

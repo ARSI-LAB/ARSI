@@ -153,6 +153,7 @@ export async function createPiSession(
           cacheWarming: 'off',
           compaction: {
             enabled: true,
+            ...config.settings?.compaction,
             ...(config.maxTokens === undefined
               ? {}
               : { reserveTokens: config.maxTokens }),

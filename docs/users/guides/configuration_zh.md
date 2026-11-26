@@ -117,6 +117,14 @@ bindings:
 - `timeoutMs` 限制每次模型请求，省略 `timeoutMs` 时底层 HTTP 客户端使用十分钟请求超时。两个字段都接受 1 到 2,147,483,647 的整数毫秒。
 - `executionTimeoutMs` 限制整个 Agent 调用，包括模型请求、工具、输出纠正、上下文压缩、重试等待和等待中的子 Agent，不会在每次请求后重置。
 
+在 `bindings.agent.config` 下设置 `settings.compaction.keepRecentTokens`，可调整 Pi 压缩上下文时保留的近期内容的近似 token 数。该设置接受非负安全整数，省略时使用 SDK 的默认值 20,000。
+
+```yaml
+settings:
+  compaction:
+    keepRecentTokens: 12000
+```
+
 ### 原生 CLI 后端
 
 - **用户负责准备环境**：安装或更新所选 CLI，并在 Recipe 中选择对应的 Agent 后端。使用启动 RSI 的同一系统用户完成 CLI 登录或模型服务配置，再通过 CLI 确认模型可用。已有配置可直接沿用，无需在 Recipe 中重复填写 API 地址和密钥。

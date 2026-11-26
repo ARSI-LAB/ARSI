@@ -117,6 +117,14 @@ bindings:
 - `timeoutMs` limits each model request. The underlying HTTP client uses a ten-minute request timeout when `timeoutMs` is omitted. Both timeout fields accept integer milliseconds from 1 to 2,147,483,647.
 - `executionTimeoutMs` limits the complete Agent invocation, including model requests, tools, output correction, context compaction, retry waits, and awaited subagents. It does not reset between requests.
 
+Set `settings.compaction.keepRecentTokens` under `bindings.agent.config` to adjust roughly how many recent context tokens Pi retains during compaction. The setting accepts a non-negative safe integer and uses the SDK default of 20,000 when omitted.
+
+```yaml
+settings:
+  compaction:
+    keepRecentTokens: 12000
+```
+
 ### Native CLI backends
 
 - **You prepare the environment**: install or update your chosen CLI and select its Agent backend in the Recipe. Sign in or configure model access as the same system user that starts RSI, then verify the model through the CLI. Reuse existing settings without duplicating API addresses or keys in the Recipe.

@@ -159,8 +159,6 @@ Codex receives options supported by `codex app-server --help`. Claude Code recei
 | DSH | Set the model in the native headless profile. For example, `options: ["--session-id", "existing-session-id"]` selects a saved session in that profile. |
 | OpenCode V2 | `options: ["--model", "provider/model#variant"]`. The `#variant` suffix is optional. |
 
-For existing Recipes, replace the removed Codex `model` and `thinkingLevel`, Claude Code `model` and `effort`, and OpenCode `model` configuration fields with the corresponding arguments above.
-
 RSI reserves the shared tokens `-`, `--`, `-h`, `--help`, `-V`, and `--version`. The following backend-specific options are also reserved. Recipe validation rejects them in both separate-token and `--flag=value` forms. Reserved short aliases are also rejected in Claude Code bundles such as `-cv`.
 
 | Backend | Reserved protocol options |

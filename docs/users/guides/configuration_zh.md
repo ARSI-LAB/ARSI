@@ -159,8 +159,6 @@ Codex 接收 `codex app-server --help` 列出的参数。RSI 将 Claude Code 参
 | DSH | 在原生 headless profile 中设置模型。例如，`options: ["--session-id", "existing-session-id"]` 可选用该 profile 已保存的会话。 |
 | OpenCode V2 | `options: ["--model", "provider/model#variant"]`，其中 `#variant` 后缀可省略。 |
 
-迁移已有 Recipe 时，将已移除的 Codex `model`、`thinkingLevel`，Claude Code `model`、`effort`，以及 OpenCode `model` 字段改写为上表对应的参数。
-
 RSI 保留共有的 `-`、`--`、`-h`、`--help`、`-V` 和 `--version`。下列后端专用参数也由 RSI 管理。无论参数和值分开填写，还是写成 `--flag=value`，Recipe 校验都会拒绝保留参数。Claude Code 的保留短参数也不能通过 `-cv` 等组合写法传入。
 
 | 后端 | 保留的协议参数 |

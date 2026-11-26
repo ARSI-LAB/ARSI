@@ -5,8 +5,12 @@ import type { ObservationQueries } from '../../runtime/services/observation.js';
 export function registerObservationRoutes(
   app: FastifyInstance,
   queries: ObservationQueries,
+  tracerUrl?: string,
 ): void {
-  app.get('/api/observation/source', () => queries.source());
+  app.get('/api/observation/source', () => ({
+    ...queries.source(),
+    ...(tracerUrl ? { tracerUrl } : {}),
+  }));
   const id = {
     type: 'string',
     pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$',

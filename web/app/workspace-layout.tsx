@@ -10,7 +10,10 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { readObservationSource } from '../api/observation-client';
+import {
+  readObservationSource,
+  type ObservationSource,
+} from '../api/observation-client';
 import ARsiLogo from '../../docs/users/assets/arsi-logo.png';
 import { useRoute } from './use-route';
 import { viewRoute } from './view-memory';
@@ -58,13 +61,13 @@ export function WorkspaceLayout({
   const [revision, setRevision] = useState(0);
   useEffect(() => subscribeRetry(() => setRevision((value) => value + 1)), []);
   const main = useRef<HTMLElement>(null);
-  const [source, setSource] = useState<string | null>(null);
+  const [source, setSource] = useState<ObservationSource | null>(null);
   const [sourceError, setSourceError] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     readObservationSource(controller.signal).then(
       (value) => {
-        if (!controller.signal.aborted) setSource(value.directory);
+        if (!controller.signal.aborted) setSource(value);
       },
       () => {
         if (!controller.signal.aborted) setSourceError(true);
@@ -140,6 +143,15 @@ export function WorkspaceLayout({
           >
             Experiments
           </a>
+          {source?.tracerUrl ? (
+            <a
+              href={source.tracerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open Tracer ↗
+            </a>
+          ) : null}
         </nav>
         {navigation.id ? (
           <nav
@@ -211,7 +223,8 @@ export function WorkspaceLayout({
           <details className="workspace-source">
             <summary>Data source</summary>
             <code>
-              {source ?? (sourceError ? 'Unavailable' : 'Not provided')}
+              {source?.directory ??
+                (sourceError ? 'Unavailable' : 'Not provided')}
             </code>
           </details>
         </header>

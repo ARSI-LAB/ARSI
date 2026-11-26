@@ -124,6 +124,7 @@ export interface CallTrace
 
 export interface ObservationSource {
   directory: string | null;
+  tracerUrl?: string;
 }
 
 export interface CallInstructions {

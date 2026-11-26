@@ -37,9 +37,8 @@ export async function runSession(options: {
     '--forward-subagent-text',
     '--json-schema',
     JSON.stringify(request.outputSchema),
+    ...(config.options ?? []),
   ];
-  if (config.model !== undefined) args.push('--model', config.model);
-  if (config.effort !== undefined) args.push('--effort', config.effort);
   const prompt = JSON.stringify({
     goal: request.goal,
     instruction:

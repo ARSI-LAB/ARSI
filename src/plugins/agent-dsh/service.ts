@@ -74,6 +74,7 @@ export const createAgentDsh: OperationDefinition<
           '\n\nAfter completing the task, your final response MUST be only the JSON object matching outputSchema above. Do not summarize your work in prose or Markdown. A prose response is a failed task.';
         await runDshProcess(
           config.executable ?? 'dsh',
+          config.options ?? [],
           patch,
           prompt,
           (line) => {

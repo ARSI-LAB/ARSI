@@ -117,6 +117,14 @@ bindings:
 - `timeoutMs` limits each model request. The underlying HTTP client uses a ten-minute request timeout when `timeoutMs` is omitted. Both timeout fields accept integer milliseconds from 1 to 2,147,483,647.
 - `executionTimeoutMs` limits the complete Agent invocation, including model requests, tools, output correction, context compaction, retry waits, and awaited subagents. It does not reset between requests.
 
+Set `settings.compaction.keepRecentTokens` under `bindings.agent.config` to adjust roughly how many recent context tokens Pi retains during compaction. The setting accepts a non-negative safe integer and uses the SDK default of 20,000 when omitted.
+
+```yaml
+settings:
+  compaction:
+    keepRecentTokens: 12000
+```
+
 ### Native CLI backends
 
 - **You prepare the environment**: install or update your chosen CLI and select its Agent backend in the Recipe. Sign in or configure model access as the same system user that starts RSI, then verify the model through the CLI. Reuse existing settings without duplicating API addresses or keys in the Recipe.
@@ -140,15 +148,25 @@ bindings:
     config: {}
 ```
 
-`config: {}` uses the native default model. Optional overrides for an experiment are:
+`config: {}` uses the native default model. All four backends accept `executable` for the CLI path, `timeoutMs` for the Agent task deadline in milliseconds, and `options` for extra native CLI arguments. Each `options` item is one argument and must be a string. Keep values containing spaces in a single item. RSI passes the array in order directly to the CLI, so shell expansion does not apply. The CLI interprets relative argument paths from the Agent workspace.
 
-| Backend | Optional settings |
+Codex receives options supported by `codex app-server --help`. Claude Code receives them in print mode, DSH receives them before the stdin task marker `-`, and OpenCode receives them as options to `run` in standalone mode.
+
+| Backend | How to configure model and reasoning |
 | --- | --- |
-| All | `executable`: full CLI path; `timeoutMs`: deadline in milliseconds for one Agent task |
-| Codex | `model`, `thinkingLevel` |
-| Claude Code | `model`, `effort` |
-| DSH | Configure the model in the native headless profile |
-| OpenCode | `model`: `provider/model`, optionally followed by `#variant` |
+| Codex | `options: ["-c", 'model="your-model"', "-c", 'model_reasoning_effort="high"']` |
+| Claude Code | `options: ["--model", "sonnet", "--effort", "low"]` |
+| DSH | Set the model in the native headless profile. For example, `options: ["--session-id", "existing-session-id"]` selects a saved session in that profile. |
+| OpenCode V2 | `options: ["--model", "provider/model#variant"]`. The `#variant` suffix is optional. |
+
+RSI reserves the shared tokens `-`, `--`, `-h`, `--help`, `-V`, and `--version`. The following backend-specific options are also reserved. Recipe validation rejects them in both separate-token and `--flag=value` forms. Reserved short aliases are also rejected in Claude Code bundles such as `-cv`.
+
+| Backend | Reserved protocol options |
+| --- | --- |
+| Codex | `--listen`, `--stdio`, `--print-startup-config`, `--startup-sign-out` and the `daemon`, `proxy`, `generate-ts`, `generate-json-schema`, `generate-internal-json-schema`, and `help` subcommands. Config overrides reserve `approval_policy`, `project_root_markers`, `sandbox_workspace_write.network_access`, `features.multi_agent`, `agents.max_depth`, and `agents.<role>.config_file`, including whole-table assignments to `sandbox_workspace_write`, `features`, or `agents`. The `--enable` and `--disable` switches also reserve `multi_agent`. |
+| Claude Code | `-p` / `--print`, `--input-format`, `--output-format`, `--verbose`, `--no-session-persistence`, `--forward-subagent-text`, `--json-schema`, `-v`. |
+| DSH | `--profile`, `--from-default-profile`, `--patch`, `--json`, `--dump-config`, `--dump-config-schema`, `--dump-default-config`. |
+| OpenCode V2 | `--standalone` / `--no-standalone`, `--server`, `--format`, `--archived` / `--no-archived`, `--wizard`, `--completions`, `-v`. Help and version aliases are reserved in short option bundles. |
 
 RSI keeps native model and authentication settings and validates proposed edits before applying them. Claude Code Hooks and MCP are disabled for RSI calls.
 

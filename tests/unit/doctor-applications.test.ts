@@ -410,8 +410,12 @@ else throw new Error('No model inference or session may start');
   );
   const result = await run('agent.codex', {
     executable,
-    model: 'proposal-model',
-    thinkingLevel: 'high',
+    options: [
+      '--config=model="proposal-model"',
+      '-c',
+      'model_reasoning_effort="high"',
+      '-cmodel_verbosity="low"',
+    ],
   });
   assert.equal(
     result.checks.find((check) => check.id === 'doctor')?.status,
@@ -441,10 +445,10 @@ else throw new Error('No model inference or session may start');
       [
         '-c',
         'project_root_markers=[".rsi-project"]',
-        '-c',
-        'model="proposal-model"',
+        '--config=model="proposal-model"',
         '-c',
         'model_reasoning_effort="high"',
+        '-cmodel_verbosity="low"',
         'doctor',
         '--json',
         '--network-only',

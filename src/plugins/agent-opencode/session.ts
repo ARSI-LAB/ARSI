@@ -29,8 +29,14 @@ export async function runSession(options: {
     record,
     options.signal,
   );
-  const args = ['run', '--standalone', '--format', 'json', '--archived'];
-  if (config.model !== undefined) args.push('--model', config.model);
+  const args = [
+    'run',
+    '--standalone',
+    '--format',
+    'json',
+    '--archived',
+    ...(config.options ?? []),
+  ];
   const messages = new Map<string, string>();
   let sessionId: string | undefined;
   let finalMessage: string | undefined;

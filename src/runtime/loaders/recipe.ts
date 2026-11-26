@@ -241,13 +241,13 @@ export class Recipe {
         registry,
         override: { declaration: agentBinding, directory },
       });
-    const disabledEvolution = (['memory', 'reflection'] as const).filter(
-      (kind) => !(kind === 'memory' ? memory : reflection),
-    );
+    const disabledEvolution: RuntimeEvolutionKind[] = [];
+    if (!memory) disabledEvolution.push('memory');
+    if (!reflection) disabledEvolution.push('reflection');
     const evolutionDeclarations: JsonObject = {};
-    for (const kind of ['memory', 'reflection'] as const) {
-      if (data[kind] !== undefined) evolutionDeclarations[kind] = data[kind];
-    }
+    if (data.memory !== undefined) evolutionDeclarations.memory = data.memory;
+    if (data.reflection !== undefined)
+      evolutionDeclarations.reflection = data.reflection;
     return new Recipe({
       evolutionDeclarations,
       id: string(data.id, 'recipe.id'),

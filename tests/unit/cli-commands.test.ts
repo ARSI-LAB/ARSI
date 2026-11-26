@@ -1,7 +1,7 @@
 import test, { after, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CommanderError } from 'commander';
@@ -201,7 +201,17 @@ test('CLI reports invalid input and focused help to stderr before runtime initia
   }
 });
 
-test('CLI dispatches experiment actions and nested reflection actions', async (t) => {
+test('snapshot lists log the nested command and print JSON to stdout', async () => {
+  const log = join(home, 'snapshots.log');
+  for (const kind of ['memory', 'reflection']) {
+    const result = launch(kind, 'list', '--quiet', '--log-file', log);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), []);
+    assert.ok((await readFile(log, 'utf8')).includes(`Starting ${kind} list`));
+  }
+});
+
+test('CLI dispatches experiment actions and nested snapshot actions', async (t) => {
   const { manager, context } = commandFixture(t);
   const cancel = t.mock.method(manager, 'cancel', async () => {});
   t.mock.method(manager, 'get', async (id: string) => ({ experiment: id }));

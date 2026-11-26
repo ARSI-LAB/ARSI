@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
@@ -38,7 +46,7 @@ import {
 } from '../../src/entries/cli/run/report.js';
 import { prepareAgentProject } from '../../src/plugins/shared/agent-editing/project.js';
 import { sdkRunner } from '../../src/plugins/shared/evaluator-adapter/sdk.js';
-import { object } from '../../src/shared/json.js';
+import { object, string } from '../../src/shared/json.js';
 import { reportTaskProgress } from '../../src/shared/task-progress.js';
 import {
   managerFixture,
@@ -131,11 +139,12 @@ test('generated experiment IDs route the whole invocation to their own log', asy
 });
 
 test('Cargo restores saved task scores, handles a receipt ahead of its checkpoint, and summarizes the run', async (t) => {
-  const candidateRef = 'candidate-' + 'a'.repeat(32);
+  let candidateRef = '';
   let evaluations = 0;
   let memories = 0;
   const fixture = await managerFixture(
     async (context) => {
+      candidateRef = string((await context.facts.list('candidates'))[0]?.ref);
       const score = [0, 0.25, 0.75, 0.5][evaluations++]!;
       const measurement = await measurementFixture(context);
       measurement.candidateRef = candidateRef;
@@ -162,12 +171,7 @@ test('Cargo restores saved task scores, handles a receipt ahead of its checkpoin
             return {
               async execute() {
                 memories++;
-                return {
-                  status: 'failed',
-                  memoryRef: null,
-                  changeRef: null,
-                  reason: 'Optional update failed',
-                };
+                throw new Error('Optional update failed');
               },
               async dispose() {},
             };
@@ -199,10 +203,10 @@ test('Cargo restores saved task scores, handles a receipt ahead of its checkpoin
         },
       ],
       bindings: {
-        memoryUpdater: { plugin: 'test.memory', config: {} },
         selector: { plugin: 'test.selector', config: {} },
       },
       policy: {
+        defaults: { memory: { configFile: './memory.yaml' } },
         state_schema: {
           type: 'object',
           properties: { selected: { type: ['object', 'null'] } },
@@ -216,16 +220,6 @@ test('Cargo restores saved task scores, handles a receipt ahead of its checkpoin
             maxIterations: 1,
             steps: [
               { id: 'train', type: 'invoke', use: 'driver', with: {} },
-              {
-                id: 'remember',
-                type: 'invoke',
-                use: 'memoryUpdater',
-                with: {
-                  memoryRef: null,
-                  goal: 'Update memory',
-                  evidenceRefs: [],
-                },
-              },
               { id: 'validate', type: 'invoke', use: 'driver', with: {} },
               {
                 id: 'select',
@@ -282,10 +276,14 @@ test('Cargo restores saved task scores, handles a receipt ahead of its checkpoin
   t.after(releaseScores);
   const logging = configureCliLogging(true, (line) => {
     terminal.push(line);
-    if (line.includes('Failed memoryUpdater')) releaseScores();
+    if (line.includes('Completed driver (validate)')) releaseScores();
   });
   t.after(() => logging.dispose());
   const workspace = fixture.manager.rootDirectory;
+  await writeFile(
+    join(workspace, 'memory.yaml'),
+    'trigger: { on: after-step, step: validate }\nimplementation: { ref: test.memory }\n',
+  );
   const run = (...flags: string[]) =>
     fixtureCommand(fixture, logging)(
       'run',
@@ -324,9 +322,10 @@ test('Cargo restores saved task scores, handles a receipt ahead of its checkpoin
   assert.equal(resumed.exitCode, 0, output);
   assert.equal(evaluations, 4);
   assert.equal(memories, 1);
+  assert.match(output, /Failed _memory/);
   assert.match(
     output,
-    /Failed memoryUpdater[\s\S]*Reused Baseline · driver[^\n]*\n {11}├─ task · succeeded · score=0\.0000/,
+    /Completed driver \(validate\)[\s\S]*Reused Baseline · driver[^\n]*\n {11}├─ task · succeeded · score=0\.0000/,
   );
   assert.match(
     output,
@@ -338,7 +337,7 @@ test('Cargo restores saved task scores, handles a receipt ahead of its checkpoin
   );
   assert.match(
     output,
-    /Summary\n {11}├─ Baseline · candidate-aaaaaaaa · score 0\.0000\n {11}├─ Round 1 · accepted [^\n]*\n {11}├─ Test · candidate-aaaaaaaa · score 0\.5000\n {11}├─ Selected · candidate-aaaaaaaa · score 0\.7500\n\s*Finished/,
+    /Summary\n {11}├─ Baseline · (candidate-[a-f0-9]{8}) · score 0\.0000\n {11}├─ Round 1 · accepted [^\n]*\n {11}├─ Test · \1 · score 0\.5000\n {11}├─ Selected · \1 · score 0\.7500\n\s*Finished/,
   );
   assert.equal(
     JSON.parse(resumed.stdout ?? '').output.candidateRef,
@@ -354,10 +353,7 @@ test('Cargo restores saved task scores, handles a receipt ahead of its checkpoin
   const replay = terminal.join('');
   assert.match(replay, /Reused Round 1 · driver \(train\)/);
   assert.doesNotMatch(replay, /Missing items artifact|score=0\.2500/);
-  assert.match(
-    replay,
-    /Reused Round 1 · memoryUpdater \(remember\) [^\n]*previously failed/,
-  );
+  assert.doesNotMatch(replay, /Reused [^\n]*_memory/);
   assert.equal(replay.match(/score=0\.7500/g)?.length, 1);
   const saved = await readFile(
     join(workspace, '.rsi', 'logs', 'resume-scores.log'),
@@ -481,7 +477,17 @@ test(
   },
 );
 
-test('Operator Search reports both search phases in order, including the baseline and final retest', async (t) => {
+for (const metricsLoop of [
+  'steps/metrics_loop',
+  'steps/run_metrics/then/metrics_loop',
+])
+  test(`Operator Search reports both phases for ${metricsLoop}, including baseline and retest`, (t) =>
+    checkOperatorSearchReport(t, metricsLoop));
+
+async function checkOperatorSearchReport(
+  t: TestContext,
+  metricsLoop: string,
+): Promise<void> {
   const { manager, dispose } = await managerFixture(async () => ({}));
   t.after(dispose);
   const experimentId = 'operator-fixture';
@@ -497,7 +503,7 @@ test('Operator Search reports both search phases in order, including the baselin
       { incumbentValue: 9, candidateValue: 8 },
     ],
     [
-      'steps/run_metrics/then/metrics_loop/iteration-0/assess_metrics_proposal/then/metrics_select',
+      `${metricsLoop}/iteration-0/assess_metrics_proposal/then/metrics_select`,
       { incumbentValue: 8, candidateValue: 6 },
     ],
   ] as const;
@@ -560,7 +566,7 @@ test('Operator Search reports both search phases in order, including the baselin
     output,
     /Retest · candidate-bbbbbbbb · latencyMs 6\.2000[\s\S]*Selected · candidate-bbbbbbbb · latencyMs 6\.0000/,
   );
-});
+}
 
 test('Cargo Doctor prints each failed check through the report and preserves it in the log file', async (t) => {
   const fixture = await managerFixture(async () => ({}));

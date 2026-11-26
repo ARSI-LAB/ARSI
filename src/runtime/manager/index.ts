@@ -89,11 +89,18 @@ interface RunOptions {
 
 function publishLogRedactor(
   options: RunOptions,
-  recipe: () => JsonValue | undefined,
+  source: Recipe | JsonObject,
 ): void {
   if (!options.onLogRedactor) return;
   try {
-    options.onLogRedactor(redactConfiguration(recipe()));
+    options.onLogRedactor(
+      redactConfiguration({
+        recipe:
+          source instanceof Recipe ? source.toJSON() : (source.recipe ?? null),
+        memory: source.memory ?? null,
+        reflection: source.reflection ?? null,
+      }),
+    );
   } catch {
     // Diagnostic setup is independent of experiment execution.
   }
@@ -271,7 +278,7 @@ export class Manager {
           rootDirectory: this.rootDirectory,
           runtimeDirectory: this.directory,
         });
-        publishLogRedactor(options, () => recipe.toJSON());
+        publishLogRedactor(options, recipe);
         id = safeId(options.id ?? `${recipe.id}-${randomUUID().slice(0, 8)}`);
       }
       logger.debug('Resolved experiment {experimentId}', { experimentId: id });
@@ -344,7 +351,7 @@ export class Manager {
         const locked = await this.facts.read('definitions', id);
         assertDefinitionLock(locked);
         if (resumedRecord.status === 'succeeded') {
-          publishLogRedactor(options, () => resumedRecord?.recipe);
+          publishLogRedactor(options, locked);
           await assertCleanupResolved(this.facts, id);
           controller.signal.throwIfAborted();
           options.signal?.throwIfAborted();
@@ -390,7 +397,7 @@ export class Manager {
             ? { reflection: parseLockedReflection(locked.reflection) }
             : {}),
         });
-        publishLogRedactor(options, () => recipe.toJSON());
+        publishLogRedactor(options, recipe);
         assertRetryShape(locked, recipe.policy);
         retryCalls = await readRetryCalls(this.facts, id);
         restore = await checkpoints.restore();

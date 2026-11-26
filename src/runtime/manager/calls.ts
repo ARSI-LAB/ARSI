@@ -541,9 +541,9 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         const measurementRef = refs?.measurementRef;
         const reference =
           typeof candidateRef === 'string'
-            ? ` 路 candidate ${candidateRef}`
+            ? ` · candidate ${candidateRef}`
             : typeof measurementRef === 'string'
-              ? ` 路 measurement ${measurementRef}`
+              ? ` · measurement ${measurementRef}`
               : '';
         logger.info('{label} {duration}{reference}', {
           ...completion,
@@ -559,15 +559,10 @@ export function createCallExecutor(options: CallExecutorOptions): CallExecutor {
         // Notification errors do not undo a settled optional update.
         const eventName = 'rsi/call-succeeded';
         try {
-          await ctx.event.parallel('rsi/call-succeeded', {
+          await ctx.event.parallel(eventName, {
             ...info,
             status: 'succeeded',
-            ...(output &&
-            typeof output === 'object' &&
-            !Array.isArray(output) &&
-            typeof output.measurementRef === 'string'
-              ? { measurementRef: output.measurementRef }
-              : {}),
+            ...(typeof measurementRef === 'string' ? { measurementRef } : {}),
           });
         } catch (error) {
           if (optionalCalls.has(callId)) options.diagnose(eventName, error);

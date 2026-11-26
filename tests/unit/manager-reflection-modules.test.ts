@@ -101,7 +101,11 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   registry.registerOperation({
     id: 'scoped.generator',
     contract: reflectionContract,
-    configSchema: { type: 'object', additionalProperties: false },
+    configSchema: {
+      type: 'object',
+      properties: { apiKey: { type: 'string' } },
+      additionalProperties: false,
+    },
     async create() {
       return {
         async execute(input, context) {
@@ -131,12 +135,13 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
     type: 'invoke',
     use: 'worker',
   }));
+  const apiKey = 'fixture-reflection-credential';
   const config = (goal: string): JsonObject => ({
     trigger: { on: 'after-step', step: 'work2' },
     evidence: { includeBindings: ['worker'] },
     targets: { include: { worker: ['prompt'] } },
     goal,
-    implementation: { ref: 'scoped.generator', config: {} },
+    implementation: { ref: 'scoped.generator', config: { apiKey } },
     budget: { modelCalls: 0, evidenceBytes: 4096 },
   });
   await writeFile(join(root, 'prompt.md'), 'current guidance');
@@ -177,8 +182,16 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   );
   await writeFile(recipePath, JSON.stringify(recipe));
   interruption = new AbortController();
+  const logMessages: string[] = [];
+  const onLogRedactor = (redact: (message: string) => string): void => {
+    logMessages.push(redact('generator used ' + apiKey));
+  };
   await assert.rejects(
-    manager.run(recipePath, { id: 'scoped', signal: interruption.signal }),
+    manager.run(recipePath, {
+      id: 'scoped',
+      signal: interruption.signal,
+      onLogRedactor,
+    }),
     /interrupt after Reflection/,
   );
   assert.equal(initializations, 1);
@@ -195,8 +208,11 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   const preparedRef = string(partial[0]!.evidenceViewRef);
   const prepared = await manager.facts.read('evidence-views', preparedRef);
   assert.equal(prepared.evidenceView, 'training');
-  const resumed = await manager.run(recipePath, { id: 'scoped', resume: true });
+  const resumeOptions = { id: 'scoped', resume: true, onLogRedactor };
+  const resumed = await manager.run(recipePath, resumeOptions);
   assert.equal(resumed.status, 'succeeded');
+  await manager.run(recipePath, resumeOptions);
+  assert.deepEqual(logMessages, Array(3).fill('generator used [redacted]'));
   assert.equal(initializations, 1);
   assert.equal(generations.length, 1);
   const completed = (await manager.facts.list('evolution-runs')).filter(

@@ -9,6 +9,12 @@ test('DSH consumes committed text, thinking, tools, truncation and its native fi
   const f = await agentFixture(async (spec, consume) => {
     submittedText = spec.input;
     assert(!spec.args.includes('--permission-mode'));
+    assert.deepEqual(spec.args.slice(-4), [
+      '--json',
+      '--session-id',
+      'existing-session',
+      '-',
+    ]);
     const [body, reminder] = spec.input.split('\n\n');
     assert.deepEqual(JSON.parse(body), {
       goal: 'Return an answer',
@@ -47,7 +53,10 @@ test('DSH consumes committed text, thinking, tools, truncation and its native fi
   });
   t.after(() => f.close());
   const agent = await createAgentDsh(
-    { executable: process.execPath },
+    {
+      executable: process.execPath,
+      options: ['--session-id', 'existing-session'],
+    },
     f.context,
   );
   assert.deepEqual(await f.execute(agent), { answer: 'ok' });

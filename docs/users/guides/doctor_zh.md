@@ -99,7 +99,7 @@ arsi doctor my-experiment/recipe.yaml --json
 | `application.kernel`      | 1. 检查目标定义、基线和内核源文件。<br>2. 初始化应用并校验内核源码结构。<br>3. 获取临时实例，读取源码，释放实例并确认清理完成。                               |
 | `application.inference`   | 1. 检查目标定义和基线输入。<br>2. 检查本地启动命令、工作目录和资源，或远程控制脚本的解释器、脚本及参数文件。<br>3. 检查凭据所需的环境变量和启动配置是否合法。 |
 | `agent.pi`                | 1. 校验模型、服务地址、密钥和 token 限制的配置。<br>2. 从 RSI 进程连接模型服务，确认模型列表包含所选模型。                                                    |
-| `agent.codex`             | 1. 检查 Codex 命令是否可用、是否支持原生诊断。<br>2. 按所配模型和思考等级，在隔离项目中运行原生诊断并读取结果。                                               |
+| `agent.codex`             | 1. 检查 Codex 命令是否可用、是否支持原生诊断。<br>2. 使用 `options` 中 Codex 的 `-c` / `--config` 覆盖，在隔离项目中运行原生诊断并读取结果。                                               |
 | `agent.claudecode`        | 检查 CLI 参数和原生 JSON 认证状态。安装诊断仅有文本输出，标为 `unchecked`，可自行运行 `claude doctor`；不验证模型访问。                                       |
 | `agent.dsh`               | 检查 CLI 参数，并展开 headless 配置以发现配置组合错误。可能刷新原生缓存；不验证动态模型路由、存储凭据或模型访问。                                             |
 | `agent.opencode`          | 检查 V2 CLI 版本、必要参数，以及原生配置能否与 RSI 只读 Agent 组合。使用独立实例，可能刷新原生缓存。                                                          |

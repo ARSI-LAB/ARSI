@@ -8,6 +8,15 @@ test('OpenCode records its V2 parts and returns only the stopped final message',
   let submittedText: string | undefined;
   const f = await agentFixture(async (spec, consume) => {
     submittedText = spec.input;
+    assert.deepEqual(spec.args.slice(-7), [
+      'run',
+      '--standalone',
+      '--format',
+      'json',
+      '--archived',
+      '--model',
+      'provider/model#high',
+    ]);
     for (const event of [
       {
         type: 'tool_use',
@@ -58,7 +67,10 @@ test('OpenCode records its V2 parts and returns only the stopped final message',
   });
   t.after(() => f.close());
   const agent = await createAgentOpenCode(
-    { executable: process.execPath },
+    {
+      executable: process.execPath,
+      options: ['--model', 'provider/model#high'],
+    },
     f.context,
   );
   assert.deepEqual(await f.execute(agent), { answer: 'ok' });

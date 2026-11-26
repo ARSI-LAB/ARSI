@@ -35,8 +35,7 @@ function nativeError(value: unknown): string {
 interface SessionOptions {
   executable: string;
   directory: string;
-  model?: string;
-  reasoningEffort?: string;
+  options: string[];
   request: AgentInput;
   signal: AbortSignal;
   record: (event: AgentObservation) => void;
@@ -109,10 +108,6 @@ async function runSessionAttempt(
       params: {
         cwd: options.directory,
         ephemeral: !hasRoles,
-        ...(options.model === undefined ? {} : { model: options.model }),
-        ...(options.reasoningEffort === undefined
-          ? {}
-          : { config: { model_reasoning_effort: options.reasoningEffort } }),
         ...policy,
       },
     });
@@ -262,7 +257,7 @@ async function runSessionAttempt(
       }
     },
     options.launch,
-    launchConfig,
+    [...launchConfig.flatMap((value) => ['-c', value]), ...options.options],
   );
   if (!result) throw new Error('Codex returned no validated output');
   return result;

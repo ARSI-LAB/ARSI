@@ -9,7 +9,7 @@ export async function runCodexProcess(
   input: string,
   onLine: AgentLineHandler,
   launch: AgentProcessLauncher,
-  config: string[] = [],
+  options: string[],
 ): Promise<void> {
   const command = codexCommand(executable);
   const native = await nativeAgentCommand(command.executable);
@@ -24,12 +24,7 @@ export async function runCodexProcess(
   await launch(
     {
       executable: native.command,
-      args: [
-        ...native.args,
-        ...command.args,
-        ...config.flatMap((value) => ['-c', value]),
-        'app-server',
-      ],
+      args: [...native.args, ...command.args, ...options, 'app-server'],
       env,
       input,
       interactive: true,

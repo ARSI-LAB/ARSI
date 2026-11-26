@@ -264,13 +264,24 @@ test('native agents reject an unenforceable modelCalls budget before launch', as
 });
 
 for (const model of [undefined, 'explicit-model']) {
-  test(`Codex preserves native instructions and forwards schema with model ${model ?? 'default'}`, async (t) => {
+  test(`Codex forwards CLI options and schema with model ${model ?? 'default'}`, async (t) => {
     const sent: Array<JsonObject> = [];
     const f = await agentFixture(async (spec, consume) => {
       const send = (message: JsonValue) => {
         sent.push(JSON.parse(JSON.stringify(message)));
       };
       assert(spec.args.includes('approval_policy="never"'));
+      assert.deepEqual(
+        spec.args.slice(-(model ? 4 : 1)),
+        model
+          ? [
+              `--config=model="${model}"`,
+              '-c',
+              'model_reasoning_effort="high"',
+              'app-server',
+            ]
+          : ['app-server'],
+      );
       await consume(JSON.stringify({ id: 1, result: {} }), send);
       await consume(
         JSON.stringify({
@@ -305,8 +316,15 @@ for (const model of [undefined, 'explicit-model']) {
     const agent = await createAgentCodex(
       {
         executable: process.execPath,
-        ...(model ? { model } : {}),
-        thinkingLevel: 'high',
+        ...(model
+          ? {
+              options: [
+                `--config=model="${model}"`,
+                '-c',
+                'model_reasoning_effort="high"',
+              ],
+            }
+          : {}),
       },
       f.context,
     );
@@ -319,8 +337,6 @@ for (const model of [undefined, 'explicit-model']) {
         params: {
           cwd: f.directory,
           ephemeral: true,
-          ...(model ? { model } : {}),
-          config: { model_reasoning_effort: 'high' },
           ...(process.platform === 'win32'
             ? { sandbox: 'danger-full-access' }
             : {}),

@@ -11,6 +11,14 @@ test('Claude translates text, thinking and correlated tool results while returni
     submittedText = spec.input;
     assert(spec.args.includes('stream-json'));
     assert(spec.args.includes('--forward-subagent-text'));
+    assert.deepEqual(spec.args.slice(-6), [
+      '--model',
+      'sonnet',
+      '--effort',
+      'low',
+      '--append-system-prompt',
+      'Check each file.',
+    ]);
     for (const message of [
       { type: 'assistant', message: null },
       {
@@ -80,7 +88,17 @@ test('Claude translates text, thinking and correlated tool results while returni
   });
   t.after(() => f.close());
   const agent = await createAgentClaudeCode(
-    { executable: process.execPath },
+    {
+      executable: process.execPath,
+      options: [
+        '--model',
+        'sonnet',
+        '--effort',
+        'low',
+        '--append-system-prompt',
+        'Check each file.',
+      ],
+    },
     f.context,
   );
   assert.deepEqual(await f.execute(agent), { answer: 'ok' });

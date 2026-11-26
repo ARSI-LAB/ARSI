@@ -140,15 +140,27 @@ bindings:
     config: {}
 ```
 
-`config: {}` 使用原生默认模型。需要为本次实验调整时，可使用以下可选项：
+`config: {}` 使用原生默认模型。四个后端都支持 `executable` 指定 CLI 路径、`timeoutMs` 设置单次 Agent 任务的毫秒期限，以及 `options` 传入额外的原生 CLI 参数。`options` 的每一项都是一个字符串参数，包含空格的参数值也写在同一项里。RSI 按原顺序直接传给 CLI，shell 不参与展开。CLI 以 Agent 工作目录为基准解析参数中的相对路径。
 
-| 后端 | 可选设置 |
+RSI 将 Codex 参数放在 `app-server` 前，将 Claude Code 参数用于打印模式，将 DSH 参数放在读取标准输入的任务标记 `-` 前，并将 OpenCode 参数传给独立实例的 `run` 命令。
+
+| 后端 | 模型与推理配置写法 |
 | --- | --- |
-| 全部 | `executable`：CLI 完整路径；`timeoutMs`：单次 Agent 任务的毫秒期限 |
-| Codex | `model`、`thinkingLevel` |
-| Claude Code | `model`、`effort` |
-| DSH | 模型在原生 headless profile 中配置 |
-| OpenCode | `model`：`provider/model`，可追加 `#variant` |
+| Codex | `options: ["-c", 'model="your-model"', "-c", 'model_reasoning_effort="high"']` |
+| Claude Code | `options: ["--model", "sonnet", "--effort", "low"]` |
+| DSH | 在原生 headless profile 中设置模型。例如，`options: ["--session-id", "existing-session-id"]` 可选用该 profile 已保存的会话。 |
+| OpenCode V2 | `options: ["--model", "provider/model#variant"]`，其中 `#variant` 后缀可省略。 |
+
+迁移已有 Recipe 时，将已移除的 Codex `model`、`thinkingLevel`，Claude Code `model`、`effort`，以及 OpenCode `model` 字段改写为上表对应的参数。
+
+RSI 保留共有的 `-`、`--`、`-h`、`--help`、`-V` 和 `--version`。下列后端专用参数也由 RSI 管理。无论参数和值分开填写，还是写成 `--flag=value`，Recipe 校验都会拒绝保留参数。
+
+| 后端 | 保留的协议参数 |
+| --- | --- |
+| Codex | `--listen`、`--stdio`、`--print-startup-config`、`--startup-sign-out`。配置覆盖中保留 `approval_policy`、`project_root_markers`、`sandbox_workspace_write.network_access`、`features.multi_agent`、`agents.max_depth` 和 `agents.<role>.config_file`，也保留对 `sandbox_workspace_write`、`features` 和 `agents` 整张表的赋值。`--enable` 和 `--disable` 也保留 `multi_agent`。 |
+| Claude Code | `-p` / `--print`、`--input-format`、`--output-format`、`--verbose`、`--no-session-persistence`、`--forward-subagent-text`、`--json-schema`、`-v`。 |
+| DSH | `--profile`、`--from-default-profile`、`--patch`、`--json`、`--dump-config`、`--dump-config-schema`、`--dump-default-config`。 |
+| OpenCode V2 | `--standalone`、`--server`、`--format`、`--archived`、`-v`。 |
 
 RSI 保留原生模型和认证配置，在应用提案前会校验所提交的编辑。Claude Code 的 Hooks 和 MCP 在 RSI 调用中禁用。
 

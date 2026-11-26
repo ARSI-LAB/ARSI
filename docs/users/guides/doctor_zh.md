@@ -118,7 +118,7 @@ Doctor 检查已启用的运行时演进模块配置、显式指定的 Memory �
 | `proposer.optuna`           | 1. 校验采样器、搜索空间和约束处理配置。<br>2. 读取 Application 基线中 `config.path` 指向的文件，确认内容为 JSON 对象。<br>3. 检查 Python 依赖及其版本。 |
 | `proposer.pareto-evolution` | 1. 检查提示词模块定义是否合法。<br>2. 检查各模块文件是否存在于本地基线或文件树制品中。                                                                  |
 | `summarizer.operator`       | 检查 `promptFile` 是否可读且包含非空白文本。                                                                                                            |
-| `memory.agent`              | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词、Skill 和角色提示词。<br>3. 在隔离项目中装配编辑环境。                                        |
+| `memory.agent`              | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词和 Skill。<br>3. 在隔离项目中装配编辑环境。                                                  |
 | `reflection.agent`          | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词、Skill 和内置评审角色提示词。<br>3. 在隔离项目中装配编辑环境。                                |
 | `selector.metric`           | 1. 校验指标选择配置。<br>2. 检查候选资格条件和约束上下界，并确认组件可以创建和释放。                                                                    |
 | `selector.artifact`         | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取选择提示词、Skill 和角色提示词。<br>3. 准备隔离的选择项目。                                          |

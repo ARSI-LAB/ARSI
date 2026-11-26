@@ -21,7 +21,7 @@ For a new installation, use [quickstart](quickstart.md) in an isolated workspace
 | Missing candidateRef input                        | Add Policy mapping from application.initialCandidate                                                                      |
 | Expression rejected                               | Expressions occupy the entire scalar; initialize state and use lexical `steps.<id>.output` references                     |
 | Unsafe configuration pointer                      | Select a configured field such as `prompt` under `targets.include.proposer`, or use `'*'` for all its local resources                                        |
-| Reflection skipped                                | Inspect the serial trigger, its guard, and the evidence window for observed calls                           |
+| Reflection skipped                                | Inspect the serial trigger (`on`/`every`/`step`) and the evidence window for observed calls                |
 | Memory not used                                   | Check the active snapshot, targets and metadata.memoryVersionRef on the later Agent call                                                                  |
 | Budget exhausted                                  | Include baseline, nested Agent/Reflection calls and original elapsed time                                                 |
 | Resume blocks uncertain effects                   | Inspect receipt and external resource state; do not edit facts or blindly retry                                           |

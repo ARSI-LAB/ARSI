@@ -9,9 +9,9 @@ Use the complete [recipe](../assets/minimal/recipe.yaml), [Target](../assets/min
 | policy            | `{ id, config, input }`                                                     |
 | bindings          | Binding name → `{ plugin?, config? }`                                       |
 | budget            | Numeric usage limits and durations                                          |
-| memory, reflection | Boolean switches or external configuration pointers, such as `{ configFile: ./memory.yaml }` |
+| memory, reflection | `false`, `true`, or `{ configFile: ./memory.yaml }` (see [advanced](advanced.md)) |
 
-Omitting a module inherits the Policy default. Set `enabled: false` on the module to disable it. Each declaration may override individual nested fields. Paths resolve from the declaring file.
+Omitting a module inherits `defaults.memory` or `defaults.reflection` from the Policy; when omitted in both, Memory runs with built-in defaults while Reflection stays off. Set `memory: false` or `reflection: false` to disable a module. Setting `true` reuses the Policy's `configFile` if declared (or built-in defaults for Memory; `reflection: true` without a Policy file fails validation because `targets.include` is required). Supplying `{ configFile: <path> }` completely replaces the Policy's file without merging nested fields; omitted fields inside that file use built-in defaults. Paths resolve relative to the declaring file.
 
 Overrides recursively merge plain configuration objects when `plugin` is inherited or unchanged. Arrays, scalars and null replace their previous values; null is then checked by the final schema. Changing `plugin` replaces the binding and discards the old implementation configuration. A config-only override inherits the default implementation. The final binding must resolve a registered plugin matching the required contract. Keep `policy.config` (algorithm parameters), `policy.input` (call input) and binding config (implementation settings) distinct. Use [public schema lookup](plugins.md#discover-schemas-through-public-apis) when adapting a binding.
 

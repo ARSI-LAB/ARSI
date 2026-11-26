@@ -29,12 +29,24 @@ For proposer-only use, run the complete [model-recipe.yaml](../assets/evolution/
 
 ## Configure runtime evolution in a Recipe
 
-Use the top-level `memory` and `reflection` fields in the examples. Each module runs at its declared serial boundary. The combined example runs Memory first and Reflection second, after each search iteration.
+Use top-level `memory` and `reflection` in the Recipe (`defaults.memory` / `defaults.reflection` in a Policy): `false` disables the module, `true` reuses a Policy `configFile` (or built-in defaults for Memory; load error for Reflection if no Policy file exists), and `{ configFile: <path> }` completely replaces the Policy file. When both match the same serial boundary, Memory runs first and Reflection second.
 
-- Memory observes the configured bindings, receives Runtime-prepared evidence, and proposes a file-tree snapshot. Eligible bindings invoking Agents receive the pinned snapshot under `context/memory/` in the derived Agent project.
-- To enable Reflection, supply a Policy or Recipe `configFile` with a nonempty `targets.include`. The example sets `proposer: '*'` to authorize the Proposer's local resources. Its only configured resource is `proposer.md`. `reflection: true` reuses a Policy file, and a Recipe file replaces it.
-- The built-in generators reuse a Policy’s sole `contract.agent` binding. With zero or multiple Agent bindings they use an internal `agent.pi`. Set `implementation.config.agentRef` to select a declared Agent or `implementation.config.prompt` to supply a custom prompt. Memory and Reflection default to `evidence.view: training` for full traces and authorized feedback. Set `evidence.view: execution` for verifier-blind Policies or `training-summary` for compact previews with feedback. Use `evidence.includeSteps` and `evidence.excludeSteps` to scope observations. Set local limits in `budget`.
-- Empty evidence windows skip the generator. Ordinary proposal failures leave the active version in place. Experiment cancellation and global budget limits still stop execution.
+Every YAML configuration file rejects unknown fields (`additionalProperties: false`), and relative paths inside it resolve against that file's directory:
+
+| Field | Applies to | Required | Allowed values / defaults |
+| --- | --- | --- | --- |
+| `directory` | Memory only | No | Dedicated user-owned directory path (seed snapshot at start; default write-back target for `arsi memory show/apply`; starts empty if absent or omitted). |
+| `trigger` | Both | No | `{ on?, every?, step? }`. `on`: `'loop-iteration'` (default; falls back to experiment end without a top-level loop), `'loop-end'`, `'experiment-end'`, or `'after-step'`. `every`: integer `>= 1` (default `1`). `step`: serial Policy step ID outside parallel `foreach`, required iff `on` is `'after-step'`. |
+| `evidence` | Both | No | `{ view?, includeBindings?, excludeBindings?, includeSteps?, excludeSteps? }`. `view`: `'training'` (default: full redacted traces + authorized feedback), `'execution'` (verifier-blind full redacted traces), or `'training-summary'` (bounded previews + feedback). `includeBindings`/`excludeBindings` take Policy binding names; Reflection also accepts `'memory'` (`includeBindings: [memory]` requires Memory enabled; `excludeBindings: [memory]` is allowed even when Memory is off). Step filters apply only to Policy calls. |
+| `targets` | Memory | No | `{ include?, exclude? }` of Policy binding names eligible to receive `context/memory/` during `ctx.invokeAgent` (default: all Policy bindings; internal `_memory`/`_reflection` are always excluded). |
+| `targets` | Reflection | **Yes** | `{ include, exclude? }` (`include` required, nonempty map). Keys are Policy binding names; values are `'*'`, `['*']` (all configured local `x-rsi-path` resources), or nonempty unique field names / `/` JSON pointers (e.g. `[prompt]`, `[promptsDirectory]`, `['/subagents/0/prompt']`). Targets must be regular local files or directories (no URLs or symlinks); at least one editable resource must remain after `exclude`. |
+| `goal` | Both | No | Nonempty UTF-8 text file path (defaults to built-in Memory or generic Reflection goal). |
+| `implementation` | Both | No | `{ contract?, ref?, config? }`. `contract`: `'contract.memory'` or `'contract.reflection'`. `ref`: registered plugin ID (default `'memory.agent'` / `'reflection.agent'`). Built-in `config` accepts `agentRef` (declared `contract.agent` binding; omitted reuses sole Policy Agent binding or creates internal `_evolutionAgent` via `agent.pi`), `prompt` (file path), and `skills` (array of local skill directory paths, default `[]`). |
+| `budget` | Both | No | `{ modelCalls?, timeoutSeconds?, evidenceBytes? }`. `modelCalls`: integer `>= 0` (`0` blocks new model calls). `timeoutSeconds`: integer `1`–`2147483`. `evidenceBytes`: integer `>= 1`. |
+
+- Memory mounts its pinned nonempty UTF-8 snapshot read-only under `context/memory/` in derived Agent projects of eligible callers and records `metadata.memoryVersionRef` on the call receipt.
+- Reflection edits shared/nested resource roots once and produces one joint revision covering all affected bindings (`changedBindings`). Both `training` and `execution` views expose an observed Memory snapshot when available; `training-summary` exposes only the Memory update receipt.
+- Empty evidence windows skip the generator (`skipped`). Ordinary proposal failures or invalid edits record `rejected` and keep the previous active snapshot/revision in place. Experiment cancellation, critical persistence errors and experiment-wide budget exhaustion still stop execution.
 
 Inspect Memory and revisions using `arsi memory list <id>` and `arsi reflection list <id>`. The experiment's `evolution` summary identifies the resulting Memory snapshot and active revisions. A call receipt contains the version acquired by that binding.
 
@@ -47,7 +59,7 @@ The default two-round examples trigger each enabled module after each round. Lat
 For custom Agents serving these editors, honor each request's `outputSchema`. The response contains `edits` and `reason`.
 
 - For `proposer.agent`, every edit has an `op` and a path. Use `replace` or `create` with complete `content`, `patch` with `changes` containing exact `oldText` and `newText`, or `delete` with just the operation and path.
-- For Memory and Reflection, edits have `path` and `content`. Use string content to write and null to delete an authorized file.
+- For Memory and Reflection, edits have `path` and `content`. Use string content to write; Memory also accepts `null` to delete a file, whereas Reflection rejects file deletions and file-mode changes.
 
 Paths are relative to the supplied editable file tree. Treat the `context/` and `sources/` projections as read-only. Submit edits for the Application to validate and apply.
 

@@ -93,7 +93,6 @@ require:
   selector:
     contract: contract.selector-metrics
 defaults:
-  memory: { configFile: ./memory.yaml }
   reflection: { configFile: ./reflection.yaml }
   bindings:
     proposer:

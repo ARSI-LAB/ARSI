@@ -1,3 +1,4 @@
+import type { RuntimeEvolutionEvidenceView } from '../../contracts/runtime-evolution.js';
 import { memberPath, parseCoveringRoots } from './resources.js';
 import { parseFileTree } from '../../contracts/index.js';
 import { persistFact } from '../storage/persistence-error.js';
@@ -11,7 +12,6 @@ import type {
 import {
   canonical,
   digest,
-  json,
   object,
   string,
   strings,
@@ -45,7 +45,7 @@ export interface EvidenceOptions {
   configDigest?: string;
   stepPath?: string;
   directory?: string;
-  view?: 'execution' | 'training-summary';
+  view?: RuntimeEvolutionEvidenceView;
   isAgentBinding?(binding: string): boolean;
   currentRevisionRefs?: JsonObject;
 }
@@ -64,6 +64,9 @@ export async function collectEvolutionEvidence(
   options: EvidenceOptions,
 ): Promise<EvolutionEvidence> {
   const { context } = options;
+  const view = options.view ?? 'training';
+  const includeExecutionDetails = view !== 'training-summary';
+  const includeTrainingFeedback = view !== 'execution';
   const diagnostics: JsonObject[] = [];
   const note = (code: string, callId?: JsonValue): void => {
     diagnostics.push({ code, callId: callId ?? null });
@@ -81,8 +84,10 @@ export async function collectEvolutionEvidence(
     excludedMeasurements,
     excludedProducers,
     withheldSelections,
+    restrictedWorkspaces,
   } = window;
   const files: JsonObject = {};
+  const callFiles = new Map<EvidenceCall, JsonObject>();
   const sourceTextPaths = new Map<string, string>();
   const entries: JsonObject[] = [];
   const lateResults: JsonObject[] = [];
@@ -91,8 +96,31 @@ export async function collectEvolutionEvidence(
   const measurements: JsonObject[] = [];
   let bytes = 0;
   const limit = options.maxBytes ?? Number.POSITIVE_INFINITY;
-  const store = (path: string, content: string): void => {
-    const available = Math.max(0, limit - bytes);
+  const truncatedDocument = canonical({ truncated: true });
+  // Adding another property to the single-ref object replaces its closing brace with a comma.
+  const wrapperBytes =
+    Buffer.byteLength(
+      canonical({
+        indexes: [{ ref: 'evidence-' + '0'.repeat(64) }],
+        previews: [],
+      }),
+    ) - 1;
+  // Leave room for the window index and the evidence ref enveloping it in the Agent project.
+  const indexReserve = Number.isFinite(limit)
+    ? Math.min(
+        limit,
+        Math.max(
+          wrapperBytes + Buffer.byteLength(truncatedDocument),
+          Math.floor(limit / 5),
+        ),
+      )
+    : 0;
+  const detailLimit = limit - indexReserve;
+  const store = (
+    path: string,
+    content: string,
+    available = detailLimit - bytes,
+  ): void => {
     const data = Buffer.from(content);
     if (data.length > available) {
       const marker = '\n[truncated: runtime evolution evidence byte limit]';
@@ -106,6 +134,19 @@ export async function collectEvolutionEvidence(
       files[path] = content;
       bytes += data.length;
     }
+  };
+  const storeDocument = (
+    path: string,
+    content: string,
+    available: number,
+  ): void => {
+    if (Buffer.byteLength(content) > available) {
+      note('virtual-file-truncated');
+      content = truncatedDocument;
+      if (Buffer.byteLength(content) > available)
+        content = available >= 2 ? '{}' : '';
+    }
+    store(path, content, available);
   };
   const addMeasurement = async (
     ref: string,
@@ -237,47 +278,6 @@ export async function collectEvolutionEvidence(
     if (included.has(id)) return;
     included.add(id);
     const path = `context/evolution/calls/${safeId(id)}.json`;
-    const summary: JsonObject = {
-      callId: id,
-      bindingId: call.record.bindingId ?? null,
-      status: call.record.status ?? null,
-      path: call.record.path ?? null,
-    };
-    if (String(call.record.contractId).startsWith('contract.selector')) {
-      const fields = ['accepted', 'selectedCandidateRef', 'decisionRef'];
-      if (
-        ![
-          call.output.measurementRef,
-          call.input.incumbentMeasurementRef,
-          call.input.candidateMeasurementRef,
-        ].some(
-          (ref) => typeof ref === 'string' && excludedMeasurements.has(ref),
-        )
-      )
-        fields.push('selectedValue', 'incumbentValue', 'candidateValue');
-      summary.output = Object.fromEntries(
-        Object.entries(call.output).filter(([key]) => fields.includes(key)),
-      );
-    }
-    const record =
-      options.view === 'training-summary'
-        ? summary
-        : withheldSelections.has(id)
-          ? {
-              ...call.record,
-              ...(call.record.error === undefined
-                ? {}
-                : { error: 'Held-out delivery details omitted' }),
-              output: Object.fromEntries(
-                Object.entries(call.output).filter(([key]) =>
-                  ['candidateRef', 'measurementRef', 'decisionRef'].includes(
-                    key,
-                  ),
-                ),
-              ),
-            }
-          : call.record;
-    store(path, safeText(record));
     const entry: JsonObject = {
       callId: id,
       bindingId: call.record.bindingId ?? null,
@@ -326,6 +326,59 @@ export async function collectEvolutionEvidence(
     await expandReferences(call.input, call.record);
     if (typeof call.output.measurementRef === 'string')
       await addMeasurement(call.output.measurementRef, call.record);
+    callFiles.set(call, entry);
+  };
+  const writeCallFiles = async (
+    call: EvidenceCall,
+    entry: JsonObject,
+  ): Promise<void> => {
+    const id = string(call.record.callId);
+    const path = string(entry.path);
+    const summary: JsonObject = {
+      callId: id,
+      bindingId: call.record.bindingId ?? null,
+      status: call.record.status ?? null,
+      path: call.record.path ?? null,
+    };
+    const selector = String(call.record.contractId).startsWith(
+      'contract.selector',
+    );
+    let record = call.record;
+    if (selector) {
+      const output = { ...call.output };
+      if (!includeTrainingFeedback || restrictedWorkspaces.has(id)) {
+        delete output.selectedValue;
+        delete output.incumbentValue;
+        delete output.candidateValue;
+      }
+      const fields = [
+        'accepted',
+        'selectedCandidateRef',
+        'decisionRef',
+        'selectedValue',
+        'incumbentValue',
+        'candidateValue',
+      ];
+      summary.output = Object.fromEntries(
+        Object.entries(output).filter(([key]) => fields.includes(key)),
+      );
+      record = { ...record, output };
+    }
+    if (withheldSelections.has(id)) {
+      record = {
+        ...record,
+        ...(record.error === undefined
+          ? {}
+          : { error: 'Held-out delivery details omitted' }),
+        output: Object.fromEntries(
+          Object.entries(call.output).filter(([key]) =>
+            ['candidateRef', 'measurementRef', 'decisionRef'].includes(key),
+          ),
+        ),
+      };
+    }
+    if (!includeExecutionDetails) record = summary;
+    store(path, safeText(record));
     if (typeof call.output.diffRef === 'string')
       await artifactText(
         call.output.diffRef,
@@ -336,8 +389,9 @@ export async function collectEvolutionEvidence(
     // Keep its update receipt in training summaries without importing that text.
     if (
       call.record.bindingId === '_memory' &&
+      !restrictedWorkspaces.has(id) &&
       options.kind === 'reflection' &&
-      options.view !== 'training-summary' &&
+      includeExecutionDetails &&
       typeof call.output.resourceRef === 'string'
     )
       await artifactText(
@@ -345,24 +399,10 @@ export async function collectEvolutionEvidence(
         `context/evolution/calls/${id}-memory`,
         call.record,
       );
-    if (options.view === 'training-summary' || options.kind !== 'reflection')
-      return;
-    // A selector may have opened held-out artifacts in its Agent workspace.
-    // Its aggregate decision remains visible, but that workspace cannot be expanded.
-    const inputs = [
-      call.input.incumbentMeasurementRef,
-      call.input.candidateMeasurementRef,
-      ...(Array.isArray(call.input.candidates)
-        ? call.input.candidates.map((value) => asObject(value).measurementRef)
-        : []),
-      ...(Array.isArray(call.input.evidenceRefs)
-        ? call.input.evidenceRefs
-        : []),
-    ];
     if (
-      inputs.some(
-        (ref) => typeof ref === 'string' && excludedMeasurements.has(ref),
-      )
+      !includeExecutionDetails ||
+      options.kind !== 'reflection' ||
+      restrictedWorkspaces.has(id)
     )
       return;
     const descendants = new Set([id]);
@@ -496,18 +536,18 @@ export async function collectEvolutionEvidence(
       }
     }
   }
+  const pairs = new Map<
+    string,
+    {
+      parent: JsonObject;
+      revision: JsonObject;
+      bindings: Set<string>;
+      callId?: JsonValue;
+    }
+  >();
   /** Compare observed revision calls and resource contents without claiming causality. */
   const collectRevisionComparisons = async (): Promise<JsonObject[]> => {
     const comparisons: JsonObject[] = [];
-    const pairs = new Map<
-      string,
-      {
-        parent: JsonObject;
-        revision: JsonObject;
-        bindings: Set<string>;
-        callId?: JsonValue;
-      }
-    >();
     const ownedBy = (revision: JsonObject, binding: string): boolean =>
       Array.isArray(revision.bindings)
         ? revision.bindings.includes(binding)
@@ -631,6 +671,9 @@ export async function collectEvolutionEvidence(
       pairs.set(currentRef, pair);
     }
 
+    return comparisons;
+  };
+  const writeRevisionFiles = async (): Promise<void> => {
     // A shared revision contributes one patch covering the members authorized in this window.
     for (const { parent, revision, bindings, callId } of pairs.values()) {
       const contents = async (
@@ -727,21 +770,50 @@ export async function collectEvolutionEvidence(
         );
       }
     }
-    return comparisons;
   };
   const comparisons =
     options.kind === 'reflection' ? await collectRevisionComparisons() : [];
-  if (options.observe.includeCandidateDiffs)
+  if (measurements.length && includeTrainingFeedback) {
+    const quota = Math.min(
+      detailLimit,
+      includeExecutionDetails ? Math.floor(limit * 0.4) : detailLimit,
+    );
+    // Tiny envelopes still need a valid omission marker. Avoid projecting into a
+    // budget smaller than the JSON protocol header.
+    const feedback = await projectEvidence({
+      measurements,
+      artifacts: context.artifacts,
+      view: 'training-summary',
+      includeExecutionPreviews: !includeExecutionDetails,
+      maxBytes: Number.isFinite(quota) ? Math.max(256, quota) : undefined,
+    });
+    storeDocument(
+      'context/evolution/training-summary.json',
+      canonical(feedback),
+      quota,
+    );
+  }
+  if (options.observe.includeCandidateDiffs) {
+    const comparisonReserve = Number.isFinite(limit)
+      ? Math.floor((detailLimit - bytes) / 2)
+      : 0;
     await projectCandidateEvidence(
       context,
       selected,
       options.observe.includeBaseline ?? false,
-      store,
+      (path, content) => {
+        if (path === 'context/evolution/comparisons.json')
+          storeDocument(path, content, detailLimit - bytes);
+        else store(path, content, detailLimit - bytes - comparisonReserve);
+      },
       withheldSelections,
     );
+  }
+  for (const [call, entry] of callFiles) await writeCallFiles(call, entry);
+  await writeRevisionFiles();
   const sources: JsonObject[] = [];
   const sourceDescriptors = new Map<string, JsonObject>();
-  if (measurements.length && options.view !== 'training-summary') {
+  if (measurements.length && includeExecutionDetails) {
     const projected = await projectEvidenceFiles({
       measurements,
       artifacts: context.artifacts,
@@ -830,16 +902,6 @@ export async function collectEvolutionEvidence(
       safeText({ ...projected, files: {} }),
     );
   }
-  if (measurements.length && options.view === 'training-summary') {
-    const feedback = await projectEvidence({
-      measurements,
-      artifacts: context.artifacts,
-      view: 'training-summary',
-      maxBytes: options.maxBytes,
-    });
-    // This projection alone allows normalized scores and diagnostics; ordinary records stay execution-filtered.
-    store('context/evolution/training-summary.json', canonical(feedback));
-  }
   const index = object(
     JSON.parse(
       safeText({
@@ -860,7 +922,10 @@ export async function collectEvolutionEvidence(
       }),
     ),
   );
-  store('context/evolution/index.json', safeText(index));
+  // The wrapper in evolutionContext adds a fixed digest ref, indexes and previews.
+  // Keeping this space lets constrained projects retain the same parseable index.
+  const indexBudget = Math.max(0, limit - bytes - wrapperBytes);
+  storeDocument('context/evolution/index.json', safeText(index), indexBudget);
   const payload: JsonObject = {
     experimentId: context.experimentId,
     policyScopeId,
@@ -871,7 +936,7 @@ export async function collectEvolutionEvidence(
     files,
     sources,
     view: 'evolution-observations/v1',
-    evidenceView: options.view ?? 'execution',
+    evidenceView: view,
     capturedAt: options.capturedAt,
     boundaryId: options.identity,
     windowStart: Number.isFinite(windowStart)
@@ -894,50 +959,8 @@ function safeText(
   value: JsonValue,
   format: 'json' | 'text' | 'jsonl' = 'json',
 ): string {
-  const project = (raw: JsonValue): JsonValue => {
-    if (typeof raw === 'string' && /^[\s]*[\[{]/.test(raw)) {
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        json(parsed);
-        if (parsed !== null && typeof parsed === 'object')
-          return canonical(project(parsed));
-      } catch {
-        /* Ordinary non-JSON evidence remains text. */
-      }
-    }
-    if (Array.isArray(raw)) return raw.map((entry) => project(entry));
-    if (raw !== null && typeof raw === 'object') {
-      if (
-        raw.view === 'training-summary' ||
-        raw.schemaVersion === 'rsi.evaluation-feedback/v1'
-      )
-        return '[scoring-side feedback omitted from execution projection]';
-      return Object.fromEntries(
-        Object.entries(raw)
-          .filter(
-            ([key]) =>
-              !/^(?:evaluation|evaluationFeedback|trainingSummary|datasetHints?|returnedHints?|gradingDiagnostics|feedback)$/i.test(
-                key,
-              ),
-          )
-          .map(([key, entry]) => [key, project(entry)]),
-      );
-    }
-    return raw;
-  };
-  const projectDocument = (text: string): string => {
-    try {
-      const parsed: unknown = JSON.parse(text);
-      json(parsed);
-      return canonical(project(parsed));
-    } catch {
-      return text;
-    }
-  };
-  let content: string;
-  if (typeof value !== 'string') content = canonical(project(value));
-  else if (format === 'jsonl')
-    content = value.split('\n').map(projectDocument).join('\n');
-  else content = format === 'json' ? projectDocument(value) : value;
-  return fullEvidenceText(content, format).text;
+  return fullEvidenceText(
+    typeof value === 'string' ? value : canonical(value),
+    format,
+  ).text;
 }

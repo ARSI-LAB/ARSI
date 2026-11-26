@@ -1,4 +1,8 @@
 import type { JsonObject, RuntimeContext } from '../../../contracts/index.js';
+import {
+  runtimeEvolutionEvidenceViews,
+  type RuntimeEvolutionEvidenceView,
+} from '../../../contracts/runtime-evolution.js';
 import { canonical, object } from '../../../shared/json.js';
 import { prepareDocumentPreviews } from '../../reflection-agent/document-previews.js';
 import type { ReadOnlyEditContext } from './index.js';
@@ -13,20 +17,22 @@ export async function evolutionContext(
   const indexes: JsonObject[] = [];
   const sources: JsonObject[] = [];
   const limit = context.scope?.limits.evidenceBytes ?? Infinity;
-  let evidenceView: string | null = null;
+  let evidenceView: RuntimeEvolutionEvidenceView | null = null;
   let bytes = 0;
   for (const ref of evidenceRefs) {
     const snapshot = await context.facts.read('evidence-views', ref);
+    const view = runtimeEvolutionEvidenceViews.find(
+      (v) => v === snapshot.evidenceView,
+    );
     if (
       snapshot.experimentId !== context.experimentId ||
       snapshot.view !== 'evolution-observations/v1' ||
       snapshot.moduleKind !== kind ||
-      (snapshot.evidenceView !== 'execution' &&
-        snapshot.evidenceView !== 'training-summary') ||
-      (evidenceView !== null && snapshot.evidenceView !== evidenceView)
+      view === undefined ||
+      (evidenceView !== null && view !== evidenceView)
     )
       throw new Error(`${kind} evidence snapshot ownership or format mismatch`);
-    evidenceView = snapshot.evidenceView;
+    evidenceView = view;
     for (const [path, content] of Object.entries(object(snapshot.files))) {
       if (!path.startsWith('context/evolution/') || typeof content !== 'string')
         throw new Error('Invalid runtime evolution evidence file');

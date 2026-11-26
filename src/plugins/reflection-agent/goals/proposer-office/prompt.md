@@ -1,4 +1,4 @@
-# Improve proposal guidance for Office deliverables
+# Improve how the Proposer handles Office deliverables
 
 Trace an observed Office-task problem from the request and source material,
 through the Proposer's instructions and actual proposal, to the available
@@ -13,9 +13,9 @@ requirements from the task and authorized sources. Distinguish readable preview
 content from visual layout or properties the preview cannot establish.
 
 Compare proposal/resource versions and the supplied traces, including unsuccessful
-candidates. Explicitly note differing tasks and confounded effects. Translate a
-useful observation into guidance appropriate to each authorized Proposer target.
+candidates. Explicitly note differing tasks and confounded effects. Identify the
+authorized Proposer prompt, skill or role where a procedural change would help.
 Use Memory as reported evidence when supplied, not as independent corroboration.
-Use scoring feedback only when the selected view supplies it. Update existing
-guidance rather than accumulating task answers or universal business conventions;
-return no change when there is no useful revision.
+Use scoring feedback only when the selected view supplies it. Update the relevant
+procedure and leave task-specific findings to Memory. Return no change when
+there is no useful revision.

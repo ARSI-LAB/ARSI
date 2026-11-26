@@ -18,6 +18,8 @@ RSI never receives holdout task IDs, cannot submit `holdout` through
 `evaluator.gym (mode: evaluate)`, and never writes the holdout result into Wiki memory,
 proposer evidence, or candidate selection.
 
+This Recipe runs one search round (`maxRounds: 1`) and sets `reflection: false` because the next step is holdout promotion. For a multi-round run, increase `maxRounds` and remove `reflection: false` to let later proposals use revised resources.
+
 The checked-in baseline is the bundle promoted by the 2026-11-18 GAIA run:
 candidate holdout 18/26 (0.6923) vs incumbent 17/26 (0.6538) on
 `successRate`. Later runs start from that promoted prompt and use it as the

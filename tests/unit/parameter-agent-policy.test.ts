@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   RuntimeContext,
   applicationContract,
@@ -11,6 +12,7 @@ import {
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Policy } from '../../src/runtime/policy/index.js';
+import { pointerValue } from '../../src/runtime/evolution/resources.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { object } from '../../src/shared/json.js';
@@ -49,18 +51,19 @@ test('policy.parameter-agent loads default evolution resources with either Refle
   };
   const options = { sourcePath: join(root, 'recipe.yaml') };
   const standard = await Recipe.fromJSON(declaration, registry, options);
-  assert.equal(standard.memory?.evidenceView, 'training-summary');
-  assert.equal(standard.reflection?.evidenceView, 'training-summary');
+  assert.equal(standard.memory?.evidenceView, 'training');
+  assert.equal(standard.reflection?.evidenceView, 'training');
   assert.equal(
     standard.bindings.proposer!.config.prompt,
     join(root, 'prompt.md'),
   );
-  const guidance = standard.bindings.proposer!.config.guidance;
-  assert.equal(typeof guidance, 'string');
-  assert.match(
-    await readFile(join(String(guidance), 'search.md'), 'utf8'),
-    /Configuration search guidance/,
+  assert.equal(
+    standard.bindings.proposer!.config.evidenceView,
+    'training-summary',
   );
+  assert.deepEqual(standard.reflection?.targets, {
+    proposer: { resources: ['/prompt'] },
+  });
   for (const reflection of [false, true]) {
     const loaded = await Recipe.fromJSON(
       { ...declaration, reflection },
@@ -72,22 +75,51 @@ test('policy.parameter-agent loads default evolution resources with either Refle
     assert.deepEqual(reloaded.reflection, loaded.reflection);
   }
 
-  const missingGuidance = {
+  const missingSkill = {
     ...declaration,
     reflection: true,
     bindings: {
       ...declaration.bindings,
-      proposer: { config: { guidance: './missing-guidance' } },
+      proposer: { config: { skills: ['./missing-skill'] } },
     },
   };
   await assert.rejects(
-    Recipe.fromJSON(missingGuidance, registry, options),
-    /guidance.*cannot read resource/,
+    Recipe.fromJSON(missingSkill, registry, options),
+    /skills.*cannot read resource/,
   );
   declaration.policy.config = { maxTrials: null };
   await assert.rejects(
     Recipe.fromJSON(declaration, registry, options),
     /maxTrials/,
+  );
+});
+
+test('the parameter-agent example authorizes its local tuning prompt, skill and specialist role prompts for Reflection', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  const directory = fileURLToPath(
+    new URL(
+      '../../examples/artifacts/inference/parameter-agent/',
+      import.meta.url,
+    ),
+  );
+  const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
+  const resources = recipe.reflection?.targets.proposer?.resources ?? [];
+  assert.deepEqual(
+    Object.fromEntries(
+      resources.map((pointer) => [
+        pointer,
+        pointerValue(recipe.bindings.proposer!.config, pointer),
+      ]),
+    ),
+    {
+      '/prompt': join(directory, 'prompts/tuning.md'),
+      '/skills/0': join(directory, 'skills/vllm-ascend-tuning'),
+      '/subagents/0/prompt': join(directory, 'roles/scheduler.md'),
+      '/subagents/1/prompt': join(directory, 'roles/ascend-runtime.md'),
+      '/subagents/2/prompt': join(directory, 'roles/research-scout.md'),
+    },
   );
 });
 

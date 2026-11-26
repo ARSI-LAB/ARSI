@@ -25,6 +25,7 @@ export type {
 export { bindingDeclarationSchema, recipeDeclarationSchema } from './recipe.js';
 export type {
   RuntimeEvolutionKind,
+  RuntimeEvolutionEvidenceView,
   RuntimeEvolutionTrigger,
   RuntimeEvolutionBudget,
   RuntimeEvolutionDeclaration,

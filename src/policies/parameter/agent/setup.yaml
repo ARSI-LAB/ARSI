@@ -53,13 +53,15 @@ require:
   selector: { contract: contract.selector-metrics }
   agent: { contract: contract.agent }
 defaults:
-  memory: { configFile: ./memory.yaml }
   reflection: { configFile: ./reflection.yaml }
   bindings:
     agent: { plugin: agent.codex }
     proposer:
       plugin: proposer.agent
-      config: { agentRef: agent, prompt: ./prompt.md, guidance: ./guidance }
+      config:
+        agentRef: agent
+        prompt: ./prompt.md
+        evidenceView: training-summary
     selector:
       plugin: selector.inference
       config: { metric: requestThroughput, direction: maximize }

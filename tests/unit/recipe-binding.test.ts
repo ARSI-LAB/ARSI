@@ -348,6 +348,14 @@ test('GEPA example loads through built-in registration with recipe-relative reso
     recipe.bindings.proposer!.config.evidenceView,
     'training-summary',
   );
+  assert.equal(recipe.memory?.evidenceView, 'training');
+  assert.equal(recipe.memory?.config.agentRef, 'agent');
+  assert.ok(recipe.memory?.consumers.includes('proposer'));
+  assert.equal(recipe.reflection?.evidenceView, 'training');
+  assert.equal(recipe.reflection?.config.agentRef, 'agent');
+  assert.deepEqual(recipe.reflection?.targets, {
+    proposer: { resources: ['/prompt'] },
+  });
   assert.equal(recipe.bindings.proposer!.config.maxModelCalls, undefined);
   assert.equal(recipe.bindings.agent!.config.maxTokens, undefined);
   for (const service of Object.values(
@@ -363,28 +371,26 @@ test('GEPA example loads through built-in registration with recipe-relative reso
     configSchema: {
       type: 'object',
       additionalProperties: false,
-      properties: { guidance: { type: 'string', 'x-rsi-path': 'file' } },
+      properties: { template: { type: 'string', 'x-rsi-path': 'file' } },
     },
     async create() {
       throw new Error('Recipe loading must not instantiate the proposer');
     },
   });
-  const custom = await Recipe.fromJSON(
-    {
-      ...raw,
-      bindings: {
-        ...object(raw.bindings),
-        proposer: {
-          plugin: 'proposer.custom-gepa',
-          config: { guidance: recipe.bindings.proposer!.config.prompt },
-        },
+  const customRecipe = {
+    ...raw,
+    bindings: {
+      ...object(raw.bindings),
+      proposer: {
+        plugin: 'proposer.custom-gepa',
+        config: { template: recipe.bindings.proposer!.config.prompt },
       },
     },
-    registry,
-    { sourcePath: join(directory, 'recipe.yaml') },
-  );
+  };
+  const sourcePath = join(directory, 'recipe.yaml');
+  const custom = await Recipe.fromJSON(customRecipe, registry, { sourcePath });
   assert.deepEqual(custom.reflection?.targets, {
-    proposer: { resources: ['/guidance'] },
+    proposer: { resources: ['/template'] },
   });
   for (const field of [
     'evaluatorBinding',
@@ -469,6 +475,28 @@ test('GEPA example loads through built-in registration with recipe-relative reso
   );
   await readYaml(join(directory, 'target.yaml'));
   await readYaml(join(directory, 'baseline/bundle.yaml'));
+});
+
+test('Harness虏 uses the generic Reflection goal and limits evolution to its intended consumers and Proposer resources', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  const recipe = await Recipe.load(
+    'examples/harness/dsh-harness2/recipe.yaml',
+    registry,
+  );
+  assert.equal(recipe.memory?.evidenceView, 'execution');
+  assert.ok(recipe.memory?.consumers.includes('invariantProposer'));
+  assert.ok(!recipe.memory.consumers.includes('selector'));
+  assert.equal(recipe.reflection?.evidenceView, 'execution');
+  assert.equal(
+    recipe.reflection?.goalFile,
+    resolve('src/plugins/reflection-agent/goals/generic/prompt.md'),
+  );
+  assert.deepEqual(recipe.reflection?.targets, {
+    invariantProposer: { resources: ['/prompt', '/skills/0'] },
+    domainProposer: { resources: ['/prompt', '/skills/0'] },
+  });
 });
 
 test('bundled Recipes preserve time budgets without injecting call or token limits', async (t) => {
@@ -571,6 +599,8 @@ test('Gym GAIA Recipe separates train_full search from holdout promotion', async
   const evaluator = recipe.bindings.evaluator!;
   const promotion = recipe.bindings.promotion!;
   assert.equal(recipe.policy.id, 'policy.gym-rsi');
+  assert.equal(recipe.policyConfig.maxRounds, 1);
+  assert.equal(recipe.reflection, undefined);
   assert.equal(evaluator.pluginId, 'evaluator.gym');
   assert.equal(promotion.pluginId, 'evaluator.gym');
   assert.equal(evaluator.config.mode, 'evaluate');

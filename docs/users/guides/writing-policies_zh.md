@@ -20,7 +20,8 @@ Policy 使用 `rsi.policy/v1`，与 `rsi.recipe/v1` 的 Recipe 配合使用。�
 | `input`               | 提供输入默认值，如：可引用 Application 创建的初始候选。                        |
 | `require`             | 声明流程使用的绑定名及其公共契约，如 `evaluator` 需要 `contract.agentbench`。  |
 | `defaults.bindings`   | 为绑定提供默认插件和配置，Recipe 可以覆盖。                                    |
-| `defaults.memory` / `defaults.reflection` | 启用或关闭对应能力，或引用外部配置文件。 |
+| `defaults.memory` | Memory 默认启用。设为 `false` 可关闭，提供 `configFile` 可自定义配置。 |
+| `defaults.reflection` | 用 `{ configFile: ./reflection.yaml }` 启用 Reflection。省略或设为 `false` 时默认关闭。 |
 | `state_schema`        | 使用共享状态时，定义状态字段和类型。                                           |
 | `state`               | 设置共享状态的初始值；可用表达式读取 `input`、`application` 和 `config`。      |
 | `steps`               | 按顺序执行的步骤列表，每步声明 `id` 和 `type`。                                |
@@ -29,6 +30,8 @@ Policy 使用 `rsi.policy/v1`，与 `rsi.recipe/v1` 的 Recipe 配合使用。�
 | `partial_output` | 可选的检查点输出。声明 `schema`、结果模板 `value` 以及可选的布尔条件 `when`（默认 true）。 |
 
 模板可以读取已提交的状态和顶层步骤输出。尚未完成的步骤在这里的 `output` 为 `null`，读取子字段前应先判断。条件为 false 时省略部分结果。正常完成仍使用 `output` 及其 Schema。
+
+在 Reflection 文件的 `targets.include` 中列出 Policy 授权的绑定和本地资源字段，例如 `targets: { include: { proposer: [prompt] } }`。绑定名取自 `require`，字段必须已在对应绑定中配置。Recipe 可以替换整个文件。详见 [Reflection 使用指南](reflection_zh.md)。
 
 ## 步骤与数据传递
 

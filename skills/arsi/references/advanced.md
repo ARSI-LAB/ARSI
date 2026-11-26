@@ -1,6 +1,6 @@
 # Models, Memory and Reflection
 
-For installation and the shared baseline, see [quickstart](quickstart.md). The complete opt-in variant is [evolution-recipe.yaml](../assets/evolution/evolution-recipe.yaml) with [evolution.yaml](../assets/evolution/evolution.yaml), prompts and guidance in that same directory. It uses real `agent.pi`, `proposer.agent`, `memory.agent`, `reflection.agent` and the demonstration text evaluator. It does not measure benchmark intelligence.
+For installation and the shared baseline, see [quickstart](quickstart.md). The complete opt-in variant is [evolution-recipe.yaml](../assets/evolution/evolution-recipe.yaml) with [evolution.yaml](../assets/evolution/evolution.yaml) and the editor prompts in the same directory. It uses real `agent.pi`, `proposer.agent`, `memory.agent`, `reflection.agent` and the demonstration text evaluator. It does not measure benchmark intelligence.
 
 ## Choose the smallest complete workflow
 
@@ -32,15 +32,15 @@ For proposer-only use, run the complete [model-recipe.yaml](../assets/evolution/
 Use the top-level `memory` and `reflection` fields in the examples. Each module runs at its declared serial boundary. The combined example runs Memory first and Reflection second, after each search iteration.
 
 - Memory observes the configured bindings, receives Runtime-prepared evidence, and proposes a file-tree snapshot. Eligible bindings invoking Agents receive the pinned snapshot under `context/memory/` in the derived Agent project.
-- Reflection proposes revisions to configured binding resources. The example grants access to the Proposer's `guidance` directory. Set the resource field name under `targets.include.proposer`. The target binding must configure its path.
-- Set `implementation.config.agentRef` and `implementation.config.prompt` in the external configuration. Use `evidence.view`, `evidence.includeSteps` and `evidence.excludeSteps` to restrict the evidence. Set local limits in `budget`.
+- To enable Reflection, supply a Policy or Recipe `configFile` with a nonempty `targets.include`. The example sets `proposer: '*'` to authorize the Proposer's local resources. Its only configured resource is `proposer.md`. `reflection: true` reuses a Policy file, and a Recipe file replaces it.
+- The built-in generators reuse a Policy’s sole `contract.agent` binding. With zero or multiple Agent bindings they use an internal `agent.pi`. Set `implementation.config.agentRef` to select a declared Agent or `implementation.config.prompt` to supply a custom prompt. Memory and Reflection default to `evidence.view: training` for full traces and authorized feedback. Set `evidence.view: execution` for verifier-blind Policies or `training-summary` for compact previews with feedback. Use `evidence.includeSteps` and `evidence.excludeSteps` to scope observations. Set local limits in `budget`.
 - Empty evidence windows skip the generator. Ordinary proposal failures leave the active version in place. Experiment cancellation and global budget limits still stop execution.
 
 Inspect Memory and revisions using `arsi memory list <id>` and `arsi reflection list <id>`. The experiment's `evolution` summary identifies the resulting Memory snapshot and active revisions. A call receipt contains the version acquired by that binding.
 
 ## Acceptance evidence
 
-For Memory: identify the new memory artifact, the subsequent Agent call receipt’s `metadata.memoryVersionRef`, loaded content delivered to its Agent, and subsequent executed candidate/evaluation. For Reflection: identify generated revision, accepted activation, a later invocation's revision identity and loaded guidance, then actual execution using it in the same unfinished task. Last-round activation has no subsequent execution and cannot establish online use. Report partial evidence honestly; file existence or a successful model response alone is insufficient.
+For Memory: identify the new memory artifact, the subsequent Agent call receipt’s `metadata.memoryVersionRef`, loaded content delivered to its Agent, and subsequent executed candidate/evaluation. For Reflection: identify generated revision, accepted activation, a later invocation's revision identity and loaded Proposer instructions, then actual execution using it in the same unfinished task. Last-round activation has no subsequent execution and cannot establish online use. Report partial evidence honestly; file existence or a successful model response alone is insufficient.
 
 The default two-round examples trigger each enabled module after each round. Later Agent receipts show which resources the second round acquired.
 
@@ -61,4 +61,4 @@ A model can return malformed edits, no-change, or time out. Follow [bounded reco
 
 Inspect `evolution-runs` and the experiment's `evolution.revisionRefs` for accepted revisions. List Memory snapshots with `arsi memory list <id>`. Keep the selected candidate and measurement alongside those references.
 
-A raw generator receipt (the internal Reflection generator call, often binding `_reflection`) can return `{ status: 'proposed', proposal, reason }`. That is the generator contract, **not** the Runtime activation result. Do not assert that this raw output must equal `activated`. Link the evolution run's `revisionRefs` with the later proposer's call revisionRef and loaded guidance, then inspect its produced candidate and subsequent measurement. A revision fact labelled `validated` by itself is insufficient to show later use; the downstream evidence is required.
+A raw generator receipt (the internal Reflection generator call, often binding `_reflection`) can return `{ status: 'proposed', proposal, reason }`. That is the generator contract, **not** the Runtime activation result. Do not assert that this raw output must equal `activated`. Link the evolution run's `revisionRefs` with the later proposer's call revisionRef and loaded Proposer instructions, then inspect its produced candidate and subsequent measurement. A revision fact labelled `validated` by itself is insufficient to show later use; the downstream evidence is required.

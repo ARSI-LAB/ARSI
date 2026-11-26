@@ -108,20 +108,20 @@ arsi doctor my-experiment/recipe.yaml --json
 
 ### Proposer、Memory、Reflection 与 Selector
 
-Doctor 检查已启用的运行时演进模块配置、显式指定的 Memory 源目录和选用的 Agent。未指定 Agent 绑定时会检查为内置 `agent.pi` 插件合成的 `_evolutionAgent` 绑定。禁用模块跳过资源加载。
+Doctor 检查已启用的运行时演进模块配置、显式指定的 Memory 源目录和选用的 Agent。当 `memory.agent` 或 `reflection.agent` 省略 `implementation.config.agentRef` 时，Doctor 会检查 Policy 声明的唯一 `contract.agent` 绑定。如果 Policy 没有声明或声明了多个这类绑定，Doctor 会检查该模块使用的内部绑定 `_evolutionAgent`（`agent.pi`）。禁用模块跳过资源加载。Reflection 配置中的 `proposer: '*'` 选择该绑定已配置的本地资源，包括 `prompt`、`skills` 目录和 `subagents` 的提示词文件。如果选中的目标包含内置资源，Doctor 会在 `reflection.targets` 检查项中提示如何导出。
 
 | 实现                        | 实际检查                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `proposer.agent`            | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词、指导、Skill 和角色提示词。<br>3. 准备隔离编辑项目，确认这些输入可以正确装配。                      |
+| `proposer.agent`            | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词、Skill 和角色提示词。<br>3. 准备隔离编辑项目，确认这些输入可以正确装配。                      |
 | `proposer.operator`         | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取算子任务及用例，核对任务与用例标识。<br>3. 读取阶段提示词、外部知识、检索所需资源及可选硬件说明。          |
 | `proposer.grid`             | 1. 检查参数路径、搜索轴名称和网格规模。<br>2. 读取 Application 基线中 `config.path` 指向的文件，确认内容为 JSON 对象。                                  |
 | `proposer.optuna`           | 1. 校验采样器、搜索空间和约束处理配置。<br>2. 读取 Application 基线中 `config.path` 指向的文件，确认内容为 JSON 对象。<br>3. 检查 Python 依赖及其版本。 |
 | `proposer.pareto-evolution` | 1. 检查提示词模块定义是否合法。<br>2. 检查各模块文件是否存在于本地基线或文件树制品中。                                                                  |
 | `summarizer.operator`       | 检查 `promptFile` 是否可读且包含非空白文本。                                                                                                            |
-| `memory.agent`              | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词、指导、Skill 和角色提示词。<br>3. 在隔离项目中装配编辑环境。                                        |
-| `reflection.agent`          | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词、指导、Skill 和内置评审角色提示词。<br>3. 在隔离项目中装配编辑环境。                                |
+| `memory.agent`              | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词、Skill 和角色提示词。<br>3. 在隔离项目中装配编辑环境。                                        |
+| `reflection.agent`          | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取提示词、Skill 和内置评审角色提示词。<br>3. 在隔离项目中装配编辑环境。                                |
 | `selector.metric`           | 1. 校验指标选择配置。<br>2. 检查候选资格条件和约束上下界，并确认组件可以创建和释放。                                                                    |
-| `selector.artifact`         | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取选择提示词、指导、Skill 和角色提示词。<br>3. 准备隔离的选择项目。                                          |
+| `selector.artifact`         | 1. 检查所选 Agent 的绑定和兼容性。<br>2. 读取选择提示词、Skill 和角色提示词。<br>3. 准备隔离的选择项目。                                          |
 | `selector.inference`        | 1. 校验推理选择配置。<br>2. 检查约束上下界，并确认组件可以创建和释放。                                                                                  |
 
 ### Evaluator

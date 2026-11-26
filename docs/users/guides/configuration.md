@@ -18,7 +18,7 @@ The following table lists the top-level Recipe fields. For a complete Recipe exa
 | `bindings`      | No       | Specify the plugins and configuration used by actions in the flow.      | Keys match the selected Policy's `require` names. The Policy uses these names to call plugins; the corresponding Recipe entry selects the implementation and parameters through `plugin` and `config`.                                                    |
 | `budget`        | No       | Limit experiment calls, execution time, and other resources.            | For example, `evaluationRuns: 20` or `elapsedWallMs: 21600000`; see [Limits and budgets](#limits-and-budgets) for the fields.                                                                                                                             |
 | `memory` | No | Update experience at a serial boundary. | Use a boolean or `{ configFile: ./memory.yaml }`. See [Memory](memory.md). |
-| `reflection` | No | Revise selected binding resources. | Use a boolean or `{ configFile: ./reflection.yaml }`. See [Reflection](reflection.md). |
+| `reflection` | No | Revise selected binding resources. | Omit it to inherit the Policy setting. `true` requires a Policy configuration file. Use `false` to disable, or `{ configFile: ./reflection.yaml }` to supply a complete file with `targets.include`. See [Reflection](reflection.md). |
 
 - A Recipe's `config` objects configure the selected Application, Policy, or plugin. Each component's configuration Schema defines the fields and their requirements.
   - You can use Schema defaults, and plugin bindings can also inherit the Policy's default configuration.
@@ -210,7 +210,7 @@ is `max-trials` when the candidate limit is reached, `max-proposal-rounds` when
 the round limit is reached first, otherwise `null`. Budget exhaustion is recorded
 at experiment level and preserves the last committed incumbent in `partialOutput`.
 
-Parameter Agent enables Memory and Reflection after each search iteration. Both use the declared `agent` binding and `training-summary` evidence. Set `memory: false` or `reflection: false` in the Recipe to disable either. For custom goals, prompts, targets or budgets, select an external configuration file. See [Memory](memory.md) and [Reflection](reflection.md).
+Parameter Agent's Proposer uses `training-summary` by default to read measured throughput and latency. The Policy enables Memory and Reflection after each search iteration. Both reuse the declared `agent` binding and default to `training`, which includes execution files and authorized scoring feedback. To keep a module verifier-blind, set `evidence: { view: execution }` in its configuration file, as Harness² does. For scores with compact execution previews, choose `training-summary`. Set `memory: false` or `reflection: false` in the Recipe to disable either. For custom goals, prompts, targets or budgets, select an external configuration file. See [Memory](memory.md) and [Reflection](reflection.md).
 
 This is reusable single-file configuration-search orchestration: objectives,
 research methods and specialist roles come from the Recipe and its resources.

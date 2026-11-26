@@ -18,7 +18,7 @@ Recipe 包含以下顶层字段，完整 Recipe 示例见[快速入门](../getti
 | `bindings`      | 否   | 指定流程中各动作使用的插件与配置。       | 键名与所选 Policy 的 `require` 一致。Policy 按这些名称使用插件，Recipe 通过对应条目的 `plugin` 和 `config` 指定具体实现与参数。                                              |
 | `budget`        | 否   | 设置实验的调用次数、运行时长等上限。     | 如 `evaluationRuns: 20`、`elapsedWallMs: 21600000`；详细字段见[限制与预算](#限制与预算)。                                                                                    |
 | `memory` | 否 | 按边界更新经验。 | 使用布尔值或 `{ configFile: ./memory.yaml }`。见 [Memory](memory_zh.md)。 |
-| `reflection` | 否 | 修订指定绑定的资源。 | 使用布尔值或 `{ configFile: ./reflection.yaml }`。见 [Reflection](reflection_zh.md)。 |
+| `reflection` | 否 | 修订指定绑定的资源。 | 省略时沿用 Policy 设置。`true` 要求 Policy 已提供配置文件。可设为 `false` 关闭，或用 `{ configFile: ./reflection.yaml }` 指定含 `targets.include` 的完整配置文件。见 [Reflection](reflection_zh.md)。 |
 
 - Recipe 中的 `config` 用来配置所选的 Application、Policy 或插件，具体字段和填写要求由各自的配置 Schema 定义。
   - 填写时可以沿用 Schema 默认值，插件绑定还可继承 Policy 的默认配置；
@@ -207,7 +207,7 @@ arsi run path/to/recipe.yaml
 其他情况为 `null`。预算耗尽原因记录在实验顶层，并通过 `partialOutput` 保留最后
 已提交的当前最优结果。
 
-Parameter Agent 默认在每轮搜索结束后运行 Memory 和 Reflection，两者使用声明的 `agent` 绑定及 `training-summary` 证据。Recipe 可用 `memory: false` 或 `reflection: false` 单独禁用。可通过外部配置文件指定目标、提示词、授权范围及预算。见 [Memory](memory_zh.md) 和 [Reflection](reflection_zh.md)。
+Parameter Agent 的 Proposer 默认用 `training-summary` 读取实测吞吐量和延迟。Policy 默认在每轮搜索结束后运行 Memory 和 Reflection，两者复用声明的 `agent` 绑定，默认使用 `training`，可读取执行文件及已授权的评分反馈。若某一模块需要对评判结果盲测，请像 Harness² 一样在该模块配置文件中显式设置 `evidence: { view: execution }`。只需要评分和精简执行预览时，选择 `training-summary`。Recipe 可用 `memory: false` 或 `reflection: false` 单独禁用。可通过外部配置文件指定目标、提示词、授权范围及预算。见 [Memory](memory_zh.md) 和 [Reflection](reflection_zh.md)。
 
 这是可复用的单文件配置搜索编排；目标、研究方法和专家角色由 Recipe 及其资源提供。
 Evaluator 绑定仍要求 `contract.inferencebench`，selector 要求

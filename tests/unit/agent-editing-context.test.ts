@@ -7,6 +7,7 @@ import { RuntimeContext } from '../../src/contracts/index.js';
 import {
   agentConfigSchema,
   requestEdit,
+  resourceFiles,
 } from '../../src/plugins/shared/agent-editing/index.js';
 import { prepareAgentProject } from '../../src/index.js';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
@@ -80,5 +81,57 @@ test('editor rejects removed context configuration and preserves large instructi
     );
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('the editor reads text resources and the current prompt for each request', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-editor-resources-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const prompt = join(root, 'prompt.md');
+  const artifacts = new FileArtifacts(join(root, 'artifacts'));
+  const context = new RuntimeContext().extend({
+    directory: root,
+    artifacts,
+    readEvidence: async () => ({}),
+    invokeAgent: async (_binding, request) => ({
+      edits: [],
+      reason: await readFile(join(string(request.cwd), 'AGENTS.md'), 'utf8'),
+    }),
+  });
+  const snapshot = await artifacts.putJson({
+    kind: 'file-tree',
+    files: [
+      {
+        path: 'note.txt',
+        mode: 0o644,
+        base64: Buffer.from('editable text').toString('base64'),
+      },
+      {
+        path: 'binary.dat',
+        mode: 0o644,
+        base64: Buffer.from([0, 255]).toString('base64'),
+      },
+    ],
+  });
+  assert.deepEqual(await resourceFiles(snapshot, context), {
+    'note.txt': 'editable text',
+  });
+  const malformed = await artifacts.putJson({
+    kind: 'file-tree',
+    files: [{ path: 'note.txt', mode: 0o644, base64: 'invalid!' }],
+  });
+  await assert.rejects(resourceFiles(malformed, context), /bytes/);
+  for (const instructions of [
+    'Base editor prompt.',
+    'Check the revised evidence.',
+  ]) {
+    await writeFile(prompt, instructions);
+    const response = await requestEdit(
+      { prompt },
+      { goal: 'Improve' },
+      snapshot,
+      context,
+    );
+    assert.ok(string(response.reason).startsWith(instructions + '\n'));
   }
 });

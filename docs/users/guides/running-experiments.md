@@ -30,6 +30,8 @@ Use `arsi --help` to list commands and `arsi <command> --help` for a command's s
 | `arsi reflection apply <revisionID> [--to <directory>]` | Apply the revision at its recorded paths or export it to a dedicated directory. See the [Reflection guide](reflection.md#apply-a-revision-to-future-experiments). |
 | `arsi help [command]`                  | Show the command list or help for a specific command.                                                                                     |
 
+Before writing back a Reflection revision, run `arsi reflection show <revisionID>` to inspect its destinations. An Agent Policy using `proposer: '*'` can revise your configured `prompt`, `skills` and `subagents` resources. Apply a revision in place when its changed resources are user-owned. To export changes to built-in prompts, use `arsi reflection apply <revisionID> --to ./exported-resources`.
+
 ### Interactive CLI
 
 In an interactive terminal, run `arsi` or `arsi shell` to open the command menu. Select a command and enter its arguments, or select **Run custom CLI command** to type a full command. Use single or double quotes around arguments containing spaces. The custom prompt also accepts `help`, `log-level`, `clear`, and `exit`.
@@ -159,4 +161,4 @@ Metrics that share a display label include their recorded metric names so distin
 | Unknown plugin, Policy, or undeclared binding                     | Inspect the current catalog, load the extension in this process, and match the Policy's `require`. File presence alone does not register it.                                |
 | Budget exceeded or request timed out                              | Distinguish operation/evaluator/model counters, wall time, individual request time, full Agent time, and benchmark time. See [limits](configuration.md#limits-and-budgets). |
 | Dashboard reports a missing `.rsi` or shows different experiments | Start it from the original experiment workspace and use the same data store.                                                                                                |
-| Memory or Reflection rejected an update                          | Inspect saved reasons and subsequent flow. The experiment can continue with the previous experience or guidance after an update fails. Cancellation and experiment-wide budget exhaustion still stop the experiment.                                   |
+| Memory or Reflection rejected an update                          | Inspect saved reasons and subsequent flow. The experiment can continue with the previous Memory snapshot or plugin revision after an update fails. Cancellation and experiment-wide budget exhaustion still stop the experiment.                                   |

@@ -48,8 +48,8 @@ async function fixture() {
   const root = await mkdtemp(join(await realpath(tmpdir()), 'rsi-apply-'));
   const project = join(root, 'project'),
     directory = join(root, 'runtime'),
-    guidance = join(project, 'guidance');
-  await mkdir(guidance, { recursive: true });
+    instructions = join(project, 'instructions');
+  await mkdir(instructions, { recursive: true });
   const facts = new FileFacts(join(directory, 'facts')),
     artifacts = new FileArtifacts(join(directory, 'artifacts'));
   const app = new RevisionApplication({
@@ -58,11 +58,11 @@ async function fixture() {
     facts,
     artifacts,
   });
-  const prefix = resourcePath('worker', '/guidance');
+  const prefix = resourcePath('worker', '/instructions');
   const resource = {
-    pointer: '/guidance',
+    pointer: '/instructions',
     kind: 'directory',
-    path: guidance,
+    path: instructions,
     artifactPath: prefix,
   };
   const save = async (
@@ -90,7 +90,7 @@ async function fixture() {
     root,
     project,
     directory,
-    guidance,
+    instructions,
     facts,
     artifacts,
     app,
@@ -125,7 +125,7 @@ test('configured collection resources match paths and editable roots reject all 
       validateEditableRoots([
         {
           binding: 'A',
-          pointer: '/guidance',
+          pointer: '/instructions',
           kind: 'directory',
           path: '/tmp/resources',
         },
@@ -136,7 +136,7 @@ test('configured collection resources match paths and editable roots reject all 
           path: '/tmp/resources/child',
         },
       ]),
-    /A\/guidance.*B\/prompt/,
+    /A\/instructions.*B\/prompt/,
   );
 });
 test('saved versions directly overwrite owned snapshots and the initial revision restores originals', async (t) => {
@@ -144,10 +144,10 @@ test('saved versions directly overwrite owned snapshots and the initial revision
   t.after(() => rm(f.root, { recursive: true, force: true }));
   const sibling = join(f.project, 'sibling.txt');
   await writeFile(sibling, 'untouched');
-  await writeFile(join(f.guidance, 'original.md'), 'local edits');
+  await writeFile(join(f.instructions, 'original.md'), 'local edits');
   await f.save('revision-r1', [
     file(f.prefix + '/original.md', 'one'),
-    file('bindings/other/resources/guidance/private.md', 'other binding'),
+    file('bindings/other/resources/instructions/private.md', 'other binding'),
   ]);
   await f.save('revision-r3', [file(f.prefix + '/added.md', 'three')]);
   assert.equal((await f.app.list()).length, 3);
@@ -159,26 +159,32 @@ test('saved versions directly overwrite owned snapshots and the initial revision
     'remove',
   ]);
   await f.app.apply('revision-r1');
-  assert.equal(await readFile(join(f.guidance, 'original.md'), 'utf8'), 'one');
+  assert.equal(
+    await readFile(join(f.instructions, 'original.md'), 'utf8'),
+    'one',
+  );
   await f.app.apply('revision-r3');
-  await assert.rejects(readFile(join(f.guidance, 'original.md')), /ENOENT/);
-  assert.equal(await readFile(join(f.guidance, 'added.md'), 'utf8'), 'three');
+  await assert.rejects(readFile(join(f.instructions, 'original.md')), /ENOENT/);
+  assert.equal(
+    await readFile(join(f.instructions, 'added.md'), 'utf8'),
+    'three',
+  );
   assert.equal((await f.app.apply('revision-r3')).status, 'unchanged');
   await f.app.apply('revision-initial');
   assert.equal(
-    await readFile(join(f.guidance, 'original.md'), 'utf8'),
+    await readFile(join(f.instructions, 'original.md'), 'utf8'),
     'original',
   );
-  await assert.rejects(readFile(join(f.guidance, 'added.md')), /ENOENT/);
+  await assert.rejects(readFile(join(f.instructions, 'added.md')), /ENOENT/);
   assert.equal(await readFile(sibling, 'utf8'), 'untouched');
   await f.save('revision-empty', []);
   await f.app.apply('revision-empty');
-  await assert.rejects(readFile(join(f.guidance, 'original.md')), /ENOENT/);
+  await assert.rejects(readFile(join(f.instructions, 'original.md')), /ENOENT/);
 });
 test('revision application retries replacing a temporarily busy file', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
-  const destination = join(await realpath(f.guidance), 'original.md');
+  const destination = join(await realpath(f.instructions), 'original.md');
   await writeFile(destination, 'original');
   await f.save('revision-r1', [file(f.prefix + '/original.md', 'replacement')]);
   const originalRename = filesystem.rename;
@@ -187,7 +193,7 @@ test('revision application retries replacing a temporarily busy file', async (t)
     filesystem,
     'rename',
     async (...args: Parameters<typeof originalRename>) => {
-      if (args[1] === f.guidance && busy) {
+      if (args[1] === f.instructions && busy) {
         busy = false;
         throw Object.assign(new Error('destination busy'), { code: 'EBUSY' });
       }
@@ -198,7 +204,7 @@ test('revision application retries replacing a temporarily busy file', async (t)
   try {
     assert.equal((await f.app.apply('revision-r1')).status, 'applied');
     assert.equal(await readFile(destination, 'utf8'), 'replacement');
-    assert.deepEqual(await readdir(f.guidance), ['original.md']);
+    assert.deepEqual(await readdir(f.instructions), ['original.md']);
     assert.equal(busy, false);
   } finally {
     mocked.mock.restore();
@@ -208,9 +214,9 @@ test('revision application retries replacing a temporarily busy file', async (t)
 test('snapshot name collisions follow the destination filesystem before any resource changes', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
-  const probe = join(f.guidance, 'CaseProbe');
+  const probe = join(f.instructions, 'CaseProbe');
   await writeFile(probe, 'probe', { flag: 'wx' });
-  const caseInsensitive = await lstat(join(f.guidance, 'caseprobe')).then(
+  const caseInsensitive = await lstat(join(f.instructions, 'caseprobe')).then(
     () => true,
     (error: unknown) => {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
@@ -222,7 +228,10 @@ test('snapshot name collisions follow the destination filesystem before any reso
   t.diagnostic(
     `Destination filesystem is case-${caseInsensitive ? 'insensitive' : 'sensitive'} (${process.platform})`,
   );
-  await writeFile(join(f.guidance, 'original.md'), 'preserve local content');
+  await writeFile(
+    join(f.instructions, 'original.md'),
+    'preserve local content',
+  );
   for (const [upper, lower] of [
     ['Rules.md', 'rules.md'],
     ['new/sub/Rules.md', 'new/sub/rules.md'],
@@ -237,15 +246,21 @@ test('snapshot name collisions follow the destination filesystem before any reso
     if (caseInsensitive) {
       assert.match(String(shown.restrictions), /alias|collision/);
       await assert.rejects(f.app.apply('revision-case'), /alias|collision/);
-      assert.deepEqual(await readdir(f.guidance), ['original.md']);
+      assert.deepEqual(await readdir(f.instructions), ['original.md']);
       assert.equal(
-        await readFile(join(f.guidance, 'original.md'), 'utf8'),
+        await readFile(join(f.instructions, 'original.md'), 'utf8'),
         'preserve local content',
       );
     } else {
       await f.app.apply('revision-case');
-      assert.equal(await readFile(join(f.guidance, upper!), 'utf8'), 'upper');
-      assert.equal(await readFile(join(f.guidance, lower!), 'utf8'), 'lower');
+      assert.equal(
+        await readFile(join(f.instructions, upper!), 'utf8'),
+        'upper',
+      );
+      assert.equal(
+        await readFile(join(f.instructions, lower!), 'utf8'),
+        'lower',
+      );
       assert.equal((await f.app.apply('revision-case')).status, 'unchanged');
     }
   }
@@ -253,7 +268,7 @@ test('snapshot name collisions follow the destination filesystem before any reso
 test('filesystem name probes clean up on I/O failure without applying resource changes', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
-  await writeFile(join(f.guidance, 'original.md'), 'preserve');
+  await writeFile(join(f.instructions, 'original.md'), 'preserve');
   await f.save('revision-probe', [
     file(f.prefix + '/a.md', 'a'),
     file(f.prefix + '/b.md', 'b'),
@@ -273,9 +288,9 @@ test('filesystem name probes clean up on I/O failure without applying resource c
       f.app.apply('revision-probe'),
       /injected name probe failure/,
     );
-    assert.deepEqual(await readdir(f.guidance), ['original.md']);
+    assert.deepEqual(await readdir(f.instructions), ['original.md']);
     assert.equal(
-      await readFile(join(f.guidance, 'original.md'), 'utf8'),
+      await readFile(join(f.instructions, 'original.md'), 'utf8'),
       'preserve',
     );
   } finally {
@@ -283,7 +298,7 @@ test('filesystem name probes clean up on I/O failure without applying resource c
     syncBuiltinESMExports();
   }
   assert.equal((await f.app.apply('revision-probe')).status, 'applied');
-  assert.deepEqual((await readdir(f.guidance)).sort(), ['a.md', 'b.md']);
+  assert.deepEqual((await readdir(f.instructions)).sort(), ['a.md', 'b.md']);
 });
 test('inspection retains protected and legacy snapshots without authorizing application', async (t) => {
   const f = await fixture();
@@ -291,7 +306,7 @@ test('inspection retains protected and legacy snapshots without authorizing appl
   await assert.rejects(f.app.show('revision-missing'), /Unknown revision/);
   const protectedResource = {
     ...f.resource,
-    path: join(f.project, 'dist', 'guidance'),
+    path: join(f.project, 'dist', 'instructions'),
   };
   await f.save(
     'revision-initial',
@@ -337,7 +352,7 @@ test('inspection retains protected and legacy snapshots without authorizing appl
 test('all destination and snapshot validation precedes the first write', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
-  await writeFile(join(f.guidance, 'original.md'), 'preserve');
+  await writeFile(join(f.instructions, 'original.md'), 'preserve');
   const invalidSets = [
     [
       file(f.prefix + '/ok.md', 'would write'),
@@ -363,7 +378,7 @@ test('all destination and snapshot validation precedes the first write', async (
       f.app.apply('revision-invalid'),
       /collision|Unsafe resource entry/,
     );
-    await assert.rejects(readFile(join(f.guidance, 'ok.md')), /ENOENT/);
+    await assert.rejects(readFile(join(f.instructions, 'ok.md')), /ENOENT/);
   }
   await f.save('revision-redirect', [], {
     sourceResources: [{ ...f.resource, path: join(f.project, 'elsewhere') }],
@@ -376,14 +391,14 @@ test('all destination and snapshot validation precedes the first write', async (
     ...f.resource,
     pointer: '/other',
     artifactPath: resourcePath('worker', '/other'),
-    path: join(f.guidance, 'child'),
+    path: join(f.instructions, 'child'),
   };
   await f.save('revision-initial', [], {
     sourceResources: [f.resource, alias],
   });
   await assert.rejects(f.app.apply('revision-initial'), /Overlapping editable/);
   assert.equal(
-    await readFile(join(f.guidance, 'original.md'), 'utf8'),
+    await readFile(join(f.instructions, 'original.md'), 'utf8'),
     'preserve',
   );
 });
@@ -393,7 +408,7 @@ test(
   async (t) => {
     const f = await fixture();
     t.after(() => rm(f.root, { recursive: true, force: true }));
-    const namespaced = '\\\\?\\' + f.guidance;
+    const namespaced = '\\\\?\\' + f.instructions;
     await f.save(
       'revision-initial',
       [file(f.prefix + '/unsafe.md', 'must not write')],
@@ -406,8 +421,8 @@ test(
       f.app.apply('revision-initial'),
       /namespace destination aliases/,
     );
-    await assert.rejects(readFile(join(f.guidance, 'unsafe.md')), /ENOENT/);
-    const device = '\\\\.\\' + f.guidance;
+    await assert.rejects(readFile(join(f.instructions, 'unsafe.md')), /ENOENT/);
+    const device = '\\\\.\\' + f.instructions;
     await f.save('revision-initial', [], {
       sourceResources: [{ ...f.resource, path: device }],
     });
@@ -442,18 +457,18 @@ test(
       validateEditableDestinations([
         {
           binding: 'short',
-          pointer: '/guidance',
+          pointer: '/instructions',
           kind: 'directory',
-          path: f.guidance,
+          path: f.instructions,
         },
         {
           binding: 'long',
-          pointer: '/guidance',
+          pointer: '/instructions',
           kind: 'directory',
-          path: await realpath(f.guidance),
+          path: await realpath(f.instructions),
         },
       ]),
-      /Overlapping editable destinations short\/guidance.*long\/guidance/,
+      /Overlapping editable destinations short\/instructions.*long\/instructions/,
     );
     assert.equal(
       pathContains(
@@ -472,16 +487,16 @@ test('links in destination descendants and ancestors are rejected', async (t) =>
   await writeFile(join(outside, 'keep.md'), 'outside');
   await symlink(
     outside,
-    join(f.guidance, 'linked'),
+    join(f.instructions, 'linked'),
     process.platform === 'win32' ? 'junction' : 'dir',
   );
   await assert.rejects(f.app.apply('revision-initial'), /Linked destination/);
   assert.equal(await readFile(join(outside, 'keep.md'), 'utf8'), 'outside');
-  await rm(join(f.guidance, 'linked'));
-  await rm(f.guidance, { recursive: true });
+  await rm(join(f.instructions, 'linked'));
+  await rm(f.instructions, { recursive: true });
   await symlink(
     outside,
-    f.guidance,
+    f.instructions,
     process.platform === 'win32' ? 'junction' : 'dir',
   );
   await assert.rejects(f.app.apply('revision-initial'), /Linked destination/);
@@ -512,13 +527,13 @@ test('restoring an absent empty directory reports its creation before becoming a
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
   await f.save('revision-initial', []);
-  await rm(f.guidance, { recursive: true });
-  const change = { action: 'add', kind: 'directory', path: f.guidance };
+  await rm(f.instructions, { recursive: true });
+  const change = { action: 'add', kind: 'directory', path: f.instructions };
   assert.deepEqual((await f.app.show('revision-initial')).changes, [change]);
   const applied = await f.app.apply('revision-initial');
   assert.equal(applied.status, 'applied');
   assert.deepEqual(applied.changes, [change]);
-  assert.equal((await lstat(f.guidance)).isDirectory(), true);
+  assert.equal((await lstat(f.instructions)).isDirectory(), true);
   assert.equal((await f.app.apply('revision-initial')).status, 'unchanged');
 });
 test('new required ancestors are previewed and removed if publication fails', async (t) => {
@@ -572,18 +587,18 @@ test('directory application handles file/directory transitions and restores its 
   await f.app.apply('revision-file');
   await f.app.apply('revision-directory');
   assert.equal(
-    await readFile(join(f.guidance, 'item', 'child.md'), 'utf8'),
+    await readFile(join(f.instructions, 'item', 'child.md'), 'utf8'),
     'two',
   );
   await f.app.apply('revision-file');
-  assert.equal(await readFile(join(f.guidance, 'item'), 'utf8'), 'one');
+  assert.equal(await readFile(join(f.instructions, 'item'), 'utf8'), 'one');
   await f.save('revision-partial', [
     file(f.prefix + '/a.md', 'a'),
     file(f.prefix + '/b.md', 'b'),
   ]);
   const original = filesystem.rename;
   filesystem.rename = async (source, destination) => {
-    if (destination === f.guidance && String(source).endsWith('next'))
+    if (destination === f.instructions && String(source).endsWith('next'))
       throw new Error('injected I/O failure');
     return original(source, destination);
   };
@@ -597,11 +612,11 @@ test('directory application handles file/directory transitions and restores its 
     filesystem.rename = original;
     syncBuiltinESMExports();
   }
-  assert.equal(await readFile(join(f.guidance, 'item'), 'utf8'), 'one');
-  await assert.rejects(readFile(join(f.guidance, 'a.md')), /ENOENT/);
-  await assert.rejects(readFile(join(f.guidance, 'b.md')), /ENOENT/);
+  assert.equal(await readFile(join(f.instructions, 'item'), 'utf8'), 'one');
+  await assert.rejects(readFile(join(f.instructions, 'a.md')), /ENOENT/);
+  await assert.rejects(readFile(join(f.instructions, 'b.md')), /ENOENT/);
   await f.app.apply('revision-partial');
-  assert.equal(await readFile(join(f.guidance, 'b.md'), 'utf8'), 'b');
+  assert.equal(await readFile(join(f.instructions, 'b.md'), 'utf8'), 'b');
   assert.equal((await f.app.apply('revision-partial')).status, 'unchanged');
 });
 test('multiple resources roll back together and the next gate owner recovers an interrupted rollback', async (t) => {
@@ -625,10 +640,10 @@ test('multiple resources roll back together and the next gate owner recovers an 
         { sourceResources: [prompt, f.resource] },
       );
       await writeFile(target, 'old prompt');
-      await writeFile(join(f.guidance, 'old.md'), 'old guide');
+      await writeFile(join(f.instructions, 'old.md'), 'old guide');
       const original = filesystem.rename;
       filesystem.rename = async (source, destination) => {
-        if (destination === f.guidance && String(source).endsWith('next')) {
+        if (destination === f.instructions && String(source).endsWith('next')) {
           assert.equal(await readFile(target, 'utf8'), 'new prompt');
           throw new Error('second publication failed');
         }
@@ -659,13 +674,13 @@ test('multiple resources roll back together and the next gate owner recovers an 
         await gate.release();
       }
       assert.equal(await readFile(target, 'utf8'), 'old prompt');
-      assert.deepEqual(await readdir(f.guidance), ['old.md']);
+      assert.deepEqual(await readdir(f.instructions), ['old.md']);
       assert.deepEqual((await readdir(f.project)).sort(), [
-        'guidance',
+        'instructions',
         'prompt.md',
       ]);
       assert.equal((await f.app.apply('revision-initial')).status, 'applied');
-      assert.deepEqual(await readdir(f.guidance), ['new.md']);
+      assert.deepEqual(await readdir(f.instructions), ['new.md']);
     });
 });
 
@@ -687,9 +702,9 @@ test('recovery preserves external changes made to a published directory', async 
     ],
     { sourceResources: [f.resource, prompt] },
   );
-  await writeFile(join(f.guidance, 'old.md'), 'old guide');
+  await writeFile(join(f.instructions, 'old.md'), 'old guide');
   await writeFile(target, 'old prompt');
-  const external = join(f.guidance, 'someone-elses-file.txt');
+  const external = join(f.instructions, 'someone-elses-file.txt');
   const rename = filesystem.rename;
   filesystem.rename = async (from, to) => {
     if (to === target && String(from).endsWith('next')) {
@@ -717,7 +732,7 @@ test('recovery preserves external changes made to a published directory', async 
   await rm(external);
   const gate = await acquireResourceGate(f.directory);
   await gate.release();
-  assert.deepEqual(await readdir(f.guidance), ['old.md']);
+  assert.deepEqual(await readdir(f.instructions), ['old.md']);
 });
 
 test('unresolved and cleanup owners block apply while list/show remain available', async (t) => {
@@ -756,7 +771,7 @@ for (const businessStatus of ['succeeded', 'failed', 'cancelled', undefined]) {
         await registry.dispose();
         await rm(f.root, { recursive: true, force: true });
       });
-      await writeFile(join(f.guidance, 'original.md'), 'local source');
+      await writeFile(join(f.instructions, 'original.md'), 'local source');
       if (businessStatus)
         await f.facts.write('experiments', 'cleanup-owner', {
           id: 'cleanup-owner',
@@ -774,10 +789,10 @@ for (const businessStatus of ['succeeded', 'failed', 'cancelled', undefined]) {
       );
       await assert.rejects(f.app.apply('revision-initial'), /cleanup-owner/);
       assert.equal(
-        await readFile(join(f.guidance, 'original.md'), 'utf8'),
+        await readFile(join(f.instructions, 'original.md'), 'utf8'),
         'local source',
       );
-      assert.deepEqual(await readdir(f.guidance), ['original.md']);
+      assert.deepEqual(await readdir(f.instructions), ['original.md']);
       await manager.reconcileCleanup('cleanup-owner');
       assert.equal(
         (await f.app.show('revision-initial')).applicationAllowed,
@@ -785,7 +800,7 @@ for (const businessStatus of ['succeeded', 'failed', 'cancelled', undefined]) {
       );
       await f.app.apply('revision-initial');
       assert.equal(
-        await readFile(join(f.guidance, 'original.md'), 'utf8'),
+        await readFile(join(f.instructions, 'original.md'), 'utf8'),
         'original',
       );
       if (businessStatus)
@@ -810,7 +825,7 @@ for (const cleanup of malformedCleanupRecords) {
   test(`malformed aggregate cleanup ${JSON.stringify(cleanup)} blocks application without disabling inspection`, async (t) => {
     const f = await fixture();
     t.after(() => rm(f.root, { recursive: true, force: true }));
-    await writeFile(join(f.guidance, 'original.md'), 'local source');
+    await writeFile(join(f.instructions, 'original.md'), 'local source');
     await f.facts.write('experiments', 'cleanup-owner', {
       id: 'cleanup-owner',
       status: 'succeeded',
@@ -823,7 +838,7 @@ for (const cleanup of malformedCleanupRecords) {
     );
     await assert.rejects(f.app.apply('revision-initial'), /cleanup-owner/);
     assert.equal(
-      await readFile(join(f.guidance, 'original.md'), 'utf8'),
+      await readFile(join(f.instructions, 'original.md'), 'utf8'),
       'local source',
     );
   });
@@ -831,7 +846,7 @@ for (const cleanup of malformedCleanupRecords) {
 test('cleanup with no identifiable owner blocks application while inspection remains available', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
-  await writeFile(join(f.guidance, 'original.md'), 'local source');
+  await writeFile(join(f.instructions, 'original.md'), 'local source');
   await f.facts.write('cleanup', 'unpublished-owner', {
     status: 'unconfirmed',
   });
@@ -842,7 +857,7 @@ test('cleanup with no identifiable owner blocks application while inspection rem
   );
   await assert.rejects(f.app.apply('revision-initial'), /unknown.*cleanup/i);
   assert.equal(
-    await readFile(join(f.guidance, 'original.md'), 'utf8'),
+    await readFile(join(f.instructions, 'original.md'), 'utf8'),
     'local source',
   );
 });
@@ -875,7 +890,7 @@ for (const aggregateStatus of ['succeeded', 'reconciled', undefined]) {
     );
     await f.app.apply('revision-initial');
     assert.equal(
-      await readFile(join(f.guidance, 'original.md'), 'utf8'),
+      await readFile(join(f.instructions, 'original.md'), 'utf8'),
       'original',
     );
   });
@@ -918,7 +933,7 @@ test(
   async (t) => {
     const f = await fixture();
     t.after(() => rm(f.root, { recursive: true, force: true }));
-    await writeFile(join(f.guidance, 'original.md'), 'untouched');
+    await writeFile(join(f.instructions, 'original.md'), 'untouched');
     await f.save('revision-inspect', [
       file(f.prefix + '/a.md', 'a'),
       file(f.prefix + '/b.md', 'b'),
@@ -943,7 +958,7 @@ test(
     try {
       await cleanupStarted;
       assert.ok(
-        (await readdir(f.guidance)).some((name) =>
+        (await readdir(f.instructions)).some((name) =>
           name.startsWith('.rsi-name-check-'),
         ),
       );
@@ -959,7 +974,7 @@ const registry = new Registry();
 const manager = new Manager({ registry, directory: ${JSON.stringify(f.directory)}, rootDirectory: ${JSON.stringify(f.project)} });
 process.send('ready');
 try { await manager.run(${JSON.stringify(join(f.project, 'missing-recipe.yaml'))}); }
-catch (error) { process.send({ done: String(error), entries: await readdir(${JSON.stringify(f.guidance)}) }); }
+catch (error) { process.send({ done: String(error), entries: await readdir(${JSON.stringify(f.instructions)}) }); }
 await manager.dispose(); await registry.dispose();`,
       );
       const child = fork(script, [], {
@@ -1091,7 +1106,7 @@ await manager.run(${JSON.stringify(recipe)},{id:'active-owner'}); await manager.
   await exited;
   await f.app.apply('revision-initial');
   assert.equal(
-    await readFile(join(f.guidance, 'original.md'), 'utf8'),
+    await readFile(join(f.instructions, 'original.md'), 'utf8'),
     'original',
   );
 });
@@ -1156,7 +1171,10 @@ process.send('ready'); await application.apply('revision-next');process.send('ap
   await applying;
   await exited;
   assert.deepEqual(messages, ['ready', 'applied']);
-  assert.equal(await readFile(join(f.guidance, 'original.md'), 'utf8'), 'next');
+  assert.equal(
+    await readFile(join(f.instructions, 'original.md'), 'utf8'),
+    'next',
+  );
 });
 test('a fresh experiment loads and delivers resources explicitly applied from an earlier experiment', async (t) => {
   const f = await fixture();
@@ -1202,15 +1220,17 @@ test('a fresh experiment loads and delivers resources explicitly applied from an
     contract,
     configSchema: {
       type: 'object',
-      properties: { guidance: { type: 'string', 'x-rsi-path': 'directory' } },
-      required: ['guidance'],
+      properties: {
+        instructions: { type: 'string', 'x-rsi-path': 'directory' },
+      },
+      required: ['instructions'],
     },
     async create(config) {
       return {
         async execute() {
           return {
             delivered: await readFile(
-              join(string(config.guidance), 'original.md'),
+              join(string(config.instructions), 'original.md'),
               'utf8',
             ),
           };
@@ -1243,19 +1263,22 @@ test('a fresh experiment loads and delivers resources explicitly applied from an
       application: { plugin: 'fresh.application', config: {} },
       policy: { id: 'fresh', input: {}, config: {} },
       bindings: {
-        reader: { plugin: 'fresh.reader', config: { guidance: './guidance' } },
+        reader: {
+          plugin: 'fresh.reader',
+          config: { instructions: './instructions' },
+        },
       },
       budget: { operations: 10, elapsedWallMs: 10000 },
     }),
   );
   registry.registerPolicy('fresh', policy);
   await f.save('revision-delivered', [
-    file(f.prefix + '/original.md', 'applied earlier guidance'),
+    file(f.prefix + '/original.md', 'applied earlier instructions'),
   ]);
   await f.app.apply('revision-delivered');
   const result = await manager.run(recipe, { id: 'fresh-run' });
   assert.equal(result.status, 'succeeded');
-  assert.equal(object(result.output).delivered, 'applied earlier guidance');
+  assert.equal(object(result.output).delivered, 'applied earlier instructions');
 });
 
 test('Memory applies to the recorded root seed and refuses protected export directories', async (t) => {
@@ -1277,7 +1300,7 @@ test('Memory applies to the recorded root seed and refuses protected export dire
     kind: 'initial',
     experimentId: 'exp',
     artifactRef,
-    sourceDirectory: f.guidance,
+    sourceDirectory: f.instructions,
   });
   await f.facts.write('memory-revisions', 'next', {
     ref: 'next',
@@ -1287,11 +1310,11 @@ test('Memory applies to the recorded root seed and refuses protected export dire
     experimentId: 'exp',
     artifactRef,
   });
-  await writeFile(join(f.guidance, 'obsolete.md'), 'obsolete');
+  await writeFile(join(f.instructions, 'obsolete.md'), 'obsolete');
   assert.equal((await memory.apply('next')).status, 'applied');
-  assert.deepEqual(await readdir(f.guidance), ['notes']);
+  assert.deepEqual(await readdir(f.instructions), ['notes']);
   assert.equal(
-    await readFile(join(f.guidance, 'notes', 'check.md'), 'utf8'),
+    await readFile(join(f.instructions, 'notes', 'check.md'), 'utf8'),
     'saved',
   );
   for (const to of [
@@ -1329,11 +1352,11 @@ test('multiple revision exports map each resource by binding and pointer', async
   assert.equal(preview.applicationAllowed, true);
   assert.deepEqual(
     (preview.destinations as JsonObject[]).map((resource) => resource.path),
-    [join(to, 'worker', 'guidance'), join(to, 'worker', 'prompt')],
+    [join(to, 'worker', 'instructions'), join(to, 'worker', 'prompt')],
   );
   await f.app.apply('revision-initial', { to });
   assert.equal(
-    await readFile(join(to, 'worker', 'guidance', 'a.md'), 'utf8'),
+    await readFile(join(to, 'worker', 'instructions', 'a.md'), 'utf8'),
     'guide',
   );
   assert.equal(
@@ -1353,7 +1376,7 @@ test('joint revisions skip untouched roots and export changed protected resource
       binding: 'reader',
       pointer: '/notes',
       kind: 'directory',
-      path: f.guidance,
+      path: f.instructions,
     },
     { binding: 'editor', pointer: '/prompt', kind: 'file', path: builtIn },
   ]);
@@ -1417,14 +1440,14 @@ test('joint revisions skip untouched roots and export changed protected resource
   assert.equal(preview.applicationAllowed, true, String(preview.restrictions));
   assert.deepEqual(
     (preview.destinations as JsonObject[]).map((r) => r.path),
-    [f.guidance],
+    [f.instructions],
   );
   assert.deepEqual(
     (preview.snapshot as FileTreeFile[]).map((r) => r.path).sort(),
     [prompt, notes + '/a.md'],
   );
   assert.equal((await f.app.apply('joint-one')).status, 'applied');
-  assert.equal(await readFile(join(f.guidance, 'a.md'), 'utf8'), 'new');
+  assert.equal(await readFile(join(f.instructions, 'a.md'), 'utf8'), 'new');
   assert.equal((await f.app.show('joint-two')).applicationAllowed, false);
   await assert.rejects(f.app.apply('joint-two'), /Protected destination/);
   const to = join(f.project, 'export');
@@ -1441,14 +1464,14 @@ test('joint revisions skip untouched roots and export changed protected resource
     ...one,
     ref: 'redirected',
     sourceRoots: roots.map((root) =>
-      root.path === f.guidance ? { ...root, path: outside } : root,
+      root.path === f.instructions ? { ...root, path: outside } : root,
     ),
   });
   await assert.rejects(f.app.apply('redirected'), /mapping differs/);
-  await rm(f.guidance, { recursive: true });
+  await rm(f.instructions, { recursive: true });
   await symlink(
     outside,
-    f.guidance,
+    f.instructions,
     process.platform === 'win32' ? 'junction' : 'dir',
   );
   await assert.rejects(f.app.apply('joint-one'), /Linked destination/);
@@ -1458,15 +1481,15 @@ test('joint revisions skip untouched roots and export changed protected resource
 test('joint directory publication preserves selected empty directories and supports baseline rollback', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
-  const nested = join(f.guidance, 'container', 'empty');
+  const nested = join(f.instructions, 'container', 'empty');
   await mkdir(nested, { recursive: true });
-  await mkdir(join(f.guidance, 'obsolete'));
+  await mkdir(join(f.instructions, 'obsolete'));
   const roots = await resolveCoveringRoots([
     {
       binding: 'worker',
-      pointer: '/guidance',
+      pointer: '/instructions',
       kind: 'directory',
-      path: f.guidance,
+      path: f.instructions,
     },
     { binding: 'reader', pointer: '/notes', kind: 'directory', path: nested },
   ]);
@@ -1492,7 +1515,7 @@ test('joint directory publication preserves selected empty directories and suppo
     });
   }
   for (const to of [undefined, join(f.project, 'export')]) {
-    const root = to ?? f.guidance;
+    const root = to ?? f.instructions;
     const preview = await f.app.show('next', { to });
     assert.equal(
       preview.applicationAllowed,

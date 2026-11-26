@@ -12,7 +12,8 @@ export const reflectionDefinition: OperationDefinition<
   RuntimeEvolutionAgentConfig
 > = {
   id: 'reflection.agent',
-  description: 'Propose revisions to optimization guidance.',
+  description:
+    'Propose revisions to authorized plugin instructions, skills and role prompts.',
   contract: reflectionContract,
   configSchema,
   create: createReflectionAgent,

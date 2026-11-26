@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeContext } from '../../src/contracts/index.js';
@@ -18,10 +18,8 @@ test('registered artifact selector explicitly requests delivery evidence', async
   const registry = new Registry();
   try {
     const prompt = join(root, 'prompt.md');
-    const guidance = join(root, 'guidance');
-    await writeFile(prompt, 'Choose the best delivery.'.repeat(6000));
-    await mkdir(guidance);
-    await writeFile(join(guidance, 'selection.md'), 'Prefer clear delivery.');
+    const introduction = 'Choose the best delivery.'.repeat(6000);
+    await writeFile(prompt, introduction + 'Prefer clear delivery.');
     const artifacts = new FileArtifacts(join(root, 'artifacts'));
     const unused = async (): Promise<never> => {
       throw new Error('Unexpected service');
@@ -82,7 +80,7 @@ test('registered artifact selector explicitly requests delivery evidence', async
     registry.registerOperation(artifactSelectorDefinition);
     const operation = await registry
       .get(artifactSelectorDefinition.id)
-      .create({ prompt, guidance }, services);
+      .create({ prompt }, services);
     try {
       const result = await operation.execute(
         {
@@ -95,10 +93,7 @@ test('registered artifact selector explicitly requests delivery evidence', async
       );
       assert.equal(reads, 1);
       assert.ok(prompts[0]?.includes('Prefer clear delivery.'));
-      await writeFile(
-        join(guidance, 'selection.md'),
-        'Prefer complete delivery.',
-      );
+      await writeFile(prompt, introduction + 'Prefer complete delivery.');
       await operation.execute(
         {
           candidates: [
@@ -112,7 +107,7 @@ test('registered artifact selector explicitly requests delivery evidence', async
       assert.equal(prompts[1]?.includes('Prefer clear delivery.'), false);
       assert.equal(
         await readFile(prompt, 'utf8'),
-        'Choose the best delivery.'.repeat(6000),
+        introduction + 'Prefer complete delivery.',
       );
       assert.equal(
         result &&

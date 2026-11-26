@@ -96,6 +96,7 @@ test('independent trigger counters survive a failure between Memory and Reflecti
   await writeFile(
     join(manager.rootDirectory, 'reflection.yaml'),
     JSON.stringify({
+      targets: { include: { editable: ['prompt'] } },
       implementation: { ref: reflection.id },
     }),
   );

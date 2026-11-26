@@ -68,11 +68,13 @@ and `observe` lifecycle exchanges immutable state references, evaluation and
 proposal work requests, and feedback; GEPA's population, lineage, RNG and
 pending-round details stay inside the implementation's state artifacts.
 
-Memory and Reflection reuse the Recipe's `agent` binding. At each optimization
-round they receive training summaries from the proposal and its evaluation.
-Validation measurements and Pareto selection records are excluded from the evidence for
-both modules. Memory is delivered to the proposer. Reflection can revise the
-proposer's declared resources, which in this Recipe consist of the mutation prompt.
+Memory and Reflection reuse the Recipe's `agent` binding. Both default to the
+`training` evidence view, which provides full redacted execution traces and
+authorized training feedback from the proposal and its evaluation. Both exclude
+validation measurements and Pareto selection records. Memory is delivered to
+the proposer. Reflection selects all configured local Proposer resources with
+`proposer: '*'`, including prompts, skills and subagent prompts. In this Recipe
+it revises the mutation prompt.
 
 ## Algorithm shape
 
@@ -188,7 +190,7 @@ Full execution artifacts remain in Runtime storage for separate inspection. Priv
 verifier files and hidden grading answers are excluded from the execution
 projection. The selected module is enforced by existing Proposer edit
 constraints and the Application Target. This candidate mutation is separate
-from Runtime Reflection, which revises plugin guidance.
+from Runtime Reflection, which revises the Proposer’s own instructions and skills.
 The example opts into the SDK's `includeTaskAnswer` recording option to retain
 the public task prompt. The evaluator adapter publishes only that prompt as an
 initial execution event; any reference answer remains in private native records.

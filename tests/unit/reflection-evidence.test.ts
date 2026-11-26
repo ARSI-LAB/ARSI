@@ -17,6 +17,10 @@ import {
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
+import { evolutionContext } from '../../src/plugins/shared/agent-editing/evolution-context.js';
+import { Recipe } from '../../src/runtime/loaders/recipe.js';
+import { registerBuiltins } from '../../src/runtime/builtins.js';
+import { Registry } from '../../src/runtime/registry/index.js';
 import { collectEvolutionEvidence } from '../../src/runtime/evolution/evidence.js';
 import { resolveCoveringRoots } from '../../src/runtime/evolution/resources.js';
 import { object, string } from '../../src/shared/json.js';
@@ -231,7 +235,13 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
     kind: 'file-tree',
     files: Object.entries({
       'AGENTS.md': 'Inspect the proposed changes.',
-      'context/input.json': JSON.stringify({ privateAnswer: 'hidden answer' }),
+      'context/input.json': JSON.stringify({
+        privateAnswer: 'hidden answer',
+        evidence: {
+          view: 'training',
+          measurements: [{ checks: ['nested scoring marker'] }],
+        },
+      }),
       'candidate/context.txt': JSON.stringify({
         visible: 'project context marker',
         returnedHints: 'hidden answer in a text file',
@@ -300,6 +310,7 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
   assert.equal(delivered.includes('private grading marker'), false);
   assert.equal(delivered.includes('grading trace marker'), false);
   assert.equal(delivered.includes('hidden answer'), false);
+  assert.equal(delivered.includes('nested scoring marker'), false);
   assert.match(delivered, /project context marker/);
 });
 
@@ -339,6 +350,7 @@ test('Reflection step filters keep Memory receipts and binding filters can exclu
     configDigest: 'memory-module',
   });
   assert.deepEqual(present.result.callIds, ['memory', 'propose']);
+  assert.equal(present.snapshot.evidenceView, 'training');
   const files = object(present.snapshot.files);
   assert.equal(
     files['context/evolution/calls/memory-memory/0.txt'],
@@ -367,7 +379,7 @@ test('one latest direct-previous-version call per binding supplies readable vers
       kind: 'file-tree',
       files: [
         {
-          path: 'bindings/proposer/resources/guidance/rules.md',
+          path: 'bindings/proposer/resources/instructions/rules.md',
           mode: 0o644,
           base64: Buffer.from(text).toString('base64'),
         },
@@ -423,13 +435,13 @@ test('one latest direct-previous-version call per binding supplies readable vers
   );
   assert.equal(
     object(snapshot.files)[
-      'context/evolution/versions/initial/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/initial/bindings/proposer/resources/instructions/rules.md'
     ],
     'before',
   );
 });
 
-test('execution filters scoring inputs while training-summary supplies only authorized normalized feedback and public bytes', async (t) => {
+test('Harness² execution is verifier-blind while training views include authorized feedback', async (t) => {
   const f = await fixture(t);
   const publicRef = await f.artifacts.putJson({
     kind: 'file-tree',
@@ -519,19 +531,30 @@ test('execution filters scoring inputs while training-summary supplies only auth
       metrics: { secretScore: 42 },
     },
   });
-  const execution = await f.collect('execution', 2);
-  assert.equal(
-    JSON.stringify(execution.snapshot).includes('scoring input marker'),
-    false,
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  const harness = await Recipe.load(
+    'examples/harness/dsh-harness2/recipe.yaml',
+    registry,
   );
-  assert.equal(
-    JSON.stringify(execution.snapshot).includes('dataset hint marker'),
-    false,
-  );
-  assert.equal(
-    JSON.stringify(execution.snapshot).includes('authorized returned hint'),
-    false,
-  );
+  const collectBlind = (kind: 'memory' | 'reflection') =>
+    f.collect('blind-' + kind, 2, {
+      kind,
+      view: harness[kind]?.evidenceView,
+    });
+  const execution = await collectBlind('reflection');
+  for (const blind of [execution, await collectBlind('memory')]) {
+    assert.equal(blind.snapshot.evidenceView, 'execution');
+    assert.equal(
+      object(blind.snapshot.files)['context/evolution/training-summary.json'],
+      undefined,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(blind.snapshot.files),
+      /authorized returned hint|secretScore|scoring input marker|dataset hint marker/,
+    );
+  }
   const descriptors = execution.snapshot.sources as JsonObject[];
   assert.equal(descriptors.length, 1);
   assert.equal(descriptors[0]!.artifactRef, publicRef);
@@ -554,6 +577,186 @@ test('execution filters scoring inputs while training-summary supplies only auth
   assert.equal(delivered.includes('private verifier marker'), false);
   assert.equal(delivered.includes('public execution'), true);
   assert.equal(delivered.includes('scoring input marker'), false);
+});
+
+test('default training reserves access to comparisons, metrics and the window index under a tight evidence budget', async (t) => {
+  const f = await fixture(t);
+  const trace = JSON.stringify({
+    text: 'a large execution trace '.repeat(10_000),
+    type: 'output',
+  });
+  const artifactRef = await f.artifacts.putJson({
+    kind: 'file-tree',
+    files: [
+      {
+        path: 'trajectory.jsonl',
+        mode: 0o644,
+        base64: Buffer.from(trace).toString('base64'),
+      },
+    ],
+  });
+  const evidenceIndexRef = await f.artifacts.putJson({
+    entries: [{ kind: 'trajectory', access: 'execution', artifactRef }],
+  });
+  await f.facts.write('measurements', 'measurement', {
+    schemaVersion: 'rsi.measurement/v1',
+    experimentId: 'experiment',
+    ref: 'measurement',
+    evidenceIndexRef,
+    metrics: { latency: 12.75 },
+  });
+  await f.call('observe', 'proposer', 1, {
+    output: {
+      measurementRef: 'measurement',
+      reason: 'large receipt '.repeat(4000),
+    },
+  });
+  const limit = 8192;
+  const signal = new AbortController().signal;
+  const context = f.context.extend({
+    signal,
+    scope: { id: 'memory', signal, limits: { evidenceBytes: limit } },
+  });
+  const { result, snapshot } = await f.collect('bounded-training', 2, {
+    kind: 'memory',
+    context,
+    maxBytes: limit,
+    observe: { includeCandidateDiffs: true },
+  });
+  assert.equal(snapshot.evidenceView, 'training');
+  const delivered = await evolutionContext(
+    'memory',
+    [string(result.ref)],
+    context,
+  );
+  const files = delivered.files;
+  assert.ok(files);
+  const scores = JSON.parse(
+    string(files['context/evolution/training-summary.json']),
+  );
+  assert.equal(scores.measurements[0].metrics.latency, 12.75);
+  assert.deepEqual(
+    JSON.parse(string(files['context/evolution/comparisons.json'])).candidates,
+    [],
+  );
+  assert.equal(
+    JSON.parse(string(files['context/evolution/index.json'])).indexes[0]
+      .calls[0].callId,
+    'observe',
+  );
+  assert.ok(
+    Object.values(files).reduce<number>((sum, text) => {
+      assert.equal(typeof text, 'string');
+      return sum + Buffer.byteLength(String(text));
+    }, 0) <= limit,
+  );
+  assert.doesNotMatch(
+    string(files['context/evolution/calls/observe.json']),
+    /12\.75/,
+  );
+  const { snapshot: full } = await f.collect('full-training', 2, {
+    kind: 'memory',
+    configDigest: 'unbounded',
+  });
+  const details = object(full.files);
+  assert.match(
+    string(details['context/evolution/evaluation-index.json']),
+    /0\.txt/,
+  );
+  assert.match(
+    string(details['context/evolution/packets/index.json']),
+    /packets/,
+  );
+  assert.equal(string(details['context/evolution/evidence/0/0/0.txt']), trace);
+});
+
+test('held-out measurements cannot expose selector values or nested Agent receipts and workspaces', async (t) => {
+  const f = await fixture(t);
+  await f.call('validate', 'evaluator', 1, {
+    path: 'steps/validate',
+    output: {
+      measurementRef: 'holdout-result',
+      reason: 'HELD_OUT_MEASUREMENT',
+    },
+  });
+  const workspace = await f.artifacts.putJson({
+    kind: 'file-tree',
+    files: [
+      {
+        path: 'held-out.txt',
+        mode: 0o644,
+        base64: Buffer.from('PRIVATE_WORKSPACE').toString('base64'),
+      },
+    ],
+  });
+  await f.facts.write('evidence-views', 'evidence-prior', {
+    experimentId: 'experiment',
+    capturedAt: at(0),
+    measurementRefs: ['holdout-result'],
+  });
+  const inputs: JsonObject[] = [
+    { incumbentMeasurementRef: 'holdout-result' },
+    { candidateMeasurementRef: 'holdout-result' },
+    {},
+    { measurementRef: 'holdout-result' },
+    { measurementRefs: ['holdout-result'] },
+    { evidenceRefs: ['evidence-prior'] },
+  ];
+  for (const [i, input] of inputs.entries()) {
+    const id = 'select-' + i;
+    await f.call(id, 'selector', 2, {
+      path: 'steps/select',
+      contractId: 'contract.selector-metrics',
+      input,
+      output: {
+        ...(i === 2 ? { measurementRef: 'holdout-result' } : {}),
+        accepted: true,
+        selectedValue: 734.51,
+        candidateValue: 734.52,
+        incumbentValue: 734.53,
+      },
+    });
+    await f.call('nested-' + i, 'agent', 2, {
+      parentCallId: id,
+      output: { text: 'PRIVATE_CHILD' },
+      agentProjectArtifactRef: workspace,
+    });
+  }
+  await f.call('safe-parent', 'proposer', 2);
+  await f.call('restricted-agent', 'agent', 2, {
+    parentCallId: 'safe-parent',
+    input: { measurementRefs: ['holdout-result'] },
+    output: { text: 'PRIVATE_CHILD' },
+    agentProjectArtifactRef: workspace,
+  });
+  await f.call('nested-grandchild', 'agent', 2, {
+    parentCallId: 'restricted-agent',
+    output: { text: 'PRIVATE_CHILD' },
+    agentProjectArtifactRef: workspace,
+  });
+  for (const view of ['execution', 'training', 'training-summary'] as const) {
+    const { snapshot } = await f.collect(view, 3, {
+      view,
+      configDigest: view,
+      observe: { excludeSteps: ['steps/validate'] },
+    });
+    assert.deepEqual(snapshot.measurementRefs, []);
+    const files = object(snapshot.files);
+    for (const i of inputs.keys()) {
+      const record = JSON.parse(
+        string(files[`context/evolution/calls/select-${i}.json`]),
+      );
+      assert.equal(record.output.accepted, true);
+      assert.doesNotMatch(
+        JSON.stringify(record),
+        /selectedValue|incumbentValue|candidateValue|734\.5/,
+      );
+    }
+    assert.doesNotMatch(
+      JSON.stringify(files),
+      /HELD_OUT_MEASUREMENT|PRIVATE_CHILD|PRIVATE_WORKSPACE|nested-|restricted-agent/,
+    );
+  }
 });
 
 test('recovery finds a durably prepared snapshot before its controller link was saved', async (t) => {
@@ -732,7 +935,7 @@ test('authorized empty execution files remain readable by the Reflection Agent a
     .map(([path]) => path);
   assert.equal(emptyPaths.length, 1);
   const emptyPath = emptyPaths[0]!;
-  const resourcePath = 'bindings/proposer/resources/guidance/initial.md';
+  const resourcePath = 'bindings/proposer/resources/instructions/initial.md';
   const resourceRef = await f.artifacts.putJson({
     kind: 'file-tree',
     files: [
@@ -919,7 +1122,7 @@ test('an observed binding with no new current-version call exposes only its dire
       kind: 'file-tree',
       files: [
         {
-          path: 'bindings/proposer/resources/guidance/rules.md',
+          path: 'bindings/proposer/resources/instructions/rules.md',
           mode: 0o644,
           base64: Buffer.from(content).toString('base64'),
         },
@@ -971,13 +1174,13 @@ test('an observed binding with no new current-version call exposes only its dire
   );
   assert.equal(
     files[
-      'context/evolution/versions/initial/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/initial/bindings/proposer/resources/instructions/rules.md'
     ],
     'original rule',
   );
   assert.equal(
     files[
-      'context/evolution/versions/generated-final/bindings/proposer/resources/guidance/rules.md'
+      'context/evolution/versions/generated-final/bindings/proposer/resources/instructions/rules.md'
     ],
     'revised rule',
   );
@@ -1007,15 +1210,15 @@ test('a joint revision comparison emits one patch restricted to observed resourc
   const roots = await resolveCoveringRoots([
     {
       binding: 'proposer',
-      pointer: '/guidance',
+      pointer: '/instructions',
       kind: 'directory',
-      path: join(f.root, 'guidance'),
+      path: join(f.root, 'instructions'),
     },
     {
       binding: 'summarizer',
       pointer: '/prompt',
       kind: 'file',
-      path: join(f.root, 'guidance/summary.md'),
+      path: join(f.root, 'instructions/summary.md'),
     },
     {
       binding: 'other',
@@ -1024,7 +1227,7 @@ test('a joint revision comparison emits one patch restricted to observed resourc
       path: join(f.root, 'other.md'),
     },
   ]);
-  const guidance = 'resources/proposer/guidance';
+  const instructions = 'resources/proposer/instructions';
   for (const [ref, parentRef, suffix] of [
     ['first', null, 'initial'],
     ['second', 'first', 'updated'],
@@ -1032,8 +1235,8 @@ test('a joint revision comparison emits one patch restricted to observed resourc
     const resourceRef = await f.artifacts.putJson({
       kind: 'file-tree',
       files: [
-        [guidance + '/summary.md', suffix + ' summary'],
-        [guidance + '/proposal.md', suffix + ' proposal'],
+        [instructions + '/summary.md', suffix + ' summary'],
+        [instructions + '/proposal.md', suffix + ' proposal'],
         ['resources/other/prompt', 'private-other-content'],
         ['manifest.json', 'private-manifest-content'],
       ].map(([path, content]) => ({

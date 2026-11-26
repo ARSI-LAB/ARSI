@@ -98,7 +98,7 @@ At a configured serial boundary, the Runtime invokes the Memory plugin, validate
 
 ### Reflection
 
-At a configured boundary, the Runtime invokes the Reflection plugin, validates changes against the authorized resources and activates revisions for later calls. Harness² defines guidance targets for the Invariant and Domain Proposers. Set `reflection: false` in the Recipe to disable Reflection. See the [Reflection guide](reflection.md).
+At a configured boundary, the Runtime invokes the Reflection plugin, validates changes against the authorized resources and activates revisions for later calls. Agent Policies select a named Proposer's local `prompt`, `skills` and `subagents` resources with `proposer: '*'`. Harness² names its Invariant and Domain Proposers separately. Operator Search selects just `promptsDirectory` and `promptFile` on its two bindings. Set `reflection: false` in the Recipe to disable Reflection. See the [Reflection guide](reflection.md).
 
 ### Inference configuration candidates
 
@@ -120,11 +120,9 @@ without worsening another violation. Once feasible, `minRelativeImprovement`
 controls primary-metric gains. Metric names, bounds and optimization direction
 belong to Recipe configuration, not hardcoded selector goals. Failed candidates
 can be rejected without fabricated scores; unknown or cancelled outcomes remain
-errors. Training-summary proposers receive public metric values and units in
-`context/metrics.json`, independently of bounded evidence previews.
+errors. `proposer.agent` defaults to `execution`. With `evidenceView: training`, it provides redacted traces in `context/runs/`, feedback and trace paths in `context/measurements.json`, and metric values and units in `context/metrics.json`. The `training-summary` setting keeps the feedback and metrics with bounded execution previews. Memory and Reflection default to `training`. Harness² explicitly selects `execution` for verifier-blind evolution.
 
-Inference measurements also attach a public environment summary. Training-summary
-proposals receive it in `context/metrics.json` beside exact metrics and units,
+Inference measurements also attach a public environment summary. Proposals using either training view receive it in `context/metrics.json` beside exact metrics and units,
 with the originating artifact reference. It includes reported engine software,
 device identifiers, verification status, SDK/runtime identity and scalar workload
 settings; credentials, host names, endpoints and private native configuration are

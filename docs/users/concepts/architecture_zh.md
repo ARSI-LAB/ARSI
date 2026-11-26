@@ -67,11 +67,14 @@ arsi（Recursive Self-Improvement）是面向 Agent 和 AI 基础设施的插件
 
 **Evidence（证据）** 是运行过程中保存的执行轨迹、日志、交付物等材料，为后续分析、学习和选择提供依据。Runtime 为声明不同证据视图的插件提供不同的输入内容：
 
-| 视图               | 视图提供的内容                                                                  |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `execution`        | 脱敏执行证据，排除结构化评测分数、Reward 和判题反馈。                           |
-| `training-summary` | 执行证据，加上训练分数和有界评测反馈。                                          |
-| `delivery`         | 被记录为交付物的内容预览，例如 `report.md` 的内容；不提供执行轨迹和结构化评分。 |
+| 视图 | 执行证据 | 评测反馈 |
+| --- | --- | --- |
+| `training` | 证据预算内的完整脱敏轨迹与文件。 | 授权的测量指标、指标定义、检查结果和诊断。 |
+| `execution` | 完整脱敏轨迹与文件，适合对评判结果盲测。 | 屏蔽评分及判题字段。 |
+| `training-summary` | 有字节上限的 JSON 预览，包括轨迹的开头和结尾。 | 授权的测量指标、指标定义、检查结果和诊断。 |
+| `delivery` | 供交付物选择器使用的匿名交付物预览。 | 无。 |
+
+Memory 和 Reflection 默认使用 `training`。需要对评判结果盲测时，显式设置 `evidence: { view: execution }`。底层 `context.readEvidence` 和 `proposer.agent` 默认使用 `execution`。
 
 因此插件在编写时，可以通过 [Runtime 证据服务](../../../src/runtime/services/facts/evidence.ts) 向优化模型提供输入，读取接口与限制见[编写插件](../guides/writing-plugins_zh.md)。
 

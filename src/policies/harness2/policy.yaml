@@ -54,7 +54,6 @@ defaults:
         evidenceView: execution
         agentRef: agent
         prompt: ./prompts/invariant.md
-        guidance: ./guidance/invariant-proposer
         skills: [./skills/harness-edit]
     domainProposer:
       plugin: proposer.agent
@@ -62,7 +61,6 @@ defaults:
         evidenceView: execution
         agentRef: agent
         prompt: ./prompts/domain.md
-        guidance: ./guidance/domain-proposer
         skills: [./skills/harness-edit]
     composer:
       plugin: proposer.agent

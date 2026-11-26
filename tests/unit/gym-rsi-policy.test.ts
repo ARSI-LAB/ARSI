@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   RuntimeContext,
   agentContract,
@@ -10,6 +13,7 @@ import {
 } from '../../src/contracts/index.js';
 import { Policy } from '../../src/runtime/policy/index.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
+import { readYaml } from '../../src/runtime/loaders/yaml.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { object, string } from '../../src/shared/json.js';
@@ -38,17 +42,38 @@ async function loadGymPolicy(): Promise<Policy> {
   );
 }
 
-test('training updates exclude held-out producer steps in both WikiSkill and Gym', async (t) => {
+test('WikiSkill and Gym defaults exclude held-out evidence and authorize configured Proposer prompts, skills and roles', async (t) => {
   const registry = new Registry();
   t.after(() => registry.dispose());
   await registerBuiltins(registry);
+  const skill = await mkdtemp(join(tmpdir(), 'rsi-wiki-skill-'));
+  t.after(() => rm(skill, { recursive: true, force: true }));
+  const role = join(skill, 'role.md');
+  await writeFile(role, 'Review candidate skills.');
   for (const [example, holdout] of [
     ['dsh-wikiskill', 'test'],
     ['dsh-gym-gaia', 'promotion'],
   ] as const) {
-    const recipe = await Recipe.load(
-      'examples/harness/' + example + '/recipe.yaml',
-      registry,
+    const sourcePath = 'examples/harness/' + example + '/recipe.yaml';
+    const declaration = await readYaml(sourcePath);
+    delete declaration.reflection;
+    object(object(declaration.policy).config).maxRounds = 2;
+    object(declaration.bindings).proposer = {
+      config: {
+        skills: [skill],
+        subagents: [
+          {
+            name: 'reviewer',
+            description: 'Review skill changes',
+            prompt: role,
+          },
+        ],
+      },
+    };
+    const recipe = await Recipe.fromJSON(declaration, registry, { sourcePath });
+    assert.deepEqual(
+      new Set(recipe.reflection?.targets.proposer?.resources),
+      new Set(['/prompt', '/skills/0', '/subagents/0/prompt']),
     );
     assert.deepEqual(recipe.memory?.trigger, {
       on: 'after-step',
@@ -56,7 +81,7 @@ test('training updates exclude held-out producer steps in both WikiSkill and Gym
       every: 1,
     });
     for (const capability of [recipe.memory, recipe.reflection]) {
-      assert.equal(capability?.evidenceView, 'training-summary');
+      assert.equal(capability?.evidenceView, 'training');
       const excluded = new Set(
         capability?.observe.excludeSteps?.map((path) => path.split('/').at(-1)),
       );

@@ -115,7 +115,6 @@ async function fixture(): Promise<{
       },
       defaults: {
         memory: false,
-        reflection: false,
         bindings: {
           left: {
             plugin: 'selector.metric',
@@ -641,7 +640,7 @@ test('agent editor doctor uses declared path failures and still checks skill con
   bindings.agent = { plugin: 'agent.pi' };
   const cases: [JsonObject, string][] = [
     [{ prompt: './skill' }, 'resource.prompt'],
-    [{ guidance: './prompt.md' }, 'resource.guidance'],
+    [{ skills: ['./prompt.md'] }, 'resource.skills.0'],
     [{ skills: ['./missing-skill'] }, 'resource.skills.0'],
     [
       {
@@ -1344,12 +1343,9 @@ test('CLI doctor emits one JSON diagnostic with --json and reports usage separat
   }
 });
 
-test('disabled evolution modules report their status without accessing unused resources', async (t) => {
+test('Doctor reports unchecked status for disabled Memory and unconfigured Reflection', async (t) => {
   const f = await fixture();
   t.after(() => f.dispose());
-  const data = object(JSON.parse(await readFile(f.path, 'utf8')));
-  for (const name of ['memory', 'reflection']) data[name] = false;
-  await writeFile(f.path, JSON.stringify(data));
   const report = await doctorRecipe(f.runtime, f.path);
   assert.ok(report.checks.every(({ status }) => status !== 'failed'));
   for (const name of ['memory', 'reflection'])

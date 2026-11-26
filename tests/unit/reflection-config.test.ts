@@ -39,6 +39,9 @@ import {
   resolveCoveringRoots,
 } from '../../src/runtime/evolution/resources.js';
 
+const proposerTargets = { include: { proposer: ['instructions'] } };
+const reflectionFile = { configFile: './reflection.yaml' };
+
 test('Reflection addresses escaped Schema keys while keeping snapshot paths portable', () => {
   const config: JsonObject = { 'prompt/sources': { 'my~file': 'before' } };
   const pointer = '/prompt~1sources/my~0file';
@@ -51,7 +54,7 @@ test('Reflection addresses escaped Schema keys while keeping snapshot paths port
   );
   assert.throws(() => pointerValue(config, '/__proto__/x'), /Unsafe/);
 });
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, agents = ['backend']) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-evolution-config-'));
   const registry = new Registry();
   t.after(async () => {
@@ -63,12 +66,16 @@ async function fixture(t: TestContext) {
   const recipeDir = join(await realpath(root), 'recipe');
   await mkdir(policyDir);
   await mkdir(recipeDir);
-  await mkdir(join(policyDir, 'guidance'));
+  await mkdir(join(policyDir, 'instructions'));
   await mkdir(join(recipeDir, 'seed'));
   await writeFile(join(recipeDir, 'seed', 'notes.md'), 'seed');
   await writeFile(join(policyDir, 'inherited.md'), 'policy prompt');
   await writeFile(join(recipeDir, 'override.md'), 'recipe prompt');
   await writeFile(join(policyDir, 'goal.md'), 'policy goal');
+  await writeFile(
+    join(policyDir, 'reflection.yaml'),
+    JSON.stringify({ targets: proposerTargets }),
+  );
   const file = { type: 'string', 'x-rsi-path': 'file' };
   function register(
     id: string,
@@ -86,7 +93,8 @@ async function fixture(t: TestContext) {
   }
   register('application.test', applicationContract);
   register('proposer.test', proposerContract, {
-    guidance: { type: 'string', 'x-rsi-path': 'directory' },
+    instructions: { type: 'string', 'x-rsi-path': 'directory' },
+    prompt: file,
   });
   register('agent.test', agentContract);
   register('memory.test', memoryContract, {
@@ -117,15 +125,19 @@ async function fixture(t: TestContext) {
     output_schema: true,
     require: {
       proposer: { contract: proposerContract.id },
-      backend: { contract: agentContract.id },
+      ...Object.fromEntries(
+        agents.map((name) => [name, { contract: agentContract.id }]),
+      ),
     },
     defaults: {
       bindings: {
         proposer: {
           plugin: 'proposer.test',
-          config: { guidance: './guidance' },
+          config: { instructions: './instructions', prompt: './inherited.md' },
         },
-        backend: { plugin: 'agent.test' },
+        ...Object.fromEntries(
+          agents.map((name) => [name, { plugin: 'agent.test' }]),
+        ),
       },
     },
     steps: [
@@ -165,7 +177,7 @@ test('overlapping Reflection members must agree on the linked route to their sou
   );
   const parent = {
     binding: 'writer',
-    pointer: '/guidance',
+    pointer: '/instructions',
     kind: 'directory',
     path: f.policyDir,
   } as const;
@@ -212,30 +224,195 @@ test('shared roots have a separate namespace from a binding named shared and kee
   );
 });
 
-test('zero-configuration evolution resolves real Agent schema defaults and all eligible Policy targets', async (t) => {
+test('a custom Policy enables Memory by default and only enables Reflection with a target declaration', async (t) => {
   const f = await fixture(t);
+  const unconfigured = await f.load({});
+  assert.deepEqual(unconfigured.disabledEvolution, ['reflection']);
+  assert.equal(unconfigured.reflection, undefined);
+  assert.equal(unconfigured.memory?.config.agentRef, 'backend');
+  object(f.policy.defaults).reflection = reflectionFile;
   const recipe = await f.load({});
-  assert.equal(recipe.memory?.config.agentRef, '_evolutionAgent');
-  assert.equal(recipe.reflection?.config.agentRef, '_evolutionAgent');
-  assert.equal(recipe.bindings._evolutionAgent!.config.model, '${MODEL_NAME}');
-  assert.equal(
-    recipe.bindings._evolutionAgent!.config.base_url,
-    '${MODEL_ENDPOINT}',
-  );
-  assert.equal(
-    recipe.bindings._evolutionAgent!.config.api_key,
-    '${MODEL_API_KEY}',
-  );
+  assert.equal(recipe.memory?.evidenceView, 'training');
+  assert.equal(recipe.reflection?.evidenceView, 'training');
+  assert.equal(recipe.memory?.config.agentRef, 'backend');
+  assert.equal(recipe.reflection?.config.agentRef, 'backend');
+  assert.equal(recipe.bindings._evolutionAgent, undefined);
   assert.deepEqual(recipe.memory?.trigger, { on: 'loop-iteration', every: 1 });
   assert.deepEqual(recipe.reflection?.targets, {
-    proposer: { resources: ['/guidance'] },
+    proposer: { resources: ['/instructions'] },
   });
   assert.deepEqual(recipe.memory?.consumers, ['proposer', 'backend']);
   assert.equal(recipe.memory?.goalFile.endsWith('goal.md'), true);
-  assert.equal(
-    Object.hasOwn(object(recipe.toJSON().bindings), '_evolutionAgent'),
-    false,
+});
+
+for (const agents of [[], ['first', 'second']]) {
+  test(`evolution synthesizes one Pi binding for ${agents.length} declared Agents`, async (t) => {
+    const f = await fixture(t, agents);
+    const disabled = await f.load({ memory: false });
+    assert.equal(disabled.reflection, undefined);
+    assert.equal(disabled.bindings._evolutionAgent, undefined);
+    object(f.policy.defaults).reflection = reflectionFile;
+    const recipe = await f.load({});
+    assert.equal(recipe.memory?.config.agentRef, '_evolutionAgent');
+    assert.equal(recipe.reflection?.config.agentRef, '_evolutionAgent');
+    const agent = recipe.bindings._evolutionAgent;
+    assert.equal(agent.pluginId, 'agent.pi');
+    assert.equal(agent.config.model, '${MODEL_NAME}');
+    assert.equal(agent.config.base_url, '${MODEL_ENDPOINT}');
+    assert.equal(agent.config.api_key, '${MODEL_API_KEY}');
+    assert.equal(
+      Object.hasOwn(object(recipe.toJSON().bindings), '_evolutionAgent'),
+      false,
+    );
+  });
+}
+
+test('Recipe Reflection declarations disable, inherit or replace the Policy target file', async (t) => {
+  const f = await fixture(t);
+  await writeFile(
+    join(f.recipeDir, 'reflection.yaml'),
+    JSON.stringify({ targets: { include: { proposer: ['prompt'] } } }),
   );
+  const defaults = object(f.policy.defaults);
+  for (const fallback of [undefined, false, true, reflectionFile]) {
+    if (fallback === undefined) delete defaults.reflection;
+    else defaults.reflection = fallback;
+    for (const override of [undefined, false, true, reflectionFile]) {
+      const loaded = f.load(
+        override === undefined ? {} : { reflection: override },
+      );
+      if (override === false || (override === undefined && !fallback)) {
+        assert.equal((await loaded).reflection, undefined);
+      } else if (override === reflectionFile) {
+        assert.deepEqual((await loaded).reflection?.targets, {
+          proposer: { resources: ['/prompt'] },
+        });
+      } else if (fallback === reflectionFile) {
+        assert.deepEqual((await loaded).reflection?.targets, {
+          proposer: { resources: ['/instructions'] },
+        });
+      } else {
+        await assert.rejects(
+          loaded,
+          /reflection requires a configFile declaring targets\.include/,
+        );
+      }
+    }
+  }
+});
+
+test('Reflection requires a nonempty include and a local resource after exclusions', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.recipeDir, reflectionFile.configFile);
+  for (const [declaration, reason] of [
+    [{}, /required property 'targets'/],
+    [{ targets: {} }, /required property 'include'/],
+    [
+      { targets: { exclude: { proposer: '*' } } },
+      /required property 'include'/,
+    ],
+    [{ targets: { include: {} } }, /fewer than 1 properties/],
+    [{ targets: { include: [] } }, /must be object/],
+    [{ targets: { include: null } }, /must be object/],
+    [
+      { targets: { include: { proposer: null } } },
+      /targets\/include\/proposer/,
+    ],
+    [{ targets: { include: { proposer: [] } } }, /fewer than 1 items/],
+    [
+      { targets: { include: { proposer: ['*', 'prompt'] } } },
+      /targets\/include\/proposer/,
+    ],
+    [
+      {
+        targets: {
+          include: { proposer: ['instructions'] },
+          exclude: { proposer: ['instructions'] },
+        },
+      },
+      /must select at least one editable resource/,
+    ],
+    [
+      { targets: { include: { proposer: '*' }, exclude: { proposer: ['*'] } } },
+      /must select at least one editable resource/,
+    ],
+    [
+      { targets: { include: { proposer: '*' }, exclude: { unknown: '*' } } },
+      /exclude: unknown binding unknown/,
+    ],
+    [
+      { targets: { include: { backend: ['*'], proposer: ['instructions'] } } },
+      /backend: no local x-rsi-path resources/,
+    ],
+  ] as const) {
+    await writeFile(file, JSON.stringify(declaration));
+    await assert.rejects(f.load({ reflection: reflectionFile }), reason);
+  }
+});
+
+test('Reflection rejects explicitly included URLs and binding wildcards only select local paths', async (t) => {
+  const f = await fixture(t);
+  const bindings = object(object(f.policy.defaults).bindings);
+  const proposer = object(object(bindings.proposer).config);
+  proposer.prompt = 'https://example.invalid/prompt.md';
+  const file = join(f.recipeDir, reflectionFile.configFile);
+  for (const selection of ['*', ['*']]) {
+    await writeFile(
+      file,
+      JSON.stringify({ targets: { include: { proposer: selection } } }),
+    );
+    assert.deepEqual(
+      (await f.load({ reflection: reflectionFile })).reflection?.targets,
+      {
+        proposer: { resources: ['/instructions'] },
+      },
+    );
+  }
+  await writeFile(
+    file,
+    JSON.stringify({
+      targets: {
+        include: { proposer: ['prompt', 'instructions'] },
+        exclude: { proposer: ['prompt'] },
+      },
+    }),
+  );
+  await assert.rejects(
+    f.load({ reflection: reflectionFile }),
+    /proposer\/prompt: cannot edit a remote URL/,
+  );
+  proposer.instructions = 'https://example.invalid/instructions';
+  await writeFile(
+    file,
+    JSON.stringify({ targets: { include: { proposer: '*' } } }),
+  );
+  await assert.rejects(
+    f.load({ reflection: reflectionFile }),
+    /proposer: no local x-rsi-path resources/,
+  );
+});
+
+test('explicit evolution Agent references select among multiple declared Agents', async (t) => {
+  const f = await fixture(t, ['first', 'second']);
+  for (const [kind, agentRef] of [
+    ['memory', 'first'],
+    ['reflection', 'second'],
+  ]) {
+    await writeFile(
+      join(f.recipeDir, kind + '.yaml'),
+      JSON.stringify({
+        implementation: { config: { agentRef } },
+        ...(kind === 'reflection' ? { targets: proposerTargets } : {}),
+      }),
+    );
+  }
+  const recipe = await f.load({
+    memory: { configFile: './memory.yaml' },
+    reflection: { configFile: './reflection.yaml' },
+  });
+  assert.equal(recipe.memory?.config.agentRef, 'first');
+  assert.equal(recipe.reflection?.config.agentRef, 'second');
+  assert.equal(recipe.bindings._evolutionAgent, undefined);
 });
 
 test('a shared Reflection exclusion accepts Memory even when the Recipe disables it', async (t) => {
@@ -245,7 +422,10 @@ test('a shared Reflection exclusion accepts Memory even when the Recipe disables
   const file = join(f.policyDir, configFile);
   await writeFile(
     file,
-    JSON.stringify({ evidence: { excludeBindings: ['memory'] } }),
+    JSON.stringify({
+      targets: proposerTargets,
+      evidence: { excludeBindings: ['memory'] },
+    }),
   );
   for (const memory of [true, false]) {
     const recipe = await f.load({ memory });
@@ -257,7 +437,10 @@ test('a shared Reflection exclusion accepts Memory even when the Recipe disables
   }
   await writeFile(
     file,
-    JSON.stringify({ evidence: { includeBindings: ['memory'] } }),
+    JSON.stringify({
+      targets: proposerTargets,
+      evidence: { includeBindings: ['memory'] },
+    }),
   );
   await assert.rejects(
     f.load({ memory: false }),
@@ -265,7 +448,10 @@ test('a shared Reflection exclusion accepts Memory even when the Recipe disables
   );
   await writeFile(
     file,
-    JSON.stringify({ evidence: { excludeBindings: ['typo'] } }),
+    JSON.stringify({
+      targets: proposerTargets,
+      evidence: { excludeBindings: ['typo'] },
+    }),
   );
   await assert.rejects(
     f.load({ memory: false }),
@@ -314,7 +500,6 @@ test('Recipe toggles preserve or replace a Policy file and skip disabled configu
   );
   const override = await f.load({
     memory: { configFile: './memory.yaml' },
-    reflection: true,
   });
   assert.equal(override.memory?.seed?.directory, join(f.recipeDir, 'missing'));
   assert.equal(
@@ -325,13 +510,15 @@ test('Recipe toggles preserve or replace a Policy file and skip disabled configu
     on: 'loop-iteration',
     every: 1,
   });
-  assert.equal(override.reflection?.config.agentRef, '_evolutionAgent');
+  assert.equal(override.memory?.config.agentRef, undefined);
+  assert.equal(override.reflection, undefined);
   await rm(join(f.policyDir, 'memory.yaml'));
   assert.equal((await f.load({ memory: false })).memory, undefined);
 });
 
 test('definition locks preserve evolution configurations, source directories, seed artifacts and Agent settings across recovery', async (t) => {
-  const f = await fixture(t);
+  const f = await fixture(t, []);
+  object(f.policy.defaults).reflection = reflectionFile;
   await writeFile(
     join(f.recipeDir, 'memory.yaml'),
     JSON.stringify({ directory: './seed' }),
@@ -342,6 +529,14 @@ test('definition locks preserve evolution configurations, source directories, se
   const locked = await lockDefinition(recipe, f.registry, store, dir);
   const memory = parseLockedMemory(locked.memory!),
     reflection = parseLockedReflection(locked.reflection!);
+  // Earlier definition locks can contain an empty target set.
+  assert.deepEqual(
+    parseLockedReflection({ ...object(locked.reflection!), targets: {} })
+      .targets,
+    {},
+  );
+  assert.equal(memory.evidenceView, 'training');
+  assert.equal(reflection.evidenceView, 'training');
   assert.equal(
     readResourceOrigins(locked)._memory!['/directory'],
     join(f.recipeDir, 'seed'),
@@ -373,6 +568,8 @@ test('definition locks preserve evolution configurations, source directories, se
     locked,
   );
   assert.deepEqual(retried.memory, locked.memory);
+  assert.equal(recovered.reflection?.evidenceView, 'training');
+  assert.deepEqual(retried.reflection, locked.reflection);
   assert.equal(
     recovered.bindings._evolutionAgent!.config.model,
     '${MODEL_NAME}',
@@ -431,7 +628,7 @@ test('invalid evolution declarations, resources, filters and parallel triggers r
     ['memory', { directory: './.rsi/private' }, /Protected/],
     [
       'reflection',
-      { targets: { exclude: { proposer: ['absent'] } } },
+      { targets: { ...proposerTargets, exclude: { proposer: ['absent'] } } },
       /not declared/,
     ],
     [
@@ -439,7 +636,11 @@ test('invalid evolution declarations, resources, filters and parallel triggers r
       { targets: { include: { absent: ['*'] } } },
       /unknown binding/,
     ],
-    ['reflection', { trigger: { afterPolicy: true } }, /additional properties/],
+    [
+      'reflection',
+      { targets: proposerTargets, trigger: { afterPolicy: true } },
+      /additional properties/,
+    ],
   ] as const) {
     await writeFile(
       join(f.recipeDir, 'invalid.yaml'),

@@ -1,9 +1,6 @@
 evidence: { view: execution }
 targets:
   include:
-    invariantProposer: [guidance]
-    domainProposer: [guidance]
-goal: ../../plugins/reflection-agent/goals/proposer-office/prompt.md
-implementation:
-  config: { agentRef: agent }
+    invariantProposer: '*'
+    domainProposer: '*'
 budget: { timeoutSeconds: 3600 }

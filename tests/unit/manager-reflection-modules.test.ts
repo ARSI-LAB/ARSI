@@ -190,6 +190,11 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
   );
   assert.equal(partial.length, 1);
   assert.equal(partial[0]!.policyScopeId, 'root');
+  const definition = await manager.facts.read('definitions', 'scoped');
+  assert.equal(object(definition.reflection).evidenceView, 'training');
+  const preparedRef = string(partial[0]!.evidenceViewRef);
+  const prepared = await manager.facts.read('evidence-views', preparedRef);
+  assert.equal(prepared.evidenceView, 'training');
   const resumed = await manager.run(recipePath, { id: 'scoped', resume: true });
   assert.equal(resumed.status, 'succeeded');
   assert.equal(initializations, 1);
@@ -198,6 +203,7 @@ test('Reflection preserves root overrides and resumes from locked definitions wi
     (fact) => fact.experimentId === 'scoped',
   );
   assert.equal(completed.length, 1);
+  assert.equal(completed[0]!.evidenceViewRef, preparedRef);
   const initialRevision = (await manager.facts.list('revisions')).find(
     (record) => record.experimentId === 'scoped' && record.kind === 'initial',
   );

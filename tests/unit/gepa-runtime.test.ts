@@ -913,6 +913,10 @@ test('default GEPA evolution Agents receive only training evidence after held-ou
       .filter(([path]) => path.startsWith('context/evolution/'))
       .map(([, content]) => content)
       .join('\n');
+    assert.equal(
+      object(JSON.parse(string(project['context/input.json']))).evidenceView,
+      'training',
+    );
     assert.match(evidence, /train-example/);
     assert.doesNotMatch(evidence, /held-out-example/);
     if (binding === '_reflection') {
@@ -926,8 +930,13 @@ test('default GEPA evolution Agents receive only training evidence after held-ou
       assert.equal(receipt.bindingId, '_memory');
       assert.equal(receipt.status, 'succeeded');
       assert.ok(
-        !evidence.includes(lesson),
-        'training summaries omit the Memory snapshot contents',
+        Object.entries(project).some(
+          ([path, text]) =>
+            path.startsWith(
+              `context/evolution/calls/${memory.callId}-memory/`,
+            ) && text === lesson,
+        ),
+        'training Reflection receives the selected Memory snapshot',
       );
     }
     for (const call of heldOut) {

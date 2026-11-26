@@ -158,6 +158,8 @@ test('operator search shares its benchmark task and limits default Reflection ed
     sourcePath: f.recipePath,
   });
   assert.equal(recipe.memory?.trigger.on, 'loop-iteration');
+  assert.equal(recipe.memory?.evidenceView, 'training');
+  assert.equal(recipe.reflection?.evidenceView, 'training');
   assert.equal(recipe.memory?.config.agentRef, 'agent');
   assert.equal(recipe.reflection?.config.agentRef, 'agent');
   assert.deepEqual(recipe.reflection?.targets, {

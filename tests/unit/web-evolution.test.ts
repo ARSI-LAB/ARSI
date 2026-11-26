@@ -189,7 +189,7 @@ test('evolution HTTP projects owned records, previews changes and applies throug
   assert.equal(preview.applicationAllowed, true);
   assert.equal(preview.changes[0]?.action, 'replace');
   assert.equal(
-    await readFile(join(f.guidance, 'checks.md'), 'utf8'),
+    await readFile(join(f.promptsDirectory, 'checks.md'), 'utf8'),
     'Validate the output.\n',
   );
   const applyUrl =
@@ -217,7 +217,7 @@ test('evolution HTTP projects owned records, previews changes and applies throug
     /verify formula results/,
   );
   assert.equal(
-    await readFile(join(f.guidance, 'checks.md'), 'utf8'),
+    await readFile(join(f.promptsDirectory, 'checks.md'), 'utf8'),
     'Validate the output.\n',
   );
   assert.equal(
@@ -269,7 +269,7 @@ test('evolution HTTP projects owned records, previews changes and applies throug
     'applied',
   );
   assert.match(
-    await readFile(join(f.guidance, 'checks.md'), 'utf8'),
+    await readFile(join(f.promptsDirectory, 'checks.md'), 'utf8'),
     /verify formula results/,
   );
   assert.equal(
@@ -282,7 +282,7 @@ test('evolution HTTP projects owned records, previews changes and applies throug
     ).json(),
   );
   assert.equal(initialPreview.applicationAllowed, true);
-  assert.deepEqual(initialPreview.destinations, [f.guidance]);
+  assert.deepEqual(initialPreview.destinations, [f.promptsDirectory]);
   assert.equal(initialPreview.changes[0]?.action, 'replace');
   assert.equal(
     (
@@ -294,7 +294,7 @@ test('evolution HTTP projects owned records, previews changes and applies throug
     'applied',
   );
   assert.equal(
-    await readFile(join(f.guidance, 'checks.md'), 'utf8'),
+    await readFile(join(f.promptsDirectory, 'checks.md'), 'utf8'),
     'Validate the output.\n',
   );
 });

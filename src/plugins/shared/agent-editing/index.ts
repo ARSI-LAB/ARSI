@@ -1,11 +1,4 @@
-import {
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, matchesGlob } from 'node:path';
 import type {
   AgentInput,
@@ -58,44 +51,8 @@ export function editEvidenceRefs(input: JsonObject): string[] {
     ]),
   ];
 }
-/** Reload plugin-owned guidance for each request without changing the base prompt. */
-export async function loadAgentPrompt(
-  config: AgentEditingConfig,
-): Promise<string> {
-  const prompt = await readFile(config.prompt, 'utf8');
-  if (config.guidance === undefined) return prompt;
-  const directory = config.guidance;
-  const files: string[] = [];
-  async function collect(path: string, relative: string): Promise<void> {
-    const stat = await lstat(path);
-    if (stat.isSymbolicLink())
-      throw new Error(`Agent guidance cannot follow a symbolic link: ${path}`);
-    if (stat.isDirectory()) {
-      for (const name of await readdir(path))
-        await collect(
-          join(path, name),
-          relative ? `${relative}/${name}` : name,
-        );
-    } else if (stat.isFile()) {
-      if (relative.toLowerCase().endsWith('.md')) files.push(relative);
-    } else throw new Error(`Agent guidance requires ordinary files: ${path}`);
-  }
-  const root = await lstat(directory);
-  if (root.isSymbolicLink())
-    throw new Error(
-      `Agent guidance cannot follow a symbolic link: ${directory}`,
-    );
-  if (!root.isDirectory())
-    throw new Error(`Agent guidance must be a directory: ${directory}`);
-  await collect(directory, '');
-  const guidance: string[] = [];
-  for (const file of files.sort()) {
-    const content = await readFile(join(directory, file), 'utf8');
-    if (content.trim()) guidance.push(`### ${file}\n\n${content}`);
-  }
-  return guidance.length
-    ? `${prompt}\n\n## Guidance\n\n${guidance.join('\n\n')}`
-    : prompt;
+export function loadAgentPrompt(config: AgentEditingConfig): Promise<string> {
+  return readFile(config.prompt, 'utf8');
 }
 export async function resourceFiles(
   ref: string | null,

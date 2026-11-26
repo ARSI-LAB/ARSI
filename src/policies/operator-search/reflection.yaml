@@ -2,5 +2,3 @@ targets:
   include:
     proposer: [promptsDirectory]
     summarizer: [promptFile]
-implementation:
-  config: { agentRef: agent }

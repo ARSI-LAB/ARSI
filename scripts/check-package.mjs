@@ -740,11 +740,12 @@ try {
   const recipePath=resolve(${JSON.stringify(outside)},'dsh-harness2','recipe.yaml');
   const recipe=(await Recipe.load(recipePath,runtime.registry)).toJSON();
   const configFile=resolve(${JSON.stringify(outside)},'reflection-config-'+goal+'.json');
-  await writeFile(configFile,JSON.stringify({trigger:{on:'experiment-end'},evidence:{includeBindings:['selector']},goal:goalFile,targets:{include:{domainProposer:['guidance']}},implementation:{config:{agentRef:'agent'}}}));
+  await writeFile(configFile,JSON.stringify({trigger:{on:'experiment-end'},evidence:{includeBindings:['selector']},goal:goalFile,targets:{include:{domainProposer:['prompt']}},implementation:{config:{agentRef:'agent'}}}));
   recipe.reflection={configFile};
   const path=resolve(${JSON.stringify(outside)},'reflection-'+goal+'.json');
   await writeFile(path,JSON.stringify(recipe));
   const configuration=(await Recipe.load(path,runtime.registry)).reflection;
+  assert.deepEqual(configuration.targets,{domainProposer:{resources:['/prompt']}},'the Recipe grants only its named Reflection resource');
   assert.equal(configuration.goal,await readFile(goalFile,'utf8'),'explicit installed goal selection loads contents');
   assert.equal(await realpath(configuration.config.prompt),await realpath(prompt),'installed generic prompt is the default');
  }
@@ -923,7 +924,12 @@ import type { IterativeProposerInput as ContractIterativeProposerInput, Iterativ
 import { runtimeEvolutionFileSchema, type RuntimeEvolutionTrigger, type RuntimeEvolutionDeclaration } from 'arsi';
 import { runtimeEvolutionDeclarationSchema, runtimeEvolutionNames, runtimeEvolutionTriggerSchema } from 'arsi/contracts';
 export const evolutionSchemas = [runtimeEvolutionFileSchema('reflection'), runtimeEvolutionDeclarationSchema, runtimeEvolutionNames, runtimeEvolutionTriggerSchema];
-import type { RecipeDeclaration, MemoryActivatedEvent, MemoryOutput } from 'arsi/contracts';
+import type { RecipeDeclaration, ReflectionConfiguration, RuntimeEvolutionEvidenceView, MemoryActivatedEvent, MemoryOutput } from 'arsi/contracts';
+export const reflectionFile:ReflectionConfiguration={targets:{include:{proposer:['prompt']}}};
+export function readTrainingFiles(context:RuntimeContext,refs:string[]) {
+ const view:RuntimeEvolutionEvidenceView='training';
+ return context.readEvidence(refs,{view,format:'files'});
+}
 export const trigger: RuntimeEvolutionTrigger = { on:'loop-iteration',every:1 };
 export const memory:RuntimeEvolutionDeclaration = { configFile:'./memory.yaml' };
 export const reflection:RuntimeEvolutionDeclaration = true;

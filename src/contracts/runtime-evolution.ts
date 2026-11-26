@@ -13,8 +13,16 @@ export type RuntimeEvolutionBudget = {
   evidenceBytes?: number;
 };
 
+export const runtimeEvolutionEvidenceViews = [
+  'execution',
+  'training',
+  'training-summary',
+] as const;
+export type RuntimeEvolutionEvidenceView =
+  (typeof runtimeEvolutionEvidenceViews)[number];
+
 export type EvidenceDeclaration = {
-  view?: 'execution' | 'training-summary';
+  view?: RuntimeEvolutionEvidenceView;
   includeBindings?: string[];
   excludeBindings?: string[];
   includeSteps?: string[];
@@ -31,9 +39,9 @@ export type MemoryConfiguration = RuntimeEvolutionFile & {
   directory?: string;
   targets?: { include?: string[]; exclude?: string[] };
 };
-export type ResourceSelection = Record<string, string[] | '*' | null>;
+export type ResourceSelection = Record<string, string[] | '*'>;
 export type ReflectionConfiguration = RuntimeEvolutionFile & {
-  targets?: { include?: ResourceSelection; exclude?: ResourceSelection };
+  targets: { include: ResourceSelection; exclude?: ResourceSelection };
 };
 
 const name = { type: 'string', minLength: 1, pattern: '\\S' };
@@ -69,19 +77,12 @@ export const runtimeEvolutionDeclarationSchema: JsonObject = {
     },
   ],
 };
-function filter(selection: JsonObject): JsonObject {
-  return {
-    type: 'object',
-    properties: { include: selection, exclude: selection },
-    additionalProperties: false,
-  };
-}
 const common = {
   trigger: runtimeEvolutionTriggerSchema,
   evidence: {
     type: 'object',
     properties: {
-      view: { enum: ['execution', 'training-summary'] },
+      view: { enum: [...runtimeEvolutionEvidenceViews] },
       includeBindings: runtimeEvolutionNames,
       excludeBindings: runtimeEvolutionNames,
       includeSteps: runtimeEvolutionNames,
@@ -106,12 +107,21 @@ export function runtimeEvolutionFileSchema(
   const resources: JsonObject = {
     type: 'object',
     additionalProperties: {
-      oneOf: [runtimeEvolutionNames, { const: '*' }, { type: 'null' }],
+      oneOf: [
+        { const: '*' },
+        { const: ['*'] },
+        {
+          ...runtimeEvolutionNames,
+          minItems: 1,
+          items: { ...name, not: { const: '*' } },
+        },
+      ],
     },
   };
   return {
     type: 'object',
     additionalProperties: false,
+    ...(kind === 'reflection' ? { required: ['targets'] } : {}),
     properties: {
       ...common,
       implementation: {
@@ -123,9 +133,25 @@ export function runtimeEvolutionFileSchema(
         },
         additionalProperties: false,
       },
-      ...(kind === 'memory'
-        ? { directory: name, targets: filter(runtimeEvolutionNames) }
-        : { targets: filter(resources) }),
+      ...(kind === 'memory' ? { directory: name } : {}),
+      targets: {
+        type: 'object',
+        additionalProperties: false,
+        ...(kind === 'memory'
+          ? {
+              properties: {
+                include: runtimeEvolutionNames,
+                exclude: runtimeEvolutionNames,
+              },
+            }
+          : {
+              required: ['include'],
+              properties: {
+                include: { ...resources, minProperties: 1 },
+                exclude: resources,
+              },
+            }),
+      },
     },
   };
 }

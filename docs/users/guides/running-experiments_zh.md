@@ -30,6 +30,8 @@
 | `arsi reflection apply <revisionID> [--to <directory>]` | 在记录的路径应用修订，或导出到专用目录。参见 [Reflection 指南](reflection_zh.md#将版本应用到后续实验)。 |
 | `arsi help [command]`                  | 显示命令列表或指定命令的帮助。                                                                |
 
+写回 Reflection 修订前，先用 `arsi reflection show <revisionID>` 检查目标路径。使用 `proposer: '*'` 的 Agent Policy 可修订你配置的 `prompt`、`skills` 和 `subagents` 资源。如果变更的资源都属于用户，可以原地应用。对内置提示词的修改可用 `arsi reflection apply <revisionID> --to ./exported-resources` 导出。
+
 ### 交互式 CLI
 
 在交互终端运行 `arsi` 或 `arsi shell` 打开命令菜单。选择命令后输入参数，也可以选择 **Run custom CLI command** 输入完整命令。用单引号或双引号包住含空格的参数。自定义命令输入框也支持 `help`、`log-level`、`clear` 和 `exit`。
@@ -159,4 +161,4 @@ arsi dashboard --port <端口号>
 | 未知插件、Policy 或未声明绑定          | 检查当前 catalog，在此进程加载扩展，并匹配 Policy 的 `require`。注意只有文件时并不构成注册。                                 |
 | 预算耗尽或请求超时                     | 区分操作、评测、模型计数，墙钟时长，单请求时长，整个 Agent 时长，以及基准时长。参见 [限制](configuration_zh.md#限制与预算)。 |
 | 工作台提示缺少 `.rsi` 或展示了其他实验 | 从原实验工作区启动，使用同一存储；                                                                                           |
-| Memory 或 Reflection 更新被拒绝        | 检查保存的原因和后续流程。更新失败后，实验可以继续使用之前的经验或指导。取消或耗尽实验级预算仍会终止实验。                                     |
+| Memory 或 Reflection 更新被拒绝        | 检查保存的原因和后续流程。更新失败后，实验可以继续使用之前的 Memory 快照或插件修订。取消或耗尽实验级预算仍会终止实验。                                     |

@@ -47,10 +47,10 @@ async function fixture(t: TestContext) {
   );
   const bindings: Record<string, Binding> = {};
   for (const key of ['a', 'b']) {
-    const guidance = join(root, key);
-    await mkdir(guidance);
-    await writeFile(join(guidance, 'initial.md'), `${key} original`);
-    bindings[key] = { plugin: 'target', config: { guidance } };
+    const instructions = join(root, key);
+    await mkdir(instructions);
+    await writeFile(join(instructions, 'initial.md'), `${key} original`);
+    bindings[key] = { plugin: 'target', config: { instructions } };
   }
   const context = new RuntimeContext().extend({
     experimentId: 'experiment',
@@ -65,7 +65,7 @@ async function fixture(t: TestContext) {
     configSchema: {
       type: 'object',
       properties: {
-        guidance: { type: 'string', 'x-rsi-path': 'directory' },
+        instructions: { type: 'string', 'x-rsi-path': 'directory' },
         prompt: { type: 'string', 'x-rsi-path': 'file' },
       },
     },
@@ -102,10 +102,10 @@ async function fixture(t: TestContext) {
       digest: 'config',
       observe: { bindings: ['a'] },
       targets: {
-        a: { resources: ['guidance'] },
-        b: { resources: ['guidance'] },
+        a: { resources: ['instructions'] },
+        b: { resources: ['instructions'] },
       },
-      goal: 'Improve guidance',
+      goal: 'Improve instructions',
       plugin: 'custom',
       config: {},
       budget: { modelCalls: 0 },
@@ -135,7 +135,7 @@ async function fixture(t: TestContext) {
       return {
         status: 'no-change',
         proposal: null,
-        reason: 'keep useful guidance',
+        reason: 'keep useful instructions',
       };
     },
     save: async (changes, revisions, activationId, head) => {
@@ -210,8 +210,8 @@ test(
   { timeout: 20000 },
   async (t) => {
     const f = await fixture(t);
-    const guidance = string(f.bindings.a!.config.guidance);
-    const prefix = 'bindings/a/resources/guidance';
+    const instructions = string(f.bindings.a!.config.instructions);
+    const prefix = 'bindings/a/resources/instructions';
     const savedFiles = ['a.md', 'b.md'].map((name) => ({
       path: `${prefix}/${name}`,
       mode: 0o644,
@@ -231,9 +231,9 @@ test(
       }),
       sourceResources: [
         {
-          pointer: '/guidance',
+          pointer: '/instructions',
           kind: 'directory',
-          path: guidance,
+          path: instructions,
           artifactPath: prefix,
         },
       ],
@@ -258,7 +258,7 @@ test(
     });
     const originalCapture = f.artifacts.capture.bind(f.artifacts);
     f.artifacts.capture = async (...args) => {
-      if (args[0] === guidance) {
+      if (args[0] === instructions) {
         captured();
         await captureAllowed;
       }
@@ -304,9 +304,9 @@ test(
       );
       assert.deepEqual(
         tree.files
-          .filter((file) => file.path.startsWith('resources/a/guidance/'))
+          .filter((file) => file.path.startsWith('resources/a/instructions/'))
           .map((file) => file.path),
-        ['resources/a/guidance/initial.md'],
+        ['resources/a/instructions/initial.md'],
       );
       assert.equal(probes, 0);
       assert.deepEqual(shown.changes, []);
@@ -353,7 +353,7 @@ test('one observation without a Measurement invokes Reflection; no-change and em
         await f.artifacts.readJson(string(object(input).resourceRef)),
       );
       const file = tree.files.find(
-        (entry) => entry.path === 'resources/a/guidance/initial.md',
+        (entry) => entry.path === 'resources/a/instructions/initial.md',
       )!;
       assert.equal(Buffer.from(file.base64, 'base64').toString(), 'a original');
       return {
@@ -372,7 +372,7 @@ test('only changed targets gain revisions and activation preserves original sour
     ...f.options,
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'resources/a/guidance/rules.md': 'first rule',
+        'resources/a/instructions/rules.md': 'first rule',
       }),
   });
   assert.equal(first.status, 'activated');
@@ -386,7 +386,7 @@ test('only changed targets gain revisions and activation preserves original sour
   await assert.rejects(readFile(join(f.root, 'a/rules.md')), /ENOENT/);
   assert.equal(
     await readFile(
-      join(string(f.bindings.a!.config.guidance), 'rules.md'),
+      join(string(f.bindings.a!.config.instructions), 'rules.md'),
       'utf8',
     ),
     'first rule',
@@ -396,7 +396,7 @@ test('only changed targets gain revisions and activation preserves original sour
     ...f.next('second'),
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'resources/a/guidance/second.md': 'second rule',
+        'resources/a/instructions/second.md': 'second rule',
       }),
   });
   assert.equal(second.status, 'activated');
@@ -411,14 +411,14 @@ test('only changed targets gain revisions and activation preserves original sour
   assert.deepEqual(revision.sourceRoots, root.sourceRoots);
   assert.equal(
     await readFile(
-      join(string(f.bindings.a!.config.guidance), 'rules.md'),
+      join(string(f.bindings.a!.config.instructions), 'rules.md'),
       'utf8',
     ),
     'first rule',
   );
   assert.equal(
     await readFile(
-      join(string(f.bindings.a!.config.guidance), 'second.md'),
+      join(string(f.bindings.a!.config.instructions), 'second.md'),
       'utf8',
     ),
     'second rule',
@@ -426,10 +426,10 @@ test('only changed targets gain revisions and activation preserves original sour
 });
 test('a nested file member is explicitly owned and cannot be deleted through its covering directory', async (t) => {
   const f = await fixture(t);
-  const prompt = join(string(f.bindings.a!.config.guidance), 'initial.md');
+  const prompt = join(string(f.bindings.a!.config.instructions), 'initial.md');
   f.bindings.b!.config = { prompt };
   f.options.config.targets.b = { resources: ['prompt'] };
-  const path = 'resources/a/guidance/initial.md';
+  const path = 'resources/a/instructions/initial.md';
   await f.observe();
   const result = await reflect({
     ...f.options,
@@ -446,7 +446,7 @@ test('a nested file member is explicitly owned and cannot be deleted through its
       assert.deepEqual(manifest[path], {
         kind: 'file',
         owners: [
-          { binding: 'a', pointer: '/guidance' },
+          { binding: 'a', pointer: '/instructions' },
           { binding: 'b', pointer: '/prompt' },
         ],
         changes: ['modify'],
@@ -512,7 +512,7 @@ test('local generator failures, invalid edits and budgets preserve activation; g
   const f = await fixture(t);
   const cases: Array<[Record<string, string | null>, RegExp]> = [
     [{ 'resources/a/prompt': 'unauthorized' }, /outside authorized/],
-    [{ 'resources/a/guidance/initial.md': null }, /delete denied/],
+    [{ 'resources/a/instructions/initial.md': null }, /delete denied/],
   ];
   for (const [index, [edits, expected]] of cases.entries()) {
     await f.observe();
@@ -579,7 +579,7 @@ test('Reflection accepts authorized edits beyond the former implicit file and by
         input,
         Object.fromEntries(
           Array.from({ length: 17 }, (_, index) => [
-            `resources/a/guidance/${index}.md`,
+            `resources/a/instructions/${index}.md`,
             'x'.repeat(index === 0 ? 131073 : 1),
           ]),
         ),
@@ -600,7 +600,7 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
       generations++;
       prepared = await f.facts.read('evolution-runs', scope.id);
       return f.proposed(input, {
-        'resources/a/guidance/rules.md': 'saved rule',
+        'resources/a/instructions/rules.md': 'saved rule',
       });
     },
     save: async (changes, revisions, id, head) => {
@@ -613,7 +613,7 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
   assert.equal(rejected.status, 'rejected');
   assert.equal(validated.status, 'validated');
   assert.deepEqual(f.options.revisionRefs, validated.parents);
-  assert.equal(f.bindings.a!.config.guidance, join(f.root, 'a'));
+  assert.equal(f.bindings.a!.config.instructions, join(f.root, 'a'));
   await f.facts.write('evolution-runs', rejected.evolutionId, validated);
   fail = false;
   const recovered = await reflect({
@@ -631,7 +631,7 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
     ...f.next('descendant'),
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'resources/a/guidance/descendant.md': 'later active rule',
+        'resources/a/instructions/descendant.md': 'later active rule',
       }),
   });
   assert.equal(descendant.status, 'activated');
@@ -671,7 +671,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
     ...f.options,
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'resources/a/guidance/first.md': 'first scope rule',
+        'resources/a/instructions/first.md': 'first scope rule',
       }),
   });
   await f.observe('a', { parentCallId: 'child-scope' });
@@ -684,7 +684,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
     },
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'resources/a/guidance/second.md': 'second scope rule',
+        'resources/a/instructions/second.md': 'second scope rule',
       }),
   });
   assert.equal(second.status, 'activated');
@@ -718,7 +718,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
 test('resource preparation failure leaves existing revisions unchanged and publishes no phantom initial pointers', async (t) => {
   const f = await fixture(t);
   await f.observe();
-  const unavailable = string(f.bindings.a!.config.guidance);
+  const unavailable = string(f.bindings.a!.config.instructions);
   await rm(unavailable, { recursive: true });
   const rejected = await reflect(f.options);
   assert.equal(rejected.status, 'rejected');

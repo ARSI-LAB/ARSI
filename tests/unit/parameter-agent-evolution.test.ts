@@ -28,9 +28,11 @@ for (const customized of [false, true]) {
       await runtime.dispose();
       await rm(root, { recursive: true, force: true });
     });
+    const revisedPrompt =
+      'Revised method: distinguish graph coverage from batch capacity.';
     const reflectionGoal = customized
       ? '# Scenario reflection goal'
-      : '# Improve configuration-search guidance';
+      : '# Improve the selected plugin resources';
     const events: string[] = [];
     let proposals = 0;
     let memories = 0;
@@ -110,7 +112,7 @@ for (const customized of [false, true]) {
                 instructions,
                 customized
                   ? /Scenario Memory instructions/
-                  : /Maintain configuration-search experience/,
+                  : /Consolidate experiment experience/,
               );
               memories++;
               events.push('memory');
@@ -142,7 +144,10 @@ for (const customized of [false, true]) {
             if (string(request.goal).includes(reflectionGoal)) {
               reflections++;
               events.push('reflection');
-              assert.equal(metadata.evidenceView, 'training-summary');
+              assert.equal(
+                metadata.evidenceView,
+                customized ? 'training-summary' : 'training',
+              );
               assert.match(
                 await readFile(
                   join(cwd, 'context/evolution/index.json'),
@@ -154,26 +159,24 @@ for (const customized of [false, true]) {
                 ? {
                     edits: [
                       {
-                        path: 'resources/proposer/guidance/search.md',
-                        content:
-                          'Revised method: distinguish graph coverage from batch capacity.',
+                        path: 'resources/proposer/prompt',
+                        content: revisedPrompt,
                       },
                     ],
                     reason: 'Improve hypothesis discrimination',
                   }
-                : { edits: [], reason: 'No further guidance change' };
+                : { edits: [], reason: 'No further prompt changes' };
             }
             proposals++;
             events.push('propose');
-            assert.match(
-              instructions,
-              customized
-                ? /Research supported configuration changes/
-                : /Propose configuration candidates/,
-            );
             if (proposals === 1) {
+              assert.match(
+                instructions,
+                customized
+                  ? /Research supported configuration changes/
+                  : /Propose configuration candidates/,
+              );
               assert.equal(Object.hasOwn(metadata, 'memory'), false);
-              assert.match(instructions, /Initial research method/);
               return {
                 proposals: [
                   {
@@ -212,12 +215,7 @@ for (const customized of [false, true]) {
       },
     });
     await mkdir(join(root, 'baseline'));
-    await mkdir(join(root, 'guidance'));
     await writeFile(join(root, 'baseline/tuning.json'), '{"batch":1}');
-    await writeFile(
-      join(root, 'guidance/search.md'),
-      'Initial research method',
-    );
     await writeFile(
       join(root, 'propose.md'),
       'Research supported configuration changes.',
@@ -243,7 +241,7 @@ for (const customized of [false, true]) {
         JSON.stringify({
           goal: './reflection.md',
           evidence: { view: 'training-summary' },
-          targets: { include: { proposer: ['guidance'] } },
+          targets: { include: { proposer: ['prompt'] } },
           implementation: { config: { agentRef: 'agent' } },
         }),
       );
@@ -289,13 +287,9 @@ for (const customized of [false, true]) {
           : {}),
         bindings: {
           agent: { plugin: 'evolution.agent' },
-          proposer: {
-            config: {
-              ...(customized ? { prompt: './propose.md' } : {}),
-              guidance: './guidance',
-              evidenceView: 'training-summary',
-            },
-          },
+          ...(customized
+            ? { proposer: { config: { prompt: './propose.md' } } }
+            : {}),
           evaluator: { plugin: 'evolution.evaluator' },
           selector: { config: { metric: 'score' } },
         },
@@ -327,8 +321,8 @@ for (const customized of [false, true]) {
       'reflection',
     ]);
     assert.equal(
-      await readFile(join(root, 'guidance/search.md'), 'utf8'),
-      'Initial research method',
+      await readFile(join(root, 'propose.md'), 'utf8'),
+      'Research supported configuration changes.',
     );
     const calls = await runtime.manager.facts.list('calls');
     const proposerCalls = calls.filter((call) => call.bindingId === 'proposer');
@@ -360,6 +354,17 @@ for (const customized of [false, true]) {
       resume: true,
     });
     assert.deepEqual(resumed.output, result.output);
+    if (customized) {
+      const revision = string(subsequent[0]!.revisionRef);
+      assert.equal(
+        (await runtime.manager.reflection().apply(revision)).status,
+        'applied',
+      );
+      assert.equal(
+        await readFile(join(root, 'propose.md'), 'utf8'),
+        revisedPrompt,
+      );
+    }
     assert.equal(
       (await runtime.manager.facts.list('calls')).length,
       calls.length,

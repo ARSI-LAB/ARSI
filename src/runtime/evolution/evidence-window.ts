@@ -51,6 +51,7 @@ type EvidenceWindow =
       excludedMeasurements: Set<string>;
       excludedProducers: Set<string>;
       withheldSelections: Set<string>;
+      restrictedWorkspaces: Set<string>;
     };
 /** Select one durable observation window before expanding authorized references. */
 export async function selectEvidenceWindow(
@@ -70,7 +71,7 @@ export async function selectEvidenceWindow(
       saved.policyScopeId !== policyScopeId ||
       saved.moduleKind !== kind ||
       saved.configDigest !== (options.configDigest ?? null) ||
-      saved.evidenceView !== (options.view ?? 'execution')
+      saved.evidenceView !== (options.view ?? 'training')
     )
       throw new Error('Runtime evolution evidence snapshot ownership mismatch');
     return {
@@ -101,7 +102,7 @@ export async function selectEvidenceWindow(
       refs.size !== 1 ||
       prepared[0]!.capturedAt !== options.capturedAt ||
       prepared[0]!.configDigest !== (options.configDigest ?? null) ||
-      prepared[0]!.evidenceView !== (options.view ?? 'execution')
+      prepared[0]!.evidenceView !== (options.view ?? 'training')
     )
       throw new Error(
         'Runtime evolution invocation has inconsistent persisted evidence snapshots',
@@ -311,10 +312,71 @@ export async function selectEvidenceWindow(
       }
     }
   }
+  // A nested Agent can echo the parent's evidence in its own receipt, diagnostics
+  // or project. Filter its entire subtree, even if the Agent is a primary binding.
+  const restrictedWorkspaces = new Set(withheldSelections);
+  const unsafeEvidence = new Map<string, boolean>();
+  for (const call of calls) {
+    const refs = [
+      call.input.measurementRef,
+      call.input.incumbentMeasurementRef,
+      call.input.candidateMeasurementRef,
+      call.output.measurementRef,
+      ...(Array.isArray(call.input.measurementRefs)
+        ? call.input.measurementRefs
+        : []),
+      ...(Array.isArray(call.input.evidenceRefs)
+        ? call.input.evidenceRefs
+        : []),
+      ...(Array.isArray(call.input.candidates)
+        ? call.input.candidates.map((value) => asObject(value).measurementRef)
+        : []),
+    ];
+    if (
+      refs.some(
+        (ref) => typeof ref === 'string' && excludedMeasurements.has(ref),
+      )
+    )
+      restrictedWorkspaces.add(string(call.record.callId));
+    // A referenced evidence window grants access to each of its measurements.
+    if (excludedMeasurements.size && Array.isArray(call.input.evidenceRefs)) {
+      for (const ref of call.input.evidenceRefs) {
+        if (typeof ref !== 'string' || !ref.startsWith('evidence-')) continue;
+        if (!unsafeEvidence.has(ref)) {
+          const snapshot = await context.facts
+            .read('evidence-views', ref)
+            .catch((error: unknown) => {
+              if (
+                error instanceof Error &&
+                'code' in error &&
+                error.code === 'ENOENT'
+              )
+                return null;
+              throw error;
+            });
+          unsafeEvidence.set(
+            ref,
+            snapshot?.experimentId !== context.experimentId ||
+              !Array.isArray(snapshot.measurementRefs) ||
+              snapshot.measurementRefs.some(
+                (ref) =>
+                  typeof ref === 'string' && excludedMeasurements.has(ref),
+              ),
+          );
+        }
+        if (unsafeEvidence.get(ref))
+          restrictedWorkspaces.add(string(call.record.callId));
+      }
+    }
+  }
   const allowed = calls.filter(
     (call) =>
       !belongsTo(String(call.record.callId), excludedIds) &&
-      !belongsTo(call.parent, withheldSelections),
+      !belongsTo(call.parent, restrictedWorkspaces) &&
+      !(
+        restrictedWorkspaces.has(String(call.record.callId)) &&
+        options.isAgentBinding?.(String(call.record.bindingId))
+      ),
   );
   const selected = allowed.filter(
     (call) =>
@@ -337,6 +399,7 @@ export async function selectEvidenceWindow(
     excludedMeasurements,
     excludedProducers,
     withheldSelections,
+    restrictedWorkspaces,
   };
 }
 

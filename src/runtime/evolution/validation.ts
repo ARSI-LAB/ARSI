@@ -7,11 +7,10 @@ import {
   type RuntimeEvolutionKind,
   type MemoryConfiguration,
   type ReflectionConfiguration,
-  type ResourceSelection,
 } from '../../contracts/runtime-evolution.js';
 import { digest, object, string } from '../../shared/json.js';
 import { configPathFields, isResourceUrl } from '../../shared/paths.js';
-import { validate } from '../../shared/schema.js';
+import { parseConfig, validate } from '../../shared/schema.js';
 import { Binding } from '../loaders/binding.js';
 import { resolveConfig } from '../loaders/config.js';
 import { readYaml } from '../loaders/yaml.js';
@@ -73,7 +72,7 @@ async function editableTargets(
 ): Promise<ReflectionConfig['targets']> {
   const entries: EditableRoot[] = [];
   const targets: ReflectionConfig['targets'] = {};
-  const { include, exclude } = declaration.targets ?? {};
+  const { include, exclude } = declaration.targets;
   for (const [key, filter] of Object.entries({ include, exclude }))
     if (filter)
       checkNames(
@@ -81,31 +80,34 @@ async function editableTargets(
         Object.keys(bindings),
         'reflection.targets.' + key,
       );
-  for (const [name, binding] of Object.entries(bindings)) {
-    const schema = binding.definition.configSchema,
-      config = binding.config;
-    const all = configPathFields(schema, config);
-    function selected(
-      filter: ResourceSelection | undefined,
-      fallback: boolean,
-    ) {
-      if (!filter || !Object.hasOwn(filter, name)) return fallback ? all : [];
-      const names = filter[name];
-      if (!Array.isArray(names) || names.includes('*')) {
-        if (Array.isArray(names) && names.length > 1)
-          throw new Error(
-            'reflection.targets.' + name + ': * must appear alone',
-          );
-        return all;
-      }
-      return selectedResourceFields(schema, config, names);
-    }
-    const allowed = selected(include, include === undefined);
-    const denied = new Set(selected(exclude, false).map((f) => f.pointer));
+  for (const [name, selection] of Object.entries(include)) {
+    const { definition, config } = bindings[name];
+    const schema = definition.configSchema;
+    const wildcard = selection === '*' || selection[0] === '*';
+    const allowed = wildcard
+      ? configPathFields(schema, config).filter(
+          (f) => !isResourceUrl(f.reference),
+        )
+      : selectedResourceFields(schema, config, selection);
+    if (!allowed.length)
+      throw new Error(
+        `reflection.targets.include.${name}: no local x-rsi-path resources`,
+      );
+    const omitted = exclude?.[name];
+    const omitBinding = omitted === '*' || omitted?.[0] === '*';
+    const denied = new Set(
+      Array.isArray(omitted) && !omitBinding
+        ? selectedResourceFields(schema, config, omitted).map((f) => f.pointer)
+        : [],
+    );
     const resources: string[] = [];
     for (const f of allowed) {
-      const path = string(pointerValue(config, f.pointer));
-      if (denied.has(f.pointer) || isResourceUrl(path)) continue;
+      const path = f.reference;
+      if (isResourceUrl(path))
+        throw new Error(
+          `reflection.targets.include.${name}${f.pointer}: cannot edit a remote URL`,
+        );
+      if (omitBinding || denied.has(f.pointer)) continue;
       await regularResource(
         path,
         f.kind,
@@ -116,6 +118,10 @@ async function editableTargets(
     }
     if (resources.length) targets[name] = { resources };
   }
+  if (!entries.length)
+    throw new Error(
+      'reflection.targets must select at least one editable resource',
+    );
   await resolveCoveringRoots(entries);
   return targets;
 }
@@ -134,7 +140,9 @@ export async function validateRuntimeEvolution(
 ): Promise<MemoryConfig | ReflectionConfig | undefined> {
   const { policy, registry, bindings, override } = source;
   const fallback = policy.defaults[kind];
-  if ((override ?? fallback) === false) return undefined;
+  const enabled = override ?? fallback;
+  if (enabled === false || (kind === 'reflection' && enabled === undefined))
+    return undefined;
   const choice = override && typeof override === 'object' ? override : fallback;
   const base =
     choice === override && typeof override === 'object'
@@ -144,6 +152,10 @@ export async function validateRuntimeEvolution(
     choice && typeof choice === 'object'
       ? resolve(base, string(object(choice).configFile))
       : undefined;
+  if (kind === 'reflection' && !file)
+    throw new Error(
+      'reflection requires a configFile declaring targets.include; provide reflection: { configFile } in the Recipe or Policy defaults',
+    );
   const raw = file
     ? await readYaml(file).catch((cause: unknown) => {
         throw new Error(kind + '.configFile ' + file + ': ' + String(cause), {
@@ -151,16 +163,27 @@ export async function validateRuntimeEvolution(
         });
       })
     : {};
-  validate(
-    runtimeEvolutionFileSchema(kind),
-    raw,
-    kind + (file ? ' ' + file : ''),
-  );
-  const declaration: MemoryConfiguration & ReflectionConfiguration = raw;
+  const fileSchema = runtimeEvolutionFileSchema(kind);
+  const label = kind + (file ? ' ' + file : '');
+  const parsed =
+    kind === 'memory'
+      ? {
+          kind,
+          declaration: parseConfig<MemoryConfiguration>(fileSchema, raw, label),
+        }
+      : {
+          kind,
+          declaration: parseConfig<ReflectionConfiguration>(
+            fileSchema,
+            raw,
+            label,
+          ),
+        };
+  const { declaration } = parsed;
   const directory = file ? dirname(file) : source.recipeDirectory;
   const trigger = compileTrigger(declaration.trigger ?? {}, policy.flowIndex);
   const {
-    view = 'execution',
+    view = 'training',
     includeSteps,
     excludeSteps,
     includeBindings,
@@ -210,14 +233,21 @@ export async function validateRuntimeEvolution(
           '.implementation.config.agentRef must select a declared contract.agent binding',
       );
   } else if (plugin === kind + '.agent') {
-    const agent = Binding.resolve({
-      name: evolutionAgentBinding,
-      required: registry.contract('contract.agent'),
-      registry,
-      override: { declaration: { plugin: 'agent.pi' }, directory },
-    });
-    config.agentRef = evolutionAgentBinding;
-    agentBinding = { plugin: agent.pluginId, config: agent.config };
+    const declaredAgents = Object.keys(policy.requirements).filter(
+      (name) => policy.requirements[name].id === 'contract.agent',
+    );
+    if (declaredAgents.length === 1) {
+      config.agentRef = declaredAgents[0];
+    } else {
+      const agent = Binding.resolve({
+        name: evolutionAgentBinding,
+        required: registry.contract('contract.agent'),
+        registry,
+        override: { declaration: { plugin: 'agent.pi' }, directory },
+      });
+      config.agentRef = evolutionAgentBinding;
+      agentBinding = { plugin: agent.pluginId, config: agent.config };
+    }
   }
   if (plugin === kind + '.agent')
     config.prompt ??= fileURLToPath(
@@ -266,8 +296,8 @@ export async function validateRuntimeEvolution(
         : { elapsedWallMs: timeoutSeconds * 1000 }),
     },
   };
-  if (kind === 'memory') {
-    const memory: MemoryConfiguration = declaration;
+  if (parsed.kind === 'memory') {
+    const memory = parsed.declaration;
     const { include, exclude } = memory.targets ?? {};
     checkNames(include ?? [], names, 'memory.targets.include');
     checkNames(exclude ?? [], names, 'memory.targets.exclude');
@@ -287,7 +317,7 @@ export async function validateRuntimeEvolution(
   }
   const result = {
     ...common,
-    targets: await editableTargets(declaration, bindings),
+    targets: await editableTargets(parsed.declaration, bindings),
   };
   return { ...result, digest: digest(result) };
 }

@@ -8,7 +8,7 @@ Memory 通过带版本的 UTF-8 文本目录保存可复用经验。实验启动
 
 Memory 默认启用。Policy 可设置 `defaults.memory`，Recipe 可通过 `memory` 覆盖。`false` 表示禁用，`true` 表示启用并沿用 Policy 配置或内置默认值，`{ configFile: ./memory.yaml }` 表示选择完整配置文件。Recipe 文件会替换 Policy 文件，省略字段取内置默认值。相对路径按声明该字段的文件解析。Parameter Grid 和 Optuna 默认关闭 Memory 和 Reflection。
 
-例如，WikiSkill Recipe 可通过 `memory: { configFile: ./wiki-memory.yaml }` 选择以下配置：
+例如，WikiSkill Recipe 需要带有界执行预览的精简反馈时，可通过 `memory: { configFile: ./wiki-memory.yaml }` 选择以下配置：
 
 ```yaml
 directory: ./wiki
@@ -17,15 +17,13 @@ evidence:
   view: training-summary
   excludeSteps: [baseline, baseline_score, validate, test]
 targets: { include: [proposer] }
-implementation:
-  config: { agentRef: agent }
 ```
 
 默认在顶层循环每轮结束时（`loop-iteration`）触发，无顶层循环时在实验结束时（`experiment-end`）触发。`loop-end` 选择顶层循环结束，`after-step` 指定一个串行步骤的 ID。`every: 2` 在第 2、4 等偶数次匹配时执行。Memory 和 Reflection 分别维护证据窗口及计数，同时命中时先执行 Memory。
 
-`evidence.view` 默认为 `execution`。任务允许使用分数和反馈时可选 `training-summary`。使用 `includeBindings`、`excludeBindings`、`includeSteps`、`excludeSteps` 限定观察范围。Runtime 汇总调用、测量投影、候选差异和选择决策。空窗口会跳过生成，更新失败时保留先前的活动快照。
+`evidence.view` 默认为 `training`。从 `context/evolution/training-summary.json` 读取已授权的指标及判题反馈，通过 `context/evolution/packets/index.json` 查找对应的执行记录，通过 `context/evolution/evaluation-index.json` 定位脱敏文件。对评判结果盲测时，请显式选择 `execution`。需要精简调用摘要和有界预览时，选择 `training-summary`。使用 `includeBindings`、`excludeBindings`、`includeSteps`、`excludeSteps` 限定观察范围。Runtime 汇总调用、测量投影、候选差异和选择决策。空窗口会跳过生成，更新失败时保留先前的活动快照。
 
-内置 `memory.agent` 提供通用提示词和目标。可用 `goal` 指定目标文件，`implementation.config.prompt` 指定提示词文件，`implementation.config.agentRef` 引用已声明的 Agent 绑定。省略 Agent 绑定时使用内置 `agent.pi`，读取 `MODEL_NAME`、`MODEL_ENDPOINT` 和 `MODEL_API_KEY`。可用 `budget` 下的 `modelCalls`、`timeoutSeconds` 和 `evidenceBytes` 限制单次调用。
+内置 `memory.agent` 提供通用提示词和目标。可用 `goal` 指定目标文件，用 `implementation.config.prompt` 指定提示词文件。省略 `implementation.config.agentRef` 时，`memory.agent` 会复用 Policy 声明的唯一 `contract.agent` 绑定。如果 Policy 没有声明或声明了多个这类绑定，Runtime 会创建 `_evolutionAgent`，使用内置 `agent.pi` 并读取 `MODEL_NAME`、`MODEL_ENDPOINT` 和 `MODEL_API_KEY`。要选用特定 Agent，请将 `agentRef` 设为 Policy 已声明的 `contract.agent` 绑定名。可用 `budget` 下的 `modelCalls`、`timeoutSeconds` 和 `evidenceBytes` 限制单次调用。
 
 ## 在 Agent 调用中读取 Memory
 

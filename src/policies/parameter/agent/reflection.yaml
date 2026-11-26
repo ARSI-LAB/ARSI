@@ -1,6 +1,2 @@
-evidence: { view: training-summary }
 targets:
-  include: { proposer: [guidance] }
-goal: ./reflection.md
-implementation:
-  config: { agentRef: agent }
+  include: { proposer: '*' }

@@ -20,7 +20,8 @@ Policies use `rsi.policy/v1` with `rsi.recipe/v1` Recipes. The main fields are:
 | `input`               | Supply input defaults, which can reference the Application's initial candidate.                                                 |
 | `require`             | Declare binding names and their public contracts, such as `evaluator` requiring `contract.agentbench`.                          |
 | `defaults.bindings`   | Supply default plugins and configuration that the Recipe can override.                                                          |
-| `defaults.memory` / `defaults.reflection` | Enable or disable each capability, or reference an external configuration file. |
+| `defaults.memory` | Memory is on by default. Set `false` to disable it or supply a `configFile` to customize it. |
+| `defaults.reflection` | Enable Reflection with `{ configFile: ./reflection.yaml }`. Omit the field or set `false` to leave it off by default. |
 | `state_schema`        | Define shared-state fields and types when the flow needs state.                                                                 |
 | `state`               | Set initial shared-state values; expressions can read `input`, `application`, and `config`.                                     |
 | `steps`               | Ordered execution steps, each declaring `id` and `type`.                                                                        |
@@ -29,6 +30,8 @@ Policies use `rsi.policy/v1` with `rsi.recipe/v1` Recipes. The main fields are:
 | `partial_output` | Optional checkpoint projection. Declare `schema`, a `value` template and an optional boolean `when` (default true). |
 
 The projection reads committed state and top-level step outputs. An unfinished step has `output: null` here, so guard it before accessing its fields. A false `when` omits the partial result. The normal `output` and its schema still apply to completed runs.
+
+In the Reflection file, list the bindings and local resource fields the Policy authorizes under `targets.include`, for example `targets: { include: { proposer: [prompt] } }`. Use the binding names from `require` and fields configured for those bindings. A Recipe can replace this file. See the [Reflection guide](reflection.md).
 
 ## Steps and data flow
 

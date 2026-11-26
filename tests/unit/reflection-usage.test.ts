@@ -1,13 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -19,7 +12,7 @@ import {
 import { createRuntime } from '../../src/runtime/context.js';
 import { object, string } from '../../src/shared/json.js';
 import { measurementFixture } from '../helpers/manager-fixture.js';
-test('Reflection without a local budget exceeds 50 calls and a subsequent Proposer uses activated guidance', async (t) => {
+test('Reflection without a local budget exceeds 50 calls and a subsequent Proposer uses the revised prompt', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsi-reflection-use-'));
   const runtime = await createRuntime({ rootDirectory: directory });
   t.after(async () => {
@@ -27,8 +20,6 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
     await rm(directory, { recursive: true, force: true });
   });
   const { registry, manager } = runtime;
-  await mkdir(join(directory, 'guidance'));
-  await writeFile(join(directory, 'guidance/rules.md'), 'Original guidance.');
   await writeFile(join(directory, 'propose.md'), 'Propose carefully.');
   let generated = 0;
   const prompts: string[] = [];
@@ -97,7 +88,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
       return {
         async execute(raw, context) {
           const request = object(raw);
-          if (request.goal === 'Improve guidance') {
+          if (request.goal === 'Improve the Proposer prompt') {
             generated++;
             assert.equal(request.maxModelCalls, undefined);
             assert.equal(context.scope?.limits.modelCalls, undefined);
@@ -111,11 +102,11 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
             return {
               edits: [
                 {
-                  path: 'resources/proposer/guidance/rules.md',
-                  content: 'Activated guidance: verify applicability first.',
+                  path: 'resources/proposer/prompt',
+                  content: 'Verify applicability first.',
                 },
               ],
-              reason: 'Deterministic guidance update',
+              reason: 'Clarify the verification step',
             };
           }
           prompts.push(
@@ -146,7 +137,6 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
           plugin: 'proposer.agent',
           config: {
             prompt: './propose.md',
-            guidance: './guidance',
             agentRef: 'agent',
           },
         },
@@ -167,7 +157,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
         use: 'proposer',
         with: {
           parent: '${{ application.initialCandidate }}',
-          goal: 'Use guidance',
+          goal: 'Propose a candidate',
           evidenceRefs: [],
         },
       },
@@ -180,7 +170,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
     JSON.stringify({
       trigger: { on: 'after-step', step: 'observe_3' },
       evidence: { includeBindings: ['observer'] },
-      targets: { include: { proposer: ['guidance'] } },
+      targets: { include: { proposer: ['prompt'] } },
       goal: './goal.md',
       implementation: {
         ref: 'reflection.agent',
@@ -188,7 +178,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
       },
     }),
   );
-  await writeFile(join(directory, 'goal.md'), 'Improve guidance');
+  await writeFile(join(directory, 'goal.md'), 'Improve the Proposer prompt');
   const recipePath = join(directory, 'recipe.yaml');
   await writeFile(
     recipePath,
@@ -209,10 +199,10 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
   );
   assert.equal(generated, 1);
   assert.equal(prompts.length, 1);
-  assert.match(prompts[0]!, /Activated guidance: verify applicability first/);
+  assert.match(prompts[0]!, /Verify applicability first/);
   assert.equal(
-    await readFile(join(directory, 'guidance/rules.md'), 'utf8'),
-    'Original guidance.',
+    await readFile(join(directory, 'propose.md'), 'utf8'),
+    'Propose carefully.',
   );
   const calls = await manager.facts.list('calls');
   const proposerCall = calls.find((call) => call.bindingId === 'proposer');
@@ -235,8 +225,6 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
     await rm(directory, { recursive: true, force: true });
   });
   const { registry, manager } = runtime;
-  await mkdir(join(directory, 'guidance'));
-  await writeFile(join(directory, 'guidance/initial.md'), '');
   await writeFile(
     join(directory, 'proposer.md'),
     'Use the current evidence to propose a concrete edit.',
@@ -304,7 +292,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
               reflections === 1
                 ? [
                     {
-                      path: 'resources/proposer/guidance/rule.md',
+                      path: 'resources/proposer/prompt',
                       content: 'Inspect source asset before editing.',
                     },
                   ]
@@ -354,7 +342,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
     JSON.stringify({
       trigger: { on: 'loop-iteration' },
       evidence: { includeBindings: ['proposer'] },
-      targets: { include: { proposer: ['guidance'] } },
+      targets: { include: { proposer: ['prompt'] } },
       goal: './goal.md',
       implementation: {
         ref: 'reflection.agent',
@@ -387,7 +375,6 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
             plugin: 'proposer.agent',
             config: {
               prompt: './proposer.md',
-              guidance: './guidance',
               agentRef: 'agent',
             },
           },

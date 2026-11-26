@@ -98,7 +98,7 @@ Runtime 在配置的串行边界调用 Memory 插件，校验证据生成的快�
 
 ### Reflection
 
-Runtime 在配置的边界调用 Reflection 插件，校验授权范围内的资源修改，并为后续调用激活修订。Harness² 预配置了 Invariant 与 Domain Proposer 的指导文件，默认启用。Recipe 可设置 `reflection: false` 关闭 Reflection。参见 [Reflection 使用指南](reflection_zh.md)。
+Runtime 在配置的边界调用 Reflection 插件，校验授权范围内的资源修改，并为后续调用激活修订。使用 `proposer.agent` 的 Policy 通过 `proposer: '*'` 授权该绑定的本地 `prompt`、`skills` 和 `subagents` 资源。Harness² 分别授权 Invariant 与 Domain Proposer。Operator Search 仅授权两个绑定上的 `promptsDirectory` 和 `promptFile`。Recipe 可设置 `reflection: false` 关闭 Reflection。参见 [Reflection 使用指南](reflection_zh.md)。
 
 ### 推理配置候选
 
@@ -114,10 +114,9 @@ Runtime 在配置的边界调用 Reflection 插件，校验授权范围内的资
 指标约束支持 `exclusiveMax: true` 表示严格上界。`selector.inference` 在尚未可行时，
 可以接受约束违反量减少、其他违反量不增加的候选；可行后用 `minRelativeImprovement`
 判断主指标收益。指标名称、阈值与优化方向由 Recipe 配置，selector 不硬编码目标。
-失败候选可直接拒绝，不伪造数值；未知或取消状态仍是错误。training-summary 提案器
-从 `context/metrics.json` 读取公共指标数值及单位，不受摘要预览截断影响。
+失败候选可直接拒绝，不伪造数值；未知或取消状态仍是错误。`proposer.agent` 默认使用 `execution`。设置 `evidenceView: training` 后，可以从 `context/runs/` 读取脱敏轨迹，从 `context/measurements.json` 读取反馈及轨迹路径，从 `context/metrics.json` 读取指标值和单位。`training-summary` 保留反馈和指标，并提供有界执行预览。Memory 和 Reflection 默认使用 `training`，Harness² 显式选择 `execution` 以保持对评判结果盲测。
 
-推理 Measurement 另附公开环境摘要。training-summary 提案器通过
+推理 Measurement 另附公开环境摘要。使用这两种训练视图的提案器都可以通过
 `context/metrics.json` 获取摘要、来源 artifact 引用以及完整指标值和单位。
 摘要包含已报告的引擎软件、设备标识、验证状态、SDK/运行时身份和标量负载配置；
 不包含凭据、主机名、端点或私有原生配置。缺失信息仍为未知；版本信息不证明候选

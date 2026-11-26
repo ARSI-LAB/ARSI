@@ -1,7 +1,4 @@
 evidence:
-  view: training-summary
   includeSteps: [proposal, proposal_evaluation]
 targets:
   include: { proposer: '*' }
-implementation:
-  config: { agentRef: agent }

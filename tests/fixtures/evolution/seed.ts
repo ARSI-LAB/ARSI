@@ -9,14 +9,17 @@ import {
   MemoryApplication,
 } from '../../../src/runtime/evolution/application.js';
 
-/** Real revision application against disposable resources, never repository guidance. */
+/** Real revision application against disposable resources, never repository prompts. */
 export async function seedEvolution(root: string) {
   root = await realpath(root);
   const directory = join(root, 'runtime');
   const project = join(root, 'project');
-  const guidance = join(project, 'guidance');
-  await mkdir(guidance, { recursive: true });
-  await writeFile(join(guidance, 'checks.md'), 'Validate the output.\n');
+  const promptsDirectory = join(project, 'prompts');
+  await mkdir(promptsDirectory, { recursive: true });
+  await writeFile(
+    join(promptsDirectory, 'checks.md'),
+    'Validate the output.\n',
+  );
   const facts = new FileFacts(join(directory, 'facts'));
   const artifacts = new FileArtifacts(join(directory, 'artifacts'));
   const application = new RevisionApplication({
@@ -37,7 +40,7 @@ export async function seedEvolution(root: string) {
     id: 'other-run',
     status: 'succeeded',
   });
-  const prefix = 'resources/proposer/guidance';
+  const prefix = 'resources/proposer/promptsDirectory';
   const tree = async (path: string, text: string) =>
     artifacts.putJson({
       kind: 'file-tree',
@@ -70,12 +73,12 @@ export async function seedEvolution(root: string) {
       sourceRoots: [
         {
           kind: 'directory',
-          path: guidance,
+          path: promptsDirectory,
           artifactPath: prefix,
           members: [
             {
               binding: 'proposer',
-              pointer: '/guidance',
+              pointer: '/promptsDirectory',
               kind: 'directory',
               relativePath: '',
             },
@@ -142,7 +145,7 @@ export async function seedEvolution(root: string) {
   });
   return {
     directory,
-    guidance,
+    promptsDirectory,
     facts,
     artifacts,
     application,

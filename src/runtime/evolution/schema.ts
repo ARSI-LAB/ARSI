@@ -1,6 +1,8 @@
 import type { JsonObject, JsonValue } from '../../contracts/json.js';
 import {
   runtimeEvolutionNames,
+  runtimeEvolutionEvidenceViews,
+  type RuntimeEvolutionEvidenceView,
   runtimeEvolutionTriggerSchema,
   type RuntimeEvolutionKind,
   type RuntimeEvolutionTrigger,
@@ -24,7 +26,7 @@ type RuntimeEvolutionConfig = {
   agentBinding?: { plugin: string; config: JsonObject };
   observe: RuntimeEvolutionObserve;
   trigger: RuntimeEvolutionTrigger;
-  evidenceView: 'execution' | 'training-summary';
+  evidenceView: RuntimeEvolutionEvidenceView;
   budget: {
     modelCalls?: number;
     elapsedWallMs?: number;
@@ -97,7 +99,7 @@ export function parseLockedConfig(
             includeBaseline: { type: 'boolean' },
           },
         },
-        evidenceView: { enum: ['execution', 'training-summary'] },
+        evidenceView: { enum: [...runtimeEvolutionEvidenceViews] },
         budget: {
           type: 'object',
           additionalProperties: false,

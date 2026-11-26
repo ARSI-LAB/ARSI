@@ -81,7 +81,7 @@ Policy 的 `require` 指定所需契约，绑定时需要选择满足该契约�
 
 Runtime 合并 Policy 和 Recipe 的配置后，补齐默认值、校验配置，并将结果传给 `create`。
 
-- 标记了 `x-rsi-path` 的相对路径按声明配置的文件定位。
+- Runtime 根据 `x-rsi-path` 按声明配置的文件解析相对路径，Doctor 据此检查路径，定义锁据此保存恢复实验所需的本地资源。Reflection 的编辑权限由其配置文件中的 `targets.include` 显式授予具体绑定和资源字段。
 - 要求本地文件或目录的输入使用 `'local-file'` 或 `'local-directory'`。对于这些声明，doctor 会拒绝 URL 以及本身是符号链接的路径。
 
 - 插件也可以支持从环境变量读取配置。例如，`agent.pi` 的 `api_key` 可以这样填写：
@@ -314,6 +314,8 @@ Runtime 将 `context` 传给 `create` 和每次 `execute`。插件通过它读�
 | 读取证据           | `readEvidence(refs, options?)`                           | 按需选择 `view`、文件或 JSON 格式及 `maxBytes`，取得本次允许读取的证据。 |
 | 记录用量           | `charge(metric, amount)`                                 | 记录用量并检查预算，调用时必须 `await`。                                 |
 | 订阅事件           | `event`                                                  | 监听运行事件，结束时取消订阅；见 [Runtime 事件](runtime-events_zh.md)。  |
+
+`context.readEvidence(refs)` 默认使用 `execution`。传入 `{ format: 'files', view: 'training' }` 可同时读取脱敏执行文件、已授权的指标和逐项判题反馈。文件格式也支持 `execution`。需要带反馈的精简 JSON 时选择 `training-summary`，需要匿名交付物预览时选择 `delivery`。Memory 和 Reflection 默认使用 `training`，对评判结果盲测的 Policy 必须为这两个模块显式设置 `execution`。
 
 在 `execute` 中，使用 `arsi` 导出的 `prepareAgentProject` 创建受 Runtime 管理的工作目录。第二个参数传指令，第三个参数传授权的文本文件，最后两个参数分别传 Skill 目录和角色定义。每次独立调用都应准备工作目录。同一次插件执行内，如果多个 Agent 调用需要隔离本地修改，需提供不同的项目内容。
 

@@ -103,7 +103,7 @@ export async function doctorRecipe(
     report.checks.push({
       id: `${name}.status`,
       status: 'unchecked',
-      reason: 'Disabled by the Recipe or Policy.',
+      reason: 'Not enabled for this Recipe.',
     });
   if (recipe.reflection) {
     const builtins = ['policies', 'plugins'].map((kind) =>

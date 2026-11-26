@@ -23,7 +23,6 @@ bindings:
     config:
       agentRef: agent
       prompt: ./proposer.md
-      guidance: ./guidance
   evaluator: { plugin: evaluator.skill-text, config: {} }
   selector:
     {

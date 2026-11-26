@@ -43,7 +43,7 @@ Add at most one new transferable experience per update. Merge corroborating obse
 
 Never cache task answers, expected test values, entity identifiers, private source excerpts or benchmark-specific assertions in reusable memory. Concrete tool/API syntax can be retained when the operation itself generalizes; distinguish reusable syntax from literal task data. Business rules such as date precedence, blank-value handling or recalculation must remain conditional on the applicable task specification.
 
-The selected candidate's immutable full tree is retained by the artifact store and indexed in the comparison input. Cite its candidate/artifact reference when relevant rather than copying the tree into prose Memory. Selection identifies the submitted deliverable, not the winner of a scored harness comparison. Reflection separately proposes changes to optimizer guidance; do not make Memory a second writer of those resources.
+The selected candidate's immutable full tree is retained by the artifact store and indexed in the comparison input. Cite its candidate/artifact reference when relevant rather than copying the tree into prose Memory. Selection identifies the submitted deliverable, not the winner of a scored harness comparison. Reflection separately revises the selected Proposers' prompts and skills; do not make Memory a second writer of those resources.
 
 ## Reconcile and submit
 

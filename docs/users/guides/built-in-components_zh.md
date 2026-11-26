@@ -57,6 +57,8 @@ Agent、Grid 和 Optuna 都会在搜索前评测初始配置一次。请提供�
 | Agent 后端  | [`agent.dsh`](configuration_zh.md#原生-cli-后端)     | 通过官方 DSH headless CLI 执行优化 Agent 任务。                       | 复用 DSH 原生配置和工具。                    |
 | Agent 后端 | [`agent.opencode`](configuration_zh.md#原生-cli-后端) | 通过本机 OpenCode V2 CLI 执行 Agent 任务。 | 复用原生模型配置，使用独立实例返回只读提案。 |
 
+`proposer.agent` 默认使用 `evidenceView: execution`。设置 `evidenceView: training` 后，可从 `context/runs/` 读取脱敏轨迹，从 `context/measurements.json` 读取反馈及轨迹路径，从 `context/metrics.json` 读取指标值和单位。`training-summary` 保留反馈和指标，并提供有界执行预览。Memory 和 Reflection 默认使用 `training`，Harness² 显式选择 `execution` 以保持对评判结果盲测。详见 [Evidence](../concepts/architecture_zh.md#evidence)。
+
 `selector.inference` 与 `selector.metric` 使用相同的 `contract.selector-metrics` 接口和配置字段。尚有约束未满足时，只要所有约束的违反程度都不增加，且至少一项减小，就可以接受候选。违反程度完全相同时，主指标必须改善并超过配置的门槛。已满足的约束必须保持满足；全部达标后，在保持达标的前提下优化主指标，不再退回未达标候选。标记 `prerequisite: true` 的约束始终是硬性要求，并在目标值比较前执行。只有完整、可比较且包含所需指标的测量才能用于选择。
 
 ## Application
@@ -114,7 +116,7 @@ Runtime 在配置的边界调用 Reflection 插件，校验授权范围内的资
 指标约束支持 `exclusiveMax: true` 表示严格上界。`selector.inference` 在尚未可行时，
 可以接受约束违反量减少、其他违反量不增加的候选；可行后用 `minRelativeImprovement`
 判断主指标收益。指标名称、阈值与优化方向由 Recipe 配置，selector 不硬编码目标。
-失败候选可直接拒绝，不伪造数值；未知或取消状态仍是错误。`proposer.agent` 默认使用 `execution`。设置 `evidenceView: training` 后，可以从 `context/runs/` 读取脱敏轨迹，从 `context/measurements.json` 读取反馈及轨迹路径，从 `context/metrics.json` 读取指标值和单位。`training-summary` 保留反馈和指标，并提供有界执行预览。Memory 和 Reflection 默认使用 `training`，Harness² 显式选择 `execution` 以保持对评判结果盲测。
+失败候选可直接拒绝，不伪造数值；未知或取消状态仍是错误。
 
 推理 Measurement 另附公开环境摘要。使用这两种训练视图的提案器都可以通过
 `context/metrics.json` 获取摘要、来源 artifact 引用以及完整指标值和单位。

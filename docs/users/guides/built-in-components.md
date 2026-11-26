@@ -57,6 +57,8 @@ Agent, Grid, and Optuna each evaluate the initial configuration once before sear
 | Agent backend | [`agent.dsh`](configuration.md#native-cli-backends)     | Run optimization Agent tasks through the official DSH headless CLI.                                                      | Reuse native DSH configuration and tools.                                               |
 | Agent backend | [`agent.opencode`](configuration.md#native-cli-backends) | Run Agent tasks through the local OpenCode V2 CLI. | Reuse native model settings and return read-only proposals from a private instance. |
 
+`proposer.agent` defaults to `evidenceView: execution`. With `evidenceView: training`, it provides redacted traces in `context/runs/`, feedback and trace paths in `context/measurements.json`, and metric values and units in `context/metrics.json`. `training-summary` keeps the feedback and metrics with bounded execution previews. Memory and Reflection default to `training`; Harness² explicitly selects `execution` for verifier-blind evolution. See [Evidence](../concepts/architecture.md#evidence).
+
 `selector.inference` uses the same `contract.selector-metrics` interface and configuration fields as `selector.metric`. While constraints remain unmet, it accepts a candidate if no constraint violation increases and at least one decreases. Equal violations require improvement in the primary metric beyond the configured threshold. A satisfied constraint must remain satisfied; once all constraints are met, selection optimizes the primary metric without returning to an infeasible candidate. Constraints marked `prerequisite: true` remain hard requirements and run before the objective comparison. Only complete, comparable measurements with the required metrics can be selected.
 
 ## Application
@@ -120,7 +122,7 @@ without worsening another violation. Once feasible, `minRelativeImprovement`
 controls primary-metric gains. Metric names, bounds and optimization direction
 belong to Recipe configuration, not hardcoded selector goals. Failed candidates
 can be rejected without fabricated scores; unknown or cancelled outcomes remain
-errors. `proposer.agent` defaults to `execution`. With `evidenceView: training`, it provides redacted traces in `context/runs/`, feedback and trace paths in `context/measurements.json`, and metric values and units in `context/metrics.json`. The `training-summary` setting keeps the feedback and metrics with bounded execution previews. Memory and Reflection default to `training`. Harness² explicitly selects `execution` for verifier-blind evolution.
+errors.
 
 Inference measurements also attach a public environment summary. Proposals using either training view receive it in `context/metrics.json` beside exact metrics and units,
 with the originating artifact reference. It includes reported engine software,

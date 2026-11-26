@@ -315,7 +315,7 @@ Runtime 将 `context` 传给 `create` 和每次 `execute`。插件通过它读�
 | 记录用量           | `charge(metric, amount)`                                 | 记录用量并检查预算，调用时必须 `await`。                                 |
 | 订阅事件           | `event`                                                  | 监听运行事件，结束时取消订阅；见 [Runtime 事件](runtime-events_zh.md)。  |
 
-`context.readEvidence(refs)` 默认使用 `execution`。传入 `{ format: 'files', view: 'training' }` 可同时读取脱敏执行文件、已授权的指标和逐项判题反馈。文件格式也支持 `execution`。需要带反馈的精简 JSON 时选择 `training-summary`，需要匿名交付物预览时选择 `delivery`。Memory 和 Reflection 默认使用 `training`，对评判结果盲测的 Policy 必须为这两个模块显式设置 `execution`。
+`context.readEvidence(refs)` 默认以 JSON 模式使用 `view: 'execution'`（返回有界预览）。传入 `{ format: 'files', view: 'training' }` 可同时读取完整脱敏执行文件、已授权的指标和逐项判题反馈；`format: 'files'` 仅支持 `'execution'` 和 `'training'`。JSON 模式下，`'training-summary'`（以及 `'training'`）返回带已授权反馈的有界预览，`'delivery'` 返回匿名交付物预览。Memory 和 Reflection 默认使用 `training`，对评判结果盲测的 Policy 必须显式设置 `evidence: { view: execution }`。详见 [Evidence](../concepts/architecture_zh.md#evidence)。
 
 在 `execute` 中，使用 `arsi` 导出的 `prepareAgentProject` 创建受 Runtime 管理的工作目录。第二个参数传指令，第三个参数传授权的文本文件，最后两个参数分别传 Skill 目录和角色定义。每次独立调用都应准备工作目录。同一次插件执行内，如果多个 Agent 调用需要隔离本地修改，需提供不同的项目内容。
 

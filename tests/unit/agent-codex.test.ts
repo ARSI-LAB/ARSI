@@ -275,10 +275,10 @@ for (const model of [undefined, 'explicit-model']) {
         spec.args.slice(-(model ? 4 : 1)),
         model
           ? [
+              'app-server',
               `--config=model="${model}"`,
               '-c',
               'model_reasoning_effort="high"',
-              'app-server',
             ]
           : ['app-server'],
       );

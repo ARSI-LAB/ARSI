@@ -30,6 +30,7 @@ export const configSchema: JsonSchema = {
       [
         `(?:(?:-c=?|--config=)\\s*)?\\s*(?:${reservedOverrides.join('|')})\\s*=`,
         '(?:(?:--enable|--disable)=)?multi_agent$',
+        '(?:daemon|proxy|generate-ts|generate-json-schema|generate-internal-json-schema|help)$',
       ],
     ),
     timeoutMs: {

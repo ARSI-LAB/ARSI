@@ -12,17 +12,23 @@ export const configSchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     executable: { type: 'string', minLength: 1, default: 'claude' },
-    options: nativeOptionsSchema([
-      '-p',
-      '--print',
-      '--input-format',
-      '--output-format',
-      '--verbose',
-      '--no-session-persistence',
-      '--forward-subagent-text',
-      '--json-schema',
-      '-v',
-    ]),
+    options: nativeOptionsSchema(
+      [
+        '-p',
+        '--print',
+        '--input-format',
+        '--output-format',
+        '--verbose',
+        '--no-session-persistence',
+        '--forward-subagent-text',
+        '--json-schema',
+        '-v',
+      ],
+      [
+        // Claude can pack reserved switches after the boolean -c (--continue).
+        '-c+[hpvV]',
+      ],
+    ),
     timeoutMs: {
       type: 'integer',
       minimum: 1,

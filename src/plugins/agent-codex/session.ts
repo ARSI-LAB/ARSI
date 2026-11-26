@@ -257,7 +257,8 @@ async function runSessionAttempt(
       }
     },
     options.launch,
-    [...launchConfig.flatMap((value) => ['-c', value]), ...options.options],
+    launchConfig,
+    options.options,
   );
   if (!result) throw new Error('Codex returned no validated output');
   return result;

@@ -150,7 +150,7 @@ bindings:
 
 `config: {}` uses the native default model. All four backends accept `executable` for the CLI path, `timeoutMs` for the Agent task deadline in milliseconds, and `options` for extra native CLI arguments. Each `options` item is one argument and must be a string. Keep values containing spaces in a single item. RSI passes the array in order directly to the CLI, so shell expansion does not apply. The CLI interprets relative argument paths from the Agent workspace.
 
-For Codex, RSI inserts the options before `app-server`. Claude Code receives them in print mode, DSH receives them before the stdin task marker `-`, and OpenCode receives them as options to `run` in standalone mode.
+Codex receives options supported by `codex app-server --help`. Claude Code receives them in print mode, DSH receives them before the stdin task marker `-`, and OpenCode receives them as options to `run` in standalone mode.
 
 | Backend | How to configure model and reasoning |
 | --- | --- |
@@ -161,14 +161,14 @@ For Codex, RSI inserts the options before `app-server`. Claude Code receives the
 
 For existing Recipes, replace the removed Codex `model` and `thinkingLevel`, Claude Code `model` and `effort`, and OpenCode `model` configuration fields with the corresponding arguments above.
 
-RSI reserves the shared tokens `-`, `--`, `-h`, `--help`, `-V`, and `--version`. The following backend-specific options are also reserved. Recipe validation rejects them in both separate-token and `--flag=value` forms.
+RSI reserves the shared tokens `-`, `--`, `-h`, `--help`, `-V`, and `--version`. The following backend-specific options are also reserved. Recipe validation rejects them in both separate-token and `--flag=value` forms. Reserved short aliases are also rejected in Claude Code bundles such as `-cv`.
 
 | Backend | Reserved protocol options |
 | --- | --- |
-| Codex | `--listen`, `--stdio`, `--print-startup-config`, `--startup-sign-out`. Config overrides reserve `approval_policy`, `project_root_markers`, `sandbox_workspace_write.network_access`, `features.multi_agent`, `agents.max_depth`, and `agents.<role>.config_file`, including whole-table assignments to `sandbox_workspace_write`, `features`, or `agents`. The `--enable` and `--disable` switches also reserve `multi_agent`. |
+| Codex | `--listen`, `--stdio`, `--print-startup-config`, `--startup-sign-out` and the `daemon`, `proxy`, `generate-ts`, `generate-json-schema`, `generate-internal-json-schema`, and `help` subcommands. Config overrides reserve `approval_policy`, `project_root_markers`, `sandbox_workspace_write.network_access`, `features.multi_agent`, `agents.max_depth`, and `agents.<role>.config_file`, including whole-table assignments to `sandbox_workspace_write`, `features`, or `agents`. The `--enable` and `--disable` switches also reserve `multi_agent`. |
 | Claude Code | `-p` / `--print`, `--input-format`, `--output-format`, `--verbose`, `--no-session-persistence`, `--forward-subagent-text`, `--json-schema`, `-v`. |
 | DSH | `--profile`, `--from-default-profile`, `--patch`, `--json`, `--dump-config`, `--dump-config-schema`, `--dump-default-config`. |
-| OpenCode V2 | `--standalone`, `--server`, `--format`, `--archived`, `-v`. |
+| OpenCode V2 | `--standalone` / `--no-standalone`, `--server`, `--format`, `--archived` / `--no-archived`, `--wizard`, `--completions`, `-v`. Help and version aliases are reserved in short option bundles. |
 
 RSI keeps native model and authentication settings and validates proposed edits before applying them. Claude Code Hooks and MCP are disabled for RSI calls.
 

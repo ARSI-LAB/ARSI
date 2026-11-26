@@ -24,6 +24,10 @@ test('native Agent bindings accept argv and reject reserved options and removed 
       ['-c', 'model="named-model"'],
       [
         ['--listen=off'],
+        ['help'],
+        ['daemon'],
+        ['proxy'],
+        ['generate-internal-json-schema'],
         ['-c', 'approval_policy="on-request"'],
         ['-cproject_root_markers=[]'],
         ['--config="features".multi_agent=false'],
@@ -32,8 +36,14 @@ test('native Agent bindings accept argv and reject reserved options and removed 
     ],
     [
       'claudecode',
-      ['--model', 'sonnet', '--effort', 'low'],
-      [['--output-format=text'], ['--input-format', 'stream-json'], ['-p']],
+      ['--model', 'sonnet', '--effort', 'low', '-npreview'],
+      [
+        ['--output-format=text'],
+        ['--input-format', 'stream-json'],
+        ['-p'],
+        ['-pv'],
+        ['-cv'],
+      ],
     ],
     [
       'dsh',
@@ -47,6 +57,12 @@ test('native Agent bindings accept argv and reject reserved options and removed 
         ['--format=json'],
         ['--server', 'http://localhost:8080'],
         ['--standalone'],
+        ['--no-standalone'],
+        ['--no-archived'],
+        ['--wizard'],
+        ['--completions', 'bash'],
+        ['-ch'],
+        ['-cv'],
       ],
     ],
   ] as const) {

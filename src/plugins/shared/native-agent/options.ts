@@ -13,9 +13,15 @@ export function nativeOptionsSchema(
     '--version',
     ...reservedFlags,
   ];
-  const reserved = [`(?:${flags.join('|')})(?:=|$)`, ...reservedPatterns].join(
-    '|',
-  );
+  const shortFlags = flags
+    .filter((flag) => /^-[A-Za-z]$/.test(flag))
+    .map((flag) => flag[1])
+    .join('');
+  const reserved = [
+    `(?:${flags.join('|')})(?:=|$)`,
+    `-[${shortFlags}]`,
+    ...reservedPatterns,
+  ].join('|');
   return {
     type: 'array',
     description:

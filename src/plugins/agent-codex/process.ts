@@ -9,6 +9,7 @@ export async function runCodexProcess(
   input: string,
   onLine: AgentLineHandler,
   launch: AgentProcessLauncher,
+  configOverrides: string[],
   options: string[],
 ): Promise<void> {
   const command = codexCommand(executable);
@@ -24,7 +25,13 @@ export async function runCodexProcess(
   await launch(
     {
       executable: native.command,
-      args: [...native.args, ...command.args, ...options, 'app-server'],
+      args: [
+        ...native.args,
+        ...command.args,
+        ...configOverrides.flatMap((value) => ['-c', value]),
+        'app-server',
+        ...options,
+      ],
       env,
       input,
       interactive: true,

@@ -8,6 +8,7 @@ import {
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { configureSync, resetSync, type LogRecord } from '@logtape/logtape';
 import {
   RuntimeContext,
   type JsonObject,
@@ -186,7 +187,7 @@ function context(
 interface FakeGymOptions {
   status?: 'completed' | 'failed' | 'rejected';
   trusted?: boolean | null;
-  queuedForever?: boolean;
+  queuedResultPolls?: number;
   missingResultPolls?: number;
   dropSubmitResponseOnce?: boolean;
   items?: JsonValue[];
@@ -206,14 +207,12 @@ async function fakeGym(options: FakeGymOptions = {}): Promise<{
   submissions: JsonObject[];
   submitCount: () => number;
   resultCount: () => number;
-  setQueuedForever: (value: boolean) => void;
   setEvaluationDigest: (value: string) => void;
   close: () => Promise<void>;
 }> {
   const submissions: JsonObject[] = [];
   const submittedTasks = new Map<string, string[]>();
   const submittedDigests = new Map<string, string>();
-  let queuedForever = options.queuedForever ?? false;
   let dropSubmitResponse = options.dropSubmitResponseOnce ?? false;
   let evaluationDigest = options.evaluationDigest ?? `sha256:${'d'.repeat(64)}`;
   const missingResultPolls = options.missingResultPolls ?? 0;
@@ -255,10 +254,19 @@ async function fakeGym(options: FakeGymOptions = {}): Promise<{
         reply(response, 200, { found: false });
         return;
       }
-      if (queuedForever) {
+      if (
+        resultCount <=
+        missingResultPolls + (options.queuedResultPolls ?? 0)
+      ) {
         reply(response, 200, {
           found: true,
-          result: { eval_id: input.eval_id, status: 'queued' },
+          result: {
+            eval_id: input.eval_id,
+            status: 'queued',
+            ...(options.rolloutsAttempted === undefined
+              ? {}
+              : { metrics: { rollouts_attempted: options.rolloutsAttempted } }),
+          },
         });
         return;
       }
@@ -339,9 +347,6 @@ async function fakeGym(options: FakeGymOptions = {}): Promise<{
     submissions,
     submitCount: () => submissions.length,
     resultCount: () => resultCount,
-    setQueuedForever: (value) => {
-      queuedForever = value;
-    },
     setEvaluationDigest: (value) => {
       evaluationDigest = value;
     },
@@ -760,18 +765,38 @@ test('in-band rejected submissions become failed measurements', async () => {
   }
 });
 
-test('an interrupted poll resumes by eval id without submitting a second rollout', async () => {
+test('an interrupted poll resumes by eval id and reports progress without a second submission', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-gym-resume-'));
-  const gym = await fakeGym({ queuedForever: true });
+  const gym = await fakeGym({ queuedResultPolls: 2, rolloutsAttempted: 1 });
   const execution = await bundle(root);
   const { services, measurements, charges } = harness(root, execution);
+  const controller = new AbortController();
+  const waiting = 'waiting for gym eval-0000000000000001';
+  const pending = `${waiting} · queued · 1 rollouts attempted`;
+  const records: LogRecord[] = [];
+  configureSync({
+    sinks: {
+      capture(record) {
+        records.push(record);
+        if (record.properties.detail === pending)
+          controller.abort('fixture abort');
+      },
+    },
+    loggers: [
+      {
+        category: ['arsi', 'plugin', 'gym'],
+        lowestLevel: 'debug',
+        sinks: ['capture'],
+      },
+      { category: ['logtape', 'meta'], lowestLevel: null },
+    ],
+  });
+  t.after(resetSync);
   try {
     const operation = await createGym(config(gym.baseUrl), services);
-    const controller = new AbortController();
     const aborted = context(root, services, 'call-1').extend({
       signal: controller.signal,
     });
-    setTimeout(() => controller.abort('fixture abort'), 250);
     await assert.rejects(
       operation.execute(
         { candidateRef: 'candidate:a', taskIds: ['task/a'] },
@@ -781,7 +806,6 @@ test('an interrupted poll resumes by eval id without submitting a second rollout
     );
     assert.equal(measurements.length, 1);
     assert.equal(measurements[0]!.status, 'failed');
-    gym.setQueuedForever(false);
     const output = await operation.execute(
       { candidateRef: 'candidate:a', taskIds: ['task/a'] },
       context(root, services, 'call-2'),
@@ -790,6 +814,28 @@ test('an interrupted poll resumes by eval id without submitting a second rollout
     assert.equal(gym.submitCount(), 1);
     assert.deepEqual(charges, ['evaluationRuns']);
     assert.equal(measurements[1]!.status, 'succeeded');
+    assert.deepEqual(
+      records
+        .filter(({ properties }) => properties.progressOnly === true)
+        .map(({ properties }) => properties.activeTask),
+      [
+        { id: 'call-1', detail: 'submitting 1 tasks to gym' },
+        { id: 'call-1', detail: waiting },
+        { id: 'call-1', detail: `${waiting} · queued` },
+        { id: 'call-1', detail: pending },
+        { id: 'call-2', detail: waiting },
+        { id: 'call-2', detail: pending },
+      ],
+    );
+    assert.deepEqual(
+      records
+        .filter(({ properties }) => properties.progressOnly !== true)
+        .map(({ properties }) => [properties.callId, properties.detail]),
+      [
+        ['call-1', waiting],
+        ['call-2', waiting],
+      ],
+    );
   } finally {
     await gym.close();
     await rm(root, { recursive: true, force: true });

@@ -1,9 +1,14 @@
+import { getLogger } from '@logtape/logtape';
 import type {
   JsonObject,
   Operation,
   RuntimeContext,
 } from '../../../contracts/index.js';
 import { string } from '../../../shared/json.js';
+import {
+  reportTaskPhase,
+  reportTaskProgress,
+} from '../../../shared/task-progress.js';
 import { expandGymEnvironment } from '../internal/config.js';
 import {
   GymPromotionClient,
@@ -11,6 +16,8 @@ import {
   type GymPromotionReport,
 } from './client.js';
 import type { GymPromotionConfig, GymReleaseMetric } from './schema.js';
+
+const logger = getLogger(['arsi', 'plugin', 'gym']);
 
 interface ResolvedPromotionConfig extends GymPromotionConfig {
   minDelta: number;
@@ -178,6 +185,11 @@ async function evaluateRole(
         `${role} evaluation requires the acquired bundle directory and kind so the Gym adapter can install the candidate`,
       );
     const defaults = settings.promotionDefaults;
+    reportTaskProgress(
+      logger,
+      context.callId,
+      `submitting ${role} holdout to gym`,
+    );
     const outcome = await client.promote(
       {
         candidateId: ref,
@@ -194,8 +206,20 @@ async function evaluateRole(
       },
       context.signal,
       {
-        onAccepted: async ({ reused }) => {
+        onAccepted: async ({ promotionId, reused }) => {
+          reportTaskPhase(
+            logger,
+            context,
+            `waiting for gym ${role} promotion ${promotionId}`,
+          );
           if (!reused) await context.charge('evaluationRuns', 1);
+        },
+        onPending: (promotionId, state) => {
+          reportTaskProgress(
+            logger,
+            context.callId,
+            `waiting for gym ${role} promotion ${promotionId} · ${state}`,
+          );
         },
       },
     );

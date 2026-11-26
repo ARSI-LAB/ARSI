@@ -8,16 +8,38 @@ import {
   type CommanderError,
 } from 'commander';
 import type { Runtime } from '../../runtime/context.js';
-import type { RevisionApplication } from '../../runtime/revisions/application.js';
 import { formatDoctorSummary } from '../../runtime/doctor/report.js';
+import type { RevisionApplication } from '../../runtime/revisions/application.js';
+import {
+  addLogOptions,
+  attachWebLogging,
+  executeWithLogging,
+  logDashboardListening,
+  logDoctorChecks,
+} from './logging/command.js';
+import type { LogOptions } from './logging/index.js';
+
+export interface CommandOptions extends LogOptions {
+  pluginDir: string[];
+}
 
 export interface CommandContext {
   signal: AbortSignal;
   openRuntime(pluginDirectories: string[]): Promise<Runtime>;
   releaseRuntime(): Promise<void>;
+  defaults?: CommandOptions;
+  writeOut?(text: string): void;
+  writeErr?(text: string): void;
+  dispatch?(
+    name: string,
+    options: CommandOptions,
+    execute: () => Promise<CommandResult>,
+    experimentId?: string,
+  ): Promise<CommandResult>;
+  openShell?(options: CommandOptions): Promise<number>;
 }
 
-interface CommandResult {
+export interface CommandResult {
   exitCode: number;
   stdout?: string;
 }
@@ -26,12 +48,23 @@ export async function runCommand(
   argv: string[],
   context: CommandContext,
 ): Promise<CommandResult> {
-  let result: CommandResult = { exitCode: 0 };
+  let result: CommandResult | undefined;
   let commanderExit: CommanderError | undefined;
+  const writeOut =
+    context.writeOut ??
+    ((text) => {
+      process.stdout.write(text);
+    });
+  const writeErr =
+    context.writeErr ??
+    ((text) => {
+      process.stderr.write(text);
+    });
   const program = new Command('arsi')
     .description('Make everything rsi-able')
     .allowExcessArguments(false)
     .showHelpAfterError()
+    .configureOutput({ writeOut, writeErr })
     .exitOverride((error) => {
       commanderExit = error;
       throw error;
@@ -40,12 +73,14 @@ export async function runCommand(
       '--plugin-dir <directory>',
       'Load extensions from a directory (repeatable)',
       (value: string, previous: string[]) => [...previous, value],
-      [],
+      context.defaults?.pluginDir ?? [],
     )
     .addHelpText(
       'after',
       '\nRun facts are saved in .rsi/ under the current directory.\nExtensions load from ~/.arsi/plugins/<name>/index.mjs by default.\nEach plugin directory must contain index.mjs exporting register(registry).',
     );
+  const commandOptions = addLogOptions(program, context.defaults);
+
   program
     .command('run <recipe.yaml>')
     .description('Run or resume an experiment')
@@ -76,8 +111,8 @@ export async function runCommand(
       '--checkpoint',
       'Read committed partial output if the process did not save a terminal result',
     )
-    .action((id: string, options: { checkpoint?: boolean }) =>
-      runJson(({ manager }) => manager.get(id, options)),
+    .action((id: string, options: { checkpoint?: boolean }, command: Command) =>
+      runJson(command, ({ manager }) => manager.get(id, options)),
     );
   program
     .command('cancel <experiment-id>')
@@ -104,7 +139,9 @@ export async function runCommand(
   program
     .command('catalog')
     .description('Show registered contracts, plugins, and policies')
-    .action(() => runJson(({ registry }) => registry.catalog()));
+    .action((_options: unknown, command: Command) =>
+      runJson(command, ({ registry }) => registry.catalog()),
+    );
   program
     .command('dashboard')
     .description('Start the dashboard (localhost by default)')
@@ -139,51 +176,95 @@ export async function runCommand(
     .command('apply <revisionID>')
     .description('Apply reflection revisions')
     .action(forRevision((revisions, id) => revisions.apply(requireId(id))));
+  program
+    .command('shell')
+    .description('Open the interactive CLI')
+    .action(openShell);
 
-  async function runJson(
+  function openRuntime(): Promise<Runtime> {
+    return context.openRuntime(commandOptions().pluginDir);
+  }
+
+  function runJson(
+    command: Command,
     execute: (runtime: Runtime) => unknown,
   ): Promise<void> {
-    const runtime = await context.openRuntime(
-      program.opts<{ pluginDir: string[] }>().pluginDir,
+    return runAction(command, async () => {
+      const runtime = await openRuntime();
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify(await execute(runtime), null, 2) + '\n',
+      };
+    });
+  }
+
+  async function runAction(
+    command: Command,
+    execute: () => Promise<CommandResult>,
+  ): Promise<void> {
+    if (!context.dispatch) {
+      result = await execute();
+      return;
+    }
+    const name = commandPath(command);
+    const experimentId =
+      name === 'run' ? command.opts<{ id?: string }>().id : undefined;
+    const target = name === 'run' ? command.args[0] : name;
+    result = await context.dispatch(
+      name,
+      commandOptions(),
+      () => executeWithLogging(target, context, execute),
+      experimentId,
     );
-    result = {
-      exitCode: 0,
-      stdout: JSON.stringify(await execute(runtime), null, 2) + '\n',
-    };
   }
 
   function runExperiment(
     file: string,
     { id, resume = false }: { id?: string; resume?: boolean },
-    cmd: Command,
+    command: Command,
   ): Promise<void> {
-    if (resume && !id) cmd.error('--resume requires --id');
-    return runJson(({ manager }) =>
-      manager.run(resolve(file), { id, resume, signal: context.signal }),
-    );
-  }
-
-  async function runDoctorCommand(
-    recipePath: string,
-    options: { json?: boolean },
-  ): Promise<void> {
-    const { runDoctor } = await import('../../runtime/doctor/index.js');
-    const report = await runDoctor(recipePath, {
-      signal: context.signal,
-      openRuntime: () =>
-        context.openRuntime(program.opts<{ pluginDir: string[] }>().pluginDir),
-      releaseRuntime: context.releaseRuntime,
+    if (resume && !id) command.error('--resume requires --id');
+    return runJson(command, async ({ manager }) => {
+      const { executeRun } = await import('./run/index.js');
+      return executeRun(manager, resolve(file), {
+        id,
+        resume,
+        signal: context.signal,
+        logging: context.dispatch !== undefined,
+      });
     });
-    result = {
-      exitCode: report.checks.some(({ status }) => status === 'failed') ? 1 : 0,
-      stdout: options.json
-        ? JSON.stringify(report, null, 2) + '\n'
-        : formatDoctorSummary(report, recipePath),
-    };
   }
 
-  function list(kind: string | undefined): Promise<void> {
-    return runJson(async ({ manager, registry }) => {
+  function runDoctorCommand(
+    recipePath: string,
+    { json = false }: { json?: boolean },
+    command: Command,
+  ): Promise<void> {
+    return runAction(command, async () => {
+      const { runDoctor } = await import('../../runtime/doctor/index.js');
+      const report = await runDoctor(recipePath, {
+        signal: context.signal,
+        openRuntime,
+        releaseRuntime: context.releaseRuntime,
+      });
+      logDoctorChecks(report);
+      return {
+        exitCode: report.checks.some(({ status }) => status === 'failed')
+          ? 1
+          : 0,
+        stdout: json
+          ? JSON.stringify(report, null, 2) + '\n'
+          : formatDoctorSummary(report, recipePath),
+      };
+    });
+  }
+
+  function list(
+    kind: string | undefined,
+    _options: unknown,
+    command: Command,
+  ): Promise<void> {
+    return runJson(command, async ({ manager, registry }) => {
       if (!kind) return manager.list();
       const { describeCatalog } = await import('./catalog.js');
       const catalog = await describeCatalog(registry);
@@ -193,47 +274,57 @@ export async function runCommand(
     });
   }
 
-  function cancelExperiment(id: string): Promise<void> {
-    return runJson(async ({ manager }) => {
+  function cancelExperiment(
+    id: string,
+    _options: unknown,
+    command: Command,
+  ): Promise<void> {
+    return runJson(command, async ({ manager }) => {
       await manager.cancel(id);
       return { id, cancellationRequested: true };
     });
   }
 
-  async function cleanup(
+  function cleanup(
     id: string | undefined,
     { dryRun = false, all = false }: { dryRun?: boolean; all?: boolean },
-    cmd: Command,
+    command: Command,
   ): Promise<void> {
     if (id !== undefined && all)
-      cmd.error('--all cannot be combined with an experiment ID');
-    const { manager } = await context.openRuntime(
-      program.opts<{ pluginDir: string[] }>().pluginDir,
-    );
-    const { cleanupExperiment, cleanupWorkspace } = await import(
-      './cleanup.js'
-    );
-    const report =
-      id === undefined
-        ? await cleanupWorkspace(manager, dryRun || !all, context.signal)
-        : await cleanupExperiment(manager, id, dryRun, context.signal);
-    const incomplete =
-      'experiments' in report
-        ? report.experiments.some(
-            ({ status }) => status === 'pending' || status === 'failed',
-          )
-        : report.results.some(({ status }) => status === 'pending');
-    result = {
-      exitCode: context.signal.aborted ? 130 : incomplete ? 1 : 0,
-      stdout: JSON.stringify(report, null, 2) + '\n',
-    };
+      command.error('--all cannot be combined with an experiment ID');
+    return runAction(command, async () => {
+      const { manager } = await openRuntime();
+      const { cleanupExperiment, cleanupWorkspace } = await import(
+        './cleanup.js'
+      );
+      const report =
+        id === undefined
+          ? await cleanupWorkspace(manager, dryRun || !all, context.signal)
+          : await cleanupExperiment(manager, id, dryRun, context.signal);
+      const incomplete =
+        'experiments' in report
+          ? report.experiments.some(
+              ({ status }) => status === 'pending' || status === 'failed',
+            )
+          : report.results.some(({ status }) => status === 'pending');
+      return {
+        exitCode: context.signal.aborted ? 130 : incomplete ? 1 : 0,
+        stdout: JSON.stringify(report, null, 2) + '\n',
+      };
+    });
   }
 
   function forRevision(
     execute: (revisions: RevisionApplication, id?: string) => Promise<unknown>,
-  ): (id?: string) => Promise<void> {
-    return (id) =>
-      runJson(({ manager }) => execute(manager.reflection(), id || undefined));
+  ): (
+    id: string | undefined,
+    options: unknown,
+    command: Command,
+  ) => Promise<void> {
+    return (id, _options, command) =>
+      runJson(command, ({ manager }) =>
+        execute(manager.reflection(), id || undefined),
+      );
   }
 
   function requireId(id?: string): string {
@@ -241,43 +332,62 @@ export async function runCommand(
     return id;
   }
 
-  async function startDashboard({
-    port,
-    publicReadOnly = false,
-  }: {
-    port: number;
-    publicReadOnly?: boolean;
-  }): Promise<void> {
-    if (!statSync('.rsi', { throwIfNoEntry: false })?.isDirectory())
-      throw new Error(
-        'Dashboard requires a .rsi directory in the current working directory. Run it from your experiment workspace.',
-      );
-    const runtime = await context.openRuntime(
-      program.opts<{ pluginDir: string[] }>().pluginDir,
-    );
-    const { createServer } = await import('../web/server.js');
-    const server = await createServer(runtime, { publicReadOnly });
-    const address = await server.listen({
-      host: publicReadOnly ? '0.0.0.0' : '127.0.0.1',
+  function startDashboard(
+    {
       port,
+      publicReadOnly = false,
+    }: { port: number; publicReadOnly?: boolean },
+    command: Command,
+  ): Promise<void> {
+    return runAction(command, async () => {
+      if (!statSync('.rsi', { throwIfNoEntry: false })?.isDirectory())
+        throw new Error(
+          'Dashboard requires a .rsi directory in the current working directory. Run it from your experiment workspace.',
+        );
+      const runtime = await openRuntime();
+      const { createServer } = await import('../web/server.js');
+      const server = await createServer(runtime, { publicReadOnly });
+      attachWebLogging(server);
+      try {
+        const address = await server.listen({
+          host: publicReadOnly ? '0.0.0.0' : '127.0.0.1',
+          port,
+        });
+        logDashboardListening(address, port, publicReadOnly);
+        await aborted(context.signal, server);
+      } finally {
+        await server.close();
+      }
+      return { exitCode: 0 };
     });
-    process.stdout.write(
-      publicReadOnly
-        ? `Public read-only dashboard listening on 0.0.0.0:${port}\n`
-        : `Dashboard open at ${address}\n`,
-    );
-    try {
-      await aborted(context.signal, server);
-    } finally {
-      await server.close();
-    }
+  }
+
+  async function openShell(_options: unknown, command: Command): Promise<void> {
+    if (!context.openShell)
+      command.error(
+        context.defaults
+          ? 'Already in the interactive CLI'
+          : 'The interactive CLI requires a terminal outside CI',
+      );
+    result = { exitCode: await context.openShell(commandOptions()) };
   }
 
   try {
-    await program.parseAsync(argv.length ? argv : ['--help'], { from: 'user' });
+    await program.parseAsync(
+      argv.length ? argv : [context.openShell ? 'shell' : '--help'],
+      { from: 'user' },
+    );
   } catch (error) {
     if (commanderExit === undefined || error !== commanderExit) throw error;
     return { exitCode: commanderExit.exitCode === 0 ? 0 : 2 };
   }
+  if (!result)
+    throw new Error('Choose a subcommand; use --help for available commands');
   return result;
+}
+
+function commandPath(command: Command): string {
+  return command.parent?.parent
+    ? `${commandPath(command.parent)} ${command.name()}`
+    : command.name();
 }

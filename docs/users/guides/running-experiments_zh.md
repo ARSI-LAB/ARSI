@@ -27,6 +27,12 @@
 | `arsi reflection apply <revisionID>`   | 将快照写到记录的用户资源路径；参见 [Reflection 规则](reflection_zh.md#将版本应用到后续实验)。 |
 | `arsi help [command]`                  | 显示命令列表或指定命令的帮助。                                                                |
 
+### 交互式 CLI
+
+在交互终端运行 `arsi` 或 `arsi shell` 打开命令菜单。选择命令后输入参数，也可以选择 **Run custom CLI command** 输入完整命令。用单引号或双引号包住含空格的参数。自定义命令输入框也支持 `help`、`log-level`、`clear` 和 `exit`。
+
+CI 或重定向输入输出时使用标准 CLI 输出。JSON 结果写到 stdout，日志写到 stderr。
+
 ## CLI 参数
 
 基本语法如下，命令所需的位置参数见上表：
@@ -43,6 +49,10 @@ arsi [通用选项] <命令> [位置参数] [命令选项]
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-h, --help`               | 显示帮助并退出。`arsi --help` 显示命令列表，`arsi <command> --help` 显示该命令的参数。                                                                                                    |
 | `--plugin-dir <directory>` | 从指定目录加载自定义插件和 Policy，可重复指定以加载多个扩展目录；详见[插件注册](writing-plugins_zh.md#第二步注册插件)和 [Policy 注册与 Recipe 配置](writing-policies_zh.md#注册-policy)。 |
+
+交互式命令用一行动态显示当前调用，例如评测任务计数、Agent 的轮次和工具、推理服务就绪状态，或 Gym 评测排队状态。Evaluator 的单题结果会输出为 `Progress` 日志行。实时更新只在动态状态行上显示。工作台以及 `debug`、`trace` 级别会显示详细日志和错误堆栈。可重复指定 `--log-level`，用 `cli.runtime=trace` 这样的点分隔类别覆盖模块级别。`ARSI_LOG_LEVEL` 设置全局级别，`ARSI_LOG_LEVELS` 设置以逗号分隔的类别覆盖。相同设置以 CLI 参数为准。
+
+实验日志默认写入 `.rsi/logs/<experiment-id>.log`。其他命令在已有 `.rsi/` 的工作区内追加写入 `.rsi/logs/cli.log`。文件默认记录阶段切换和其他调试信息，并对错误堆栈中的密钥脱敏。用 `--log-file <path>` 指定日志文件，或用 `--no-log-file` 关闭文件日志。用 `-q` 或 `--quiet` 时，终端会显示错误，并在失败时提示已保存的日志路径。
 
 ### 命令专属选项
 

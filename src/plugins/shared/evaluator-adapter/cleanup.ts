@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
+import { getLogger } from '@logtape/logtape';
 import { Evaluator, loadConfig, type CleanupOptions } from 'arsi-evaluator';
 import type {
   CleanupContext as BindingCleanupContext,
@@ -14,17 +15,18 @@ import { digest, object, string } from '../../../shared/json.js';
 import { evaluatorNetworkConfigPath } from './configuration.js';
 import { clone, redact } from './data.js';
 
+const logger = getLogger(['arsi', 'runtime', 'cleanup']);
+
 type CleanupContext = Pick<
   RuntimeContext,
   'experimentId' | 'dataDirectory' | 'facts' | 'signal'
 >;
-export type EvaluatorCleanupSource =
-  | {
-      context: RuntimeContext;
-      kind: 'agentbundle';
-      workspaceRef: JsonValue | undefined;
-    }
-  | { context: RuntimeContext; kind: 'kernel' };
+export type EvaluatorCleanupRegistration =
+  | { kind: 'agentbundle'; workspaceRef: JsonValue | undefined }
+  | { kind: 'kernel' };
+type EvaluatorCleanupSource = {
+  context: RuntimeContext;
+} & EvaluatorCleanupRegistration;
 
 type CleanupOutcome = Omit<CleanupResult, 'key'>;
 
@@ -153,6 +155,8 @@ function cleanupResult(value: unknown, dryRun: boolean): CleanupOutcome {
   )
     throw new Error('Evaluator returned an invalid cleanup report');
   let pending = report.preview !== dryRun;
+  let deleted = 0;
+  let retained = 0;
   for (const raw of report.nodes) {
     const node = object(raw, 'cleanup node');
     if (
@@ -173,6 +177,8 @@ function cleanupResult(value: unknown, dryRun: boolean): CleanupOutcome {
         )
       )
         throw new Error('Invalid Evaluator cleanup item');
+      if (item.status === 'deleted') deleted++;
+      else if (item.status === 'retained') retained++;
       if (
         item.status === 'failed' ||
         (!dryRun && item.status !== 'deleted' && item.status !== 'retained')
@@ -180,6 +186,12 @@ function cleanupResult(value: unknown, dryRun: boolean): CleanupOutcome {
         pending = true;
     }
   }
+  logger.info('Evaluator resources deleted={deleted} retained={retained}', {
+    stage: 'Completed',
+    dryRun,
+    deleted,
+    retained,
+  });
   return {
     status: pending ? 'pending' : dryRun ? 'preview' : 'complete',
     report: object(redact(report)),

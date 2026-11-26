@@ -1,3 +1,4 @@
+import { getLogger } from '@logtape/logtape';
 import type {
   Binding,
   EventPipeline,
@@ -9,6 +10,8 @@ import { validate } from '../../shared/schema.js';
 import type { Registry } from '../registry/index.js';
 import type { Instances } from './instances.js';
 import type { CleanupLifecycle } from './cleanup.js';
+
+const logger = getLogger(['arsi', 'runtime', 'manager']);
 
 type PreparedInstance = Awaited<ReturnType<Instances['prepare']>>;
 interface Activation {
@@ -134,6 +137,13 @@ export class RevisionActivation {
     const refs: Record<string, string> = {};
     for (const [key, value] of Object.entries(revisions))
       if (typeof value === 'string') refs[key] = value;
+    logger.info('revision {activationId} ({bindings})', {
+      stage: 'Activated',
+      experimentId: id,
+      activationId,
+      bindings: Object.keys(changes).join(', '),
+      revisionRefs: refs,
+    });
     try {
       event.emit('rsi/revision-activated', {
         experimentId: id,

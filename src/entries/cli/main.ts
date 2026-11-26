@@ -2,80 +2,106 @@
 import { constants } from 'node:os';
 import type { Runtime } from '../../runtime/context.js';
 import {
-  errorText,
-  RuntimeCleanupInterruptedError,
-} from '../../shared/errors.js';
-import { runCommand, type CommandContext } from './commands.js';
+  runCommand,
+  type CommandContext,
+  type CommandOptions,
+} from './commands.js';
+import {
+  releaseCommandRuntime,
+  reportCommandFailure,
+} from './logging/command.js';
+import { runtimeLogger } from './logging/index.js';
+import { formatLogError } from './logging/log-text.js';
+import { createCliSession, type CliSession } from './ui/session.js';
 
 async function main(argv: string[]): Promise<number> {
-  let exitCode = 0;
   const controller = new AbortController();
-  const context = createCommandContext(controller.signal);
+  const { signal } = controller;
+  const session: CliSession = createCliSession(signal, (args, defaults) =>
+    execute(args, signal, session, defaults),
+  );
   const abort = (signal: NodeJS.Signals = 'SIGINT'): void => {
     if (controller.signal.aborted)
       process.exit(128 + constants.signals[signal]);
     controller.abort(new Error('Interrupted'));
   };
-  // Keep the listeners installed during dispatch so signal-exit lets cleanup run.
   process.on('SIGINT', abort);
   process.on('SIGTERM', abort);
+  try {
+    return await execute(argv, signal, session);
+  } finally {
+    process.removeListener('SIGINT', abort);
+    process.removeListener('SIGTERM', abort);
+    session.dispose();
+  }
+}
+
+async function execute(
+  argv: string[],
+  signal: AbortSignal,
+  session: CliSession,
+  defaults?: CommandOptions,
+): Promise<number> {
+  let exitCode = 0;
+  const context = createCommandContext(signal, session, defaults);
   try {
     const result = await runCommand(argv, context);
     if (result.stdout !== undefined) process.stdout.write(result.stdout);
     exitCode = result.exitCode;
   } catch (error) {
-    exitCode = failCommand(error, controller.signal.aborted);
+    exitCode = failCommand(error, signal.aborted);
   } finally {
-    exitCode = await finishCommand(context, abort, exitCode);
+    exitCode = await finishCommand(context, exitCode);
   }
   return exitCode;
 }
 
-function createCommandContext(signal: AbortSignal): CommandContext {
+function createCommandContext(
+  signal: AbortSignal,
+  session: CliSession,
+  defaults?: CommandOptions,
+): CommandContext {
   let runtime: Runtime | undefined;
 
   async function openRuntime(pluginDirectories: string[]): Promise<Runtime> {
+    runtimeLogger.debug('Opening runtime');
     const { createRuntime } = await import('../../runtime/context.js');
     runtime = await createRuntime({ pluginDirectories });
+    runtimeLogger.debug('Runtime ready');
     return runtime;
   }
 
   async function releaseRuntime(): Promise<void> {
+    if (!runtime) return;
     const current = runtime;
     runtime = undefined;
-    await current?.dispose();
+    runtimeLogger.trace('Disposing runtime');
+    await current.dispose();
   }
 
-  return { signal, openRuntime, releaseRuntime };
+  return {
+    signal,
+    openRuntime,
+    releaseRuntime,
+    defaults,
+    dispatch: session.dispatch,
+    openShell: defaults ? undefined : session.openShell,
+  };
 }
 
 function failCommand(error: unknown, aborted: boolean): number {
-  if (error instanceof RuntimeCleanupInterruptedError) {
-    process.stderr.write(errorText(error.interruption) + '\n');
-    process.stderr.write(
-      `Failed to dispose runtime: ${errorText(error.cause)}\n`,
-    );
-  } else {
-    process.stderr.write(errorText(error) + '\n');
-  }
-  return aborted ? 130 : 1;
+  return reportCommandFailure(error, aborted, writeDiagnostic);
 }
 
-async function finishCommand(
+function finishCommand(
   context: CommandContext,
-  abort: (signal?: NodeJS.Signals) => void,
   exitCode: number,
 ): Promise<number> {
-  try {
-    await context.releaseRuntime();
-  } catch (error) {
-    process.stderr.write(`Failed to dispose runtime: ${errorText(error)}\n`);
-    exitCode ||= 1;
-  } finally {
-    process.removeListener('SIGINT', abort);
-    process.removeListener('SIGTERM', abort);
-  }
-  return exitCode;
+  return releaseCommandRuntime(context, exitCode, writeDiagnostic);
+}
+
+function writeDiagnostic(error: unknown, prefix = ''): void {
+  process.stderr.write(prefix + formatLogError(error) + '\n');
 }
 
 process.exitCode = await main(process.argv.slice(2));

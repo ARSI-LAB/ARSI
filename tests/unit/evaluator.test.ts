@@ -1007,7 +1007,9 @@ test('AgentX preserves point distributions and official comparability, without a
       errors: [],
       collection: { trajectory: 'not-produced', artifacts: 'not-produced' },
     }));
-    const def = evaluatorWithRunner('inferencebench', async (options) => {
+    const def = evaluatorWithRunner('inferencebench', async (options, run) => {
+      assert.equal(run?.context.callId, 'call');
+      assert.equal(run?.cleanup, undefined);
       native = parse(await readFile(options.configPath, 'utf8'));
       return {
         kind: 'local',

@@ -9,14 +9,17 @@ import {
 } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { getLogger } from '@logtape/logtape';
 import type { RuntimeContext, JsonObject } from '../../contracts/index.js';
 import type { ApplicationBackend } from '../shared/file-application/files.js';
 import { safePath } from '../shared/file-application/target.js';
 import { digest, object, string } from '../../shared/json.js';
 import { InferenceStartupError } from '../../shared/errors.js';
+import { reportTaskPhase } from '../../shared/task-progress.js';
 import type { RemoteInferenceConfig } from './schema.js';
 
 const namespace = 'application-inference-remote';
+const logger = getLogger(['arsi', 'plugin', 'inference']);
 interface RemoteBackend extends ApplicationBackend {
   validateInstance(
     instance: JsonObject,
@@ -262,7 +265,7 @@ export async function createRemoteBackend(
   };
   const waitReady = async (
     request: JsonObject,
-    context: Pick<RuntimeContext, 'signal'>,
+    context: RuntimeContext,
   ): Promise<JsonObject> => {
     const signal =
       readinessTimeout === undefined
@@ -271,6 +274,11 @@ export async function createRemoteBackend(
             context.signal,
             AbortSignal.timeout(readinessTimeout),
           ]);
+    reportTaskPhase(
+      logger,
+      context,
+      `waiting for remote ${healthPath.split(/[?#]/, 1)[0]}`,
+    );
     while (true) {
       signal.throwIfAborted();
       const status = await invoke({ ...request, action: 'status' }, signal);
@@ -309,7 +317,7 @@ export async function createRemoteBackend(
   const release = async (
     instance: JsonObject,
     context: Pick<RuntimeContext, 'signal'> &
-      Partial<Pick<RuntimeContext, 'experimentId'>>,
+      Partial<Pick<RuntimeContext, 'experimentId' | 'callId'>>,
   ): Promise<void> => {
     const instanceId = string(instance.instanceId);
     const saved = await fact(services, instanceId);
@@ -351,6 +359,7 @@ export async function createRemoteBackend(
     if (!saved || saved.status !== 'stopped') {
       // A published ownership intent precedes the first private fact. Confirm stop
       // using that intent if interruption occurred before the fact was written.
+      reportTaskPhase(logger, context, 'stopping remote server');
       await stopRemote(
         request,
         AbortSignal.any([context.signal, AbortSignal.timeout(cleanupTimeout)]),
@@ -522,6 +531,7 @@ export async function createRemoteBackend(
           context.signal,
         );
         if (previous.status === 'stopped') {
+          reportTaskPhase(logger, context, 'starting remote server');
           const started = await invoke(
             { ...request, action: 'start' },
             context.signal,

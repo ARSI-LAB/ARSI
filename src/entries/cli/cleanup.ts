@@ -1,3 +1,4 @@
+import { getLogger } from '@logtape/logtape';
 import {
   collectExperimentCleanup,
   ExperimentInUseError,
@@ -7,6 +8,8 @@ import type { Manager } from '../../runtime/manager/index.js';
 import { FileFacts } from '../../runtime/storage/index.js';
 import { errorText } from '../../shared/errors.js';
 import { string } from '../../shared/json.js';
+
+const logger = getLogger(['arsi', 'runtime', 'cleanup']);
 
 type WorkspaceCleanupEntry = Pick<
   ExperimentCleanupReport,
@@ -67,19 +70,47 @@ export async function cleanupWorkspace(
           status: 'interrupted',
           reason: errorText(signal.reason),
         });
-      else if (error instanceof ExperimentInUseError)
+      else if (error instanceof ExperimentInUseError) {
         experiments.push({
           ...entry,
           status: 'skipped',
           reason: error.message,
         });
-      else
+        logger.warn('{reason}', {
+          stage: 'Skipped',
+          experimentId,
+          reason: error.message,
+        });
+      } else {
         experiments.push({
           ...entry,
           status: 'failed',
           error: errorText(error),
         });
+        logger.error('cleanup {experimentId}', {
+          stage: 'Failed',
+          experimentId,
+          error,
+        });
+      }
     }
   }
+  const counts = {
+    complete: 0,
+    preview: 0,
+    pending: 0,
+    skipped: 0,
+    interrupted: 0,
+    failed: 0,
+  };
+  for (const { status } of experiments) counts[status]++;
+  logger.info(
+    'workspace {mode} cleaned={complete} previewed={preview} pending={pending} skipped={skipped} interrupted={interrupted} failed={failed}',
+    {
+      stage: 'Completed',
+      mode: dryRun ? 'preview' : 'cleanup',
+      ...counts,
+    },
+  );
   return { dryRun, experiments };
 }

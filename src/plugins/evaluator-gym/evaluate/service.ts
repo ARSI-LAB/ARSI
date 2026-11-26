@@ -1,3 +1,4 @@
+import { getLogger } from '@logtape/logtape';
 import type {
   AgentbenchInput,
   AgentbenchOutput,
@@ -5,6 +6,10 @@ import type {
   Operation,
   RuntimeContext,
 } from '../../../contracts/index.js';
+import {
+  reportTaskPhase,
+  reportTaskProgress,
+} from '../../../shared/task-progress.js';
 import { expandGymEnvironment } from '../internal/config.js';
 import {
   GymEvaluationClient,
@@ -21,6 +26,8 @@ import {
   type GymSubmission,
   type GymSubmissionStatus,
 } from './submission.js';
+
+const logger = getLogger(['arsi', 'plugin', 'gym']);
 
 export function resolveGymConfig(
   config: GymConfig,
@@ -82,11 +89,31 @@ export async function createGym(
             intervalMs: settings.poll?.intervalMs,
             timeoutMs: settings.poll?.timeoutMs,
           });
+          const onPending = (
+            evalId: string,
+            rolloutsAttempted: number | null,
+          ): void => {
+            const counts =
+              rolloutsAttempted === null
+                ? ''
+                : ` · ${rolloutsAttempted} rollouts attempted`;
+            reportTaskProgress(
+              logger,
+              context.callId,
+              `waiting for gym ${evalId} · queued${counts}`,
+            );
+          };
           try {
             if (existing?.evalId && existing.status !== 'rejected') {
+              reportTaskPhase(
+                logger,
+                context,
+                `waiting for gym ${existing.evalId}`,
+              );
               outcome = await client.awaitResult(
                 existing.evalId,
                 context.signal,
+                onPending,
               );
             } else {
               await context.charge('evaluationRuns', 1);
@@ -102,6 +129,11 @@ export async function createGym(
                   null,
                 ),
               );
+              reportTaskProgress(
+                logger,
+                context.callId,
+                `submitting ${taskIds.length} tasks to gym`,
+              );
               outcome = await client.evaluate(
                 nativeRequest(candidateRef, bundleDigest, taskIds, settings, {
                   directory,
@@ -109,7 +141,13 @@ export async function createGym(
                 }),
                 context.signal,
                 {
+                  onPending,
                   onSubmitted: async (evalId) => {
+                    reportTaskPhase(
+                      logger,
+                      context,
+                      `waiting for gym ${evalId}`,
+                    );
                     await writeGymSubmission(
                       context.facts,
                       record(

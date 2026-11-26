@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { getLogger } from '@logtape/logtape';
 import type {
   ApplicationInput,
   ApplicationOutput,
@@ -18,6 +19,7 @@ import {
 import { safePath } from '../shared/file-application/target.js';
 import { digest, object, string } from '../../shared/json.js';
 import { InferenceStartupError } from '../../shared/errors.js';
+import { reportTaskPhase } from '../../shared/task-progress.js';
 import { createRemoteBackend } from './remote.js';
 import type { InferenceConfig, LocalInferenceConfig } from './schema.js';
 import { checkInferenceApplication } from './doctor.js';
@@ -26,6 +28,7 @@ interface OwnedProcess {
   exited: Promise<void>;
 }
 const processFacts = 'application-inference-processes';
+const logger = getLogger(['arsi', 'plugin', 'inference']);
 async function readProcess(
   services: RuntimeContext,
   instanceId: string,
@@ -162,11 +165,13 @@ export const createApplicationInference: OperationDefinition<
   );
   const stop = async (
     instance: JsonObject,
-    context: Pick<RuntimeContext, 'signal'>,
+    context: Pick<RuntimeContext, 'signal'> &
+      Partial<Pick<RuntimeContext, 'callId'>>,
   ): Promise<void> => {
     const instanceId = string(instance.instanceId);
     const running = owned.get(instanceId);
     if (running) {
+      reportTaskPhase(logger, context, 'stopping server');
       killGroup(running.child, 'SIGTERM');
       const retired = await Promise.race([
         running.exited.then(() => true),
@@ -295,6 +300,7 @@ export const createApplicationInference: OperationDefinition<
         start.cwd === undefined
           ? directory
           : resolve(directory, safePath(start.cwd));
+      reportTaskPhase(logger, context, `starting server (port ${allocated})`);
       const child = spawn(command, argv.slice(1), {
         cwd,
         env: process.env,
@@ -329,6 +335,11 @@ export const createApplicationInference: OperationDefinition<
         health.intervalMs,
         250,
         'healthcheck.intervalMs',
+      );
+      reportTaskPhase(
+        logger,
+        context,
+        `waiting for ${path.split(/[?#]/, 1)[0]} (127.0.0.1:${allocated})`,
       );
       while (true) {
         context.signal.throwIfAborted();

@@ -75,6 +75,8 @@ export interface GymPromoteOptions {
     promotionId: string;
     reused: boolean;
   }) => Promise<void> | void;
+  /** Reports each observed non-terminal state. */
+  onPending?: (promotionId: string, state: 'queued' | 'running') => void;
 }
 
 export class GymPromotionError extends Error {
@@ -120,9 +122,11 @@ export class GymPromotionClient {
       submitted = true;
       await options.onAccepted?.({ promotionId, reused });
       const report = reportOrNull(first.report);
-      if (report !== null || terminal(state))
+      const pending = !terminal(state);
+      if (pending) options.onPending?.(promotionId, state);
+      if (report !== null || !pending)
         return outcome(promotionId, state, reused, report, first.error);
-      return await this.poll(promotionId, signal, reused);
+      return await this.poll(promotionId, signal, reused, options.onPending);
     } catch (error) {
       if (error instanceof GymHttpError) {
         const conflictId = conflictPromotionId(error.statusCode, error.body);
@@ -130,7 +134,7 @@ export class GymPromotionClient {
           promotionId = conflictId;
           submitted = true;
           await options.onAccepted?.({ promotionId, reused: true });
-          return await this.poll(promotionId, signal, true);
+          return await this.poll(promotionId, signal, true, options.onPending);
         }
         const phase = error.path === '/promotion' ? 'submit' : 'poll';
         const requestSubmitted =
@@ -160,6 +164,7 @@ export class GymPromotionClient {
     promotionId: string,
     signal: AbortSignal,
     reused: boolean,
+    onPending?: GymPromoteOptions['onPending'],
   ): Promise<GymPromotionOutcome> {
     const deadline = Date.now() + this.timeoutMs;
     while (true) {
@@ -183,6 +188,7 @@ export class GymPromotionClient {
       const report = reportOrNull(raw.report);
       if (terminal(state))
         return outcome(promotionId, state, reused, report, raw.error);
+      onPending?.(promotionId, state);
     }
   }
 }
@@ -268,7 +274,9 @@ function reportOrNull(value: JsonValue | undefined): GymPromotionReport | null {
   };
 }
 
-function terminal(state: GymPromotionState): boolean {
+function terminal(
+  state: GymPromotionState,
+): state is Exclude<GymPromotionState, 'queued' | 'running'> {
   return state !== 'queued' && state !== 'running';
 }
 

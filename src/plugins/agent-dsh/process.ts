@@ -2,6 +2,7 @@ import type { AgentProcessLauncher } from '../../contracts/index.js';
 import { runNativeJsonProcess } from '../shared/native-agent/json-process.js';
 export async function runDshProcess(
   executable: string,
+  options: string[],
   patch: string,
   prompt: string,
   onLine: (line: string) => void,
@@ -10,7 +11,7 @@ export async function runDshProcess(
 ): Promise<void> {
   await runNativeJsonProcess(
     executable,
-    ['--profile', 'headless', '--patch', patch, '--json', '-'],
+    ['--profile', 'headless', '--patch', patch, '--json', ...options, '-'],
     prompt,
     onLine,
     launch,

@@ -1,5 +1,6 @@
 import { useOperatorSdkTestEnvironment } from '../fixtures/operator-sdk/environment.js';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -359,6 +360,13 @@ test('summary failure prevents adoption and retry repeats the unfinished summary
     f.manager.run(f.recipePath, { id: 'failed-summary' }),
     /Fixture summary failure/,
   );
+  const failed = await f.manager.get('failed-summary');
+  assert.match(string(failed.error), /Fixture summary failure/);
+  assert.equal(
+    object(failed.partialOutput).bestCandidateRef,
+    object(failed.application).initialCandidateRef,
+  );
+  assert.equal(object(failed.partialOutput).finalValidity, null);
   const before = {
     calls: await f.manager.facts.list('calls'),
     count: f.requests.length,
@@ -464,4 +472,84 @@ test('Manager stops operator search at the shared model budget and releases acqu
       (instance) => instance.status === 'released',
     ),
   );
+});
+
+test('budget failure delivers a materializable incumbent before its final assessment', async (t) => {
+  const f = await setup(t, {
+    markers: ['fixture:latency=8'],
+    budget: { evaluationRuns: 2 },
+  });
+  const id = 'before-final';
+  await assert.rejects(f.manager.run(f.recipePath, { id }), /budget/i);
+  const show = (...args: string[]) =>
+    object(
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            '--import',
+            import.meta.resolve('tsx'),
+            fileURLToPath(
+              new URL('../../src/entries/cli/main.ts', import.meta.url),
+            ),
+            'show',
+            id,
+            ...args,
+          ],
+          {
+            cwd: f.root,
+            encoding: 'utf8',
+            env: { ...process.env, HOME: f.root, USERPROFILE: f.root },
+            timeout: 30000,
+          },
+        ),
+      ),
+    );
+  const record = show();
+  assert.equal(record.status, 'failed');
+  assert.equal(record.budgetMetric, 'evaluationRuns');
+  assert.equal(record.output, undefined);
+  const partial = object(record.partialOutput);
+  assert.equal(partial.finalMeasurementRef, null);
+  assert.equal(partial.finalDecisionRef, null);
+  assert.equal(partial.finalValidity, null);
+  const candidate = await f.manager.facts.read(
+    'candidates',
+    string(partial.bestCandidateRef),
+  );
+  const measurement = await f.manager.facts.read(
+    'measurements',
+    string(partial.bestMeasurementRef),
+  );
+  assert.equal(
+    candidate.parentRef,
+    object(record.application).initialCandidateRef,
+  );
+  assert.equal(measurement.candidateRef, candidate.ref);
+  const exported = join(f.root, 'export');
+  await f.manager.artifacts.materialize(
+    string(candidate.artifactRef),
+    exported,
+  );
+  assert.equal(
+    await readFile(join(exported, 'input.py'), 'utf8'),
+    operatorFixtureSource('fixture:latency=8'),
+  );
+
+  // A killed worker leaves the running experiment fact and the committed journal.
+  const running = { ...record, status: 'running' };
+  for (const field of [
+    'partialOutput',
+    'stopReason',
+    'budgetMetric',
+    'error',
+    'finishedAt',
+  ])
+    Reflect.deleteProperty(running, field);
+  await f.manager.facts.write('experiments', id, running);
+  assert.deepEqual(show('--checkpoint'), {
+    ...running,
+    partialOutput: partial,
+  });
+  assert.deepEqual(await f.manager.get(id), running);
 });

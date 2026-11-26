@@ -193,13 +193,17 @@ export function partialPolicyOutput(
   options: PolicyInputs,
   checkpoint: JsonObject,
   recovery?: PolicyRecovery,
-): JsonValue {
+): JsonValue | undefined {
   const initial = initializePolicy(policy, options, recovery?.initialState);
   const { application, config, input } = initial;
   const identity = recovery?.identity ?? checkpointIdentity(policy, initial);
   const { journal } = readPolicyCheckpoint(checkpoint, identity);
   let state = initial.state;
-  const steps: JsonObject = {};
+  const projection = policy.partialOutput;
+  // Only checkpoint templates can explicitly guard an unfinished top-level step.
+  const steps: JsonObject = projection
+    ? Object.fromEntries(policy.steps.map(({ id }) => [id, { output: null }]))
+    : {};
   for (const [path, raw] of Object.entries(journal)) {
     const record = object(raw);
     state = { ...state, ...object(record.patch) };
@@ -210,13 +214,17 @@ export function partialPolicyOutput(
     }
   }
   validate(policy.stateSchema, state, 'policy.state');
-  const output = evaluateTemplate(policy.output, {
-    application,
-    config,
-    input,
-    state,
-    steps,
-  });
+  const bindings = { application, config, input, state, steps };
+  if (projection) {
+    const ready = evaluateTemplate(projection.when, bindings);
+    if (typeof ready !== 'boolean')
+      throw new Error('partial_output.when must evaluate to a boolean');
+    if (!ready) return undefined;
+    const output = evaluateTemplate(projection.value, bindings);
+    validate(projection.schema, output, 'policy.partial_output');
+    return output;
+  }
+  const output = evaluateTemplate(policy.output, bindings);
   validate(policy.outputSchema, output, 'policy.output');
   return output;
 }

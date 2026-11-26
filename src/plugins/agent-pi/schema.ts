@@ -12,6 +12,7 @@ export type AgentPiConfig = {
   /** Per-model-request timeout in milliseconds. */
   timeoutMs?: number;
   executionTimeoutMs?: number;
+  settings?: { compaction?: { keepRecentTokens?: number } };
 };
 
 export const configDefaults = {
@@ -59,6 +60,23 @@ export const configSchema: JsonSchema = {
       minimum: 0,
       maximum: 300000,
       default: configDefaults.retryBaseDelayMs,
+    },
+    settings: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        compaction: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            keepRecentTokens: {
+              type: 'integer',
+              minimum: 0,
+              maximum: Number.MAX_SAFE_INTEGER,
+            },
+          },
+        },
+      },
     },
     executionTimeoutMs: { type: 'integer', minimum: 1, maximum: 2147483647 },
     timeoutMs: {

@@ -6,6 +6,7 @@ import { projectMarker } from '../shared/agent-editing/project.js';
 import { executablePath } from '../shared/doctor/executable.js';
 import { runCommand } from '../shared/doctor/process.js';
 import { codexCommand } from './executable.js';
+import type { AgentCodexConfig } from './schema.js';
 
 interface CodexDiagnostics {
   executable: string;
@@ -14,7 +15,9 @@ interface CodexDiagnostics {
   supportsNetworkOnly: boolean;
 }
 
-export function checkCodexAgent(context: DoctorContext): DoctorRule[] {
+export function checkCodexAgent(
+  context: DoctorContext<AgentCodexConfig>,
+): DoctorRule[] {
   let command: CodexDiagnostics | undefined;
   let diagnosis: Awaited<ReturnType<typeof runCodexDiagnostics>> | undefined;
   const isExecutableAvailable = async (
@@ -110,7 +113,7 @@ async function inspectCodexExecutable(
 }
 
 async function runCodexDiagnostics(
-  context: DoctorContext,
+  context: DoctorContext<AgentCodexConfig>,
   command: CodexDiagnostics,
   signal: AbortSignal,
 ): Promise<{
@@ -121,13 +124,16 @@ async function runCodexDiagnostics(
     '-c',
     `project_root_markers=[${JSON.stringify(projectMarker)}]`,
   ];
-  for (const [field, key] of [
-    ['model', 'model'],
-    ['thinkingLevel', 'model_reasoning_effort'],
-  ]) {
-    const value = context.binding.config[field];
-    if (value !== undefined)
-      overrides.push('-c', `${key}=${JSON.stringify(string(value))}`);
+  // Runtime-only options may be invalid for the diagnostic subcommand.
+  const options = context.binding.config.options ?? [];
+  for (let index = 0; index < options.length; index++) {
+    const arg = options[index]!;
+    if (arg === '-c' || arg === '--config') {
+      const value = options[++index];
+      if (value !== undefined) overrides.push(arg, value);
+    } else if (arg.startsWith('-c') || arg.startsWith('--config=')) {
+      overrides.push(arg);
+    }
   }
   const reason =
     'Proposal-side Codex doctor completed its native health checks without establishing model-list availability.';

@@ -58,6 +58,11 @@ export class Policy {
   readonly defaults: JsonObject;
   readonly steps: readonly Step[];
   readonly output: Template;
+  readonly partialOutput?: Readonly<{
+    when: Template;
+    value: Template;
+    schema: JsonSchema;
+  }>;
   readonly digest: string;
 
   constructor(value: unknown, options: CompilePolicyOptions = {}) {
@@ -74,6 +79,7 @@ export class Policy {
         'state_schema',
         'state',
         'output_schema',
+        'partial_output',
         'require',
         'defaults',
         'steps',
@@ -169,6 +175,17 @@ export class Policy {
     if (policy.output === undefined)
       throw new Error('policy.output is required');
     this.output = freezeSnapshot(policy.output);
+    if (policy.partial_output !== undefined) {
+      const projection = object(policy.partial_output, 'partial_output');
+      unknownKeys(projection, ['when', 'value', 'schema'], 'partial_output');
+      if (projection.value === undefined)
+        throw new Error('partial_output.value is required');
+      this.partialOutput = freezeSnapshot({
+        when: projection.when === undefined ? true : projection.when,
+        value: projection.value,
+        schema: schema(projection.schema, 'partial_output.schema'),
+      });
+    }
     compileFlow(this);
     this.digest = digest({ policy: this.toJSON(), contracts: requirements });
     Object.freeze(this);
@@ -207,6 +224,7 @@ export class Policy {
       defaults: this.defaults,
       steps: this.steps.map((step) => step.toJSON()),
       output: this.output,
+      ...(this.partialOutput ? { partial_output: this.partialOutput } : {}),
     });
   }
 }

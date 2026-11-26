@@ -182,8 +182,51 @@ export class Manager {
   async list(): Promise<JsonObject[]> {
     return this.facts.list('experiments');
   }
-  async get(id: string): Promise<JsonObject> {
-    return this.facts.read('experiments', id);
+  async get(
+    id: string,
+    options: { checkpoint?: boolean } = {},
+  ): Promise<JsonObject> {
+    const record = await this.facts.read('experiments', id);
+    if (
+      !options.checkpoint ||
+      record.status === 'succeeded' ||
+      record.partialOutput !== undefined
+    )
+      return record;
+    const snapshot = await new PolicyCheckpoints(
+      this.facts,
+      id,
+    ).restoreOrdered();
+    if (!snapshot) return record;
+    const locked = await this.facts.read('definitions', id);
+    assertDefinitionLock(locked);
+    if (object(locked.policy).partial_output === undefined) return record;
+    const policy = new Policy(locked.policy, {
+      sourcePath: string(locked.policySourcePath),
+      contracts: this.options.registry,
+    });
+    const settings = object(object(locked.recipe).policy);
+    const retry = object(locked.retry ?? {});
+    const saved =
+      retry.recovery === undefined ? undefined : object(retry.recovery);
+    const partial = partialPolicyOutput(
+      policy,
+      {
+        input: object(settings.input),
+        config: object(settings.config),
+        application: {
+          initialCandidate: object(record.application).initialCandidateRef,
+        },
+      },
+      snapshot,
+      saved && {
+        identity: string(saved.identity),
+        initialState: object(saved.initialState),
+      },
+    );
+    return partial === undefined
+      ? record
+      : { ...record, partialOutput: partial };
   }
   /** Saved revisions remain inspectable independently of an experiment's lifetime. */
   reflection(): RevisionApplication {
@@ -1040,7 +1083,7 @@ export class Manager {
             ? 'cancelled'
             : 'failed';
       let partialOutput: JsonValue | undefined;
-      if (budgetMetric !== undefined) {
+      if (budgetMetric !== undefined || recipe.policy.partialOutput) {
         try {
           const snapshot = await new PolicyCheckpoints(
             this.facts,
@@ -1061,6 +1104,8 @@ export class Manager {
           diagnose('rsi/partial-policy-output', projectionError);
         }
       }
+      // A retry may have stopped before it could confirm the prior attempt's projection.
+      if (recipe.policy.partialOutput) delete previous.partialOutput;
       await cleanup.markPending();
       terminalSaveAttempted = true;
       await this.facts.write('experiments', id, {

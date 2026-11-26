@@ -1,8 +1,9 @@
 import type { JsonSchema } from '../../contracts/index.js';
+import { nativeOptionsSchema } from '../shared/native-agent/options.js';
 
 export type AgentOpenCodeConfig = {
   executable?: string;
-  model?: string;
+  options?: string[];
   timeoutMs?: number;
 };
 
@@ -11,7 +12,29 @@ export const configSchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     executable: { type: 'string', minLength: 1, default: 'opencode' },
+    options: nativeOptionsSchema(
+      [
+        '-',
+        '--',
+        '-h',
+        '--help',
+        '-V',
+        '--version',
+        '--standalone',
+        '--no-standalone',
+        '--server',
+        '--format',
+        '--archived',
+        '--no-archived',
+        '--wizard',
+        '--completions',
+        '-v',
+      ],
+      [
+        // The Effect CLI parses each short option before an attached value.
+        '-[^-=][^=]*[hVv]',
+      ],
+    ),
     timeoutMs: { type: 'integer', minimum: 1, maximum: 2147483647 },
-    model: { type: 'string', minLength: 1, pattern: '\\S' },
   },
 };

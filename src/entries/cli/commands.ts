@@ -107,8 +107,12 @@ export async function runCommand(
   program
     .command('show <experiment-id>')
     .description('Show an experiment')
-    .action((id: string, _options: unknown, command: Command) =>
-      runJson(command, ({ manager }) => manager.get(id)),
+    .option(
+      '--checkpoint',
+      'Read committed partial output if the process did not save a terminal result',
+    )
+    .action((id: string, options: { checkpoint?: boolean }, command: Command) =>
+      runJson(command, ({ manager }) => manager.get(id, options)),
     );
   program
     .command('cancel <experiment-id>')

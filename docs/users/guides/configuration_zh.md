@@ -117,6 +117,14 @@ bindings:
 - `timeoutMs` 限制每次模型请求，省略 `timeoutMs` 时底层 HTTP 客户端使用十分钟请求超时。两个字段都接受 1 到 2,147,483,647 的整数毫秒。
 - `executionTimeoutMs` 限制整个 Agent 调用，包括模型请求、工具、输出纠正、上下文压缩、重试等待和等待中的子 Agent，不会在每次请求后重置。
 
+在 `bindings.agent.config` 下设置 `settings.compaction.keepRecentTokens`，可调整 Pi 压缩上下文时保留的近期内容的近似 token 数。该设置接受非负安全整数，省略时使用 SDK 的默认值 20,000。
+
+```yaml
+settings:
+  compaction:
+    keepRecentTokens: 12000
+```
+
 ### 原生 CLI 后端
 
 - **用户负责准备环境**：安装或更新所选 CLI，并在 Recipe 中选择对应的 Agent 后端。使用启动 RSI 的同一系统用户完成 CLI 登录或模型服务配置，再通过 CLI 确认模型可用。已有配置可直接沿用，无需在 Recipe 中重复填写 API 地址和密钥。
@@ -140,15 +148,25 @@ bindings:
     config: {}
 ```
 
-`config: {}` 使用原生默认模型。需要为本次实验调整时，可使用以下可选项：
+`config: {}` 使用原生默认模型。四个后端都支持 `executable` 指定 CLI 路径、`timeoutMs` 设置单次 Agent 任务的毫秒期限，以及 `options` 传入额外的原生 CLI 参数。`options` 的每一项都是一个字符串参数，包含空格的参数值也写在同一项里。RSI 按原顺序直接传给 CLI，shell 不参与展开。CLI 以 Agent 工作目录为基准解析参数中的相对路径。
 
-| 后端 | 可选设置 |
+Codex 接收 `codex app-server --help` 列出的参数。RSI 将 Claude Code 参数用于打印模式，将 DSH 参数放在读取标准输入的任务标记 `-` 前，并将 OpenCode 参数传给独立实例的 `run` 命令。
+
+| 后端 | 模型与推理配置写法 |
 | --- | --- |
-| 全部 | `executable`：CLI 完整路径；`timeoutMs`：单次 Agent 任务的毫秒期限 |
-| Codex | `model`、`thinkingLevel` |
-| Claude Code | `model`、`effort` |
-| DSH | 模型在原生 headless profile 中配置 |
-| OpenCode | `model`：`provider/model`，可追加 `#variant` |
+| Codex | `options: ["-c", 'model="your-model"', "-c", 'model_reasoning_effort="high"']` |
+| Claude Code | `options: ["--model", "sonnet", "--effort", "low"]` |
+| DSH | 在原生 headless profile 中设置模型。例如，`options: ["--session-id", "existing-session-id"]` 可选用该 profile 已保存的会话。 |
+| OpenCode V2 | `options: ["--model", "provider/model#variant"]`，其中 `#variant` 后缀可省略。 |
+
+RSI 保留共有的 `-`、`--`、`-h`、`--help`、`-V` 和 `--version`。下列后端专用参数也由 RSI 管理。无论参数和值分开填写，还是写成 `--flag=value`，Recipe 校验都会拒绝保留参数。Claude Code 的保留短参数也不能通过 `-cv` 等组合写法传入。
+
+| 后端 | 保留的协议参数 |
+| --- | --- |
+| Codex | `--listen`、`--stdio`、`--print-startup-config`、`--startup-sign-out`，以及 `daemon`、`proxy`、`generate-ts`、`generate-json-schema`、`generate-internal-json-schema` 和 `help` 子命令。配置覆盖中保留 `approval_policy`、`project_root_markers`、`sandbox_workspace_write.network_access`、`features.multi_agent`、`agents.max_depth` 和 `agents.<role>.config_file`，也保留对 `sandbox_workspace_write`、`features` 和 `agents` 整张表的赋值。`--enable` 和 `--disable` 也保留 `multi_agent`。 |
+| Claude Code | `-p` / `--print`、`--input-format`、`--output-format`、`--verbose`、`--no-session-persistence`、`--forward-subagent-text`、`--json-schema`、`-v`。 |
+| DSH | `--profile`、`--from-default-profile`、`--patch`、`--json`、`--dump-config`、`--dump-config-schema`、`--dump-default-config`。 |
+| OpenCode V2 | `--standalone` / `--no-standalone`、`--server`、`--format`、`--archived` / `--no-archived`、`--wizard`、`--completions`、`-v`。帮助和版本选项也不能通过短参数组合传入。 |
 
 RSI 保留原生模型和认证配置，在应用提案前会校验所提交的编辑。Claude Code 的 Hooks 和 MCP 在 RSI 调用中禁用。
 
@@ -222,6 +240,8 @@ Evaluator 绑定仍要求 `contract.inferencebench`，selector 要求
 ## 限制与预算
 
 实验预算耗尽时，Runtime 会记录 `stopReason: budget-exhausted`，并用 `budgetMetric` 标明触及的上限。使用 `arsi show <experiment-id>` 查看记录。如果能用最近一次已保存的检查点计算并验证 Policy 输出，记录还会包含 `partialOutput`。对于 `policy.parameter-agent`，部分结果会保留已有的当前最优候选和测量，即使 `candidateFeasible` 为 false。实际停止原因以实验记录顶层的 `stopReason` 为准。
+
+声明 `partial_output` 的策略在运行错误或取消得到处理时也会保存部分结果。算子搜索返回的 `bestCandidateRef` 和 `bestMeasurementRef` 指向已确认的最佳候选及其测量。`finalMeasurementRef` 或 `finalDecisionRef` 为 null 表示对应的最终步骤尚无已提交结果。如果进程退出前未能保存终态，使用 `arsi show <experiment-id> --checkpoint` 可以只读查询已提交的检查点，实验状态和执行进度保持不变。
 
 Recipe 中省略的绑定配置会先继承 Policy 默认值。下表的“缺省时”指对应配置最终仍未设置该项的情况；其他层的限制仍可能生效。
 

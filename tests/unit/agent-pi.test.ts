@@ -12,6 +12,7 @@ import type { AgentPiConfig } from '../../src/plugins/agent-pi/schema.js';
 
 import { readAgentRecords } from '../../src/runtime/storage/agent-records.js';
 import { Registry } from '../../src/runtime/registry/index.js';
+import { validate } from '../../src/shared/schema.js';
 
 interface Reply {
   contextTokens?: number;
@@ -439,11 +440,20 @@ test('Pi rejects invalid settings at creation before resolving credentials or in
       { maxTokens: 262145 },
       { retryBaseDelayMs: -1 },
       { retryBaseDelayMs: 300001 },
+      { settings: { compaction: { keepRecentTokens: -1 } } },
+      { settings: { compaction: { keepRecentTokens: 1.5 } } },
+      {
+        settings: {
+          compaction: { keepRecentTokens: Number.MAX_SAFE_INTEGER + 1 },
+        },
+      },
+      { settings: { compaction: { reserveTokens: 200 } } },
+      { settings: { retries: 2 } },
     ];
     for (const invalid of invalidConfigs) {
       await assert.rejects(
         f.definition.create(invalid, f.services),
-        /thinkingLevel|bashMode|contextWindow|retries|retryBaseDelayMs|maxTokens|api_key|additional properties/,
+        /thinkingLevel|bashMode|contextWindow|retries|retryBaseDelayMs|maxTokens|api_key|keepRecentTokens|additional properties/,
       );
     }
     assert.equal(f.requests.length, 0);
@@ -666,6 +676,27 @@ test('Pi compacts a completed conversation without an RSI correction call', asyn
       JSON.stringify(f.requests[2]),
       /context summarization assistant/,
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test('Pi retains recent conversation within the configured compaction token target', async () => {
+  const config = { settings: { compaction: { keepRecentTokens: 100000 } } };
+  validate(piDefinition.configSchema, structuredClone(config));
+  const result = { ok: true, findings: 'x'.repeat(90000) };
+  const f = await modelFixture(
+    [
+      { read: true },
+      { content: JSON.stringify(result), contextTokens: 260000 },
+      { content: 'Unexpected compaction.' },
+    ],
+    config,
+  );
+  try {
+    assert.deepEqual(await f.execute(join(f.directory, 'workspace')), result);
+    assert.equal(f.requests.length, 2);
+    assert.deepEqual(f.charges, [1, 1]);
   } finally {
     await f.close();
   }

@@ -12,6 +12,7 @@ export function compileFlow(policy: {
   stateSchema: JsonSchema;
   steps: readonly Step[];
   output: Template;
+  partialOutput?: { when: Template; value: Template };
   requirements: Readonly<Record<string, PluginContract>>;
   defaults: JsonObject;
 }): void {
@@ -36,7 +37,7 @@ export function compileFlow(policy: {
     scope: Scope,
     label: string,
     output?: Template,
-  ): void {
+  ): Scope {
     const completed = new Set<string>();
     const local = {
       ...scope,
@@ -76,6 +77,11 @@ export function compileFlow(policy: {
     }
     if (output !== undefined)
       validateTemplate(output, local, `${label}.output`);
+    return local;
   }
-  visit(policy.steps, base, 'steps', policy.output);
+  const scope = visit(policy.steps, base, 'steps', policy.output);
+  if (policy.partialOutput) {
+    validateTemplate(policy.partialOutput.when, scope, 'partial_output.when');
+    validateTemplate(policy.partialOutput.value, scope, 'partial_output.value');
+  }
 }

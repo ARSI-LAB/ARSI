@@ -26,7 +26,18 @@ export const configSchema: JsonSchema = {
   properties: {
     executable: { type: 'string', minLength: 1, default: 'codex' },
     options: nativeOptionsSchema(
-      ['--listen', '--stdio', '--print-startup-config', '--startup-sign-out'],
+      [
+        '-',
+        '--',
+        '-h',
+        '--help',
+        '-V',
+        '--version',
+        '--listen',
+        '--stdio',
+        '--print-startup-config',
+        '--startup-sign-out',
+      ],
       [
         `(?:(?:-c=?|--config=)\\s*)?\\s*(?:${reservedOverrides.join('|')})\\s*=`,
         '(?:(?:--enable|--disable)=)?multi_agent$',

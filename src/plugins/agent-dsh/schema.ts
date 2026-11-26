@@ -13,6 +13,12 @@ export const configSchema: JsonSchema = {
   properties: {
     executable: { type: 'string', minLength: 1, default: 'dsh' },
     options: nativeOptionsSchema([
+      '-',
+      '--',
+      '-h',
+      '--help',
+      '-V',
+      '--version',
       '--profile',
       '--from-default-profile',
       '--patch',

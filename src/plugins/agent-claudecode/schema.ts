@@ -14,6 +14,12 @@ export const configSchema: JsonSchema = {
     executable: { type: 'string', minLength: 1, default: 'claude' },
     options: nativeOptionsSchema(
       [
+        '-',
+        '--',
+        '-h',
+        '--help',
+        '-V',
+        '--version',
         '-p',
         '--print',
         '--input-format',

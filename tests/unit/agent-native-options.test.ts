@@ -1,9 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentContract } from '../../src/contracts/index.js';
+import { nativeOptionsSchema } from '../../src/plugins/shared/native-agent/options.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { Binding } from '../../src/runtime/loaders/binding.js';
 import { Registry } from '../../src/runtime/registry/index.js';
+import { validate } from '../../src/shared/schema.js';
+
+const sharedProtocolTokens = ['-', '--', '-h', '--help', '-V', '--version'];
+
+test('native option schemas reserve only tokens supplied by the caller', () => {
+  validate(nativeOptionsSchema([]), [...sharedProtocolTokens, '', '=']);
+});
 
 test('native Agent bindings accept argv and reject reserved options and removed fields', async (t) => {
   const registry = new Registry();
@@ -68,7 +76,12 @@ test('native Agent bindings accept argv and reject reserved options and removed 
   ] as const) {
     const plugin = `agent.${backend}`;
     assert.deepEqual(resolve(plugin, { options }).config.options, options);
-    for (const forbidden of [...rejected, ['--'], ['--help'], ['a\0b'], [1]]) {
+    for (const forbidden of [
+      ...rejected,
+      ...sharedProtocolTokens.map((token) => [token]),
+      ['a\0b'],
+      [1],
+    ]) {
       assert.throws(
         () => resolve(plugin, { options: forbidden }),
         /config.*options/,

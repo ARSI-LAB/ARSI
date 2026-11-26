@@ -14,6 +14,12 @@ export const configSchema: JsonSchema = {
     executable: { type: 'string', minLength: 1, default: 'opencode' },
     options: nativeOptionsSchema(
       [
+        '-',
+        '--',
+        '-h',
+        '--help',
+        '-V',
+        '--version',
         '--standalone',
         '--no-standalone',
         '--server',

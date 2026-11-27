@@ -77,7 +77,9 @@ test('HTTP exposes catalog and rejects cross-origin mutation before dispatch', a
         runs++;
         return { status: 'succeeded' };
       },
-      cancel: async () => {},
+      cancel: async () => {
+        throw new Error('Experiment is not running');
+      },
     },
     registry: {
       catalog: () => ({ plugins: ['agent.pi'], policies: ['policy.harness2'] }),
@@ -95,6 +97,12 @@ test('HTTP exposes catalog and rejects cross-origin mutation before dispatch', a
     });
     assert.equal(rejected.statusCode, 403);
     assert.equal(runs, 0);
+    const inactive = await server.inject({
+      method: 'POST',
+      url: '/api/experiments/stopped/cancel',
+    });
+    assert.equal(inactive.statusCode, 400);
+    assert.deepEqual(inactive.json(), { error: 'Experiment is not running' });
     const unknown = await server.inject({
       method: 'POST',
       url: '/api/experiments',

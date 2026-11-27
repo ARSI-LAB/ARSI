@@ -10,7 +10,7 @@ import { parseFileTree } from '../../../contracts/models/file-tree.js';
 import { validateMeasurement } from '../../../contracts/models/measurement.js';
 import { canonical, digest, object, string } from '../../../shared/json.js';
 import { parseConfig, validate } from '../../../shared/schema.js';
-import { kernelBundleDigest } from '../../application-kernel/schema.js';
+import { kernelBundleDigest } from '../kernel-execution.js';
 import {
   canModifyTargetFile,
   parseTarget,

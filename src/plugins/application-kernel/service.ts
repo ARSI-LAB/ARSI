@@ -12,7 +12,8 @@ import {
 } from '../shared/file-application/files.js';
 import { string } from '../../shared/json.js';
 import { scanTree } from '../shared/file-application/target.js';
-import { kernelSourcePath, type KernelApplicationConfig } from './schema.js';
+import type { KernelApplicationConfig } from './schema.js';
+import { kernelSourcePath } from '../shared/kernel-execution.js';
 import { checkKernelApplication } from './doctor.js';
 
 export const createApplicationKernel: OperationDefinition<

@@ -185,16 +185,14 @@ export async function createServer(
       },
     },
     async (request) => {
-      runtime.manager.cancel(request.params.id);
+      await runtime.manager.cancel(request.params.id);
       return { id: request.params.id, cancellationRequested: true };
     },
   );
   app.addHook('onClose', async () => {
-    for (const id of jobs.keys())
-      try {
-        runtime.manager.cancel(id);
-      } catch {}
-    await Promise.allSettled(jobs.values());
+    const running = [...jobs];
+    await Promise.allSettled(running.map(([id]) => runtime.manager.cancel(id)));
+    await Promise.allSettled(running.map(([, job]) => job));
   });
   const publicDirectory = fileURLToPath(new URL('./public/', import.meta.url));
   try {

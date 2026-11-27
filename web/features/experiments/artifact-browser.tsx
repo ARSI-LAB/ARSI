@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useRevealSelection } from '../../hooks/use-reveal-selection';
+import React, { useState } from 'react';
 import { parseArtifact, type JsonPreview } from '../../api/observation-client';
 import { route } from '../../app/routing';
 import { useRoute, replaceRouteSelection } from '../../app/use-route';
@@ -91,14 +92,10 @@ export function ArtifactBrowser({
     parseArtifact,
     null,
   );
-  const preview = useRef<HTMLElement>(null);
-  const kind = metadata.data?.kind;
-  useEffect(() => {
-    if (file && kind === 'file-tree') {
-      preview.current?.focus({ preventScroll: true });
-      preview.current?.scrollIntoView({ block: 'nearest' });
-    }
-  }, [file, kind]);
+  const preview = useRevealSelection(
+    metadata.data?.kind === 'file-tree' ? file : undefined,
+    { focus: true, scroll: 'nearest' },
+  );
   const currentDirectory = directory ?? (file ? parentDirectory(file) : '');
   const location = useRoute();
   const search = location.fileSearch ?? '';

@@ -4,7 +4,7 @@ import {
   type RuntimeEvolutionEvidenceView,
 } from '../../../contracts/runtime-evolution.js';
 import { canonical, object } from '../../../shared/json.js';
-import { prepareDocumentPreviews } from '../../reflection-agent/document-previews.js';
+import { prepareDocumentPreviews } from './document-previews.js';
 import type { ReadOnlyEditContext } from './index.js';
 
 export async function evolutionContext(

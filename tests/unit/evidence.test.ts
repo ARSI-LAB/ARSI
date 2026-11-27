@@ -1,13 +1,11 @@
+import { fullEvidenceText } from '../../src/shared/evidence-redaction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileArtifacts } from '../../src/runtime/storage/index.js';
-import {
-  fullEvidenceText,
-  projectEvidence,
-} from '../../src/runtime/services/facts/evidence.js';
+import { projectEvidence } from '../../src/runtime/services/facts/evidence.js';
 import type { JsonValue } from '../../src/contracts/index.js';
 import { projectEvidenceFiles } from '../../src/runtime/services/facts/evidence-files.js';
 import { object } from '../../src/shared/json.js';

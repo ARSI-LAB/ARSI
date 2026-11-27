@@ -29,7 +29,7 @@ import {
   type OperatorProposerInput,
 } from '../../src/contracts/index.js';
 import { object, string } from '../../src/shared/json.js';
-import { parseKernelExecution } from '../../src/plugins/application-kernel/schema.js';
+import { parseKernelExecution } from '../../src/plugins/shared/kernel-execution.js';
 import { loadOperatorTask } from '../../src/plugins/shared/operator-task.js';
 import { prepareOperatorCase } from '../../src/plugins/evaluator-operatorbench/kernel-input.js';
 import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';
@@ -962,6 +962,7 @@ test('operator summary model failure preserves completed effects and retries the
 });
 
 test('metric Proposer executes two rounds with measured diagnostics, current best parents and delivered hardware/history', async (t) => {
+  if (sdkProfileArtifactSkip) return t.skip(sdkProfileArtifactSkip);
   const hardwareText =
     '# User hardware\r\nOnly these provided facts are allowed.  \r\n';
   const fixture = await setup(

@@ -1,3 +1,4 @@
+import { useRevealSelection } from '../../hooks/use-reveal-selection';
 import { HarnessCandidates } from './harness-candidates';
 import { useCallRecords, useRoundLabels } from './round-labels';
 import React from 'react';
@@ -40,19 +41,12 @@ export function Candidates({
     parseCandidates,
   );
   const location = useRoute();
-  const detailPanel = React.useRef<HTMLElement>(null);
   const listPanel = React.useRef<HTMLDivElement>(null);
-  const lastCell = React.useRef(location.candidateCell ?? selected);
-  React.useEffect(() => {
-    if (
-      lastCell.current !== (location.candidateCell ?? selected) &&
-      (location.candidateCell ?? selected) &&
-      window.matchMedia('(max-width: 1199px)').matches
-    ) {
-      detailPanel.current?.scrollIntoView({ block: 'start' });
-    }
-    lastCell.current = location.candidateCell ?? selected;
-  }, [location.candidateCell, selected]);
+  const detailPanel = useRevealSelection(location.candidateCell ?? selected, {
+    onChangeOnly: true,
+    media: '(max-width: 1199px)',
+    scroll: 'start',
+  });
   const fullFiles =
     location.content === 'files' || (!!file && location.content !== 'changes');
   const search = location.search ?? '',

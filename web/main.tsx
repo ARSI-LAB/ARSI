@@ -1,6 +1,10 @@
 import { createRoot } from 'react-dom/client';
+import { rememberView } from './app/view-memory';
 import { App } from './app/app';
 import './styles/index.css';
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing application root');
+const recordLocation = (): void => rememberView(window.location.hash);
+recordLocation();
+window.addEventListener('hashchange', recordLocation);
 createRoot(root).render(<App />);

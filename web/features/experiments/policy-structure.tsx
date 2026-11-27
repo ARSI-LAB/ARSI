@@ -24,7 +24,8 @@ import {
   revealPolicyStep,
   type PolicyLayout,
 } from './policy-layout';
-import { PolicyViewport, type PolicyViewportState } from './policy-viewport';
+import type { PolicyViewportState } from '../../hooks/use-canvas-viewport';
+import { PolicyViewport } from './policy-viewport';
 import { PolicyWorkspace } from './policy-workspace';
 
 type View = 'flow' | 'data';

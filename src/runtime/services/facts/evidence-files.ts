@@ -1,3 +1,7 @@
+import {
+  evidenceRecordContent,
+  fullEvidenceText,
+} from '../../../shared/evidence-redaction.js';
 import type {
   ArtifactStore,
   JsonObject,
@@ -7,8 +11,6 @@ import { parseFileTree } from '../../../contracts/index.js';
 import { object, string } from '../../../shared/json.js';
 import { secretValues } from '../../../shared/secrets.js';
 import {
-  evidenceRecordContent,
-  fullEvidenceText,
   projectMeasurementTrainingFeedback,
   type EvidenceView,
 } from './evidence.js';

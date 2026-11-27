@@ -1,19 +1,13 @@
+import { usePolling } from '../hooks/use-polling';
+import { useResponsiveSidebar } from '../hooks/use-responsive-sidebar';
+import { useRevealSelection } from '../hooks/use-reveal-selection';
 import {
   connectionSnapshot,
   subscribeConnection,
   retryConnection,
-  subscribeRetry,
 } from '../api/connection-state';
-import React, {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
-import {
-  readObservationSource,
-  type ObservationSource,
-} from '../api/observation-client';
+import React, { useSyncExternalStore } from 'react';
+import { readObservationSource } from '../api/observation-client';
 import ARsiLogo from '../../docs/users/assets/arsi-logo.png';
 import { useRoute } from './use-route';
 import { viewRoute } from './view-memory';
@@ -32,52 +26,22 @@ export function WorkspaceLayout({
     subscribeConnection,
     connectionSnapshot,
   );
-  const [narrow, setNarrow] = useState(() => window.innerWidth <= 760);
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 760);
-  const sidebar = useRef<HTMLElement>(null);
-  const toggle = useRef<HTMLButtonElement>(null);
-  const closeNavigation = (): void => {
-    setSidebarOpen(false);
-    requestAnimationFrame(() => toggle.current?.focus());
-  };
-  useEffect(() => {
-    const media = window.matchMedia('(max-width: 760px)');
-    const update = (): void => {
-      setNarrow(media.matches);
-      setSidebarOpen(!media.matches);
-    };
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, []);
-  useEffect(() => {
-    if (!narrow || !sidebarOpen) return;
-    sidebar.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = overflow;
-    };
-  }, [narrow, sidebarOpen]);
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeRetry(() => setRevision((value) => value + 1)), []);
-  const main = useRef<HTMLElement>(null);
-  const [source, setSource] = useState<ObservationSource | null>(null);
-  const [sourceError, setSourceError] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    readObservationSource(controller.signal).then(
-      (value) => {
-        if (!controller.signal.aborted) setSource(value);
-      },
-      () => {
-        if (!controller.signal.aborted) setSourceError(true);
-      },
-    );
-    return () => controller.abort();
-  }, [revision]);
-  useEffect(() => {
-    main.current?.focus();
-  }, [routeKey]);
+  const {
+    narrow,
+    sidebarOpen,
+    sidebar,
+    toggle,
+    closeNavigation,
+    setSidebarOpen,
+  } = useResponsiveSidebar();
+  const main = useRevealSelection(routeKey, { focus: true });
+  const { data: source, error: sourceError } = usePolling(
+    'source',
+    readObservationSource,
+    null,
+    null,
+    0,
+  );
   return (
     <div className={`studio-shell ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
       <a

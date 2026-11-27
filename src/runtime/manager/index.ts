@@ -1107,7 +1107,12 @@ export class Manager {
       };
       try {
         previous = await this.get(id);
-      } catch {}
+      } catch (recordError) {
+        logger.debug('Building terminal record from initialization data', {
+          experimentId: id,
+          error: recordError,
+        });
+      }
       const status =
         failureCause !== undefined || budgetMetric !== undefined
           ? 'failed'

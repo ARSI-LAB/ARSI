@@ -1,3 +1,4 @@
+import { executionEvidenceValue } from '../../shared/evidence-redaction.js';
 import type {
   ArtifactStore,
   FactStore,
@@ -16,10 +17,7 @@ import {
   type Measurement,
 } from '../../contracts/models/measurement.js';
 import type { Registry } from '../registry/index.js';
-import {
-  executionEvidenceValue,
-  projectEvidence,
-} from '../services/facts/evidence.js';
+import { projectEvidence } from '../services/facts/evidence.js';
 import { projectEvidenceFiles } from '../services/facts/evidence-files.js';
 
 /** Owns candidate and measurement facts and authorizes their evidence views. */

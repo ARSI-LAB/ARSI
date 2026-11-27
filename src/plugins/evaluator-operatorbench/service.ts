@@ -11,7 +11,7 @@ import type {
 import {
   kernelBundleDigest,
   parseKernelExecution,
-} from '../application-kernel/schema.js';
+} from '../shared/kernel-execution.js';
 import type {
   OperatorbenchInput,
   OperatorbenchOutput,
@@ -65,7 +65,7 @@ export async function createOperatorbench(
     '../shared/operator-task',
     '../shared/evaluator-adapter/configuration',
     '../shared/evaluator-adapter/data',
-    '../application-kernel/schema',
+    '../shared/kernel-execution',
     '../../shared/paths',
   ]);
   const sdkBuildDigest = await sdkBuildIdentity();

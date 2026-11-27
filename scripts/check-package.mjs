@@ -716,7 +716,7 @@ try {
  for(const directory of ['knowledge','python','prompts'])await assert.rejects(stat(resolve(operatorDirectory,directory)),{code:'ENOENT'});
  assert.deepEqual(runtime.registry.get('proposer.operator').contract,operatorProposerContract);
  assert.deepEqual(runtime.registry.get('summarizer.operator').contract,operatorSummarizerContract);
- const {prepareDocumentPreviews}=await import(new URL('plugins/reflection-agent/document-previews.js',installed));
+ const {prepareDocumentPreviews}=await import(new URL('plugins/shared/agent-editing/document-previews.js',installed));
  const require=createRequire(await realpath(fileURLToPath(new URL('./node_modules/arsi/package.json',import.meta.url))));
  const ExcelJS=require('exceljs');
  const workbook=new ExcelJS.Workbook();workbook.addWorksheet('Consumer').getCell('A1').value={formula:'1+1',result:2};

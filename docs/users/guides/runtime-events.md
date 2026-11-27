@@ -75,7 +75,7 @@ The Manager dispatches `rsi/before-agent-invoke` as a `waterfall` when a plugin 
 | `callerBindingId` | `string` | Binding requesting Agent execution. |
 | `callerDirectory` | `string` | Execution directory owned by the caller. |
 | `agentRef` | `string` | Selected Agent binding. |
-| `input` | `Readonly<AgentInput>` | Deeply frozen request snapshot with task text in `message`, `cwd`, `outputSchema`, and optional `role`. |
+| `input` | `Readonly<AgentInput>` | Deeply frozen request snapshot with `message`, `cwd`, `outputSchema`, and optional `role`. |
 
 ### Agent conversation observation
 
@@ -187,7 +187,7 @@ factoryCtx.event.on('rsi/before-call', async (event, next) => {
 
 For `rsi/before-call`, the default decision is `{ kind: 'proceed' }`. A successful decision accepts optional `metadata` for the call receipt. Both call admission hooks accept `{ kind: 'reject', reason }` with a nonempty reason.
 
-For `rsi/before-agent-invoke`, the default decision includes a separate copy of the input. To change the Agent request, return the updated `input` in a `proceed` decision. Calling `await next()` lets a binding inspect and transform the request after Memory preparation. When both hooks supply the same receipt metadata key, the final Agent preparation result takes precedence. This listener keeps downstream changes, adds a sentence to `input.message`, and tags requests from the `proposer` binding.
+For `rsi/before-agent-invoke`, the default decision includes a separate copy of the input. To change the Agent request, return the updated `input` in a `proceed` decision. Calling `await next()` lets a binding inspect and transform the request after Memory preparation. When both hooks supply the same receipt metadata key, the final Agent preparation result takes precedence. This listener keeps downstream changes and adds an audit tag to requests from the `proposer` binding.
 
 ```ts
 factoryCtx.event.on('rsi/before-agent-invoke', async (event, next) => {
@@ -197,10 +197,6 @@ factoryCtx.event.on('rsi/before-agent-invoke', async (event, next) => {
   }
   return {
     ...decision,
-    input: {
-      ...decision.input,
-      message: `${decision.input.message}\n\nReview the evidence before proposing changes.`,
-    },
     metadata: { ...decision.metadata, requestedBy: 'proposer' },
   };
 });

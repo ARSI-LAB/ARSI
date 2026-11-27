@@ -190,66 +190,7 @@ arsi run path/to/recipe.yaml
 
 使用源码仓库时，将 `arsi` 换为 `pnpm arsi`。如果找不到原生 CLI，重新打开终端，或在绑定的 `config` 中用 `executable` 指定 CLI 完整路径。
 
-原生 CLI 后端可加 `timeoutMs: 180000`，将每次 Agent 任务限制为 3 分钟；省略则不设此期限。它们不支持用 `budget.modelCalls` 限制模型请求次数。Agent 返回修改建议，由 RSI 检查并应用；提示词和 Skills 在 Proposer 等调用组件中配置。
-
-### Agent 任务正文
-
-发起 Agent 调用的插件提供默认任务正文。需要自定义时，在调用方的绑定中配置 `messageTemplates`，每项填写本地 Markdown 文件路径，相对于声明它的 Recipe 或 Policy 文件解析。RSI 优先使用当前阶段的模板，其次使用绑定的 `default`，最后使用插件内置正文。现有的 `prompt`、`promptFile` 和 `promptsDirectory` 文件提供独立的项目指令。
-
-下面的配置覆盖 `proposer.operator` 绑定的性能优化生成阶段。
-
-```yaml
-bindings:
-  proposer:
-    config:
-      messageTemplates:
-        generate-metrics: ./templates/operator-generate-metrics.md
-```
-
-模板文件 `operator-generate-metrics.md` 可以这样写。
-
-```markdown
-Propose an optimization for round {{round}}.
-
-Use this objective.
-
-{{goal}}
-
-Review the current diagnosis before editing.
-
-{{diagnosisSummary}}
-
-Read the entry source at `{{sourcePath}}` and the stage inputs at `{{inputPath}}`.
-```
-
-在 [Memory](memory_zh.md) 或 [Reflection](reflection_zh.md) 模块配置文件中，使用 `implementation.config.messageTemplates.default`，路径相对于该模块配置文件解析。
-
-用 `{{variable}}` 插入本次调用的值。变量名区分大小写。每个占位符只替换一次，其余文字原样保留。`default` 模板可用通用变量，阶段模板还可用该阶段的专有变量。空模板、格式不正确的占位符、未知阶段和未知变量都会报错。
-
-| 插件                               | 通用变量                                                                    |
-| ---------------------------------- | --------------------------------------------------------------------------- |
-| `proposer.agent`                   | `goal`、`inputPath`、`evidencePath`、`proposalLimit`                        |
-| `selector.artifact`                | `rubric`、`candidateCount`、`candidatesPath`                                |
-| `memory.agent`、`reflection.agent` | `goal`、`inputPath`、`evidenceView`、`evidenceIndexPath`                    |
-| `proposer.operator`                | `goal`、`inputPath`、`sourcePath`、`taskDir`                                |
-| `summarizer.operator`              | `goal`、`inputPath`、`sourcePath`、`outcome`、`actionSummary`、`baselineMs` |
-
-| 插件                  | 阶段键              | 专有变量                                       |
-| --------------------- | ------------------- | ---------------------------------------------- |
-| `proposer.operator`   | `diagnose`          | `attempt`、`baselineMs`                        |
-| `proposer.operator`   | `diagnose-metrics`  | `round`                                        |
-| `proposer.operator`   | `generate`          | `attempt`、`diagnosisSummary`、`editablePaths` |
-| `proposer.operator`   | `generate-metrics`  | `round`、`diagnosisSummary`、`editablePaths`   |
-| `proposer.operator`   | `repair`            | `attempt`、`repairIndex`、`editablePaths`      |
-| `proposer.operator`   | `repair-metrics`    | `round`、`repairIndex`、`editablePaths`        |
-| `summarizer.operator` | `summarize`         | `attempt`                                      |
-| `summarizer.operator` | `summarize-metrics` | `round`                                        |
-
-路径变量指向 Agent 工作目录中的资源。单候选请求的 `proposalLimit` 为 `1`。本次调用的源码快照、性能分析数据和证据通过这些文件读取。
-
-RSI 向五种后端逐字提交渲染后的正文。调用插件单独提供输出 Schema。Codex 和 Claude Code 通过原生参数接收 Schema。Pi、DSH 和 OpenCode 在系统或项目指令中接收完整 Schema。Runtime 使用同一份 Schema 校验回复。
-
-DSH 的 `--session-id` 要求会话使用同一个准备目录。RSI 为给定项目和输出 Schema 生成稳定的执行目录。升级后，请为使用旧执行目录的任务启动新的 DSH 会话。
+原生 CLI 后端可加 `timeoutMs: 180000`，将每次 Agent 任务限制为 3 分钟；省略则不设此期限。它们不支持用 `budget.modelCalls` 限制模型请求次数。Agent 返回修改建议，由 RSI 检查并应用。项目指令、任务正文模板（`messageTemplates`）和 Skills 在 Proposer 等调用组件中配置。
 
 ## 推理优化
 

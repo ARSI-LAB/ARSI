@@ -319,8 +319,6 @@ Runtime passes `context` to `create` and every `execute` call. Plugins use it to
 
 Inside `execute`, build the managed workspace with `prepareAgentProject` from `arsi`. Put instructions in the second argument and authorized text files in the third. The last two arguments accept skill directories and role definitions. Prepare a workspace for each independent call. Use distinct project content for independent calls from the same plugin execution when they must not share local edits.
 
-Pass the complete task text in `AgentInput.message`. A business input such as `contract.proposer`'s `goal` can be used to compose that text. Supply the result structure separately as `outputSchema`. See [Agent task messages](configuration.md#agent-task-messages) for built-in caller templates.
-
 ```ts
 import { prepareAgentProject } from 'arsi';
 
@@ -333,7 +331,7 @@ const cwd = await prepareAgentProject(
 );
 const result = await context.invokeAgent('agent', {
   cwd,
-  message: 'Inspect the target described in the project inputs.',
+  message: 'Inspect the target',
   outputSchema: { type: 'object' },
 });
 ```

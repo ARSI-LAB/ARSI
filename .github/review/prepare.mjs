@@ -51,19 +51,20 @@ async function diff(runGit, from, to, includePatch) {
     '\0',
   );
   const files = [];
-  const patches = [];
+  const patch = includePatch
+    ? await runGit([...options, '--unified=3', '--'])
+    : '';
   const anchors = new Map();
   for (let index = 0; index < entries.length - 1; ) {
     const status = entries[index++];
     const first = entries[index++];
     const paths = status.startsWith('R') ? [first, entries[index++]] : [first];
     const path = paths.at(-1);
-    const patch = await runGit([...options, '--unified=0', '--', ...paths]);
+    const changed = await runGit([...options, '--unified=0', '--', ...paths]);
     files.push(...paths);
-    if (includePatch) patches.push(patch);
-    anchors.set(path, changedLines(patch));
+    anchors.set(path, changedLines(changed));
   }
-  return { files, patch: patches.join('\n'), anchors };
+  return { files, patch, anchors };
 }
 
 async function stripProjectConfig(dir) {

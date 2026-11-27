@@ -283,11 +283,39 @@ test('only Important candidates run a fresh verifier, with strict schema, diff a
   });
   assert.equal(calls, 1);
   assert.deepEqual(noIssues.findings, []);
-  const next = [result([finding]), result([])];
-  const dropped = await review(snapshot, input, undefined, async () =>
-    next.shift(),
-  );
+  const decision = {
+    finding_id: finding.finding_id,
+    verdict: 'drop',
+    evidence: 'The caller already checks the precondition.',
+  };
+  const adjudicate = (decisions) =>
+    review(
+      snapshot,
+      input,
+      undefined,
+      async (_snapshot, _prompt, _signal, verify) =>
+        verify ? { decisions } : result([finding]),
+    );
+  const dropped = await adjudicate([decision]);
   assert.equal(dropped.dropped, 1);
+  const confirmed = await adjudicate([
+    {
+      ...decision,
+      verdict: 'confirm',
+      evidence: 'diff.ts calls the operation before checking the precondition.',
+    },
+  ]);
+  assert.equal(confirmed.findings[0].finding_id, finding.finding_id);
+  assert.match(confirmed.findings[0].evidence, /diff\.ts/);
+  await assert.rejects(adjudicate([]), /Missing verifier decision/);
+  await assert.rejects(
+    adjudicate([decision, decision]),
+    /Invalid verifier decision/,
+  );
+  await assert.rejects(
+    adjudicate([{ ...decision, verdict: 'unverifiable' }]),
+    /Review evidence unavailable/,
+  );
   const discussion = { ...input, threads: [{ id: 'thread' }] };
   await assert.rejects(
     review(snapshot, discussion, undefined, async () => result([])),
@@ -316,13 +344,9 @@ test('only Important candidates run a fresh verifier, with strict schema, diff a
     review(snapshot, input, undefined, async () => ({ findings: [] })),
     /schema/,
   );
-  const idSwap = [
-    result([finding]),
-    result([{ ...finding, finding_id: 'other' }]),
-  ];
   await assert.rejects(
-    review(snapshot, input, undefined, async () => idSwap.shift()),
-    /unsolicited/,
+    adjudicate([{ ...decision, finding_id: 'other' }]),
+    /Invalid verifier decision/,
   );
 });
 

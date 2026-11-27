@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      RSI_CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      RSI_CI_BASE_SHA: ${{ github.event.merge_group.base_sha }}
       RSI_CI_HEAD_SHA: ${{ github.sha }}
     outputs:
       package: ${{ steps.scope.outputs.package }}
@@ -34,6 +34,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            # The merge ref can be rebuilt on a newer base than the event payload.
+            RSI_CI_BASE_SHA=$(git rev-parse "$RSI_CI_HEAD_SHA^1")
+            echo "RSI_CI_BASE_SHA=$RSI_CI_BASE_SHA" >> "$GITHUB_ENV"
+          fi
           git diff --no-renames --name-only -z "$RSI_CI_BASE_SHA" "$RSI_CI_HEAD_SHA" -- > "$RUNNER_TEMP/quality-paths"
           docs=true
           package=false

@@ -962,6 +962,7 @@ test('operator summary model failure preserves completed effects and retries the
 });
 
 test('metric Proposer executes two rounds with measured diagnostics, current best parents and delivered hardware/history', async (t) => {
+  if (sdkProfileArtifactSkip) return t.skip(sdkProfileArtifactSkip);
   const hardwareText =
     '# User hardware\r\nOnly these provided facts are allowed.  \r\n';
   const fixture = await setup(

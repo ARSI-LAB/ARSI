@@ -41,7 +41,7 @@ jobs:
           while IFS= read -r -d '' path; do
             case "$path" in docs/*|*.md) ;; *) docs=false ;; esac
             case "$path" in src/*|web/*|scripts/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig*.json|.github/workflows/ci.yml) package=true ;; esac
-            case "$path" in .github/workflows/bridge/*|.github/workflows/bridge.yml) bridge=true ;; esac
+            case "$path" in .github/workflows/bridge/*|.github/workflows/bridge.yml|.github/workflows/ci.yml) bridge=true ;; esac
           done < "$RUNNER_TEMP/quality-paths"
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
           echo "package=$package" >> "$GITHUB_OUTPUT"

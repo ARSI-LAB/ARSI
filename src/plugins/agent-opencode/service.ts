@@ -1,6 +1,6 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { outputInstructions } from '../shared/agent-output-instructions.js';
+import { outputInstructions } from '../shared/agent-result.js';
 import { withAgentExecutionTimeout } from '../shared/agent-timeout.js';
 import type {
   AgentInput,

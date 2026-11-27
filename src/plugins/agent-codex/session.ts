@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { observeNative } from '../shared/native-agent/observe.js';
-import { parseAgentResult } from '../shared/native-agent/result.js';
+import { parseAgentResult } from '../shared/agent-result.js';
 import { codexObservations } from './observations.js';
 import type {
   AgentObservation,

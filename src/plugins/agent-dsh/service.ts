@@ -1,7 +1,7 @@
 import { prepareNativeOutputProject } from '../shared/native-agent/output-project.js';
 import { withAgentExecutionTimeout } from '../shared/agent-timeout.js';
 import { observeNative } from '../shared/native-agent/observe.js';
-import { parseAgentResult } from '../shared/native-agent/result.js';
+import { parseAgentResult } from '../shared/agent-result.js';
 import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {

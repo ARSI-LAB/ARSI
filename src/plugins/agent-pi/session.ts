@@ -1,6 +1,8 @@
-import { outputInstructions } from '../shared/agent-output-instructions.js';
 import { observeNative } from '../shared/native-agent/observe.js';
-import { parseAgentResult } from '../shared/native-agent/result.js';
+import {
+  outputInstructions,
+  parseAgentResult,
+} from '../shared/agent-result.js';
 import {
   createAgentSession,
   DefaultResourceLoader,

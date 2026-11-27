@@ -7,38 +7,59 @@ import { parseFileTree } from '../../../contracts/index.js';
 import { object, string } from '../../../shared/json.js';
 import { evaluationFeedbackSchema } from '../../../contracts/models/measurement.js';
 import { validate } from '../../../shared/schema.js';
-import { secretValues, redactText } from '../../../shared/secrets.js';
+import {
+  secretValues,
+  redactText,
+  redactJsonSecrets,
+} from '../../../shared/secrets.js';
+import {
+  runtimeEvolutionEvidenceViews,
+  type RuntimeEvolutionEvidenceView,
+} from '../../../contracts/runtime-evolution.js';
 
-export type EvidenceView = 'execution' | 'training-summary' | 'delivery';
+export type EvidenceView = RuntimeEvolutionEvidenceView | 'delivery';
 export interface EvidenceProjectionOptions {
   /** The caller has already resolved and authorized these Measurement records. */
   measurements: JsonObject[];
   artifacts: ArtifactStore;
   view: EvidenceView;
   maxBytes?: number;
+  /** Skip execution previews when the caller supplies the full files alongside training feedback. */
+  includeExecutionPreviews?: boolean;
 }
-async function trainingItems(
+/** Projects normalized feedback from an authorized Measurement, independently of its execution entries. */
+export async function projectMeasurementTrainingFeedback(
   measurement: JsonObject,
   artifacts: ArtifactStore,
   budget: number,
   secrets: string[],
 ): Promise<JsonObject> {
   const output: JsonObject = {
+    metrics: redactJsonSecrets(measurement.metrics ?? {}, secrets),
     items: [],
     metricDefinitions: {},
     omittedItems: 0,
     itemsTruncated: false,
     metricDefinitionsOmitted: false,
   };
-  const aggregateDefinitions: JsonObject = {};
-  for (const metric of Object.values(object(measurement.metrics ?? {}))) {
-    if (isObject(metric) && typeof metric.definitionRef === 'string')
-      aggregateDefinitions[metric.definitionRef] = await artifacts.readJson(
-        metric.definitionRef,
-      );
+  const exceedsBudget = () => Number.isFinite(budget) && size(output) > budget;
+  if (exceedsBudget()) {
+    delete output.metrics;
+    output.metricsOmitted = true;
   }
-  output.metricDefinitions = aggregateDefinitions;
-  if (size(output) > budget) {
+  async function metricDefinitions(metrics: JsonValue): Promise<JsonObject> {
+    const definitions: JsonObject = {};
+    for (const metric of Object.values(object(metrics))) {
+      if (isObject(metric) && typeof metric.definitionRef === 'string')
+        definitions[metric.definitionRef] = redactJsonSecrets(
+          await artifacts.readJson(metric.definitionRef),
+          secrets,
+        );
+    }
+    return definitions;
+  }
+  output.metricDefinitions = await metricDefinitions(measurement.metrics ?? {});
+  if (exceedsBudget()) {
     output.metricDefinitions = {};
     output.metricDefinitionsOmitted = true;
     output.itemsTruncated = true;
@@ -54,49 +75,37 @@ async function trainingItems(
       item.evaluation === null || item.evaluation === undefined
         ? null
         : object(item.evaluation);
-    const feedback = evaluation
+    const rawFeedback = evaluation
       ? object(await artifacts.readJson(string(evaluation.artifactRef)))
       : null;
-    if (feedback)
+    if (rawFeedback)
       validate(
         evaluationFeedbackSchema,
-        feedback,
+        rawFeedback,
         'training evaluation feedback',
       );
+    const feedback =
+      rawFeedback && object(redactJsonSecrets(rawFeedback, secrets));
     if (feedback?.truncated === true) output.itemsTruncated = true;
-    const definitions: JsonObject = {};
-    for (const metric of Object.values(object(item.metrics ?? {}))) {
-      if (isObject(metric) && typeof metric.definitionRef === 'string')
-        definitions[metric.definitionRef] = await artifacts.readJson(
-          metric.definitionRef,
-        );
-    }
     const value: JsonObject = {
-      id: item.id ?? null,
-      subject: item.subject ?? null,
-      metrics: item.metrics ?? {},
+      id: redactJsonSecrets(item.id ?? null, secrets),
+      subject: redactJsonSecrets(item.subject ?? null, secrets),
+      metrics: redactJsonSecrets(item.metrics ?? {}, secrets),
       evaluation: feedback,
       evaluationRef: evaluation?.artifactRef ?? null,
       omittedChecks: 0,
       omittedDiagnostics: 0,
     };
-    // Normalized feedback is allowlisted by its schema; do not scrub away score/reward keys.
-    const safe = (v: JsonValue): JsonValue => {
-      if (typeof v === 'string') return redactText(v, secrets);
-      if (Array.isArray(v)) return v.map(safe);
-      if (v !== null && typeof v === 'object')
-        return Object.fromEntries(
-          Object.entries(v).map(([k, x]) => [k, safe(x)]),
-        );
-      return v;
-    };
     const priorDefinitions = object(output.metricDefinitions);
-    output.metricDefinitions = { ...priorDefinitions, ...definitions };
+    output.metricDefinitions = {
+      ...priorDefinitions,
+      ...(await metricDefinitions(item.metrics ?? {})),
+    };
     projected.push(value);
     while (
-      size(output) > budget &&
       feedback &&
-      (feedback.diagnostics as JsonValue[]).length
+      (feedback.diagnostics as JsonValue[]).length &&
+      exceedsBudget()
     ) {
       (feedback.diagnostics as JsonValue[]).pop();
       value.omittedDiagnostics = Number(value.omittedDiagnostics) + 1;
@@ -104,23 +113,22 @@ async function trainingItems(
       output.itemsTruncated = true;
     }
     while (
-      size(output) > budget &&
       feedback &&
-      (feedback.checks as JsonValue[]).length
+      (feedback.checks as JsonValue[]).length &&
+      exceedsBudget()
     ) {
       (feedback.checks as JsonValue[]).pop();
       value.omittedChecks = Number(value.omittedChecks) + 1;
       feedback.truncated = true;
       output.itemsTruncated = true;
     }
-    if (size(output) > budget) {
+    if (exceedsBudget()) {
       projected.pop();
       output.metricDefinitions = priorDefinitions;
       output.omittedItems = catalog.items.length - index;
       output.itemsTruncated = true;
       break;
     }
-    projected[projected.length - 1] = object(safe(value));
   }
   return output;
 }
@@ -134,22 +142,74 @@ const isObject = (value: JsonValue | undefined): value is JsonObject =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 const forbidden = (key: string): boolean =>
   ['__proto__', 'constructor', 'prototype'].includes(key) ||
+  /^(evaluation|evaluationFeedback|feedback|metricDefinitions|trainingSummary|returnedHints?|datasetHints?)$/i.test(
+    key,
+  ) ||
   /score|reward|passed|successrate|correctness|verdict|grader|grading|judge|groundtruth|expectedanswer|expectedoutput|referenceanswer|private|secret|password|apikey|authorization|credential|metrics|candidateref|candidateid|measurementref|attemptid|itemid/.test(
     key.toLowerCase().replace(/[^a-z0-9]/g, ''),
   );
+/** A tool result may contain a serialized projection, including inside another trace event. */
+function scrubText(
+  text: string,
+  secrets: string[],
+  state: ScrubState,
+  format: 'json' | 'jsonl' | 'text' | 'preview' = 'text',
+): string {
+  const safe = redactText(text, secrets);
+  if (safe !== text) state.redacted = true;
+  if (format === 'json' || /^\s*[\[{]/.test(safe)) {
+    let parsed: JsonValue | undefined;
+    try {
+      parsed = JSON.parse(safe);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    if (parsed !== undefined) {
+      const nested: ScrubState = { redacted: false, truncated: false };
+      const value = scrub(parsed, secrets, nested);
+      if (nested.redacted || format === 'json') {
+        state.redacted ||= nested.redacted;
+        return typeof value === 'string' ? value : JSON.stringify(value);
+      }
+      return safe;
+    }
+  }
+  if (format !== 'preview' && safe.includes('\n') && /^[ \t]*[\[{]/m.test(safe))
+    return safe
+      .split('\n')
+      .map((line) => scrubText(line, secrets, state))
+      .join('\n');
+  return safe;
+}
+function isTrainingProjection(value: JsonObject): boolean {
+  return (
+    value.view === 'training' ||
+    value.view === 'training-summary' ||
+    value.schemaVersion === 'rsi.evaluation-feedback/v1'
+  );
+}
+
+/** Native evidence may wrap its content in a text field. Preserve scoring envelopes for redaction. */
+export function evidenceRecordContent(record: JsonValue): JsonValue {
+  return isObject(record) &&
+    typeof record.text === 'string' &&
+    !isTrainingProjection(record)
+    ? record.text
+    : record;
+}
 function scrub(
   value: JsonValue,
   secrets: string[],
   state: ScrubState,
 ): JsonValue {
-  if (typeof value === 'string') {
-    const text = redactText(value, secrets);
-    if (text !== value) state.redacted = true;
-    return text;
-  }
+  if (typeof value === 'string') return scrubText(value, secrets, state);
   if (Array.isArray(value))
     return value.map((item) => scrub(item, secrets, state));
   if (value !== null && typeof value === 'object') {
+    if (isTrainingProjection(value)) {
+      state.redacted = true;
+      return '[training feedback omitted]';
+    }
     const result: JsonObject = {};
     for (const [key, entry] of Object.entries(value)) {
       if (forbidden(key)) {
@@ -162,38 +222,17 @@ function scrub(
   }
   return value;
 }
+/** Wrapper summaries are execution context. Only validated Measurements supply training feedback. */
+export function executionEvidenceValue(value: JsonValue): JsonValue {
+  return scrub(value, secretValues(), { redacted: false, truncated: false });
+}
 /** Full text projection retains all lines while applying the execution-view redaction rules. */
 export function fullEvidenceText(
   text: string,
   format: 'text' | 'json' | 'jsonl',
 ): { text: string; redacted: boolean; truncated: boolean } {
-  const secrets = secretValues();
-  let redacted = false,
-    truncated = false;
-  const clean = (line: string): string => {
-    let parsed: JsonValue;
-    try {
-      parsed = JSON.parse(line) as JsonValue;
-    } catch {
-      return redactText(line, secrets);
-    }
-    const state: ScrubState = { redacted: false, truncated: false };
-    const value = scrub(parsed, secrets, state);
-    redacted ||= state.redacted;
-    truncated ||= state.truncated;
-    return typeof value === 'string' ? value : JSON.stringify(value);
-  };
-  const content =
-    format === 'jsonl'
-      ? text.split('\n').map(clean).join('\n')
-      : format === 'json'
-        ? clean(text)
-        : redactText(text, secrets);
-  return {
-    text: content,
-    redacted: redacted || content.includes('[REDACTED]'),
-    truncated,
-  };
+  const state: ScrubState = { redacted: false, truncated: false };
+  return { text: scrubText(text, secretValues(), state, format), ...state };
 }
 function textPrefix(text: string, limit: number): string {
   let low = 0,
@@ -212,14 +251,14 @@ function textPreview(
   structured: boolean,
 ): JsonObject {
   const state: ScrubState = { redacted: false, truncated: false };
+  text = scrubText(text, secrets, state, structured ? 'preview' : 'text');
   if (!structured) {
-    const redacted = redactText(text, secrets);
-    const excerpt = textPrefix(redacted, Math.max(0, budget - 180));
+    const excerpt = textPrefix(text, Math.max(0, budget - 180));
     return {
       text: excerpt,
       source: { segment: 'prefix', inputCharacters: text.length },
-      truncated: excerpt.length < redacted.length,
-      redacted: redacted !== text,
+      truncated: excerpt.length < text.length,
+      redacted: state.redacted,
     };
   }
   const lines = text.split(/\r?\n/);
@@ -369,13 +408,11 @@ async function projectEntry(
       });
   } else {
     const state: ScrubState = { redacted: false, truncated: false };
-    const sanitized = scrub(raw, secrets, state);
+    const content = evidenceRecordContent(raw);
+    const sanitized =
+      typeof content === 'string' ? content : scrub(content, secrets, state);
     const text =
-      isObject(sanitized) && typeof sanitized.text === 'string'
-        ? sanitized.text
-        : typeof sanitized === 'string'
-          ? sanitized
-          : JSON.stringify(sanitized);
+      typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized);
     projected.preview = textPreview(
       text,
       Math.max(0, budget - 220),
@@ -415,7 +452,7 @@ export async function projectEvidence(
 ): Promise<JsonValue> {
   const { measurements, artifacts, view } = options;
   const maxBytes = options.maxBytes ?? Number.POSITIVE_INFINITY;
-  if (!['execution', 'training-summary', 'delivery'].includes(view))
+  if (![...runtimeEvolutionEvidenceViews, 'delivery'].includes(view))
     throw new Error('Unknown evidence view');
   if (
     options.maxBytes !== undefined &&
@@ -469,25 +506,28 @@ export async function projectEvidence(
       result.status = measurement.status ?? 'unknown';
       result.coverage = measurement.coverage ?? 'unknown';
     }
-    if (view === 'training-summary' && measurement.metrics !== undefined) {
-      if (size(measurement.metrics) < quota / 3)
-        result.metrics = measurement.metrics;
-      else {
-        result.metricsOmitted = true;
-        result.truncated = true;
-      }
-      const training = await trainingItems(
+    if (view === 'training' || view === 'training-summary') {
+      const training = await projectMeasurementTrainingFeedback(
         measurement,
         artifacts,
-        Math.max(0, Math.floor(quota * 0.65) - size(result)),
+        Math.max(
+          0,
+          Math.floor(
+            options.includeExecutionPreviews === false ? quota : quota * 0.65,
+          ) - size(result),
+        ),
         secrets,
       );
       Object.assign(result, training);
-      if (training.itemsTruncated === true) result.truncated = true;
+      if (training.itemsTruncated || training.metricsOmitted)
+        result.truncated = true;
     }
-    const catalog = object(
-      await artifacts.readJson(string(measurement.evidenceIndexRef)),
-    );
+    const catalog =
+      options.includeExecutionPreviews === false
+        ? { entries: [] }
+        : object(
+            await artifacts.readJson(string(measurement.evidenceIndexRef)),
+          );
     if (!Array.isArray(catalog.entries))
       throw new Error('Invalid Measurement evidence index');
     const entries = catalog.entries

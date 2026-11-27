@@ -9,6 +9,8 @@ import {
   projectEvidence,
 } from '../../src/runtime/services/facts/evidence.js';
 import type { JsonValue } from '../../src/contracts/index.js';
+import { projectEvidenceFiles } from '../../src/runtime/services/facts/evidence-files.js';
+import { object } from '../../src/shared/json.js';
 
 test('Full evidence retains deeply nested and large JSON while redacting private fields', () => {
   let nested: JsonValue = { text: 'DEEP_END', private: 'PRIVATE_VALUE' };
@@ -41,6 +43,75 @@ test('Evidence projection accepts explicitly configured byte budgets above 2 MiB
     assert.equal(JSON.stringify(projected).includes('"truncated":false'), true);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('recorded training projections cannot reintroduce verifier feedback through execution traces', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-recorded-training-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const artifacts = new FileArtifacts(root);
+  const evidenceIndexRef = await artifacts.putJson({
+    entries: [
+      {
+        access: 'execution',
+        kind: 'trajectory',
+        integrity: 'complete',
+        artifactRef: await artifacts.putJson({
+          text: [
+            JSON.stringify({ type: 'tool', result: 'visible event' }),
+            JSON.stringify({
+              type: 'tool',
+              result: JSON.stringify({
+                view: 'training',
+                measurements: [
+                  {
+                    items: [
+                      {
+                        evaluation: {
+                          diagnostics: [{ message: 'hidden verifier hint' }],
+                        },
+                      },
+                    ],
+                  },
+                ],
+              }),
+            }),
+            JSON.stringify({
+              type: 'tool',
+              result: {
+                schemaVersion: 'rsi.evaluation-feedback/v1',
+                checks: [{ message: 'hidden check' }],
+              },
+            }),
+          ].join('\n'),
+        }),
+      },
+    ],
+  });
+  const measurements = [
+    {
+      schemaVersion: 'rsi.measurement/v1',
+      ref: 'measurement-training',
+      metrics: { latencyMs: 73 },
+      evidenceIndexRef,
+    },
+  ];
+  for (const view of ['execution', 'training'] as const) {
+    const options = { measurements, artifacts, view };
+    const json = object(await projectEvidence(options));
+    const files = await projectEvidenceFiles(options);
+    for (const result of [json, files]) {
+      assert.match(JSON.stringify(result), /visible event/);
+      assert.doesNotMatch(
+        JSON.stringify(result),
+        /hidden verifier hint|hidden check/,
+      );
+      assert.ok(Array.isArray(result.measurements));
+      assert.deepEqual(
+        object(result.measurements[0]).metrics,
+        view === 'training' ? { latencyMs: 73 } : undefined,
+      );
+    }
   }
 });
 

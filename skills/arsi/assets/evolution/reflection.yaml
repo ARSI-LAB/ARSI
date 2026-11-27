@@ -1,0 +1,6 @@
+targets:
+  include: { proposer: '*' }
+goal: ./reflection-goal.md
+implementation:
+  config: { prompt: ./reflection.md }
+budget: { modelCalls: 6, timeoutSeconds: 90 }

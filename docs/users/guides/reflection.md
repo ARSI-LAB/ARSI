@@ -1,259 +1,160 @@
 # Reflection guide
 
-English | [简体中文](reflection_zh.md) · [Getting started](../getting-started.md) · [Runtime events](runtime-events.md)
+English | [简体中文](reflection_zh.md) · [Getting started](../getting-started.md)
 
-Reflection improves target plugins using execution evidence so later calls adopt the revised behavior. This guide explains how to select target plugins, configure allowed changes, and invoke Reflection from a Policy.
+Reflection proposes revisions to plugin resource files. The Runtime validates proposed edits, activates accepted revisions and creates plugin instances with the revised configuration. Subsequent calls record the acquired revision.
 
-- The built-in Harness² Policy configures Reflection to improve the Invariant and Domain Proposers, currently authorizing changes to their `guidance`. Its `improve_guidance` step is commented out by default. See the [Harness² Policy](../../../src/policies/harness2/policy.yaml) and its [Reflection configuration](../../../src/policies/harness2/reflection.yaml).
+## Enable or override Reflection
 
-The built-in `policy.parameter-agent` Policy declares a [configuration-search Reflection
-module](../../../src/policies/parameter/agent/reflection.yaml). Set
-`policy.config.reflection: true` to invoke it after proposal rounds, including empty proposals, while another
-round and candidate attempt remain; the default is `false`, independently of Memory. It reads proposal,
-evaluation, selector and available Memory records using `training-summary`, and
-can revise only the Proposer's `guidance`. It cannot change selection rules,
-workload or candidate parameters. The next proposal loads the activated revision;
-an empty proposal continues search within finite limits. There is no final
-Reflection call after the candidate or proposal-round limit (`maxTrials`). Runtime
-budgets and cancellation can stop the experiment earlier.
-RSI provides a generic Reflection goal and default Proposer guidance. Scenarios
-can copy these resources, set `bindings.proposer.config.guidance` to their own
-directory and select a local `reflection.configFile`. The switch only controls
-calls: the existing Runtime validates the selected Reflection configuration and
-resources during Recipe loading, even when `policy.config.reflection` is false.
+A Policy sets `defaults.reflection` and a Recipe overrides it with `reflection`:
 
-## 1. Configure a Reflection module
+| Value | Behavior |
+| --- | --- |
+| Omitted | Recipe inherits `defaults.reflection` from the Policy. If the Policy also omits it, Reflection stays **off**. |
+| `false` | Disable Reflection. |
+| `true` | Enable Reflection using the Policy's `defaults.reflection` configuration file. **Load error** if the Policy provides no configuration file (Reflection always requires `targets.include`). |
+| `{ configFile: <path> }` | Load a complete Reflection YAML configuration file declaring `targets.include`. The path resolves relative to the declaring Policy or Recipe file. A Recipe file completely replaces the Policy file. |
 
-`reflection.yaml` specifies which execution records to consult, which plugins to improve, which parts of those plugins may change, and which Reflection plugin and Agent perform the reflection. Put it beside the Policy. This example uses binding names declared by Harness²; adjust them to match your own Policy:
+### Built-in Policy defaults
+
+The six built-in Agent Policies each supply a Reflection configuration; Parameter Grid and Optuna disable Reflection by default:
+
+| Policy | Default Reflection configuration |
+| --- | --- |
+| `policy.wikiskill` | Enabled (`./reflection.yaml`): `trigger: { on: loop-iteration }`, `evidence.view: training`, `excludeSteps: [baseline, baseline_score, validate, test]`, `targets.include: { proposer: '*' }`. |
+| `policy.gym-rsi` | Enabled (`./reflection.yaml`): `trigger: { on: loop-iteration }`, `evidence.view: training`, `excludeSteps: [baseline, baseline_score, validate, promotion]`, `targets.include: { proposer: '*' }`. |
+| `policy.harness2` | Enabled (`./reflection.yaml`): `trigger: { on: loop-iteration }` (after each task), `evidence.view: execution` (verifier-blind), `targets.include: { invariantProposer: '*', domainProposer: '*' }`, `budget: { timeoutSeconds: 3600 }`. |
+| `policy.gepa` | Enabled (`./reflection.yaml`): `trigger: { on: loop-iteration }`, `evidence.view: training`, `includeSteps: [proposal, proposal_evaluation]`, `targets.include: { proposer: '*' }`. |
+| `policy.parameter-agent` | Enabled (`./reflection.yaml`): `trigger: { on: loop-iteration }`, `evidence.view: training`, `targets.include: { proposer: '*' }`. |
+| `policy.operator-search` | Enabled (`./reflection.yaml`): `trigger: { on: loop-iteration }`, `evidence.view: training`, `targets.include: { proposer: [promptsDirectory], summarizer: [promptFile] }`. |
+| `policy.parameter-grid`, `policy.parameter-optuna` | Disabled by default (`defaults.reflection: false`). |
+
+## Configuration file reference
+
+A Reflection YAML file must declare `targets.include`; all other fields are optional, and unknown fields fail validation. Relative paths inside the file resolve against the configuration file's directory. See the [runtime evolution schema](../../../src/contracts/runtime-evolution.ts) for the exact rules.
+
+This Harness²-style configuration grants access to the local resources of its two Proposers:
 
 ```yaml
-evidence:
-  - invariantProposer
-  - domainProposer
-  - composer
-  - memoryUpdater
+trigger: { on: loop-iteration, every: 2 }
+evidence: { view: execution }
 targets:
-  invariantProposer:
-    resources: [guidance]
-  domainProposer:
-    resources: [guidance]
-goal: ./reflection-goal.md # The goal file describes what Reflection should improve.
-implementation:
-  contract: contract.reflection
-  ref: reflection.agent
-  config:
-    evidenceView: execution
-    agentRef: agent
-budget:
-  timeoutSeconds: 3600
+  include:
+    invariantProposer: '*'
+    domainProposer: '*'
+budget: { timeoutSeconds: 3600 }
 ```
 
-### Which records to consult and which plugins to improve
+### Top-level fields
 
-| Field                              | Required | Purpose                                                                              | How to fill it                                                                                                                                                                              |
-| ---------------------------------- | -------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `evidence`                         | Yes      | Choose which plugin calls supply execution records for reflection.                   | List existing Policy binding names, such as `[domainProposer, composer]`. Include at least one, with no duplicates.                                                                         |
-| `targets`                          | Yes      | Choose the target plugins to improve in this Reflection invocation.                  | Use Policy binding names as keys, such as `domainProposer`, and list `resources` under each. Select at least one binding.                                                                   |
-| `targets.<binding name>.resources` | Yes      | Limit which configuration resources of that plugin may change.                       | List resource field names from the plugin configuration, such as `[guidance]`. Each field must have a configured path and be declared as a file or directory resource in the plugin Schema. |
-| `goal`                             | Yes      | Specify which problem the target plugin should solve and what improvement to pursue. | Supply a goal file path, such as `./reflection-goal.md`. The file must contain nonempty UTF-8 text.                                                                                         |
+| Field | Required | Type / Values | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `targets` | **Yes** | Object (`include` required, `exclude` optional) | None | Select which Policy bindings and local `x-rsi-path` resource fields Reflection may revise. |
+| `trigger` | No | Object | `{ on: 'loop-iteration', every: 1 }` | Serial Policy boundary and cadence for running Reflection. |
+| `evidence` | No | Object | `{ view: 'training' }` | Evidence view and binding/step filters for each reflection window. |
+| `goal` | No | Nonempty path string | Built-in [`reflection-agent/goals/generic/prompt.md`](../../../src/plugins/reflection-agent/goals/generic/prompt.md) | UTF-8 nonempty text file describing what Reflection should improve. |
+| `implementation` | No | Object | `reflection.agent` (`contract.reflection`) | Select and configure the Reflection generator plugin. |
+| `budget` | No | Object | `{}` (no local caps) | Per-invocation limits (`modelCalls`, `timeoutSeconds`, `evidenceBytes`). |
 
-- The example consults execution records from four bindings and improves the two Proposers by changing their `guidance`. For example, if `domainProposer` has `guidance: ./guidance` in its configuration, `resources: [guidance]` authorizes changes to files inside that `./guidance` directory.
+### `targets` fields
 
-### Who runs Reflection
+| Field | Required | Allowed values | Behavior |
+| --- | --- | --- | --- |
+| `targets.include` | **Yes** | Nonempty map of `<bindingName>: '*' \| ['*'] \| string[]` | Grant edit access to configured local `x-rsi-path` resources of each listed Policy binding. |
+| `targets.exclude` | No | Map of `<bindingName>: '*' \| ['*'] \| string[]` | Remove a binding (`'*'` / `['*']`) or specific fields from `targets.include`. At least one editable resource must remain. |
 
-`implementation` selects the Reflection plugin that proposes improvements to the target plugins. `implementation.config` holds configuration passed to that plugin. The configuration fields below apply to the built-in `reflection.agent`:
+Per-binding selector syntax:
 
-| Field                                | Required | Purpose                                                                              | How to fill it                                                                                                                                              |
-| ------------------------------------ | -------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `implementation.contract`            | Yes      | Declare the public interface required of the selected plugin.                        | Current built-in contract: `contract.reflection`.                                                                                                           |
-| `implementation.ref`                 | Yes      | Choose the implementation that performs reflection and proposes plugin improvements. | Supply a registered plugin ID implementing that contract, such as `reflection.agent`.                                                                       |
-| `implementation.config.agentRef`     | Yes      | Choose the Agent that performs the reflection.                                       | Supply an existing Agent binding name in the Policy, such as `agent`. That binding configures the backend and model.                                        |
-| `implementation.config.evidenceView` | No       | Control which evidence contents Reflection can read.                                 | Use `execution` (default) for execution evidence, or `training-summary` when existing authorized scoring feedback is allowed. See the evidence scope below. |
-| `implementation.config.prompt`       | No       | Instruct Reflection how to analyze evidence and improve the target plugins.          | Supply a custom prompt file path, such as `./reflection-prompt.md`. Omit it to use the built-in prompt.                                                     |
+- `'*'` or `['*']`: Select all configured local `x-rsi-path` resources on that binding. On `proposer.agent`, this covers the main `prompt`, `skills` directories and `subagents` role prompts. Remote URLs are skipped by wildcards; a wildcard with no local matches fails validation.
+- `[field, ...]` (nonempty list of unique field names or JSON pointers starting with `/`, without `'*'`): Narrow access to specific `x-rsi-path` fields, such as `proposer: [prompt]`, `proposer: [promptsDirectory]`, `summarizer: [promptFile]`, or `proposer: ['/subagents/0/prompt']`. Selecting a collection field such as `skills` or `subagents` includes all configured `x-rsi-path` paths beneath it. Naming a field that is not in the plugin's `configSchema`, is not configured, or points to a remote URL fails validation.
+- Every selected target must exist on disk as a regular local file or directory (symbolic links are rejected).
 
-### Limit the cost of one Reflection call
+**Shared and nested resources.** When two selected fields refer to the same file, Reflection edits one copy. A selected directory also covers selected files inside it. If the project is reached through a symbolic link, use the same path to the project for all fields that share a resource. For example, a proposer can use `prompts/` while a summarizer uses `prompts/summarize.md`. Editing that file reloads both bindings. Editing another file in the directory reloads only the proposer. Each accepted update produces one joint revision for the experiment, covering all affected bindings.
 
-The entire `budget` object is optional, and either field can also be omitted independently:
+### `trigger` fields
 
-| Field                   | Purpose                                                    | How to fill it                                                                                                         |
-| ----------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `budget.modelCalls`     | Cap new model calls made by one Reflection invocation.     | A nonnegative integer, such as `10`. `0` prevents new model calls. Omit it to apply no local limit for this dimension. |
-| `budget.timeoutSeconds` | Cap the duration of one Reflection invocation, in seconds. | A positive integer, such as `3600` for 60 minutes. Omit it to apply no local limit for this dimension.                 |
+| Field | Required | Allowed values | Default | Behavior |
+| --- | --- | --- | --- | --- |
+| `trigger.on` | No | `'loop-iteration'` \| `'loop-end'` \| `'experiment-end'` \| `'after-step'` | `'loop-iteration'` | `loop-iteration`: after each top-level loop iteration, or at experiment end when the Policy has no top-level loop.<br>`loop-end`: once when a top-level loop finishes.<br>`experiment-end`: once after the last top-level step, before the Policy finalizes its output.<br>`after-step`: after a serial step matching `trigger.step`. |
+| `trigger.every` | No | Integer `>= 1` | `1` | Run on every *N*-th matching boundary (for example, `every: 2` runs on matches 2, 4, 6, ...). |
+| `trigger.step` | Conditional | Nonempty step ID string | None | Required when `trigger.on` is `'after-step'` and forbidden otherwise. Must match a Policy step ID outside parallel `foreach` branches. |
 
-Experiment budgets and the Agent's own limits still apply, such as `agent.pi`'s `executionTimeoutMs`.
+Memory runs before Reflection when both match the same boundary.
 
-### Evidence supplied to Reflection
+### `evidence` fields
 
-**The Runtime selects calls matching `evidence` bindings by completion time between consecutive Reflection boundaries.**
+| Field | Required | Allowed values | Default | Behavior |
+| --- | --- | --- | --- | --- |
+| `evidence.view` | No | `'training'` \| `'execution'` \| `'training-summary'` | `'training'` | `training`: combines authorized feedback in `context/evolution/training-summary.json` with redacted execution files, call records, eligible child Agent diagnostics and workspaces, and the updated Memory snapshot when available.<br>`execution`: full redacted execution files, call records, eligible child Agent diagnostics/workspaces, and Memory snapshot without scoring feedback. Use for verifier-blind Reflection.<br>`training-summary`: compact call summaries, bounded previews, authorized feedback, and only the Memory update receipt (no snapshot text).<br>See [Evidence](../concepts/architecture.md#evidence). |
+| `evidence.includeBindings` | No | Unique `string[]` of Policy binding names and/or `'memory'` | All Policy bindings, plus `'memory'` when Memory is enabled | Restrict observed primary calls to the listed bindings. Explicitly listing `'memory'` requires Memory to be enabled. |
+| `evidence.excludeBindings` | No | Unique `string[]` of Policy binding names and/or `'memory'` | None | Exclude calls from the listed bindings. A shared Reflection file may list `'memory'` in `excludeBindings` even when a Recipe disables Memory. |
+| `evidence.includeSteps` | No | Unique `string[]` of Policy step IDs | All Policy steps | Restrict observed Policy calls to the listed steps (does not filter Memory update receipts). |
+| `evidence.excludeSteps` | No | Unique `string[]` of Policy step IDs | None | Exclude Policy calls from the listed steps (for example, validation or test splits). |
 
-- The first window starts with the experiment. Terminal success, failure, cancellation, and unknown outcomes remain distinguishable.
-- Size limits and missing or truncated evidence are recorded explicitly.
+**Memory snapshot isolation.** Both `training` and `execution` views expose the updated Memory snapshot when `memory` is observed. Because Memory may retain observations from its own evidence window, align Memory's filters with Reflection's held-out split or set `excludeBindings: [memory]`. Empty evidence windows skip the generator.
 
-**`implementation.config.evidenceView` defaults to `execution`, which excludes scoring-side feedback. `training-summary` additionally permits existing authorized scoring, diagnostics, and returned hints.**
+### `implementation` fields
 
-For view definitions and visibility, see [Evidence](../concepts/architecture.md#evidence).
+| Field | Required | Allowed values | Default | Behavior |
+| --- | --- | --- | --- | --- |
+| `implementation.contract` | No | `'contract.reflection'` | `'contract.reflection'` | Public contract required of the selected plugin. |
+| `implementation.ref` | No | Registered plugin ID | `'reflection.agent'` | Plugin implementing `contract.reflection`. |
+| `implementation.config` | No | Plugin config object | `{}` | Configuration validated against the plugin's `configSchema` (see fields for `reflection.agent` below). |
 
-- Resource snapshots include the target bindings' configured Schema path resources, while modification authority applies only to names listed in `targets`.
+Built-in `reflection.agent` accepts these fields under `implementation.config` (see [shared agent-editing schema](../../../src/plugins/shared/agent-editing/schema.ts)). It also includes a built-in `reflection-reviewer` subagent for delegating focused evidence checks:
 
-- Reflection returns `skipped` without invoking the generator only when the window has no usable observations, including attributable late results.
-- See [evidence collection](../../../src/runtime/revisions/evidence.ts) and [execution](../../../src/runtime/revisions/index.ts).
+| Field | Required | Allowed values | Default | Behavior |
+| --- | --- | --- | --- | --- |
+| `implementation.config.agentRef` | No | Declared `contract.agent` binding name | Sole Policy `contract.agent` binding, else `_evolutionAgent` | Select which Agent runs Reflection. When omitted, `reflection.agent` reuses the only `contract.agent` binding declared by the Policy; if the Policy declares zero or multiple `contract.agent` bindings, Runtime creates `_evolutionAgent` using built-in `agent.pi` (`MODEL_NAME`, `MODEL_ENDPOINT`, `MODEL_API_KEY`). |
+| `implementation.config.prompt` | No | Nonempty file path string | Built-in [`reflection-agent/prompt.md`](../../../src/plugins/reflection-agent/prompt.md) | Custom instruction file telling Reflection how to analyze evidence and edit target resources. |
+| `implementation.config.skills` | No | Array of directory path strings | `[]` | Local skill directories copied into `.agents/skills/` inside the Reflection Agent workspace. |
 
-### How Reflection works
+### `budget` fields
 
-The default [Reflection prompt](../../../src/plugins/reflection-agent/prompt.md) explains how to reflect, while the `goal` file describes what to improve. Each Reflection call follows these steps:
+| Field | Required | Allowed values | Default | Behavior |
+| --- | --- | --- | --- | --- |
+| `budget.modelCalls` | No | Integer `>= 0` | No local cap | Maximum new model calls in one Reflection invocation (`0` blocks new model calls). |
+| `budget.timeoutSeconds` | No | Integer `1`–`2147483` | No local cap | Maximum wall time in seconds for one Reflection invocation. |
+| `budget.evidenceBytes` | No | Integer `>= 1` | No module-level cap | Maximum bytes in the projected evidence snapshot. |
 
-1. **Review the material.** The main Agent receives the goal, current resources, and execution evidence for this round. It reads the relevant records and identifies problems worth addressing.
-2. **Decide whether to delegate.** The main Agent can investigate directly or delegate a focused question to `reflection-reviewer` in the same workspace. Pi uses `subagent` and shares the Reflection budget and cancellation. Codex uses native role delegation. See [Agent backends](configuration.md#agent-and-environment-variables).
-3. **Consolidate plugin improvements.** The main Agent combines evidence-based suggestions for the target plugins, resolves conflicting suggestions, and supplies the complete new contents of authorized files with reasons for each change. If there is no useful improvement, it explains why and leaves the resources unchanged.
-4. **Validate and activate.** The Runtime checks the authorized scope, content requirements, and revision constraints. Once these checks pass, it saves and activates the plugin revisions for subsequent calls in the current experiment.
+Experiment-level Recipe budgets and Agent backend timeouts still apply; see [Limits and budgets](configuration.md#limits-and-budgets).
 
-## 2. Invoke Reflection explicitly
+## Integrate a custom plugin with Reflection
 
-### Step 1: Declare the Reflection configuration file
+To let Reflection revise a custom plugin's resources:
 
-Set `defaults.reflection.configFile` in the Policy to the configuration file written in section 1. The path resolves relative to the Policy file:
+1. Declare editable file or directory fields in the plugin's `configSchema` with `'x-rsi-path': 'file'` or `'x-rsi-path': 'directory'` (see [`configSchema`](writing-plugins.md#configschema)).
+2. Point the binding at local files or directories in the Policy or Recipe, and select those fields under `targets.include` in `reflection.yaml`.
+3. Read the revised paths passed through `config` in `create(config, context)` so activated revisions take effect on subsequent calls.
 
-```yaml
-# Policy excerpt
-defaults:
-  reflection:
-    configFile: ./reflection.yaml
-```
+## Execution outcomes and persistence
 
-The Runtime validates the selected configuration when loading the Recipe. The Reflection step added in step 2 determines when it runs.
+| Status | Meaning |
+| --- | --- |
+| `activated` | Validated edits were saved as a joint revision, materialized under `.rsi/experiments/<experiment-id>/revisions/<revision-id>/resources/`, and activated for all affected bindings (`changedBindings`). |
+| `no-change` | Generator proposed no effective resource changes; active revisions stay unchanged. |
+| `skipped` | No usable observations appeared in the evidence window; generator was not invoked. |
+| `rejected` | Generator failed, timed out locally, or proposed invalid edits (such as editing outside `targets`, deleting files, changing file permissions, or writing non-UTF-8 content). Existing active revisions remain in effect and the experiment continues. |
 
-#### Override the file from a Recipe
+Experiment cancellation, experiment-wide budget exhaustion, and critical persistence errors still stop the experiment. Records live under `.rsi/facts/` (`revisions`, `activations`, `evolution-runs`) and `.rsi/artifacts/`.
 
-If an experiment needs a different Reflection configuration, select it in the Recipe:
+## Apply a revision to future experiments
 
-```yaml
-# Recipe excerpt
-reflection:
-  configFile: ./reflection-custom.yaml
-```
+Use `arsi reflection list <experiment-id>` to find a revision, newest first. A generated revision lists its affected bindings in `changedBindings`. Once all experiments in the same store have finished or been recovered, preview the cumulative changes with `arsi reflection show <revisionID>`. Use `arsi reflection apply <revisionID>` to write them to their recorded destinations.
 
-This `reflection.configFile` resolves relative to the Recipe file. The selected file follows section 1 and completely replaces the Policy's default configuration, so the Policy must already declare `defaults.reflection`. The Policy still determines when Reflection runs.
-To specialize `policy.parameter-agent`, copy its `reflection.yaml` and `reflection.md` into the scenario,
-edit the local goal, and select that YAML file here. The generic goal, implementation
-and orchestration stay in RSI; the scenario owns its specialized copies.
+> [!IMPORTANT]
+> **Protected paths and in-place writes.** During an experiment, Reflection stores accepted revisions under `.rsi/` and hot-reloads the affected bindings for subsequent calls. The original files stay intact, including resources supplied by a built-in Policy.
+>
+> In-place `apply` refuses to overwrite the framework's `src/policies/` and `src/plugins/` trees, paths under `dist/`, `node_modules/`, `.rsi/` or `.git/`, the whole project root or a filesystem root. It also rejects a destination if the path itself or any ancestor is a symbolic link or Windows junction.
+>
+> A generated joint revision writes only resource roots whose contents or file modes differ from the initial snapshot. If only user-owned roots changed, an unchanged built-in root does not block their write-back. If a protected root changed, export the revision.
 
-### Step 2: Choose when to invoke Reflection
+**To reuse a revised built-in resource in future experiments**
 
-Add a `type: reflection` step at the desired point in the Policy's `steps`. For example, place it after a round of proposal, evaluation, selection, and Memory calls so the next round's plugin calls can use the improved revisions:
+1. Run `arsi reflection show <revisionID> --to ./exported-resources`. Review the changes, use `sourceRoots` to identify each binding and resource, and check `destinations` for the actual export paths. In the Dashboard, open **Reflection & Memory → Reflection → Preview application**, enter the export directory, and select **Preview destination**.
+2. Run `arsi reflection apply <revisionID> --to ./exported-resources` to export to a dedicated user-owned directory whose path contains no symbolic links or junctions. A revision with one directory root places its contents directly there. Bindings that share a root share its export path.
+3. Edit the corresponding binding in `recipe.yaml` to point to the exported files or directories. For a Proposer, this might mean changing `prompt`, an entry in `skills`, or a role's `subagents[].prompt`. Later experiments can load and revise those copies in place.
 
-```yaml
-# Policy steps excerpt
-steps:
-  # Existing proposal, evaluation, selection and Memory steps go here.
-  - id: improve_guidance
-    type: reflection
-  # Later calls to target plugins use the activated revisions.
-```
+**For repeated in-place updates**, put every resource you intend to evolve in a dedicated subdirectory of your own project when you first write the Recipe. Point the binding at those copies before starting the experiment. Run `arsi doctor recipe.yaml` and check `reflection.targets` for a built-in resource export notice. Use `reflection show` to verify the write destinations for a particular revision.
 
-`id: improve_guidance` names the step and can be changed; `type: reflection` runs Reflection. **The Policy waits for this Reflection call to finish before continuing with later steps.**
-
-- **Reflection must run serially, outside parallel branches.**
-- If later steps need the result, read `steps.improve_guidance.output`.
-
-Adjust the step's position in the Policy to control how often Reflection runs:
-
-- **After every optimization round**: put it at the end of the optimization loop, giving the sequence “current round → Reflection → next round”.
-- **Once after all optimization rounds**: put it after the optimization loop, giving the sequence “all rounds → Reflection”.
-
-## 3. Integrate a custom plugin with Reflection
-
-Take a custom proposal plugin named `proposer.custom`: it reads a prompt and guidance documents to generate proposals. Reflection can improve its proposal behavior by updating those contents.
-
-### Step 1: Declare the files and directories the plugin uses
-
-In the plugin's configuration Schema, declare `prompt` as a file path and `guidance` as a directory path. The `x-rsi-path` marker lets the Runtime recognize these paths and read their contents:
-
-```ts
-import type { JsonSchema } from 'arsi/contracts';
-
-export const configSchema: JsonSchema = {
-  type: 'object',
-  properties: {
-    prompt: { type: 'string', 'x-rsi-path': 'file' },
-    guidance: { type: 'string', 'x-rsi-path': 'directory' },
-  },
-  required: ['prompt', 'guidance'],
-  additionalProperties: false,
-};
-```
-
-### Step 2: Configure the actual paths in the Policy
-
-Declare a `domainProposer` binding in the Policy, select the registered `proposer.custom` plugin, and configure the file and directory it should read:
-
-```yaml
-# Policy excerpt
-require:
-  domainProposer:
-    contract: contract.proposer
-defaults:
-  bindings:
-    domainProposer:
-      plugin: proposer.custom
-      config:
-        prompt: ./prompts/domain.md
-        guidance: ./guidance
-```
-
-- Before reflection starts, the Runtime checks that the file and directory exist and match their declared Schema types.
-
-### Step 3: Select the target plugin and allowed changes
-
-In the `reflection.yaml` from section 1, select this plugin as the source of observations and the target of improvements:
-
-```yaml
-# Reflection configuration excerpt
-evidence: [domainProposer]
-targets:
-  domainProposer:
-    resources: [guidance]
-```
-
-Here, `domainProposer` refers to the binding from step 2, and `resources: [guidance]` selects its configured `./guidance` directory. Reflection uses this plugin's execution records to improve it by revising guidance documents in that directory. To also allow prompt changes, use `resources: [prompt, guidance]`.
-
-### Step 4: Use the revised contents in the plugin
-
-**The plugin must read and use the revised configuration supplied by the Runtime in later calls for Reflection's changes to affect its behavior.**
-
-- For example, the built-in `proposer.agent` reads the `prompt` file and Markdown files in `guidance`, then passes their contents to the Agent.
-
-- Custom plugins must use the revised contents according to their own logic.
-
-## 4. Persistence, activation, and recovery
-
-During an experiment, Reflection does **not** overwrite the source Policy package or the plugin's original contents. Validated changes are saved as experiment revisions, with the original target paths recorded for explicit application. The commands below explain how to apply them to the original user resources.
-
-With the default local store:
-
-| Data                                                   | Location                                                              |
-| ------------------------------------------------------ | --------------------------------------------------------------------- |
-| Resource contents and change records for each revision | `.rsi/artifacts/`                                                     |
-| Materialized version resources                         | `.rsi/experiments/<experiment-id>/revisions/<version-key>/resources/` |
-| Revision, Reflection and activation records            | `.rsi/facts/`                                                         |
-
-### Apply a revision to future experiments
-
-Run these commands with the same Runtime data directory as the experiment:
-
-```text
-arsi reflection list [experimentId]
-arsi reflection show <revisionID>
-arsi reflection apply <revisionID>
-```
-
-- `list` includes initial, generated, and older revisions, optionally filtered by experiment.
-- `show` displays the selected content, recorded target paths, and files that application would create, replace, or delete without writing them.
-- `apply` restores the complete snapshot to its recorded original user-resource paths. Future experiments that select those paths can read it.
-
-Alternatively, open the experiment details in the [dashboard](running-experiments.md#dashboard), go to **Reflection & Memory → Reflection**, select a revision, and click `Preview application`. In the `Apply to source files` dialog, review the destination paths and files to create, replace, or delete, select the confirmation checkbox, and click `Apply changes`.
-
-Both CLI and dashboard application follow these rules; see [application validation and writes](../../../src/runtime/revisions/application.ts):
-
-1. Configure dedicated user guidance directories in Recipe bindings **before generating a revision**. Changing the Recipe afterward cannot redirect previously generated Reflection content to the new paths.
-2. **Applying a snapshot overwrites local edits and removes files absent from that snapshot within the dedicated target directory.**
-3. Application is blocked while any experiment in that Runtime data directory is active or unresolved; finish or recover it first. `list` and `show` remain available.
+To restore the baseline, preview and apply the **Initial version**. Its preview compares every selected root with the current destination. Use `arsi reflection apply <initialRevisionID> --to ./baseline` to export the complete baseline. See [Memory](memory.md) for the shared experience directory.

@@ -55,7 +55,6 @@ const stepAppearance = {
   loop: { label: 'Loop', mark: '↻' },
   foreach: { label: 'For each', mark: '▦' },
   control: { label: 'Control', mark: '■' },
-  reflection: { label: 'Reflection', mark: '✦' },
 } satisfies Record<StructureStep['type'], PolicyNodeAppearance>;
 
 const dataAppearance = {
@@ -122,8 +121,6 @@ function stepSubtitle(
       const fields = declaration.state;
       return `Writes: ${fields && typeof fields === 'object' && !Array.isArray(fields) ? Object.keys(fields).join(', ') || '(none)' : 'not declared'}`;
     }
-    case 'reflection':
-      return 'Initial saved configuration';
   }
 }
 
@@ -764,8 +761,6 @@ const stepTypeDescriptions: Record<StructureStep['type'], string> = {
   foreach:
     'Runs a group of steps for each item in a collection, with optional concurrency.',
   control: 'Breaks a loop, skips to its next iteration, or fails the workflow.',
-  reflection:
-    'Uses execution evidence to propose updates to target plugin resources.',
 };
 
 function PolicyValueHelp({
@@ -1216,20 +1211,7 @@ function PolicyDetails({
     ('type' in node
       ? node
       : model.steps.find((step) => step.id === node.stepId));
-  let savedConfiguration = detail?.configuration;
-  if (
-    step?.type === 'reflection' &&
-    savedConfiguration &&
-    typeof savedConfiguration === 'object' &&
-    !Array.isArray(savedConfiguration)
-  ) {
-    const { evidence, targets, ...rest } = savedConfiguration;
-    savedConfiguration = {
-      ...(evidence === undefined ? {} : { evidence }),
-      ...(targets === undefined ? {} : { targets }),
-      ...rest,
-    };
-  }
+  const savedConfiguration = detail?.configuration;
   const dataNode = node && 'kind' in node ? node : undefined;
   const dataKind = dataNode?.kind;
   const appearance = step

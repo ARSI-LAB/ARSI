@@ -23,89 +23,48 @@ async function loadWikiPolicy(t: TestContext): Promise<Policy> {
   return Policy.load('src/policies/wikiskill/policy.yaml', registry);
 }
 
-test('memory receives authorized summary and current skills, persists Wiki and releases its workspace', async () => {
+test('memory receives authorized training evidence, persists Wiki and releases its workspace', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-wiki-memory-'));
   const artifacts = new FileArtifacts(join(root, 'artifacts'));
   const registry = new Registry();
   const workspaces = new FileWorkspaces(join(root, 'workspaces'), artifacts);
   try {
     const prompt = join(root, 'prompt.md');
-    await writeFile(prompt, 'Record observed skills and summary feedback.');
-    const candidateArtifact = await artifacts.putJson({
-      kind: 'file-tree',
-      files: [
-        {
-          path: 'plugins/base/skills/check/SKILL.md',
-          mode: 420,
-          base64: Buffer.from('Check completed work.').toString('base64'),
-        },
-      ],
+    await writeFile(prompt, 'Record observed training feedback.');
+    const sourcePath = 'context/evolution/training-summary.json';
+    const summary = JSON.stringify({ measurements: [] });
+    const facts = new FileFacts(join(root, 'facts'));
+    await facts.write('evidence-views', 'window', {
+      experimentId: 'experiment',
+      view: 'evolution-observations/v1',
+      moduleKind: 'memory',
+      evidenceView: 'training-summary',
+      index: { calls: ['training'] },
+      files: { [sourcePath]: summary },
     });
-    const observations = {
-      status: 'evaluated',
-      accepted: false,
-      candidateRef: 'rejected',
-      candidateValue: 0.4,
-      selectedValue: 0.6,
-    };
     const input = {
-      memoryRef: null,
+      parentVersionRef: null,
+      resourceRef: null,
       goal: 'Maintain Wiki.',
-      evidenceRefs: ['train-measurement'],
-      observations,
-      sources: [{ candidateRef: 'incumbent' }],
+      evidenceRefs: ['window'],
+      editConstraints: {},
     };
     validate(memoryDefinition.contract.input_schema, input);
-    const unused = async (): Promise<never> => {
-      throw new Error('Unexpected service');
-    };
     let calls = 0;
     const services: RuntimeContext = new RuntimeContext().extend({
       rootDirectory: root,
       dataDirectory: root,
       artifacts,
       workspaces,
-      facts: new FileFacts(join(root, 'facts')),
-      readCandidate: async (ref) => {
-        assert.equal(ref, 'incumbent');
-        return {
-          ref,
-          artifactRef: candidateArtifact,
-          parentRef: null,
-          experimentId: 'experiment',
-        };
-      },
-      recordCandidate: unused,
-      recordMeasurement: unused,
-      readMeasurement: unused,
-      application: unused,
-      applicationMetadata: unused,
-      invoke: unused,
-      withInstance: unused,
-      charge: unused,
-      readEvidence: async (refs) => {
-        assert.deepEqual(refs, ['train-measurement']);
-        return { training: 'Observed execution' };
-      },
+      facts,
       invokeAgent: async (_binding, request) => {
         const cwd = string(request.cwd);
         const supplied = object(
           JSON.parse(await readFile(join(cwd, 'context/input.json'), 'utf8')),
         );
-        assert.deepEqual(supplied.observations, observations);
-        assert.deepEqual(
-          JSON.parse(
-            await readFile(join(cwd, 'context/measurements.json'), 'utf8'),
-          ),
-          { training: 'Observed execution' },
-        );
-        assert.equal(
-          await readFile(
-            join(cwd, 'sources/0/plugins/base/skills/check/SKILL.md'),
-            'utf8',
-          ),
-          'Check completed work.',
-        );
+        assert.equal(supplied.evidenceIndex, 'context/evolution/index.json');
+        assert.equal(supplied.evidenceView, 'training-summary');
+        assert.equal(await readFile(join(cwd, sourcePath), 'utf8'), summary);
         calls++;
         return calls === 1
           ? {
@@ -140,60 +99,52 @@ test('memory receives authorized summary and current skills, persists Wiki and r
       validate(memoryDefinition.contract.output_schema, updated);
       assert.equal(updated.status, 'updated');
       const snapshot = join(root, 'snapshot');
-      await artifacts.materialize(string(updated.memoryRef), snapshot);
+      await artifacts.materialize(string(updated.resourceRef), snapshot);
       assert.equal(
         await readFile(join(snapshot, 'wiki/index.md'), 'utf8'),
         'Rejected trial; retain existing skill.',
       );
       const retained = object(
         await memory.execute(
-          { ...input, memoryRef: updated.memoryRef! },
+          { ...input, resourceRef: updated.resourceRef! },
           context.extend(services),
         ),
       );
       assert.equal(retained.status, 'no-change');
-      assert.equal(retained.memoryRef, updated.memoryRef);
+      assert.equal(retained.resourceRef, updated.resourceRef);
       assert.equal(retained.changeRef, null);
       assert.deepEqual(await readdir(join(root, 'workspaces')), []);
       for (const content of ['Tampered source.', null]) {
         services.invokeAgent = async () => ({
-          edits: [
-            { path: 'sources/0/plugins/base/skills/check/SKILL.md', content },
-          ],
+          edits: [{ path: sourcePath, content }],
           reason: 'Attempt to modify read-only source.',
         });
-        const failed = object(
-          await memory.execute(
-            { ...input, memoryRef: updated.memoryRef! },
+        await assert.rejects(
+          memory.execute(
+            { ...input, resourceRef: updated.resourceRef! },
             context.extend(services),
           ),
+          /read-only/,
         );
-        assert.equal(failed.status, 'failed');
-        assert.equal(failed.memoryRef, updated.memoryRef);
-        assert.equal(failed.changeRef, null);
-        assert.match(string(failed.reason), /read-only source/);
         assert.deepEqual(await readdir(join(root, 'workspaces')), []);
       }
       const shadow = await artifacts.putJson({
         kind: 'file-tree',
         files: [
           {
-            path: 'sources/0/plugins/base/skills/check/SKILL.md',
+            path: sourcePath,
             mode: 420,
             base64: Buffer.from('Shadowed source.').toString('base64'),
           },
         ],
       });
-      services.invokeAgent = unused;
-      const shadowed = object(
-        await memory.execute(
-          { ...input, memoryRef: shadow },
+      await assert.rejects(
+        memory.execute(
+          { ...input, resourceRef: shadow },
           context.extend(services),
         ),
+        /shadows/,
       );
-      assert.equal(shadowed.status, 'failed');
-      assert.equal(shadowed.memoryRef, shadow);
-      assert.match(string(shadowed.reason), /source.*shadow|shadow.*source/);
       assert.deepEqual(await readdir(join(root, 'workspaces')), []);
     } finally {
       await memory.dispose();
@@ -204,12 +155,11 @@ test('memory receives authorized summary and current skills, persists Wiki and r
   }
 });
 
-test('WikiSkill skips no-change evaluation, retains Wiki across rejection, stops at target and resumes without repeated calls', async (t) => {
+test('WikiSkill skips no-change evaluation, retains the incumbent across rejection, stops at target and resumes without repeated calls', async (t) => {
   const policy = await loadWikiPolicy(t);
   const scores: Record<string, number> = { h0: 0.5, c1: 0.8, c2: 0.7, c3: 1 };
   const measurements = new Map<string, { candidate: string; score: number }>();
   const evaluations: JsonObject[] = [];
-  const memories: JsonObject[] = [];
   const parents: string[] = [];
   let checkpoint: JsonObject = {};
   let proposals = 0;
@@ -241,18 +191,9 @@ test('WikiSkill skips no-change evaluation, retains Wiki across rejection, stops
         measurements.set(ref, { candidate, score: scores[candidate]! });
         return { measurementRef: ref };
       }
-      if (name === 'memoryUpdater') {
-        memories.push(value);
-        return {
-          status: 'updated',
-          memoryRef: `wiki${memories.length}`,
-          changeRef: `memory-change${memories.length}`,
-          reason: 'Training and summary feedback recorded.',
-        };
-      }
       if (name === 'proposer') {
         parents.push(string(value.parent));
-        assert.equal(value.memoryRef, `wiki${memories.length}`);
+        assert.equal(Object.hasOwn(value, 'memoryRef'), false);
         const index = proposals++;
         return {
           status: index === 0 ? 'no-change' : 'created',
@@ -292,26 +233,8 @@ test('WikiSkill skips no-change evaluation, retains Wiki across rejection, stops
     taskIds: ['test'],
   });
   assert.equal(output.candidateRef, 'c3');
-  assert.equal(output.memoryRef, 'wiki4');
+  assert.equal(Object.hasOwn(output, 'memoryRef'), false);
   assert.equal(output.testMeasurementRef, 'm9');
-  assert.equal(memories[0].observations, null);
-  assert.equal(object(memories[1].observations).status, 'no-change');
-  assert.equal(object(memories[2].observations).accepted, true);
-  const rejected = object(memories[3].observations);
-  assert.equal(rejected.accepted, false);
-  assert.equal(rejected.candidateRef, 'c2');
-  assert.equal(rejected.candidateValue, 0.7);
-  assert.equal(rejected.selectedValue, 0.8);
-  for (const memory of memories) {
-    assert.equal((memory.evidenceRefs as string[]).length, 1);
-    const ref = (memory.evidenceRefs as string[])[0]!;
-    const evaluation = evaluations[Number(ref.slice(1)) - 1]!;
-    assert.deepEqual(evaluation.taskIds, ['train']);
-    assert.equal(
-      object((memory.sources as JsonObject[])[0]).candidateRef,
-      evaluation.candidateRef,
-    );
-  }
   const restored = await policy.execute({
     input: input,
     config: config,
@@ -364,13 +287,6 @@ test('WikiSkill full-score baseline stops only with an explicit threshold', asyn
               incumbentValue: 1,
               candidateValue: 1,
               selectedValue: 1,
-            };
-          if (name === 'memoryUpdater')
-            return {
-              status: 'no-change',
-              memoryRef: value.memoryRef!,
-              changeRef: null,
-              reason: 'No update.',
             };
           return {
             status: 'no-change',

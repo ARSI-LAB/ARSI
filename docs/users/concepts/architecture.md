@@ -67,17 +67,20 @@ For example, `candidateRef` identifies a candidate record, which a plugin reads 
 
 **Evidence** is material saved during execution, such as traces, logs, and deliverables. It supports later analysis, learning, and selection. The Runtime supplies different input content based on the evidence view a plugin declares:
 
-| View               | Content provided                                                                                                             |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `execution`        | Sanitized execution evidence, excluding structured evaluator scores, rewards, and grading feedback.                          |
-| `training-summary` | Execution evidence plus training scores and bounded evaluation feedback.                                                     |
-| `delivery`         | Previews of content recorded as deliverables, such as the contents of `report.md`; no execution traces or structured scores. |
+| View | Execution evidence | Evaluator feedback |
+| --- | --- | --- |
+| `training` | Full redacted traces and files, subject to the evidence budget. | Authorized measurements, metric definitions, checks and diagnostics. |
+| `execution` | Full redacted traces and files. Use for verifier-blind runs. | Scoring and grading fields are withheld. |
+| `training-summary` | Bounded JSON previews, including the head and tail of trajectories. | Authorized measurements, metric definitions, checks and diagnostics. |
+| `delivery` | Anonymous previews of deliverables for artifact selection. | None. |
+
+Memory and Reflection default to `training`. Set `evidence: { view: execution }` for verifier-blind evolution. The lower-level `context.readEvidence` service and `proposer.agent` default to `execution`.
 
 Plugins can use [Runtime evidence services](../../../src/runtime/services/facts/evidence.ts) to provide input to optimization models. See [writing plugins](../guides/writing-plugins.md) for the read interface and limits.
 
 ## Plugin self-evolution
 
-The framework provides plugin-level self-evolution components, including Memory and Reflection. Select a Policy that integrates them and configure the relevant bindings, learning goals, and authorized resources to use them in an experiment.
+Memory and Reflection provide runtime evolution at the plugin level. Use the Policy or Recipe to reference external files that configure serial triggers, evidence and targets.
 
 Follow the [Memory guide](../guides/memory.md) and [Reflection guide](../guides/reflection.md) for configuration and how updates affect later execution. See [built-in components](../guides/built-in-components.md) for available implementations.
 
@@ -111,10 +114,11 @@ sequenceDiagram
   Core->>App: Initialize
   App-->>Core: Initial candidate
 
-  Core->>Proposer: domainProposer<br/>Candidate, goal, evidence, optional Memory
+  Core->>Proposer: domainProposer<br/>Candidate, goal and evidence
   Proposer->>Core: Read candidate files<br/>and authorized execution records
   Core-->>Proposer: Candidate files and execution records
-  Proposer->>Agent: Request proposed file changes
+  Proposer->>Core: Invoke Agent with the project
+  Core->>Agent: Request file changes with the pinned Memory when available
   Agent-->>Proposer: Proposed changes
   Proposer->>Proposer: Validate and apply changes<br/>in a temporary workspace
   Proposer->>Core: Submit changes (commit)

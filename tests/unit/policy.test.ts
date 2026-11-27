@@ -473,46 +473,12 @@ test('foreach waits for launched branches after failure and dispatches no furthe
   await assert.rejects(running, /branch failure/);
   assert.deepEqual(dispatched, [0, 1]);
 });
-test('parallel ancestors apply to nested serial foreach and Reflection', async () => {
-  const definition = {
-    ...base,
-    defaults: { reflection: { configFile: 'reflection.yaml' } },
-    config_schema: { type: 'object' },
-    steps: [
-      {
-        id: 'outer',
-        type: 'foreach',
-        foreach: [1],
-        as: 'outerItem',
-        key: '${{ outerItem }}',
-        concurrency: '${{ config.concurrency }}',
-        steps: [
-          {
-            id: 'inner',
-            type: 'foreach',
-            foreach: [1],
-            as: 'innerItem',
-            key: '${{ innerItem }}',
-            concurrency: 1,
-            steps: [{ id: 'reflect', type: 'reflection' }],
-          },
-        ],
-      },
-    ],
-  };
-  let calls = 0;
-  await assert.rejects(
-    new Policy(definition).execute({
-      ...options(),
-      config: { concurrency: 2 },
-      reflect: async () => {
-        calls++;
-        return null;
-      },
-    }),
-    /parallel/,
+test('the compiler rejects the retired Reflection step', () => {
+  assert.throws(
+    () =>
+      new Policy({ ...base, steps: [{ id: 'reflect', type: 'reflection' }] }),
+    /unknown step type reflection/,
   );
-  assert.equal(calls, 0);
 });
 test('failed state validation preserves the previous state and nested values despite conditional defaults', async (t) => {
   const { StateStep } = await import('../../src/runtime/policy/index.js');
@@ -576,51 +542,6 @@ test('failed state validation preserves the previous state and nested values des
   assert.deepEqual(after, { active: false, count: 0, payload: {} });
   assert.equal(checkpoints, 0);
 });
-test('serial Reflection preserves result and following invocations observe the activation', async () => {
-  const contract = {
-    id: 'contract.work',
-    input_schema: true,
-    output_schema: true,
-  };
-  const policy = new Policy(
-    {
-      ...base,
-      require: { work: { contract: contract.id } },
-      defaults: { reflection: { configFile: 'reflection.yaml' } },
-      steps: [
-        { id: 'reflect', type: 'reflection' },
-        { id: 'after', type: 'invoke', use: 'work' },
-      ],
-      output: {
-        reflection: '${{ steps.reflect.output }}',
-        actual: '${{ steps.after.output }}',
-      },
-    },
-    { contracts: { contract: () => contract } },
-  );
-  let active = false;
-  const result = {
-    reflectionId: 'reflection-one',
-    status: 'activated',
-    reason: 'validated',
-    revisionRefs: { work: 'revision-one' },
-  };
-  assert.deepEqual(
-    await policy.execute({
-      ...options(),
-      reflect: async (path, state, parallel) => {
-        assert.equal(path, 'steps/reflect');
-        assert.equal(parallel, false);
-        assert.deepEqual(state, { count: 0 });
-        active = true;
-        return result;
-      },
-      invoke: async () => (active ? 'revision-one' : 'baseline'),
-    }),
-    { reflection: result, actual: 'revision-one' },
-  );
-});
-
 test('state fields declared by patternProperties accept valid updates and enforce value types', async () => {
   const policy = new Policy({
     schemaVersion: 'rsi.policy/v1',

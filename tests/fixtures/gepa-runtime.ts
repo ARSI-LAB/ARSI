@@ -1,4 +1,6 @@
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
+import { memoryDefinition } from '../../src/plugins/memory-agent/index.js';
+import { reflectionDefinition } from '../../src/plugins/reflection-agent/index.js';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join, matchesGlob } from 'node:path';
@@ -18,6 +20,8 @@ import {
   agentbenchContract,
   applicationContract,
   parseFileTree,
+  memoryContract,
+  reflectionContract,
 } from '../../src/contracts/index.js';
 import {
   evaluationFeedbackSchema,
@@ -472,6 +476,20 @@ function fakeAgentPlugin(
           const metadata = object(
             JSON.parse(string(projectFiles['context/input.json'])),
           );
+          if (metadata.evidenceIndex === 'context/evolution/index.json') {
+            if (!Object.hasOwn(projectFiles, 'candidate/manifest.json'))
+              return {
+                edits: [
+                  {
+                    path: 'lesson.md',
+                    content:
+                      'Inspect the training examples before proposing changes.',
+                  },
+                ],
+                reason: 'Record a training lesson',
+              };
+            return { edits: [], reason: 'No evolution edit for this window' };
+          }
           const evidence = object(
             JSON.parse(string(projectFiles['context/measurements.json'])),
           );
@@ -548,6 +566,7 @@ export async function runGepa(options: {
   modules?: { id: string; path: string }[];
   bindingNames?: { evaluator: string; proposer: string; agent: string };
   realAgentEndpoint?: string;
+  evolution?: 'custom' | 'policy-defaults';
   resumeAfterEvaluation?: number;
   editWorkspaceFailures?: number;
   restartOnResume?: boolean;
@@ -623,6 +642,69 @@ export async function runGepa(options: {
     );
   registry.registerOperation(paretoEvolutionProposerDefinition);
   registry.registerOperation(proposerDefinition);
+  if (options.evolution === 'policy-defaults') {
+    registry.registerOperation(memoryDefinition);
+    registry.registerOperation(reflectionDefinition);
+  }
+  if (options.evolution === 'custom') {
+    await writeFile(
+      join(root, 'memory.yaml'),
+      stringify({
+        implementation: { ref: 'test.gepa-memory' },
+        trigger: { on: 'after-step', step: 'evaluate_parent' },
+        evidence: { includeSteps: ['evaluate_parent'] },
+      }),
+    );
+    await writeFile(
+      join(root, 'reflection.yaml'),
+      stringify({
+        implementation: { ref: 'test.gepa-reflection' },
+        trigger: { on: 'experiment-end' },
+        targets: { include: { proposer: ['prompt'] } },
+      }),
+    );
+    registry.registerOperation({
+      id: 'test.gepa-memory',
+      contract: memoryContract,
+      configSchema: { type: 'object' },
+      async create() {
+        return {
+          async execute(_input, context) {
+            const resourceRef = await context.artifacts.putJson(
+              fileTree({ 'lesson.md': 'Compare observed outcomes.' }),
+            );
+            const changeRef = await context.artifacts.putJson({
+              after: resourceRef,
+            });
+            return {
+              status: 'updated',
+              resourceRef,
+              changeRef,
+              reason: 'Record a measured procedure',
+            };
+          },
+          async dispose() {},
+        };
+      },
+    });
+    registry.registerOperation({
+      id: 'test.gepa-reflection',
+      contract: reflectionContract,
+      configSchema: { type: 'object' },
+      async create() {
+        return {
+          async execute() {
+            return {
+              status: 'no-change',
+              proposal: null,
+              reason: 'Existing guidance covers this window',
+            };
+          },
+          async dispose() {},
+        };
+      },
+    });
+  }
   const bindingNames = options.bindingNames ?? {
     evaluator: 'evaluator',
     proposer: 'proposer',
@@ -686,6 +768,14 @@ export async function runGepa(options: {
         plugin: fakeApplication.id,
         config: { files: baselineFiles },
       },
+      ...(options.evolution === 'custom'
+        ? {
+            memory: { configFile: './memory.yaml' },
+            reflection: { configFile: './reflection.yaml' },
+          }
+        : options.evolution === undefined
+          ? { memory: false, reflection: false }
+          : {}),
       policy: {
         id: policyId,
         input: { candidateRef: '${{ application.initialCandidate }}' },

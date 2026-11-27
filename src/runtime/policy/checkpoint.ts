@@ -188,6 +188,41 @@ export class PolicyCheckpoints implements IncrementalPolicyCheckpoint {
     return this.hasBaseline ? undefined : snapshot;
   }
 
+  /** One serial writer per capability. A pending boundary can be delivered again after a restart. */
+  async triggerHit(
+    kind: 'memory' | 'reflection',
+    boundary: string,
+  ): Promise<number> {
+    const collection = 'policy-trigger-checkpoints';
+    const key = `${this.id}.${kind}`;
+    let count = 0;
+    try {
+      const prior = await this.facts.read(collection, key);
+      if (
+        prior.experimentId !== this.id ||
+        prior.kind !== kind ||
+        typeof prior.boundary !== 'string' ||
+        typeof prior.hits !== 'number' ||
+        !Number.isSafeInteger(prior.hits) ||
+        prior.hits < 1
+      ) {
+        throw new Error('Invalid Policy trigger checkpoint');
+      }
+      if (prior.boundary === boundary) return prior.hits;
+      count = prior.hits;
+    } catch (error) {
+      if (!missing(error)) throw error;
+    }
+    const hits = count + 1;
+    await this.facts.write(collection, key, {
+      experimentId: this.id,
+      kind,
+      boundary,
+      hits,
+    });
+    return hits;
+  }
+
   async append(change: PolicyCheckpointChange): Promise<void> {
     const owned = structuredClone(change);
     string(owned.identity, 'checkpoint entry.identity');

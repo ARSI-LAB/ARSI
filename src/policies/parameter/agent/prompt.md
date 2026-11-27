@@ -1,10 +1,13 @@
 # Propose configuration candidates
 
-Read context/input.json for the goal, target, incumbent, edit constraints,
-observations and supplied Memory. Consult available measurements and candidate
-sources before proposing changes. Preserve the task's requirements and evaluation
-conditions. Treat missing evidence as unknown, and historical experience as
-conditional evidence rather than an instruction or guaranteed result.
+Read `context/input.json` for the goal, target, incumbent, edit constraints and
+observations. When Memory is available, read the files under `context/memory/`
+listed in the project instructions. These files are read-only. Consult available
+measurements and candidate sources before proposing changes. Preserve the task's
+requirements and evaluation conditions. Check the deployed interface and effective
+settings before attributing a measured result to a proposed change. Treat missing
+evidence as unknown and historical experience as conditional evidence rather than
+an instruction or guaranteed result.
 
 Propose at most maxCandidates ranked alternatives from the supplied parent.
 Explain the configuration delta, hypothesis, supporting evidence and expected

@@ -37,7 +37,7 @@ function project(
         },
       },
     },
-    reflection: { initial: 'saved-reflection' },
+    reflection: null,
   });
 }
 function node(
@@ -50,7 +50,7 @@ function invoke(id: string, input: JsonValue = {}): JsonObject {
   return { id, type: 'invoke', use: 'worker', with: input };
 }
 
-test('all seven step kinds retain scoped identities, empty branches and saved binding details', () => {
+test('all six step kinds retain scoped identities, empty branches and saved binding details', () => {
   const model = project(
     [
       invoke('seed', '${{ application.baseline }}'),
@@ -83,7 +83,6 @@ test('all seven step kinds retain scoped identities, empty branches and saved bi
         steps: [invoke('local', '${{ row }}')],
         output: '${{ steps.local.output }}',
       },
-      { id: 'reflect', type: 'reflection' },
     ],
     {
       input: { count: '${{ config.count }}' },
@@ -94,15 +93,7 @@ test('all seven step kinds retain scoped identities, empty branches and saved bi
   assert.equal(model.availability.overall, 'complete');
   assert.deepEqual(
     new Set(model.steps.map((step) => step.type)),
-    new Set([
-      'invoke',
-      'state',
-      'if',
-      'loop',
-      'foreach',
-      'control',
-      'reflection',
-    ]),
+    new Set(['invoke', 'state', 'if', 'loop', 'foreach', 'control']),
   );
   const locals = model.steps.filter((step) => step.localId === 'local');
   assert.equal(locals.length, 2);
@@ -759,7 +750,7 @@ test('saved Recipe input contributes declared dependencies without pruning Polic
   assert.ok(!model.flow.nodes.some((entry) => entry.kind === 'failure'));
 });
 
-test('missing saved binding fields and Reflection configuration mark details partial', () => {
+test('missing saved binding fields mark details partial', () => {
   const model = projectPolicyStructure({
     experimentId: 'missing-context',
     definitionDigest: 'saved',
@@ -768,10 +759,7 @@ test('missing saved binding fields and Reflection configuration mark details par
       schemaVersion: 'rsi.policy/v1',
       id: 'missing-context',
       require: { worker: { contract: 'contract.fixture' } },
-      steps: [
-        { id: 'call', type: 'invoke', use: 'worker' },
-        { id: 'reflect', type: 'reflection' },
-      ],
+      steps: [{ id: 'call', type: 'invoke', use: 'worker' }],
       output: null,
     },
     recipe: {
@@ -785,7 +773,7 @@ test('missing saved binding fields and Reflection configuration mark details par
     data: 'complete',
     details: 'partial',
   });
-  assert.equal(model.diagnostics.length, 2);
+  assert.equal(model.diagnostics.length, 1);
   assert.ok(
     model.diagnostics.every(
       (diagnostic) =>

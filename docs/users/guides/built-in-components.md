@@ -57,6 +57,8 @@ Agent, Grid, and Optuna each evaluate the initial configuration once before sear
 | Agent backend | [`agent.dsh`](configuration.md#native-cli-backends)     | Run optimization Agent tasks through the official DSH headless CLI.                                                      | Reuse native DSH configuration and tools.                                               |
 | Agent backend | [`agent.opencode`](configuration.md#native-cli-backends) | Run Agent tasks through the local OpenCode V2 CLI. | Reuse native model settings and return read-only proposals from a private instance. |
 
+`proposer.agent` defaults to `evidenceView: execution`. With `evidenceView: training`, it provides redacted traces in `context/runs/`, feedback and trace paths in `context/measurements.json`, and metric values and units in `context/metrics.json`. `training-summary` keeps the feedback and metrics with bounded execution previews. Memory and Reflection default to `training`; Harness² explicitly selects `execution` for verifier-blind evolution. See [Evidence](../concepts/architecture.md#evidence).
+
 `selector.inference` uses the same `contract.selector-metrics` interface and configuration fields as `selector.metric`. While constraints remain unmet, it accepts a candidate if no constraint violation increases and at least one decreases. Equal violations require improvement in the primary metric beyond the configured threshold. A satisfied constraint must remain satisfied; once all constraints are met, selection optimizes the primary metric without returning to an infeasible candidate. Constraints marked `prerequisite: true` remain hard requirements and run before the objective comparison. Only complete, comparable measurements with the required metrics can be selected.
 
 ## Application
@@ -94,21 +96,11 @@ Before committing a new candidate, the Application checks the actual file change
 
 ### Memory
 
-Memory requires explicit integration in the Policy. The Policy calls `memory.agent` to turn evidence and observations into reusable experience, saves the returned `memoryRef`, and passes it to later steps that use the experience. For example:
-
-- **WikiSkill**: After each round's training evaluation, update the experience using its scores and execution evidence, then pass it to that round's Proposer to help improve skills.
-- **Harness²**: After each task, use execution traces to update the experience, then pass it to Proposers in later tasks.
-
-The Policy can continue if an update fails. See the [Memory guide](memory.md) for details.
+At a configured serial boundary, the Runtime invokes the Memory plugin, validates the proposed snapshot and makes the active version available to authorized bindings. WikiSkill triggers after training evaluation and Harness² after each task. See the [Memory guide](memory.md).
 
 ### Reflection
 
-Reflection requires an explicit execution step in the Policy. Specify the guidance files and other resources that may change in the Reflection configuration file, then declare a `type: reflection` step in the Policy to call `reflection.agent` and propose changes based on execution evidence. For example:
-
-- **Harness²**: Authorizes changes to the Invariant Proposer and Domain Proposer's `guidance` files. Its `improve_guidance` step is commented out by default; enabling it in a custom Policy allows these files to be updated for later Proposer calls to use when generating proposals.
-
-Runtime activates validated changes within the current experiment for later plugin calls to read and use. Follow the [Reflection guide](reflection.md) for configuration, resource authorization, and reuse across experiments.
-
+At a configured boundary, the Runtime invokes the Reflection plugin, validates changes against the authorized resources and activates revisions for later calls. Agent Policies select a named Proposer's local `prompt`, `skills` and `subagents` resources with `proposer: '*'`. Harness² names its Invariant and Domain Proposers separately. Operator Search selects just `promptsDirectory` and `promptFile` on its two bindings. Set `reflection: false` in the Recipe to disable Reflection. See the [Reflection guide](reflection.md).
 
 ### Inference configuration candidates
 
@@ -130,11 +122,9 @@ without worsening another violation. Once feasible, `minRelativeImprovement`
 controls primary-metric gains. Metric names, bounds and optimization direction
 belong to Recipe configuration, not hardcoded selector goals. Failed candidates
 can be rejected without fabricated scores; unknown or cancelled outcomes remain
-errors. Training-summary proposers receive public metric values and units in
-`context/metrics.json`, independently of bounded evidence previews.
+errors.
 
-Inference measurements also attach a public environment summary. Training-summary
-proposals receive it in `context/metrics.json` beside exact metrics and units,
+Inference measurements also attach a public environment summary. Proposals using either training view receive it in `context/metrics.json` beside exact metrics and units,
 with the originating artifact reference. It includes reported engine software,
 device identifiers, verification status, SDK/runtime identity and scalar workload
 settings; credentials, host names, endpoints and private native configuration are

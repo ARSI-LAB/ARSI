@@ -1,11 +1,2 @@
-evidence: [proposer, evaluator, selector, memoryUpdater]
 targets:
-  proposer:
-    resources: [guidance]
-goal: ./reflection.md
-implementation:
-  contract: contract.reflection
-  ref: reflection.agent
-  config:
-    agentRef: agent
-    evidenceView: training-summary
+  include: { proposer: '*' }

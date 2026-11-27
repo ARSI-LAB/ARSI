@@ -19,6 +19,19 @@ test('Manager evidence uses explicit views and byte limits rather than plugin co
         view: 'training-summary',
       });
       assert.match(JSON.stringify(training), /"score"/);
+      for (const format of [undefined, 'files'] as const) {
+        const projection = object(
+          await context.readEvidence([ref], { view: 'training', format }),
+        );
+        assert.equal(projection.view, 'training');
+        assert.ok(Array.isArray(projection.measurements));
+        assert.deepEqual(
+          object(projection.measurements[0]).metrics,
+          measurement.metrics,
+        );
+        if (format === 'files')
+          assert.match(JSON.stringify(projection.files), /execution trace/);
+      }
       const bounded = await context.readEvidence([ref], {
         view: 'execution',
         maxBytes: 1024,
@@ -44,9 +57,10 @@ test('Manager evidence uses explicit views and byte limits rather than plugin co
       );
       const files = await context.readEvidence([ref], {
         format: 'files',
-        view: 'execution',
       });
       assert.equal(object(files).schemaVersion, 'rsi.evidence-files/v1');
+      assert.equal(object(files).view, 'execution');
+      assert.doesNotMatch(JSON.stringify(files), /"metrics"/);
       return {};
     },
     { config: { evidenceView: 'training-summary' } },
@@ -123,6 +137,36 @@ test('Explicit JSON evidence budgets above the summary default remain usable and
   }
 });
 
+test('evidence wrapper summaries supply sanitized execution context and stay out of delivery', async () => {
+  const fixture = await managerFixture(async (context) => {
+    const refs = ['evidence-wrapped'];
+    await context.facts.write('evidence-views', refs[0], {
+      experimentId: context.experimentId,
+      measurementRefs: [],
+      summary: {
+        note: 'ordinary context',
+        evaluation: { checks: [{ message: 'withheld hint' }] },
+      },
+    });
+    for (const format of [undefined, 'files'] as const) {
+      const evidence = await context.readEvidence(refs, { format });
+      assert.match(JSON.stringify(evidence), /ordinary context/);
+      assert.doesNotMatch(JSON.stringify(evidence), /withheld hint/);
+    }
+    const delivery = await context.readEvidence(refs, { view: 'delivery' });
+    assert.doesNotMatch(
+      JSON.stringify(delivery),
+      /ordinary context|withheld hint/,
+    );
+    return {};
+  });
+  try {
+    await fixture.run();
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test('Manager rejects invalid explicit evidence limits before reading resources', async () => {
   const fixture = await managerFixture(async (context) => {
     for (const maxBytes of [
@@ -157,7 +201,12 @@ test('Explicit evidence options preserve Measurement experiment ownership', asyn
       ref,
       experimentId: 'another-experiment',
     });
-    for (const view of ['execution', 'training-summary', 'delivery'] as const) {
+    for (const view of [
+      'execution',
+      'training',
+      'training-summary',
+      'delivery',
+    ] as const) {
       await assert.rejects(
         context.readEvidence([ref], { view, maxBytes: 4096 }),
         /another experiment/,

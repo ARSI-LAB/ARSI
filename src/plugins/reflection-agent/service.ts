@@ -1,13 +1,13 @@
 import { fileURLToPath } from 'node:url';
-import type { AgentEditingConfig } from './schema.js';
+import type { RuntimeEvolutionAgentConfig } from './schema.js';
 import type {
   OperationDefinition,
   ReflectionInput,
   ReflectionOutput,
 } from '../../contracts/index.js';
-import { object, string } from '../../shared/json.js';
+import { string } from '../../shared/json.js';
 import { editResource } from '../shared/agent-editing/index.js';
-import { prepareDocumentPreviews } from './document-previews.js';
+import { evolutionContext } from '../shared/agent-editing/evolution-context.js';
 import { checkReflectionAgent } from './doctor.js';
 
 export const reflectionReviewer = {
@@ -20,60 +20,17 @@ export const reflectionReviewer = {
 export const createReflectionAgent: OperationDefinition<
   ReflectionInput,
   ReflectionOutput,
-  AgentEditingConfig
+  RuntimeEvolutionAgentConfig
 >['create'] = async (config, ctx) => {
   ctx.event?.on('rsi/doctor', checkReflectionAgent);
   return {
     async execute(input, context) {
-      const files: Record<string, string> = {};
-      const indexes = [];
-      const sources = [];
-      for (const ref of input.evidenceRefs) {
-        const snapshot = await context.facts.read('evidence-views', ref);
-        if (
-          snapshot.experimentId !== context.experimentId ||
-          snapshot.view !== 'reflection-observations/v1' ||
-          snapshot.evidenceView !== (config.evidenceView ?? 'execution')
-        )
-          throw new Error(
-            'Reflection evidence snapshot ownership or format mismatch',
-          );
-        for (const [path, content] of Object.entries(
-          object(snapshot.files ?? {}),
-        )) {
-          if (!path.startsWith('context/') || typeof content !== 'string')
-            throw new Error('Invalid Reflection read-only evidence file');
-          if (Object.hasOwn(files, path))
-            throw new Error('Duplicate Reflection evidence file');
-          files[path] = content;
-        }
-        indexes.push({ ref, ...object(snapshot.index ?? {}) });
-        if (Array.isArray(snapshot.sources))
-          for (const source of snapshot.sources) sources.push(object(source));
-      }
-      const previews = await prepareDocumentPreviews({
-        sources,
-        files,
-        artifacts: context.artifacts,
-        signal: context.signal,
-        maxBytes: context.scope?.limits.evidenceBytes,
-      });
-      const indexPath = 'context/reflection/index.json';
-      files[indexPath] = JSON.stringify({ indexes, previews }, null, 2);
       const updated = await editResource(
         config,
         input,
         input.resourceRef,
         context,
-        {
-          files,
-          evidence: { indexPath, views: indexes.length },
-          input: {
-            evidenceView: config.evidenceView ?? 'execution',
-            evidenceIndex: indexPath,
-            readOnlyPaths: Object.keys(files),
-          },
-        },
+        await evolutionContext('reflection', input.evidenceRefs, context),
         [reflectionReviewer],
       );
       if (updated.changeRef !== null)

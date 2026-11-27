@@ -213,6 +213,8 @@ test('Manager runs the Agent Policy with direct evaluation, bounded search, and 
             },
           },
         },
+        memory: false,
+        reflection: false,
         policy: {
           id: 'policy.parameter-agent',
           config: { maxTrials: 3 },

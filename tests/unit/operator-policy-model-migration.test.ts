@@ -42,9 +42,11 @@ test('the operator Policy loads and round-trip through the unified model', async
           '${{ input.candidateRef }}',
         );
         assert.equal(policy.stateInitial.baselineMeasurement, null);
-        assert.equal(
-          policy.steps.filter((step) => step.type === 'loop').length,
-          1,
+        assert.deepEqual(
+          policy.steps
+            .filter((step) => step.type === 'loop')
+            .map((step) => step.id),
+          ['static_search', 'metrics_loop'],
         );
       }
     }

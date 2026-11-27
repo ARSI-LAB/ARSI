@@ -5,26 +5,38 @@ import type {
 } from '../../../contracts/index.js';
 import { parseFileTree } from '../../../contracts/index.js';
 import { object, string } from '../../../shared/json.js';
-import { fullEvidenceText, type EvidenceView } from './evidence.js';
+import { secretValues } from '../../../shared/secrets.js';
+import {
+  evidenceRecordContent,
+  fullEvidenceText,
+  projectMeasurementTrainingFeedback,
+  type EvidenceView,
+} from './evidence.js';
 
-/** Receives already-authorized Measurements. File mode deliberately excludes scoring views. */
+/** Returns complete sanitized files and, for training, the authorized Measurement feedback. */
 export async function projectEvidenceFiles(options: {
   measurements: JsonObject[];
   artifacts: ArtifactStore;
   view: EvidenceView;
   maxBytes?: number;
+  directory?: string;
 }): Promise<JsonObject> {
-  if (options.view !== 'execution')
-    throw new Error('File evidence requires the execution view');
+  if (options.view !== 'execution' && options.view !== 'training')
+    throw new Error('File evidence requires the execution or training view');
   const files: JsonObject = {};
   const measurements: JsonObject[] = [];
   const result: JsonObject = {
     schemaVersion: 'rsi.evidence-files/v1',
-    view: 'execution',
+    view: options.view,
     measurements,
     files,
   };
   const maxBytes = options.maxBytes;
+  if (
+    maxBytes !== undefined &&
+    (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)
+  )
+    throw new Error('Evidence budget must be a positive safe integer');
   let bytes = 0;
   const store = (path: string, content: string): void => {
     if (maxBytes !== undefined) {
@@ -102,18 +114,17 @@ export async function projectEvidenceFiles(options: {
       const tree =
         source?.kind === 'file-tree' ? parseFileTree(source).files : null;
       if (!tree) {
+        const record = evidenceRecordContent(raw);
         const content =
-          typeof source?.text === 'string'
-            ? source.text
-            : typeof raw === 'string'
-              ? raw
-              : JSON.stringify(raw);
+          typeof record === 'string' ? record : JSON.stringify(record);
         const format =
-          typeof source?.text === 'string' || typeof raw === 'string'
-            ? 'text'
-            : 'json';
+          typeof record !== 'string'
+            ? 'json'
+            : e.kind === 'trajectory'
+              ? 'jsonl'
+              : 'text';
         const safe = fullEvidenceText(content, format);
-        const path = `context/evidence/${mi}/${ei}/record.txt`;
+        const path = `${options.directory ?? 'context/evidence'}/${mi}/${ei}/record.txt`;
         store(path, safe.text);
         entryFiles.push({
           path,
@@ -155,7 +166,7 @@ export async function projectEvidenceFiles(options: {
             ? 'json'
             : 'text';
         const safe = fullEvidenceText(decoded, format);
-        const path = `context/evidence/${mi}/${ei}/${fi}.txt`;
+        const path = `${options.directory ?? 'context/evidence'}/${mi}/${ei}/${fi}.txt`;
         store(path, safe.text);
         entryFiles.push({
           path,
@@ -166,6 +177,28 @@ export async function projectEvidenceFiles(options: {
           truncated: safe.truncated,
         });
       }
+    }
+  }
+  // File mode guarantees complete execution files. Share the remaining serialized bytes across
+  // measurements so that broad feedback from one does not crowd out every subsequent item.
+  if (options.view === 'training') {
+    let remaining =
+      maxBytes === undefined
+        ? Infinity
+        : maxBytes - Buffer.byteLength(JSON.stringify(result));
+    const secrets = secretValues();
+    for (const [i, projected] of measurements.entries()) {
+      // The feedback's two braces become a single comma when its fields are merged.
+      const budget = Math.floor(remaining / (measurements.length - i)) + 1;
+      const feedback = await projectMeasurementTrainingFeedback(
+        options.measurements[i],
+        options.artifacts,
+        budget,
+        secrets,
+      );
+      Object.assign(projected, feedback);
+      if (maxBytes !== undefined)
+        remaining -= Buffer.byteLength(JSON.stringify(feedback)) - 1;
     }
   }
   if (

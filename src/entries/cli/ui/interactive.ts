@@ -28,10 +28,16 @@ const choices = [
     placeholder: '[experiment-id] [--dry-run]',
   },
   {
+    value: 'memory',
+    label: 'Memory',
+    placeholder:
+      'list [experiment-id] or show/apply <versionID> [--to <directory>]',
+  },
+  {
     value: 'reflection',
     label: 'Reflection',
     placeholder:
-      'list [experiment-id], show <revision-id>, or apply <revision-id>',
+      'list [experiment-id] or show/apply <revisionID> [--to <directory>]',
   },
   {
     value: 'dashboard',

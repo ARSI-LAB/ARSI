@@ -16,7 +16,10 @@ import {
   type Measurement,
 } from '../../contracts/models/measurement.js';
 import type { Registry } from '../registry/index.js';
-import { projectEvidence } from '../services/facts/evidence.js';
+import {
+  executionEvidenceValue,
+  projectEvidence,
+} from '../services/facts/evidence.js';
 import { projectEvidenceFiles } from '../services/facts/evidence-files.js';
 
 /** Owns candidate and measurement facts and authorizes their evidence views. */
@@ -142,7 +145,8 @@ export class ExperimentFacts {
         : null;
       if (references && references.experimentId !== this.id)
         throw new Error('Evidence belongs to another experiment');
-      if (references?.summary) summaries.push(references.summary);
+      if (view !== 'delivery' && references?.summary)
+        summaries.push(executionEvidenceValue(references.summary));
       for (const measurementRef of references
         ? strings(references.measurementRefs)
         : [ref]) {

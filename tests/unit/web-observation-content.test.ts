@@ -82,6 +82,9 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
   const before = await snapshot();
   const runtime: ServerRuntime = {
     manager: {
+      memory: () => {
+        throw new Error('Unexpected Memory application');
+      },
       reflection: () => {
         throw new Error('Unexpected reflection call');
       },

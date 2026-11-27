@@ -1,4 +1,4 @@
-import type { AgentEditingConfig } from './schema.js';
+import type { RuntimeEvolutionAgentConfig } from './schema.js';
 import type {
   MemoryInput,
   MemoryOutput,
@@ -6,56 +6,37 @@ import type {
 } from '../../contracts/index.js';
 import { string } from '../../shared/json.js';
 import { editResource } from '../shared/agent-editing/index.js';
-import { buildComparisonContext } from './comparison.js';
-import { errorText } from '../../shared/errors.js';
 import { agentEditorDoctorRules } from '../shared/agent-editing/doctor.js';
+import { evolutionContext } from '../shared/agent-editing/evolution-context.js';
 
 export const createMemoryAgent: OperationDefinition<
   MemoryInput,
   MemoryOutput,
-  AgentEditingConfig
+  RuntimeEvolutionAgentConfig
 >['create'] = async (config, ctx) => {
   ctx.event?.on('rsi/doctor', (request) => agentEditorDoctorRules(request));
   return {
     async execute(input, context) {
-      try {
-        const comparison =
-          input.comparison === undefined
-            ? undefined
-            : await buildComparisonContext(input, context);
-        const updated = await editResource(
-          config,
-          input,
-          input.memoryRef,
-          context,
-          comparison,
-        );
-        if (updated.changeRef !== null)
-          return {
-            status: 'updated',
-            memoryRef: string(updated.resourceRef),
-            changeRef: updated.changeRef,
-            reason: updated.reason,
-          };
+      const updated = await editResource(
+        config,
+        input,
+        input.resourceRef,
+        context,
+        await evolutionContext('memory', input.evidenceRefs, context),
+      );
+      if (updated.changeRef === null)
         return {
           status: 'no-change',
-          memoryRef: updated.resourceRef,
+          resourceRef: input.resourceRef,
           changeRef: null,
           reason: updated.reason,
         };
-      } catch (error) {
-        if (
-          context.signal.aborted ||
-          (error instanceof Error && error.name === 'ExperimentBudgetExceeded')
-        )
-          throw error;
-        return {
-          status: 'failed',
-          memoryRef: input.memoryRef,
-          changeRef: null,
-          reason: errorText(error),
-        };
-      }
+      return {
+        status: 'updated',
+        resourceRef: string(updated.resourceRef),
+        changeRef: updated.changeRef,
+        reason: updated.reason,
+      };
     },
     async dispose() {},
   };

@@ -218,6 +218,8 @@ for (const priorStatus of ['unknown', 'running'])
         path,
         JSON.stringify({
           schemaVersion: 'rsi.recipe/v1',
+          memory: false,
+          reflection: false,
           id: 'test',
           application: { plugin: 'test.application', config: {} },
           policy: {
@@ -434,25 +436,30 @@ test('retry reuses committed child calls before repeating the failed parent', as
   }
 });
 
-test('resume rejects experiments written before routing decisions were persisted', async () => {
+test('resume rejects earlier definition lock formats before modifying the experiment', async () => {
   const { managerFixture } = await import('../helpers/manager-fixture.js');
   const fixture = await managerFixture(async () => ({}));
   try {
     const recorded = await fixture.run();
     const definition = await fixture.manager.facts.read('definitions', 'test');
-    await fixture.manager.facts.write('definitions', 'test', {
-      ...definition,
-      schemaVersion: 'rsi.definition-lock/v1',
-    });
     const failed = { ...recorded, status: 'failed' };
     await fixture.manager.facts.write('experiments', 'test', failed);
-    await assert.rejects(
-      fixture.manager.run(String(recorded.recipePath), {
-        id: 'test',
-        resume: true,
-      }),
-      /predates resumable Policy checkpoints/,
-    );
+    for (const version of [
+      'rsi.definition-lock/v1',
+      'rsi.definition-lock/v2',
+    ]) {
+      await fixture.manager.facts.write('definitions', 'test', {
+        ...definition,
+        schemaVersion: version,
+      });
+      await assert.rejects(
+        fixture.manager.run(String(recorded.recipePath), {
+          id: 'test',
+          resume: true,
+        }),
+        /Unsupported experiment definition lock.*requires rsi\.definition-lock\/v3/,
+      );
+    }
     assert.deepEqual(await fixture.manager.get('test'), failed);
     assert.deepEqual(
       await fixture.manager.facts.list('definition-attempts'),

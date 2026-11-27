@@ -14,7 +14,6 @@ import {
   freezeSnapshot,
 } from '../../shared/json.js';
 import { validate } from '../../shared/schema.js';
-import { readReflectionResult } from '../revisions/records.js';
 import { evaluateTemplate } from './expression.js';
 import {
   type Step,
@@ -37,11 +36,6 @@ export interface PolicyOptions {
     binding: string,
     input: JsonValue,
     stablePath: string,
-    parallel: boolean,
-  ): Promise<JsonValue>;
-  reflect?(
-    stablePath: string,
-    state: JsonObject,
     parallel: boolean,
   ): Promise<JsonValue>;
   checkpoint(snapshot: JsonObject): Promise<void>;
@@ -425,20 +419,6 @@ export async function runPolicy(
         updateState(patch) {
           signal.throwIfAborted();
           return updateState(patch, parallel);
-        },
-        async reflect() {
-          if (parallel)
-            throw new Error(
-              `${stepPath}: Reflection requires serial execution`,
-            );
-          if (!policy.defaults.reflection || !options.reflect)
-            throw new Error(`${stepPath}: Reflection is not configured`);
-          signal.throwIfAborted();
-          const value = structuredClone(
-            await options.reflect(stepPath, structuredClone(state), parallel),
-          );
-          signal.throwIfAborted();
-          return readReflectionResult(value);
         },
         runSteps(children, settings) {
           return runSteps(

@@ -12,20 +12,20 @@ This file defines repository-wide development workflow, engineering conventions,
 | `src/contracts/runtime/`                                      | Public RuntimeContext, service interfaces, execution scope, and events                                              |
 | `src/contracts/policies/`                                     | Shared Policy input Schemas                                                                                        |
 | `src/runtime/{registry,loaders,compiler,policy}/`             | Cordis registration, content loading and locking, the sole v1 DSL compiler, pure dataflow execution, and checkpoints |
-| `src/runtime/{manager,services,revisions}/`                   | Sole ownership of facts and budgets, controlled calls and leases, revision acceptance/activation/recovery            |
+| `src/runtime/{manager,services,evolution}/`                   | Sole ownership of facts and budgets, controlled calls and leases, Memory versions, Reflection revisions, activation and recovery            |
 | `src/runtime/storage/`                                        | Immutable artifacts, atomic facts/receipts, and local file storage implementations                                   |
 | `src/plugins/shared/file-application/`                       | Target, editing, and sealing tools shared by file-based Applications                                                |
 | `src/plugins/application-{agentbundle,inference}/`            | initialize/commit/acquire/release application lifecycle                                                              |
 | `src/plugins/application-kernel/`                            | Triton-Ascend source candidate validation and workspace lifecycle                                                    |
 | `src/plugins/agent-pi/`                                       | Agent execution backend                                                                                              |
-| `src/plugins/{proposer-agent,memory-agent,reflection-agent}/` | Application candidate proposals, experience consolidation, and general guidance revision proposals                   |
+| `src/plugins/{proposer-agent,memory-agent,reflection-agent}/` | Application candidate proposals, experience consolidation, and plugin resource revision proposals                   |
 | `src/plugins/proposer-operator/` | Operator candidate proposals using versioned prompts and explicitly supplied external knowledge |
 | `src/plugins/evaluator-{agentbench,inferencebench}/`         | Two SDK-backed evaluation plugins                                                                                   |
 | `src/plugins/shared/evaluator-adapter/`                     | Shared Evaluator SDK execution, configuration/result mapping, metrics, and evidence adapters; not a public plugin    |
 | `src/plugins/evaluator-operatorbench/`                       | Evaluator SDK invocation and RSI Measurement/evidence mapping for operator assessments                               |
 | `src/plugins/{selector-metrics,selector-artifacts}/`          | Metric selection and anonymous artifact selection                                                                    |
 | `src/plugins/shared/agent-editing/`                           | Editing tools shared by business plugins; not registered as a separate public plugin                                 |
-| `src/policies/`                                               | Complete Policies, their Reflection rules, and shared Prompts                                                        |
+| `src/policies/`                                               | Complete Policies, their Memory and Reflection defaults, and shared Prompts                                                        |
 | `src/entries/{cli,web}/`, `web/`                              | rsi commands, Fastify entrypoint, React UI, and typed client                                                         |
 | `src/shared/`                                                 | JSON, Schema, digest, and genuinely shared utilities                                                                 |
 | `examples/harness/dsh-harness2/`                              | Recipe, Target, baseline, and documentation for the Harness² example                                    |
@@ -37,7 +37,7 @@ This file defines repository-wide development workflow, engineering conventions,
 
 Recipes and Policies use only `rsi.recipe/v1` and `rsi.policy/v1`; do not retain old parsers, Host/Profile, RolePlugin, or migration entrypoints. A regular plugin implements one public contract from src/contracts/plugin-types, defines one execute and owns its configuration Schema; input/output Schemas are declared only by that contract. Multiple lifecycle actions use an action-discriminated union. Policy require entries reference registered contract IDs; compile and load Policies with the Runtime registry. Startup code explicitly registers plugins and Policies; there is no separate Runtime configuration.
 
-Applications manage optimization targets and instance lifecycles; Evaluators consume instances for measurement. The Manager owns candidates, measurements, budgets, and call receipts; Policies only orchestrate flows. Memory and Reflection are independent business plugins, while the Runtime owns structural acceptance and activation of Reflection revisions. The Web UI uses only public management/query interfaces and does not inject core state.
+Applications manage optimization targets and instance lifecycles; Evaluators consume instances for measurement. The Manager owns candidates, measurements, budgets, and call receipts; Policies only orchestrate flows. Memory and Reflection are independent business plugins, while the Runtime owns structural acceptance and activation of Memory versions and Reflection revisions. The Web UI uses only public management/query interfaces and does not inject core state.
 
 Keep all runtime data in the ignored `.rsi/` directory and one-off probes in `.scratch/` or a system temporary directory. `dist/` and `node_modules/` are generated artifacts. Source, builds, and release packages must not depend on examples; a file's presence alone does not enable it. New tests cover only necessary inputs/outputs, side effects, and failure/recovery boundaries; do not restore large suites tied to the shape of old implementations.
 

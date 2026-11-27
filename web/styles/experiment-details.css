@@ -1854,7 +1854,7 @@ td .measurement-metrics {
 .call-detail h3 .call-round {
   margin-left: 12px;
 }
-.learning-record-heading {
+.evolution-record-heading {
   display: flex;
   align-items: baseline;
   gap: 12px;

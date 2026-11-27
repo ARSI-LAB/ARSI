@@ -6,7 +6,7 @@ Use Node 24.x and the project's supplied, built `arsi` package. In a source chec
 
 Copy `assets/minimal/` from this skill to `.rsi/skill-demo/` beneath a Node workspace that can resolve the package. Keep its files together: `recipe.yaml`, `policy.yaml`, `target.yaml`, the complete `baseline/`, `extension/` and `run.mjs`. Node resolves imports relative to the importing file, not your shell directory.
 
-This is the complete credential-free workflow. For model editing, Memory or Reflection, add the optional [learning assets](advanced.md). For an SDK benchmark, add the optional [TerminalBench assets](sdk-evaluators.md). Neither is required for the first run.
+This is the complete credential-free workflow. For model editing, Memory or Reflection, add the optional [runtime evolution assets](advanced.md). For an SDK benchmark, add the optional [TerminalBench assets](sdk-evaluators.md). Neither is required for the first run.
 
 From the workspace root, with an installed binary:
 

@@ -104,7 +104,6 @@ test('wrong public types fail validation and actual startup before calls while a
       plugin: 'proposer.alternative',
       config: {
         prompt: resolve('src/policies/harness2/prompts/invariant.md'),
-        guidance: resolve('src/policies/harness2/guidance/invariant-proposer'),
         agentRef: 'agent',
       },
     };

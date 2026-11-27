@@ -10,6 +10,8 @@ import {
   aggregateTrainingMetrics,
 } from '../../src/plugins/evaluator-agentbench/training-feedback.js';
 import { projectEvidence } from '../../src/runtime/services/facts/evidence.js';
+import { projectEvidenceFiles } from '../../src/runtime/services/facts/evidence-files.js';
+import { object } from '../../src/shared/json.js';
 
 test('native quality feedback maps WorkBuddy checks and Harbor rewards without inventing missing tests', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-training-'));
@@ -174,13 +176,33 @@ test('native quality feedback maps WorkBuddy checks and Harbor rewards without i
         },
       ],
     });
-    const index = await artifacts.putJson({ entries: [] });
+    const trajectory = Array.from({ length: 30 }, (_, step) =>
+      JSON.stringify({
+        step,
+        action: 'inspect-' + step,
+        score: 'HIDDEN_TRACE_SCORE',
+      }),
+    ).join('\n');
+    const index = await artifacts.putJson({
+      entries: [
+        {
+          kind: 'trajectory',
+          access: 'execution',
+          artifactRef: await artifacts.putJson({ text: trajectory }),
+        },
+        {
+          kind: 'trajectory',
+          access: 'private',
+          artifactRef: await artifacts.putJson('PRIVATE_VERIFIER_TRACE'),
+        },
+      ],
+    });
     const measurement = {
       schemaVersion: 'rsi.measurement/v1',
       ref: 'measurement-test',
       status: 'succeeded',
       coverage: 'complete',
-      metrics: {},
+      metrics: workbuddy.metrics,
       evidenceIndexRef: index,
       itemsRef,
     };
@@ -195,6 +217,55 @@ test('native quality feedback maps WorkBuddy checks and Harbor rewards without i
     assert.match(text, /table_structure/);
     assert.match(text, /passThreshold/);
     assert.match(text, /metricDefinitions/);
+    const options = {
+      measurements: [measurement],
+      artifacts,
+      view: 'training' as const,
+    };
+    const json = object(await projectEvidence({ ...options, maxBytes: 24000 }));
+    const full = await projectEvidenceFiles(options);
+    for (const output of [json, full]) {
+      assert.equal(output.view, 'training');
+      assert.ok(Array.isArray(output.measurements));
+      const record = object(output.measurements[0]);
+      assert.deepEqual(record.metrics, workbuddy.metrics);
+      assert.ok(Array.isArray(record.items));
+      const evaluation = object(object(record.items[0]).evaluation);
+      assert.equal(evaluation.passed, false);
+      assert.match(JSON.stringify(evaluation.checks), /table_structure/);
+      assert.ok(Object.keys(object(record.metricDefinitions)).length > 0);
+      assert.doesNotMatch(
+        JSON.stringify(output),
+        /PRIVATE_VERIFIER_TRACE|HIDDEN_TRACE_SCORE/,
+      );
+    }
+    assert.match(JSON.stringify(object(full.files)), /inspect-15/);
+    assert.doesNotMatch(JSON.stringify(json), /inspect-15/);
+    assert.deepEqual(
+      await projectEvidenceFiles({
+        ...options,
+        maxBytes: Buffer.byteLength(JSON.stringify(full)),
+      }),
+      full,
+    );
+    const executionFiles = await projectEvidenceFiles({
+      measurements: [measurement],
+      artifacts,
+      view: 'execution',
+    });
+    const fileBudget = Buffer.byteLength(JSON.stringify(executionFiles)) + 400;
+    const limitedFiles = await projectEvidenceFiles({
+      ...options,
+      maxBytes: fileBudget,
+    });
+    assert.ok(Buffer.byteLength(JSON.stringify(limitedFiles)) <= fileBudget);
+    assert.deepEqual(limitedFiles.files, executionFiles.files);
+    assert.ok(Array.isArray(limitedFiles.measurements));
+    assert.equal(object(limitedFiles.measurements[0]).itemsTruncated, true);
+    await assert.rejects(
+      projectEvidenceFiles({ ...options, maxBytes: 64 }),
+      /byte limit/,
+    );
     for (const view of ['execution', 'delivery'] as const) {
       const projected = await projectEvidence({
         measurements: [measurement],
@@ -207,14 +278,33 @@ test('native quality feedback maps WorkBuddy checks and Harbor rewards without i
         /table_structure|passThreshold|0\.8707/,
       );
     }
-    const bounded = await projectEvidence({
-      measurements: [measurement],
-      artifacts,
-      view: 'training-summary',
-      maxBytes: 700,
+    for (const view of ['training-summary', 'training'] as const) {
+      const bounded = await projectEvidence({
+        ...options,
+        view,
+        maxBytes: 700,
+      });
+      assert.ok(Buffer.byteLength(JSON.stringify(bounded)) <= 700);
+      assert.match(JSON.stringify(bounded), /truncated.*true/);
+    }
+    const invalidItems = await artifacts.putJson({
+      items: [
+        {
+          evaluation: {
+            artifactRef: await artifacts.putJson({
+              privateReport: 'not normalized',
+            }),
+          },
+        },
+      ],
     });
-    assert.ok(Buffer.byteLength(JSON.stringify(bounded)) <= 700);
-    assert.match(JSON.stringify(bounded), /truncated.*true/);
+    await assert.rejects(
+      projectEvidenceFiles({
+        ...options,
+        measurements: [{ ...measurement, itemsRef: invalidItems }],
+      }),
+      /training evaluation feedback/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

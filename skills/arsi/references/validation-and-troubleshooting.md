@@ -11,6 +11,7 @@ For a new installation, use [quickstart](quickstart.md) in an isolated workspace
 | bundle.yaml invalid                               | Copy the entire baseline including nonempty plugins, entry, lockfile and plugin metadata                                  |
 | Invalid Policy input passed doctor                | Final input_schema validation occurs during Manager.run; assert its rejection, then inspect a persisted record if present |
 | Materialize rejects destination                   | Use a new or empty real directory, not an existing populated output or symlink                                            |
+| Reflection write-back rejects a protected or linked destination | Preview with `arsi reflection show <revisionID> --to ./exported-resources`, export with `arsi reflection apply <revisionID> --to ./exported-resources`, then point the Recipe bindings at those copies. Use a dedicated user-owned directory with no symlinks or junctions. For repeated in-place updates, configure user-owned targets before the first run. |
 | Binding agent.default/agent undeclared            | Declare the binding in the owning Policy require even when an editor invokes it indirectly                                |
 | doctor has no failures, run fails                 | Inspect unchecked entries and each probe's scope; prerequisite checks do not establish actual experiment success          |
 | recordCandidate rejects input                     | Call scoped context method with `(artifactRef, parentRef)`, not an object; use Application commit for proposals           |
@@ -19,9 +20,9 @@ For a new installation, use [quickstart](quickstart.md) in an isolated workspace
 | Selector refuses comparison                       | Match definitions and nonempty comparisonKey; successful/complete coverage required                                       |
 | Missing candidateRef input                        | Add Policy mapping from application.initialCandidate                                                                      |
 | Expression rejected                               | Expressions occupy the entire scalar; initialize state and use lexical `steps.<id>.output` references                     |
-| Unsafe configuration pointer                      | Reflection resources are field names such as guidance, not /guidance or file paths                                        |
-| Reflection skipped                                | Need at least three eligible completed calls, authorized evidence and explicit type: reflection                           |
-| Memory not used                                   | Carry memoryRef through state into a later proposer call                                                                  |
+| Unsafe configuration pointer                      | Select a configured field such as `prompt` under `targets.include.proposer`, or use `'*'` for all its local resources                                        |
+| Reflection skipped                                | Inspect the serial trigger (`on`/`every`/`step`) and the evidence window for observed calls                |
+| Memory not used                                   | Check the active snapshot, targets and metadata.memoryVersionRef on the later Agent call                                                                  |
 | Budget exhausted                                  | Include baseline, nested Agent/Reflection calls and original elapsed time                                                 |
 | Resume blocks uncertain effects                   | Inspect receipt and external resource state; do not edit facts or blindly retry                                           |
 | HTTP cancellation response but no terminal result | Inspect the owner and persisted state; terminal cancellation has a known rejection risk in this version                   |

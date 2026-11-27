@@ -2,6 +2,7 @@ import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   access,
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -9,7 +10,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import type { JsonObject, JsonValue } from '../../src/contracts/index.js';
 import { createRuntime, type Runtime } from '../../src/runtime/context.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
@@ -70,6 +71,7 @@ async function fixture(
     Object.keys(variables).map((key) => [key, process.env[key]]),
   );
   Object.assign(process.env, variables);
+  if (name === 'dsh-gepa') delete process.env.MODEL_NAME;
   let selectedRunner: SdkDoctorRunner;
   t.mock.method(Evaluator.prototype, 'doctor', (options: SdkDoctorOptions) =>
     selectedRunner(options),
@@ -210,6 +212,10 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
       'evaluator.sdk-doctor',
       'evaluator.sdk.coverage',
       'evaluator.sdk.network',
+      'memory.binding.agentRef',
+      'memory.prepare-project',
+      'reflection.binding.agentRef',
+      'reflection.prepare-project',
       independentChecks[name],
     ])
       assert.equal(
@@ -218,17 +224,6 @@ for (const name of ['dsh-harness2', 'dsh-wikiskill', 'dsh-gepa'] as const) {
         `${name}: ${id}`,
       );
     if (name === 'dsh-harness2') {
-      assert.equal(
-        report.checks.find((check) => check.id === 'reflection.prepare-project')
-          ?.status,
-        'passed',
-      );
-      assert.equal(
-        report.checks.find(
-          (check) => check.id === 'reflection.binding.agentRef',
-        )?.status,
-        'passed',
-      );
       assert.equal(
         report.checks.find(
           (check) => check.id === 'domainProposer.prepare-project',
@@ -478,4 +473,56 @@ test('identical scripted Recipe checks stay deterministic across two conversatio
     'passed',
   );
   verifyReport(reduceLatency);
+});
+
+test('Doctor checks Memory seed contents, permits a future directory, and reports built-in Reflection destinations', async (t) => {
+  const f = await fixture(t, 'dsh-harness2');
+  delete object(f.data.bindings).domainProposer;
+  f.data.reflection = true;
+  f.data.memory = { configFile: './memory-directory.yaml' };
+  await writeFile(
+    join(dirname(f.path), 'memory-directory.yaml'),
+    JSON.stringify({ directory: './new-memory' }),
+  );
+  await writeFile(f.path, JSON.stringify(f.data));
+  const report = await doctorRecipe(f.runtime, f.path);
+  assert.equal(
+    report.checks.find((check) => check.id === 'memory.directory')?.status,
+    'passed',
+    JSON.stringify(report.checks),
+  );
+  assert.equal(
+    report.checks.find((check) => check.id === 'reflection.targets')?.status,
+    'passed',
+  );
+  const directory = join(dirname(f.path), 'new-memory');
+  const path = join(directory, 'lesson.md');
+  await mkdir(directory);
+  const seedChecks = async () => {
+    const { checks } = await doctorRecipe(f.runtime, f.path);
+    return new Map(checks.map((check) => [check.id, check]));
+  };
+  await writeFile(path, 'Learned from training.');
+  assert.equal((await seedChecks()).get('memory.directory')?.status, 'passed');
+  for (const [bytes, reason] of [
+    [Buffer.from([0]), /Binary Memory resource: lesson\.md/],
+    [Buffer.from([0xff]), /Invalid UTF-8 Memory resource: lesson\.md/],
+  ] as const) {
+    await writeFile(path, bytes);
+    const checks = await seedChecks();
+    const check = checks.get('memory.directory');
+    assert.equal(check?.status, 'failed');
+    assert.match(check.reason ?? '', reason);
+    assert.equal(checks.get('memory.plugin')?.status, 'unchecked');
+    assert.equal(checks.has('memory.prepare-project'), false);
+    assert.equal(checks.get('reflection.prepare-project')?.status, 'passed');
+  }
+  if (process.platform !== 'win32') {
+    await writeFile(path, 'executable text');
+    await chmod(path, 0o755);
+    const checks = await seedChecks();
+    const check = checks.get('memory.directory');
+    assert.equal(check?.status, 'failed');
+    assert.match(check.reason ?? '', /Executable Memory file: lesson\.md/);
+  }
 });

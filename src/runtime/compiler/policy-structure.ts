@@ -25,7 +25,6 @@ import {
   IfStep,
   InvokeStep,
   LoopStep,
-  ReflectionStep,
   StateStep,
   parseSteps,
   type Step,
@@ -409,15 +408,7 @@ class Projection {
           scopeId,
           label: `${step.id} exit`,
         });
-      this.node(
-        'step',
-        path,
-        step.id,
-        scopeId,
-        step.toJSON(),
-        step instanceof ReflectionStep ? this.input.reflection : null,
-        id,
-      );
+      this.node('step', path, step.id, scopeId, step.toJSON(), null, id);
       if (predecessor) this.flow(predecessor, id, 'sequence', path);
       if (step instanceof ControlStep) {
         const action = step.control.action;
@@ -947,17 +938,6 @@ class Projection {
           `${path}/reason`,
           ['reason'],
           'expression',
-        );
-      } else if (
-        step instanceof ReflectionStep &&
-        this.input.reflection === null
-      ) {
-        this.diagnostic(
-          'details',
-          id,
-          path,
-          'Initial saved Reflection configuration is unavailable.',
-          'missing-source',
         );
       }
       if (!(step instanceof ControlStep)) frame.completed.add(step.id);

@@ -15,7 +15,7 @@ import {
 import { typedArtifact } from '../../src/contracts/models/measurement.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
-import { collectReflectionEvidence } from '../../src/runtime/revisions/evidence.js';
+import { collectEvolutionEvidence } from '../../src/runtime/evolution/evidence.js';
 import { object, string } from '../../src/shared/json.js';
 for (const consumer of ['Manager', 'Reflection'] as const) {
   test(`${consumer} uses Measurement ownership without visibility metadata`, async () => {
@@ -42,7 +42,8 @@ for (const consumer of ['Manager', 'Reflection'] as const) {
               schemaVersion: 'rsi.measurement/v1',
               ref: 'measurement-owned',
               experimentId: context.experimentId,
-              callId: context.callId,
+              callId:
+                consumer === 'Reflection' ? 'owned-evaluation' : context.callId,
               candidateRef: 'candidate-test',
               evaluator: {
                 pluginId: 'test.reader',
@@ -106,9 +107,10 @@ for (const consumer of ['Manager', 'Reflection'] as const) {
                 output: { measurementRef: 'measurement-owned' },
                 finishedAt: '2026-10-26T00:00:01Z',
               });
-              const snapshot = await collectReflectionEvidence({
+              const snapshot = await collectEvolutionEvidence({
+                kind: 'reflection',
                 context,
-                names: ['evaluator'],
+                observe: { bindings: ['evaluator'] },
                 identity: 'test-boundary',
                 capturedAt: '2026-10-26T00:00:02Z',
                 maxBytes: 16000,
@@ -175,6 +177,8 @@ for (const consumer of ['Manager', 'Reflection'] as const) {
         join(root, 'recipe.yaml'),
         stringify({
           schemaVersion: 'rsi.recipe/v1',
+          memory: false,
+          reflection: false,
           id: 'ownership',
           application: {
             plugin: 'test.application',

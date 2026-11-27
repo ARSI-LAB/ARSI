@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   RuntimeContext,
   applicationContract,
@@ -11,11 +12,12 @@ import {
 } from '../../src/contracts/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { Policy } from '../../src/runtime/policy/index.js';
+import { pointerValue } from '../../src/runtime/evolution/resources.js';
 import { Recipe } from '../../src/runtime/loaders/recipe.js';
 import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { object } from '../../src/shared/json.js';
 
-test('policy.parameter-agent loads default learning resources with either Reflection switch value', async (t) => {
+test('policy.parameter-agent loads default evolution resources with either Reflection switch value', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rsi-parameter-defaults-'));
   const registry = new Registry();
   t.after(async () => {
@@ -49,42 +51,75 @@ test('policy.parameter-agent loads default learning resources with either Reflec
   };
   const options = { sourcePath: join(root, 'recipe.yaml') };
   const standard = await Recipe.fromJSON(declaration, registry, options);
-  assert.equal(standard.policyConfig.memory, false);
-  assert.equal(standard.policyConfig.reflection, false);
+  assert.equal(standard.memory?.evidenceView, 'training');
+  assert.equal(standard.reflection?.evidenceView, 'training');
   assert.equal(
     standard.bindings.proposer!.config.prompt,
     join(root, 'prompt.md'),
   );
-  assert.ok(standard.reflection);
-  const guidance = standard.bindings.proposer!.config.guidance;
-  assert.equal(typeof guidance, 'string');
-  assert.match(
-    await readFile(join(String(guidance), 'search.md'), 'utf8'),
-    /Configuration search guidance/,
+  assert.equal(
+    standard.bindings.proposer!.config.evidenceView,
+    'training-summary',
   );
+  assert.deepEqual(standard.reflection?.targets, {
+    proposer: { resources: ['/prompt'] },
+  });
   for (const reflection of [false, true]) {
-    declaration.policy.config = { reflection };
-    const loaded = await Recipe.fromJSON(declaration, registry, options);
-    assert.ok(loaded.reflection);
+    const loaded = await Recipe.fromJSON(
+      { ...declaration, reflection },
+      registry,
+      options,
+    );
+    assert.equal(Boolean(loaded.reflection), reflection);
     const reloaded = await Recipe.fromJSON(loaded.toJSON(), registry, options);
     assert.deepEqual(reloaded.reflection, loaded.reflection);
   }
-  declaration.policy.config = { reflection: false };
-  const missingGuidance = {
+
+  const missingSkill = {
     ...declaration,
+    reflection: true,
     bindings: {
       ...declaration.bindings,
-      proposer: { config: { guidance: './missing-guidance' } },
+      proposer: { config: { skills: ['./missing-skill'] } },
     },
   };
   await assert.rejects(
-    Recipe.fromJSON(missingGuidance, registry, options),
-    /guidance.*cannot read resource/,
+    Recipe.fromJSON(missingSkill, registry, options),
+    /skills.*cannot read resource/,
   );
   declaration.policy.config = { maxTrials: null };
   await assert.rejects(
     Recipe.fromJSON(declaration, registry, options),
     /maxTrials/,
+  );
+});
+
+test('the parameter-agent example authorizes its local tuning prompt, skill and specialist role prompts for Reflection', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  await registerBuiltins(registry);
+  const directory = fileURLToPath(
+    new URL(
+      '../../examples/artifacts/inference/parameter-agent/',
+      import.meta.url,
+    ),
+  );
+  const recipe = await Recipe.load(join(directory, 'recipe.yaml'), registry);
+  const resources = recipe.reflection?.targets.proposer?.resources ?? [];
+  assert.deepEqual(
+    Object.fromEntries(
+      resources.map((pointer) => [
+        pointer,
+        pointerValue(recipe.bindings.proposer!.config, pointer),
+      ]),
+    ),
+    {
+      '/prompt': join(directory, 'prompts/tuning.md'),
+      '/skills/0': join(directory, 'skills/vllm-ascend-tuning'),
+      '/subagents/0/prompt': join(directory, 'roles/scheduler.md'),
+      '/subagents/1/prompt': join(directory, 'roles/ascend-runtime.md'),
+      '/subagents/2/prompt': join(directory, 'roles/research-scout.md'),
+    },
   );
 });
 
@@ -115,7 +150,7 @@ test('policy.parameter-agent follows selector decisions and returns the measured
             return { measurementRef: `m-${input.candidateRef}` };
           }
           if (binding === 'proposer') {
-            assert.equal(input.memoryRef, null);
+            assert.equal(Object.hasOwn(input, 'memoryRef'), false);
             if (input.parent === 'baseline') {
               assert.equal(input.maxCandidates, 2);
               assert.deepEqual(input.evidenceRefs, ['m-baseline']);
@@ -189,7 +224,7 @@ test('policy.parameter-agent follows selector decisions and returns the measured
     ]);
     assert.equal(result.status, 'no-feasible-configuration');
     assert.equal(result.candidateFeasible, false);
-    assert.equal(result.memoryRef, null);
+    assert.equal(Object.hasOwn(result, 'memoryRef'), false);
     assert.equal(result.stopReason, 'max-trials');
     assert.equal(result.baselineCandidateRef, 'baseline');
     assert.equal(result.baselineMeasurementRef, 'm-baseline');

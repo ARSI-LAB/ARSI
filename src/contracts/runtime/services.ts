@@ -2,6 +2,7 @@ import type { Candidate } from '../models/candidate.js';
 import type { JsonObject, JsonValue } from '../json.js';
 import type { EventPipeline } from './events.js';
 import type { AgentInput, AgentOutput } from '../plugin-types/agent.js';
+import type { RuntimeEvolutionEvidenceView } from '../runtime-evolution.js';
 import type {} from './context.js';
 
 export interface ArtifactStore {
@@ -67,7 +68,7 @@ declare module './context.js' {
       refs: string[],
       options?: {
         format?: 'files';
-        view?: 'execution' | 'training-summary' | 'delivery';
+        view?: RuntimeEvolutionEvidenceView | 'delivery';
         /** Requested serialized-output budget. JSON projections and scoped reads may apply a lower limit. */
         maxBytes?: number;
       },

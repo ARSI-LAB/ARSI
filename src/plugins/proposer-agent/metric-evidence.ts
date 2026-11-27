@@ -2,6 +2,7 @@ import type { JsonObject, RuntimeContext } from '../../contracts/index.js';
 import { environmentSummarySchema } from '../../contracts/models/measurement.js';
 import { validate } from '../../shared/schema.js';
 import { object, string } from '../../shared/json.js';
+import { redactJsonSecrets, secretValues } from '../../shared/secrets.js';
 
 /** Only public Measurement metrics/definitions; never copy private native result files. */
 export async function metricEvidence(
@@ -46,5 +47,10 @@ export async function metricEvidence(
       environments,
     });
   }
-  return { measurements, metricDefinitions: definitions };
+  return object(
+    redactJsonSecrets(
+      { measurements, metricDefinitions: definitions },
+      secretValues(),
+    ),
+  );
 }

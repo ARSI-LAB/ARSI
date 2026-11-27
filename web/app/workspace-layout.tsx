@@ -165,7 +165,7 @@ export function WorkspaceLayout({
                 ['results', 'Performance & results'],
                 ['candidates', 'Candidates'],
                 ['measurements', 'Measurements'],
-                ['learning', 'Reflection & Memory'],
+                ['evolution', 'Reflection & Memory'],
                 ['calls', 'Call history'],
                 ['policy', 'Policy'],
                 ['recipe', 'Recipe'],

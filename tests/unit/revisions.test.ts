@@ -28,13 +28,13 @@ import {
 import {
   reflect,
   type ReflectionOptions,
-} from '../../src/runtime/revisions/index.js';
-import { RevisionApplication } from '../../src/runtime/revisions/application.js';
+} from '../../src/runtime/evolution/reflection.js';
+import { RevisionApplication } from '../../src/runtime/evolution/application.js';
 import {
   assignPointer,
   pointerValue,
-} from '../../src/runtime/revisions/resources.js';
-import { canonical, object, string } from '../../src/shared/json.js';
+} from '../../src/runtime/evolution/resources.js';
+import { object, string } from '../../src/shared/json.js';
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(await realpath(tmpdir()), 'rsi-revisions-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -47,10 +47,10 @@ async function fixture(t: TestContext) {
   );
   const bindings: Record<string, Binding> = {};
   for (const key of ['a', 'b']) {
-    const guidance = join(root, key);
-    await mkdir(guidance);
-    await writeFile(join(guidance, 'initial.md'), `${key} original`);
-    bindings[key] = { plugin: 'target', config: { guidance } };
+    const instructions = join(root, key);
+    await mkdir(instructions);
+    await writeFile(join(instructions, 'initial.md'), `${key} original`);
+    bindings[key] = { plugin: 'target', config: { instructions } };
   }
   const context = new RuntimeContext().extend({
     experimentId: 'experiment',
@@ -64,7 +64,10 @@ async function fixture(t: TestContext) {
     contract: { id: 'contract.target', input_schema: {}, output_schema: {} },
     configSchema: {
       type: 'object',
-      properties: { guidance: { type: 'string', 'x-rsi-path': 'directory' } },
+      properties: {
+        instructions: { type: 'string', 'x-rsi-path': 'directory' },
+        prompt: { type: 'string', 'x-rsi-path': 'file' },
+      },
     },
     create: async () => ({
       execute: async () => null,
@@ -90,33 +93,39 @@ async function fixture(t: TestContext) {
   };
   let generations = 0;
   const revisionRefs: JsonObject = {};
+  let reflectionRevisionRef: string | null = null;
   const options: ReflectionOptions = {
     config: {
-      path: join(root, 'reflection.yaml'),
+      trigger: { on: 'experiment-end', every: 1 },
+      goalFile: join(root, 'goal.md'),
+      evidenceView: 'execution',
       digest: 'config',
-      evidence: ['a'],
+      observe: { bindings: ['a'] },
       targets: {
-        a: { resources: ['guidance'] },
-        b: { resources: ['guidance'] },
+        a: { resources: ['instructions'] },
+        b: { resources: ['instructions'] },
       },
-      goal: 'Improve guidance',
-      implementation: {
-        contract: 'contract.reflection',
-        ref: 'custom',
-        config: {},
-      },
+      goal: 'Improve instructions',
+      plugin: 'custom',
+      config: {},
       budget: { modelCalls: 0 },
     },
-    invocation: { policyScopeId: 'root', stepPath: 'init/improve' },
-    generatorBinding: '_reflection',
-    state: { wikiRef: 'must-not-read' },
+    invocation: {
+      policyScopeId: 'root',
+      stepPath: 'init/improve',
+      triggerPath: 'init/improve',
+    },
     bindings,
     context,
     directory,
     get revisionRefs() {
       return Object.freeze({ ...revisionRefs });
     },
-    initialize: (parents) => {
+    get reflectionRevisionRef() {
+      return reflectionRevisionRef;
+    },
+    initialize: async (parents, head) => {
+      reflectionRevisionRef = head;
       for (const [key, parent] of Object.entries(parents))
         if (revisionRefs[key] === undefined) revisionRefs[key] = parent;
     },
@@ -126,12 +135,14 @@ async function fixture(t: TestContext) {
       return {
         status: 'no-change',
         proposal: null,
-        reason: 'keep useful guidance',
+        reason: 'keep useful instructions',
       };
     },
-    save: async (changes, revisions, activationId) => {
+    save: async (changes, revisions, activationId, head) => {
+      reflectionRevisionRef = head;
       await facts.write('activations', context.experimentId, {
         activationId,
+        reflectionRevisionRef,
         revisions: { ...options.revisionRefs, ...revisions },
       });
       Object.assign(bindings, changes);
@@ -170,7 +181,7 @@ async function fixture(t: TestContext) {
   };
   const next = (step: string): ReflectionOptions => ({
     ...options,
-    invocation: { policyScopeId: 'root', stepPath: step },
+    invocation: { policyScopeId: 'root', stepPath: step, triggerPath: step },
   });
   return {
     root,
@@ -199,8 +210,8 @@ test(
   { timeout: 20000 },
   async (t) => {
     const f = await fixture(t);
-    const guidance = string(f.bindings.a!.config.guidance);
-    const prefix = 'bindings/a/resources/guidance';
+    const instructions = string(f.bindings.a!.config.instructions);
+    const prefix = 'bindings/a/resources/instructions';
     const savedFiles = ['a.md', 'b.md'].map((name) => ({
       path: `${prefix}/${name}`,
       mode: 0o644,
@@ -220,9 +231,9 @@ test(
       }),
       sourceResources: [
         {
-          pointer: '/guidance',
+          pointer: '/instructions',
           kind: 'directory',
-          path: guidance,
+          path: instructions,
           artifactPath: prefix,
         },
       ],
@@ -247,7 +258,7 @@ test(
     });
     const originalCapture = f.artifacts.capture.bind(f.artifacts);
     f.artifacts.capture = async (...args) => {
-      if (args[0] === guidance) {
+      if (args[0] === instructions) {
         captured();
         await captureAllowed;
       }
@@ -285,7 +296,7 @@ test(
       assert.equal((await reflecting).status, 'no-change');
       const initial = (await f.facts.list('revisions')).find(
         (revision) =>
-          revision.experimentId === 'experiment' && revision.binding === 'a',
+          revision.experimentId === 'experiment' && revision.kind === 'initial',
       );
       assert.ok(initial);
       const tree = parseFileTree(
@@ -293,9 +304,9 @@ test(
       );
       assert.deepEqual(
         tree.files
-          .filter((file) => file.path.startsWith(prefix + '/'))
+          .filter((file) => file.path.startsWith('resources/a/instructions/'))
           .map((file) => file.path),
-        [`${prefix}/initial.md`],
+        ['resources/a/instructions/initial.md'],
       );
       assert.equal(probes, 0);
       assert.deepEqual(shown.changes, []);
@@ -321,15 +332,15 @@ test('one observation without a Measurement invokes Reflection; no-change and em
   });
   assert.equal(result.status, 'no-change');
   const revisions = await f.facts.list('revisions');
-  assert.equal(revisions.length, 2);
+  assert.equal(revisions.length, 1);
   for (const revision of revisions) {
     assert.equal(revision.kind, 'initial');
     assert.equal(revision.rootRef, revision.ref);
     assert.ok(typeof revision.resourceRef === 'string');
-    assert.ok(Array.isArray(revision.sourceResources));
+    assert.ok(Array.isArray(revision.sourceRoots));
   }
   assert.equal((await reflect(f.next('second'))).status, 'skipped');
-  assert.equal((await f.facts.list('revisions')).length, 2);
+  assert.equal((await f.facts.list('revisions')).length, 1);
   await writeFile(
     join(f.root, 'a/initial.md'),
     'local edit after first snapshot',
@@ -342,7 +353,7 @@ test('one observation without a Measurement invokes Reflection; no-change and em
         await f.artifacts.readJson(string(object(input).resourceRef)),
       );
       const file = tree.files.find(
-        (entry) => entry.path === 'bindings/a/resources/guidance/initial.md',
+        (entry) => entry.path === 'resources/a/instructions/initial.md',
       )!;
       assert.equal(Buffer.from(file.base64, 'base64').toString(), 'a original');
       return {
@@ -361,12 +372,12 @@ test('only changed targets gain revisions and activation preserves original sour
     ...f.options,
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/rules.md': 'first rule',
+        'resources/a/instructions/rules.md': 'first rule',
       }),
   });
   assert.equal(first.status, 'activated');
   assert.deepEqual(Object.keys(first.revisionRefs), ['a']);
-  assert.equal((await f.facts.list('revisions')).length, 3);
+  assert.equal((await f.facts.list('revisions')).length, 2);
   const unchanged = f.options.revisionRefs.b;
   assert.equal(
     await readFile(join(f.root, 'a/initial.md'), 'utf8'),
@@ -375,7 +386,7 @@ test('only changed targets gain revisions and activation preserves original sour
   await assert.rejects(readFile(join(f.root, 'a/rules.md')), /ENOENT/);
   assert.equal(
     await readFile(
-      join(string(f.bindings.a!.config.guidance), 'rules.md'),
+      join(string(f.bindings.a!.config.instructions), 'rules.md'),
       'utf8',
     ),
     'first rule',
@@ -385,7 +396,7 @@ test('only changed targets gain revisions and activation preserves original sour
     ...f.next('second'),
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/second.md': 'second rule',
+        'resources/a/instructions/second.md': 'second rule',
       }),
   });
   assert.equal(second.status, 'activated');
@@ -397,27 +408,111 @@ test('only changed targets gain revisions and activation preserves original sour
   assert.equal(revision.parentRef, first.revisionRefs.a);
   assert.equal(f.options.revisionRefs.a, second.revisionRefs.a);
   const root = await f.facts.read('revisions', string(revision.rootRef));
-  assert.deepEqual(revision.sourceResources, root.sourceResources);
+  assert.deepEqual(revision.sourceRoots, root.sourceRoots);
   assert.equal(
     await readFile(
-      join(string(f.bindings.a!.config.guidance), 'rules.md'),
+      join(string(f.bindings.a!.config.instructions), 'rules.md'),
       'utf8',
     ),
     'first rule',
   );
   assert.equal(
     await readFile(
-      join(string(f.bindings.a!.config.guidance), 'second.md'),
+      join(string(f.bindings.a!.config.instructions), 'second.md'),
       'utf8',
     ),
     'second rule',
   );
 });
+test('a nested file member is explicitly owned and cannot be deleted through its covering directory', async (t) => {
+  const f = await fixture(t);
+  const prompt = join(string(f.bindings.a!.config.instructions), 'initial.md');
+  f.bindings.b!.config = { prompt };
+  f.options.config.targets.b = { resources: ['prompt'] };
+  const path = 'resources/a/instructions/initial.md';
+  await f.observe();
+  const result = await reflect({
+    ...f.options,
+    invoke: async (_key, input) => {
+      const tree = parseFileTree(
+        await f.artifacts.readJson(string(object(input).resourceRef)),
+      );
+      const manifestFile = tree.files.find(
+        (file) => file.path === 'manifest.json',
+      )!;
+      const manifest = object(
+        JSON.parse(Buffer.from(manifestFile.base64, 'base64').toString('utf8')),
+      );
+      assert.deepEqual(manifest[path], {
+        kind: 'file',
+        owners: [
+          { binding: 'a', pointer: '/instructions' },
+          { binding: 'b', pointer: '/prompt' },
+        ],
+        changes: ['modify'],
+      });
+      return f.proposed(input, { [path]: null });
+    },
+  });
+  assert.equal(result.status, 'rejected');
+  assert.match(result.reason, /required file member/);
+  assert.equal((await f.facts.list('revisions')).length, 1);
+  assert.equal(await readFile(prompt, 'utf8'), 'a original');
+});
+
+test('a jointly owned file activates once for both bindings and exports once', async (t) => {
+  const f = await fixture(t);
+  const shared = join(f.root, 'shared.md');
+  await writeFile(shared, 'shared baseline');
+  for (const key of ['a', 'b']) {
+    f.bindings[key]!.config = { prompt: shared };
+    f.options.config.targets[key] = { resources: ['prompt'] };
+  }
+  let snapshotPath = '';
+  await f.observe();
+  const result = await reflect({
+    ...f.options,
+    invoke: async (_key, input) => {
+      const tree = parseFileTree(
+        await f.artifacts.readJson(string(object(input).resourceRef)),
+      );
+      const files = tree.files.filter((file) => file.path !== 'manifest.json');
+      assert.equal(files.length, 1);
+      snapshotPath = files[0]!.path;
+      assert.match(snapshotPath, /^resources\/_shared\//);
+      return f.proposed(input, { [snapshotPath]: 'shared revision' });
+    },
+  });
+  assert.equal(result.status, 'activated', result.reason);
+  assert.deepEqual(Object.keys(result.revisionRefs).sort(), ['a', 'b']);
+  assert.equal(result.revisionRefs.a, result.revisionRefs.b);
+  assert.equal((await f.facts.list('revisions')).length, 2);
+  assert.equal(f.bindings.a!.config.prompt, f.bindings.b!.config.prompt);
+  assert.equal(
+    await readFile(string(f.bindings.b!.config.prompt), 'utf8'),
+    'shared revision',
+  );
+  const app = new RevisionApplication({
+    directory: f.directory,
+    rootDirectory: f.root,
+    facts: f.facts,
+    artifacts: f.artifacts,
+  });
+  await app.apply(string(result.revisionRefs.a));
+  assert.equal(await readFile(shared, 'utf8'), 'shared revision');
+  const to = join(f.root, 'export');
+  await app.apply(string(result.revisionRefs.a), { to });
+  assert.equal(
+    await readFile(join(to, snapshotPath.slice('resources/'.length)), 'utf8'),
+    'shared revision',
+  );
+});
+
 test('local generator failures, invalid edits and budgets preserve activation; global exhaustion propagates', async (t) => {
   const f = await fixture(t);
   const cases: Array<[Record<string, string | null>, RegExp]> = [
-    [{ 'bindings/a/resources/prompt': 'unauthorized' }, /outside authorized/],
-    [{ 'bindings/a/resources/guidance/initial.md': null }, /delete denied/],
+    [{ 'resources/a/prompt': 'unauthorized' }, /outside authorized/],
+    [{ 'resources/a/instructions/initial.md': null }, /delete denied/],
   ];
   for (const [index, [edits, expected]] of cases.entries()) {
     await f.observe();
@@ -447,10 +542,7 @@ test('local generator failures, invalid edits and budgets preserve activation; g
     ...f.next('zero'),
     config: {
       ...f.options.config,
-      implementation: {
-        ...f.options.config.implementation,
-        ref: 'reflection.agent',
-      },
+      plugin: 'reflection.agent',
     },
   });
   assert.equal(zero.status, 'rejected');
@@ -487,60 +579,13 @@ test('Reflection accepts authorized edits beyond the former implicit file and by
         input,
         Object.fromEntries(
           Array.from({ length: 17 }, (_, index) => [
-            `bindings/a/resources/guidance/${index}.md`,
+            `resources/a/instructions/${index}.md`,
             'x'.repeat(index === 0 ? 131073 : 1),
           ]),
         ),
       ),
   });
   assert.equal(result.status, 'activated');
-});
-test('a prepared Reflection with legacy edit limits replays its original input', async (t) => {
-  const f = await fixture(t);
-  await f.observe();
-  let prepared: JsonObject = {};
-  const original = await reflect({
-    ...f.options,
-    invoke: async (_binding, _input, _key, scope) => {
-      prepared = await f.facts.read('reflection', scope.id);
-      return { status: 'no-change', proposal: null, reason: 'unchanged' };
-    },
-  });
-  const tree = parseFileTree(
-    await f.artifacts.readJson(string(prepared.resourceRef)),
-  );
-  const manifestFile = tree.files.find(
-    (file) => file.path === 'manifest.json',
-  )!;
-  const manifest = object(
-    JSON.parse(Buffer.from(manifestFile.base64, 'base64').toString('utf8')),
-  );
-  for (const entry of Object.values(manifest)) object(entry).maxBytes = 65536;
-  manifestFile.base64 = Buffer.from(canonical(manifest)).toString('base64');
-  const resourceRef = await f.artifacts.putJson(tree);
-  const input = object(prepared.input);
-  const legacyInput = {
-    ...input,
-    resourceRef,
-    editConstraints: {
-      ...object(input.editConstraints),
-      maxChangedFiles: 16,
-      maxChangedBytes: 131072,
-    },
-  };
-  await f.facts.write('reflection', original.reflectionId, {
-    ...prepared,
-    resourceRef,
-    input: legacyInput,
-  });
-  const recovered = await reflect({
-    ...f.options,
-    invoke: async (_binding, input) => {
-      assert.deepEqual(input, legacyInput);
-      return { status: 'no-change', proposal: null, reason: 'replayed' };
-    },
-  });
-  assert.equal(recovered.reason, 'replayed');
 });
 test('prepared recovery reuses frozen evidence/resources and a committed activation does not regenerate or roll back', async (t) => {
   const f = await fixture(t);
@@ -553,25 +598,29 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
     ...f.options,
     invoke: async (_binding, input, _key, scope) => {
       generations++;
-      prepared = await f.facts.read('reflection', scope.id);
+      prepared = await f.facts.read('evolution-runs', scope.id);
       return f.proposed(input, {
-        'bindings/a/resources/guidance/rules.md': 'saved rule',
+        'resources/a/instructions/rules.md': 'saved rule',
       });
     },
-    save: async (changes, revisions, id) => {
-      validated = await f.facts.read('reflection', id);
+    save: async (changes, revisions, id, head) => {
+      validated = await f.facts.read('evolution-runs', id);
       if (fail) throw new Error('preparation failed');
-      await f.options.save(changes, revisions, id);
+      await f.options.save(changes, revisions, id, head);
     },
   };
   const rejected = await reflect(options);
   assert.equal(rejected.status, 'rejected');
   assert.equal(validated.status, 'validated');
   assert.deepEqual(f.options.revisionRefs, validated.parents);
-  assert.equal(f.bindings.a!.config.guidance, join(f.root, 'a'));
-  await f.facts.write('reflection', rejected.reflectionId, validated);
+  assert.equal(f.bindings.a!.config.instructions, join(f.root, 'a'));
+  await f.facts.write('evolution-runs', rejected.evolutionId, validated);
   fail = false;
-  const recovered = await reflect(options);
+  const recovered = await reflect({
+    ...options,
+    reflectionRevisionRef: f.options.reflectionRevisionRef,
+    revisionRefs: f.options.revisionRefs,
+  });
   assert.equal(recovered.status, 'activated');
   assert.equal(f.options.revisionRefs.a, recovered.revisionRefs.a);
   assert.equal(generations, 1);
@@ -582,13 +631,13 @@ test('prepared recovery reuses frozen evidence/resources and a committed activat
     ...f.next('descendant'),
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/descendant.md': 'later active rule',
+        'resources/a/instructions/descendant.md': 'later active rule',
       }),
   });
   assert.equal(descendant.status, 'activated');
   const activeBindings = structuredClone(f.bindings);
   const activeRefs = f.options.revisionRefs;
-  await f.facts.write('reflection', recovered.reflectionId, validated);
+  await f.facts.write('evolution-runs', recovered.evolutionId, validated);
   assert.equal(
     (await reflect({ ...options, revisionRefs: {} })).status,
     'activated',
@@ -622,16 +671,20 @@ test('a later Policy invocation retains the binding resource owner and its gener
     ...f.options,
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/first.md': 'first scope rule',
+        'resources/a/instructions/first.md': 'first scope rule',
       }),
   });
   await f.observe('a', { parentCallId: 'child-scope' });
   const second = await reflect({
     ...f.options,
-    invocation: { policyScopeId: 'child-scope', stepPath: 'improve' },
+    invocation: {
+      policyScopeId: 'child-scope',
+      stepPath: 'improve',
+      triggerPath: 'improve',
+    },
     invoke: async (_binding, input) =>
       f.proposed(input, {
-        'bindings/a/resources/guidance/second.md': 'second scope rule',
+        'resources/a/instructions/second.md': 'second scope rule',
       }),
   });
   assert.equal(second.status, 'activated');
@@ -645,7 +698,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
   assert.equal(shown.reason, 'bounded improvement');
   assert.equal(shown.generationPolicyScopeId, 'child-scope');
   assert.equal(
-    (await f.facts.read('reflection', second.reflectionId)).reason,
+    (await f.facts.read('evolution-runs', second.evolutionId)).reason,
     'bounded improvement',
   );
   await application.apply(string(second.revisionRefs.a));
@@ -665,7 +718,7 @@ test('a later Policy invocation retains the binding resource owner and its gener
 test('resource preparation failure leaves existing revisions unchanged and publishes no phantom initial pointers', async (t) => {
   const f = await fixture(t);
   await f.observe();
-  const unavailable = string(f.bindings.a!.config.guidance);
+  const unavailable = string(f.bindings.a!.config.instructions);
   await rm(unavailable, { recursive: true });
   const rejected = await reflect(f.options);
   assert.equal(rejected.status, 'rejected');
@@ -686,22 +739,20 @@ test('resource preparation failure leaves existing revisions unchanged and publi
       (await f.facts.read('revisions', string(ref))).kind,
       'initial',
     );
-  const failingContext = f.context.extend({
-    artifacts: {
-      putJson: f.artifacts.putJson.bind(f.artifacts),
-      readJson: f.artifacts.readJson.bind(f.artifacts),
-      materialize: f.artifacts.materialize.bind(f.artifacts),
-      capture: async (): Promise<string> => {
-        throw new Error('controlled snapshot I/O failure');
-      },
-    },
-  });
-  await f.observe();
   const later = await reflect({
-    ...f.next('failed-later-preparation'),
-    context: failingContext,
+    ...f.next('reused-baseline'),
+    context: f.context.extend({
+      artifacts: {
+        putJson: f.artifacts.putJson.bind(f.artifacts),
+        readJson: f.artifacts.readJson.bind(f.artifacts),
+        materialize: f.artifacts.materialize.bind(f.artifacts),
+        capture: async () => {
+          throw new Error('existing snapshot must not be recaptured');
+        },
+      },
+    }),
   });
-  assert.equal(later.status, 'rejected');
+  assert.equal(later.status, 'skipped');
   assert.deepEqual(f.options.revisionRefs, originalRevisions);
   assert.equal(f.generations(), 1);
 });
@@ -727,14 +778,14 @@ for (const corruption of ['record status', 'result status'] as const) {
   test(`Reflection rejects an unknown persisted ${corruption} before generation`, async (t) => {
     const f = await fixture(t);
     const result = await reflect(f.options);
-    const saved = await f.facts.read('reflection', result.reflectionId);
+    const saved = await f.facts.read('evolution-runs', result.evolutionId);
     if (corruption === 'record status') saved.status = 'unexpected-status';
     else object(saved.result).status = 'unexpected-status';
-    await f.facts.write('reflection', result.reflectionId, saved);
+    await f.facts.write('evolution-runs', result.evolutionId, saved);
     const before = f.generations();
     await assert.rejects(
       reflect(f.options),
-      /Reflection.*status.*unsupported/i,
+      /Runtime evolution.*status.*unsupported/i,
     );
     assert.equal(f.generations(), before);
   });
@@ -743,31 +794,37 @@ for (const corruption of ['record status', 'result status'] as const) {
 test('Reflection rejects a terminal result that disagrees with its saved status', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('reflection', result.reflectionId);
+  const saved = await f.facts.read('evolution-runs', result.evolutionId);
   saved.status = 'rejected';
   object(saved.result).status = 'activated';
-  await f.facts.write('reflection', result.reflectionId, saved);
-  await assert.rejects(reflect(f.options), /Reflection.*status.*mismatch/);
+  await f.facts.write('evolution-runs', result.evolutionId, saved);
+  await assert.rejects(
+    reflect(f.options),
+    /Runtime evolution.*status.*mismatch/,
+  );
 });
 
 test('Reflection rejects restored result revision references that are not strings', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('reflection', result.reflectionId);
+  const saved = await f.facts.read('evolution-runs', result.evolutionId);
   object(saved.result).revisionRefs = { worker: 42 };
-  await f.facts.write('reflection', result.reflectionId, saved);
-  await assert.rejects(reflect(f.options), /Reflection result.*must be string/);
+  await f.facts.write('evolution-runs', result.evolutionId, saved);
+  await assert.rejects(
+    reflect(f.options),
+    /Runtime evolution result.*must be string/,
+  );
   assert.equal(f.generations(), 0);
 });
 
 test('Reflection rejects a restored result with the wrong invocation identity', async (t) => {
   const f = await fixture(t);
   const result = await reflect(f.options);
-  const saved = await f.facts.read('reflection', result.reflectionId);
-  object(saved.result).reflectionId = 'another-reflection';
-  await f.facts.write('reflection', result.reflectionId, saved);
+  const saved = await f.facts.read('evolution-runs', result.evolutionId);
+  object(saved.result).evolutionId = 'another-reflection';
+  await f.facts.write('evolution-runs', result.evolutionId, saved);
   await assert.rejects(
     reflect(f.options),
-    /Reflection result identity mismatch/,
+    /Runtime evolution result identity mismatch/,
   );
 });

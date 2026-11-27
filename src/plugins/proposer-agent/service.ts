@@ -31,34 +31,33 @@ export const createProposerAgent: OperationDefinition<
     async execute(input, context) {
       const parent = await context.readCandidate(input.parent);
       const metadata = await context.applicationMetadata();
-      // Runtime authorizes and sanitizes execution files before business projection.
-      // Preserve the configured training-summary behavior for other Proposer users.
-      let execution: ReadOnlyEditContext | undefined;
-      if ((config.evidenceView ?? 'execution') === 'execution') {
-        const full = object(
-          await context.readEvidence(editEvidenceRefs(input), {
-            format: 'files',
-            view: 'execution',
-          }),
+      const refs = editEvidenceRefs(input);
+      const view = config.evidenceView ?? 'execution';
+      const detailed =
+        view === 'training-summary'
+          ? undefined
+          : proposerExecutionContext(
+              object(
+                await context.readEvidence(refs, { format: 'files', view }),
+              ),
+            );
+      const evidenceContext: ReadOnlyEditContext = detailed ?? {
+        files: {},
+        evidence: await context.readEvidence(refs, { view }),
+        input: {},
+      };
+      if (view !== 'execution') {
+        const metricPath = 'context/metrics.json';
+        // File projections resolve evidence-view references to the measurements they authorize.
+        const metricRefs = detailed
+          ? detailed.evidence.measurements.map((m) => string(m.measurementRef))
+          : refs;
+        evidenceContext.files[metricPath] = JSON.stringify(
+          await metricEvidence(metricRefs, context),
         );
-        execution = proposerExecutionContext(full);
-      }
-      if (config.evidenceView === 'training-summary') {
-        execution = {
-          files: {
-            'context/metrics.json': JSON.stringify(
-              await metricEvidence(editEvidenceRefs(input), context),
-            ),
-          },
-          evidence: await context.readEvidence(editEvidenceRefs(input), {
-            view: 'training-summary',
-          }),
-          input: {
-            metricEvidencePath: 'context/metrics.json',
-            metricEvidenceInstruction:
-              'Read actual metric values, units and evaluator-provided environment summaries here before researching options. Missing metrics or environment fields are unknown; resource verification does not prove flag activation.',
-          },
-        };
+        evidenceContext.input.metricEvidencePath = metricPath;
+        evidenceContext.input.metricEvidenceInstruction =
+          'Read actual metric values, units and evaluator-provided environment summaries here before researching options. Missing metrics or environment fields are unknown; resource verification does not prove flag activation.';
       }
       const batchSchema: JsonSchema | undefined =
         input.maxCandidates === undefined
@@ -80,7 +79,7 @@ export const createProposerAgent: OperationDefinition<
         { ...input, target: metadata.target },
         parent.artifactRef,
         context,
-        execution,
+        evidenceContext,
         batchSchema ?? proposerEditOutputSchema,
         config.subagents ?? [],
       );

@@ -1,5 +1,4 @@
 import { environmentSummary } from '../../src/plugins/evaluator-inferencebench/conditions.js';
-import { metricEvidence } from '../../src/plugins/proposer-agent/metric-evidence.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -237,7 +236,6 @@ test('Proposer can read every non-thinking event and full arguments while only t
       parent: 'base',
       goal: 'Improve workflow',
       evidenceRefs: ['m'],
-      memoryRef: null,
       sources: [{ candidateRef: 'source', measurementRef: 'm-source' }],
     };
     assert.equal(
@@ -368,19 +366,27 @@ test('Tool-return prefixes preserve Unicode and failure identity without shorten
   assert.doesNotMatch(packet, /UNREAD_TAIL|\uFFFD/);
 });
 
-test('training metric evidence retains values and units without copying private profiles', async () => {
+test('training Proposer receives complete runs, authorized feedback and metric environments for an evidence reference', async (t) => {
+  const secret = 'credential-in-allowed-field';
+  const previous = process.env.PROPOSER_TEST_SECRET;
+  process.env.PROPOSER_TEST_SECRET = secret;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PROPOSER_TEST_SECRET;
+    else process.env.PROPOSER_TEST_SECRET = previous;
+  });
   const root = await mkdtemp(join(tmpdir(), 'metric-evidence-'));
   const artifacts = new FileArtifacts(root);
   try {
     const definitionRef = await artifacts.putJson({
       id: 'throughput',
       unit: 'tokens/s',
+      description: `Generated on ${secret}`,
       valueKind: 'scalar',
     });
     const summary = environmentSummary({
       fixed: {
         serviceResources: {
-          software: 'engine-1.0',
+          software: `engine-1.0 ${secret}`,
           devices: ['0', '1'],
           verified: true,
           host: 'PRIVATE',
@@ -410,35 +416,151 @@ test('training metric evidence retains values and units without copying private 
         value: { kind: 'scalar', value: 4588.57 },
       },
     };
-    const context = new RuntimeContext().extend({
-      artifacts,
-      async readMeasurement(ref) {
-        return {
-          ref,
-          candidateRef: 'c',
-          status: 'succeeded',
-          coverage: 'complete',
-          comparisonKey: 'same-load',
+    const trace = await artifacts.putJson({
+      text: JSON.stringify({ type: 'tool_call', command: 'FULL_RUN' }),
+    });
+    const evidenceIndexRef = await artifacts.putJson({
+      entries: [
+        { kind: 'trajectory', access: 'execution', artifactRef: trace },
+      ],
+    });
+    const feedback = {
+      schemaVersion: 'rsi.evaluation-feedback/v1',
+      itemId: 'item',
+      attemptId: null,
+      executionStatus: 'succeeded',
+      scoreStatus: 'valid',
+      passed: true,
+      primaryReward: null,
+      passThreshold: null,
+      checks: [],
+      checksComplete: true,
+      diagnostics: [],
+      truncated: false,
+      source: { artifactRef: trace, pointer: '' },
+    };
+    const itemsRef = await artifacts.putJson({
+      items: [
+        {
+          id: 'item',
           metrics,
-          profile: { secret: 'PRIVATE' },
-          extensions: [
-            {
-              schemaId: 'measurement.environment-summary/v1',
-              artifactRef: environmentRef,
-              schemaDigest: 'unused',
-            },
-          ],
-        };
+          evaluation: { artifactRef: await artifacts.putJson(feedback) },
+        },
+      ],
+    });
+    const measurement = {
+      schemaVersion: 'rsi.measurement/v1',
+      ref: 'm',
+      candidateRef: 'c',
+      status: 'succeeded',
+      coverage: 'complete',
+      comparisonKey: 'same-load',
+      metrics,
+      evidenceIndexRef,
+      itemsRef,
+      profile: { secret: 'PRIVATE' },
+      extensions: [
+        {
+          schemaId: 'measurement.environment-summary/v1',
+          artifactRef: environmentRef,
+          schemaDigest: 'unused',
+        },
+      ],
+    };
+    const candidate = await artifacts.putJson({ kind: 'file-tree', files: [] });
+    const context = new RuntimeContext().extend({
+      directory: root,
+      artifacts,
+      readCandidate: async (ref) => ({
+        ref,
+        artifactRef: candidate,
+        parentRef: null,
+        experimentId: 'exp',
+      }),
+      applicationMetadata: async () => ({}),
+      readMeasurement: async (ref) => {
+        assert.equal(ref, measurement.ref);
+        return measurement;
+      },
+      readEvidence: async (refs, options) => {
+        assert.deepEqual(refs, ['evidence-window', 'm']);
+        assert.deepEqual(options, { format: 'files', view: 'training' });
+        return projectEvidenceFiles({
+          artifacts,
+          measurements: [measurement, measurement],
+          view: 'training',
+        });
+      },
+      invokeAgent: async (_, request) => {
+        const cwd = string(request.cwd);
+        const metadata = object(
+          JSON.parse(await readFile(join(cwd, 'context/input.json'), 'utf8')),
+        );
+        assert.equal(metadata.metricEvidencePath, 'context/metrics.json');
+        assert.match(string(metadata.metricEvidenceInstruction), /environment/);
+        const evidence = object(
+          JSON.parse(
+            await readFile(join(cwd, 'context/measurements.json'), 'utf8'),
+          ),
+        );
+        assert.equal(evidence.view, 'training');
+        assert.ok(Array.isArray(evidence.measurements));
+        const row = object(evidence.measurements[0]);
+        assert.deepEqual(row.metrics, metrics);
+        assert.ok(Array.isArray(row.items));
+        assert.deepEqual(object(row.items[0]).evaluation, feedback);
+        assert.equal(
+          object(object(row.metricDefinitions)[definitionRef]).unit,
+          'tokens/s',
+        );
+        assert.deepEqual(
+          [row.omittedItems, row.itemsTruncated, row.metricDefinitionsOmitted],
+          [0, false, false],
+        );
+        assert.equal(row.supplementaryPath, 'context/runs/0.txt');
+        const run = await readFile(join(cwd, row.supplementaryPath), 'utf8');
+        assert.match(run, /FULL_RUN/);
+        const metricFile = await readFile(
+          join(cwd, metadata.metricEvidencePath),
+          'utf8',
+        );
+        const metricIndex = object(JSON.parse(metricFile));
+        assert.ok(Array.isArray(metricIndex.measurements));
+        assert.equal(metricIndex.measurements.length, 1);
+        assert.equal(
+          object(object(metricIndex.metricDefinitions)[definitionRef]).unit,
+          'tokens/s',
+        );
+        assert.match(metricFile, /4588.57/);
+        assert.match(metricFile, /engine-1.0 \[REDACTED\]/);
+        assert.doesNotMatch(
+          metricFile + JSON.stringify(evidence) + run,
+          /PRIVATE|credential-in-allowed-field/,
+        );
+        return { proposals: [] };
       },
     });
-    const evidence = await metricEvidence(['m', 'm'], context);
-    assert.equal(
-      object(object(evidence.metricDefinitions)[definitionRef]).unit,
-      'tokens/s',
+    const proposer = await createProposerAgent(
+      {
+        prompt: 'src/policies/harness2/prompts/invariant.md',
+        evidenceView: 'training',
+      },
+      context,
     );
-    assert.equal(JSON.stringify(evidence).includes('4588.57'), true);
-    assert.equal(JSON.stringify(evidence).includes('PRIVATE'), false);
-    assert.equal(JSON.stringify(evidence).includes('engine-1.0'), true);
+    try {
+      const result = await proposer.execute(
+        {
+          parent: 'c',
+          goal: 'Improve throughput',
+          evidenceRefs: ['evidence-window', 'm'],
+          maxCandidates: 1,
+        },
+        context,
+      );
+      assert.equal(result.status, 'no-change');
+    } finally {
+      await proposer.dispose();
+    }
     assert.deepEqual(
       environmentSummary({ fixed: { config: null, serviceResources: null } }),
       {
@@ -449,10 +571,6 @@ test('training metric evidence retains values and units without copying private 
         benchmark: null,
         identity: null,
       },
-    );
-    assert.equal(
-      Array.isArray(evidence.measurements) && evidence.measurements.length,
-      1,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

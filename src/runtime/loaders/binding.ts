@@ -27,6 +27,65 @@ const pointerPart = (part: string): string =>
 const isObject = (value: JsonValue | undefined): value is JsonObject =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
+/** Merge nested objects, replacing arrays atomically and retaining each value's source directory. */
+export function mergeDeclarations(
+  defaults: JsonObject,
+  override: JsonObject,
+  defaultsDirectory: string | ((pointer: string) => string),
+  overrideDirectory: string,
+): { value: JsonObject; directory(pointer: string): string } {
+  const origins = new Map<string, string>();
+  const recordOrigins = (
+    value: JsonValue,
+    pointer: string,
+    directory: string | ((pointer: string) => string),
+  ): void => {
+    origins.set(
+      pointer,
+      typeof directory === 'string' ? directory : directory(pointer),
+    );
+    if (Array.isArray(value))
+      value.forEach((entry, index) =>
+        recordOrigins(entry, `${pointer}/${index}`, directory),
+      );
+    else if (isObject(value))
+      for (const [key, entry] of Object.entries(value))
+        recordOrigins(entry, `${pointer}/${pointerPart(key)}`, directory);
+  };
+  const merge = (
+    base: JsonObject,
+    extra: JsonObject,
+    pointer: string,
+    directory: string,
+  ): JsonObject => {
+    const result = structuredClone(base);
+    for (const [key, value] of Object.entries(extra)) {
+      const child = `${pointer}/${pointerPart(key)}`;
+      if (isObject(value) && isObject(result[key]))
+        result[key] = merge(result[key], value, child, directory);
+      else {
+        result[key] = structuredClone(value);
+        for (const known of origins.keys())
+          if (known === child || known.startsWith(`${child}/`))
+            origins.delete(known);
+        recordOrigins(value, child, directory);
+      }
+    }
+    return result;
+  };
+  recordOrigins(defaults, '', defaultsDirectory);
+  const value = merge(defaults, override, '', overrideDirectory);
+  return {
+    value,
+    directory(pointer) {
+      let current = pointer;
+      while (!origins.has(current) && current.includes('/'))
+        current = current.slice(0, current.lastIndexOf('/'));
+      return origins.get(current)!;
+    },
+  };
+}
+
 /** Assembly owns configuration; plugin instances and their lifecycle belong to Runtime. */
 export class Binding {
   readonly name: string;
@@ -86,61 +145,20 @@ export class Binding {
       defaults.plugin !== undefined &&
       override.plugin !== undefined &&
       defaults.plugin !== override.plugin;
-    const origins = new Map<string, string>();
     const fallbackDirectory =
-      (switched ? options.override?.directory : options.defaults?.directory) ??
-      options.override?.directory ??
-      '.';
-    const recordOrigins = (
-      value: JsonValue,
-      pointer: string,
-      directory: string,
-    ): void => {
-      origins.set(pointer, directory);
-      if (Array.isArray(value))
-        value.forEach((entry, index) =>
-          recordOrigins(entry, `${pointer}/${index}`, directory),
-        );
-      else if (isObject(value))
-        for (const [key, entry] of Object.entries(value))
-          recordOrigins(entry, `${pointer}/${pointerPart(key)}`, directory);
-    };
-    const merge = (
-      base: JsonObject,
-      extra: JsonObject,
-      pointer: string,
-      directory: string,
-    ): JsonObject => {
-      const result = structuredClone(base);
-      for (const [key, value] of Object.entries(extra)) {
-        const child = `${pointer}/${pointerPart(key)}`;
-        if (isObject(value) && isObject(result[key]))
-          result[key] = merge(result[key], value, child, directory);
-        else {
-          result[key] = structuredClone(value);
-          for (const known of origins.keys())
-            if (known === child || known.startsWith(`${child}/`))
-              origins.delete(known);
-          recordOrigins(value, child, directory);
-        }
-      }
-      return result;
-    };
-    let config = switched ? {} : object(defaults.config ?? {});
-    recordOrigins(config, '', fallbackDirectory);
-    config = merge(
-      config,
+      options.defaults?.directory ?? options.override?.directory ?? '.';
+    const merged = mergeDeclarations(
+      switched ? {} : object(defaults.config ?? {}),
       object(override.config ?? {}),
-      '',
+      switched ? options.override!.directory : fallbackDirectory,
       options.override?.directory ?? fallbackDirectory,
     );
-    validate(definition.configSchema, config, `${label}.config`);
-    config = resolvePaths(config, definition.configSchema, (pointer) => {
-      let current = pointer;
-      while (!origins.has(current) && current.includes('/'))
-        current = current.slice(0, current.lastIndexOf('/'));
-      return origins.get(current) ?? fallbackDirectory;
-    });
+    validate(definition.configSchema, merged.value, `${label}.config`);
+    const config = resolvePaths(
+      merged.value,
+      definition.configSchema,
+      merged.directory,
+    );
     return new Binding(name, definition, config);
   }
 

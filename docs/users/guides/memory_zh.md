@@ -2,134 +2,138 @@
 
 [English](memory.md) | 简体中文 · [快速入门](../getting-started_zh.md)
 
-本指南介绍如何在 Policy 中配置和调用 Memory，保存执行经验并传给后续步骤使用。
+Memory 通过带版本的非可执行 UTF-8 文本目录保存可复用经验。实验启动时对配置的目录建立快照，目录不存在或未配置时从空树开始。每次成功更新会激活新的不可变版本。恢复实验时会重新使用其活动版本。
 
-Memory 保存的是供后续优化参考的经验文档，例如有效的执行方法、失败教训和改进建议。`memory.agent` 根据 Policy 提供的证据整理和更新这些文档。
+## 在 Policy 和 Recipe 中启用或覆盖 Memory
 
-## 1. 在内置 Policy 中使用 Memory
+Memory 默认启用。Policy 通过 `defaults.memory` 设置默认行为，Recipe 通过 `memory` 覆盖：
 
-Harness²、WikiSkill 和 policy.parameter-agent 已配置 Memory 插件、提示词、Agent 绑定，以及保存和使用其输出的步骤：
+| 取值 | 行为 |
+| --- | --- |
+| 省略 | Recipe 沿用 Policy 的 `defaults.memory`；若 Policy 也省略，则按内置默认值启用。 |
+| `false` | 关闭 Memory。 |
+| `true` | 启用 Memory；若 Policy 声明了 `defaults.memory` 配置文件则沿用该文件，否则使用内置默认值。 |
+| `{ configFile: <路径> }` | 加载一份完整的 Memory YAML 配置文件。路径相对于声明该字段的 Policy 或 Recipe 解析。Recipe 指定的配置文件会完整替换 Policy 文件，文件中省略的字段取内置默认值。 |
 
-| Policy    | 证据视图           | 使用时机                                                                                                         |
-| --------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Harness²  | `execution`        | 每个任务结束后更新经验文档，将 `memoryRef` 传给后续任务的 Proposer。通过 `policy.config.memory` 控制，默认启用。 |
-| WikiSkill | `training-summary` | 每轮训练评测后更新经验文档，并将 `memoryRef` 传给本轮 Proposer。没有 `memory` 配置开关。                         |
+### 内置 Policy 默认配置
 
-`policy.parameter-agent` 通过 `policy.config.memory: true` 启用 Memory，默认关闭。
-每批评测后使用 `training-summary`、候选源码和 selector 结果整理经验，再传给后续提案。
-输出包含 `memoryRef`；普通更新失败时保留上一版本，不自动继承其他实验的经验。
-具体编排见 [参数搜索 Policy](../../../src/policies/parameter/agent/policy.yaml)。
-[通用 Memory 提示词](../../../src/policies/parameter/agent/memory.md) 保留在 RSI。
-需要场景适配时，将文件复制到场景目录，并在 Recipe 的
-`bindings.memoryUpdater.config.prompt` 中选择副本。路径相对于 Recipe 解析；
-Memory 流程和插件仍然复用框架实现。
+| Policy | 默认 Memory 配置 |
+| --- | --- |
+| `policy.wikiskill` | 启用（`./memory.yaml`）：`trigger: { on: after-step, step: train }`，`evidence.view: training`，`excludeSteps: [baseline, baseline_score, validate, test]`，使用专用 `memory.md` 提示词。 |
+| `policy.gym-rsi` | 启用（`./memory.yaml`）：`trigger: { on: after-step, step: train }`，`evidence.view: training`，`excludeSteps: [baseline, baseline_score, validate, promotion]`，复用 WikiSkill 的 `memory.md` 提示词。 |
+| `policy.harness2` | 启用（`./memory.yaml`）：`trigger: { on: loop-iteration }`（每个任务结束后），`evidence.view: execution`（对评判结果盲测），`targets.exclude: [selector]`，使用专用 `memory.md` 提示词。 |
+| `policy.gepa` | 启用（`./memory.yaml`）：`trigger: { on: loop-iteration }`，`evidence.view: training`，`includeSteps: [proposal, proposal_evaluation]`。 |
+| `policy.parameter-agent`、`policy.operator-search` | 按内置默认值启用（`loop-iteration`、`evidence.view: training`、覆盖全部 Policy 绑定）。 |
+| `policy.parameter-grid`、`policy.parameter-optuna` | 默认关闭（`defaults.memory: false`）。 |
 
-具体调用和状态更新见 [Harness² Policy](../../../src/policies/harness2/policy.yaml) 和 [WikiSkill Policy](../../../src/policies/wikiskill/policy.yaml)。各视图的可见范围见 [Evidence](../concepts/architecture_zh.md#evidence)。
+## 配置文件字段说明
 
-## 2. 为自定义 Policy 接入 Memory
+Memory YAML 配置文件中的所有字段均为可选，不允许出现未声明字段。文件内的相对路径均相对于该配置文件所在目录解析。完整校验规则见[运行时演进 Schema](../../../src/contracts/runtime-evolution.ts)。
 
-### 第一步：在 Policy 配置 Memory 绑定和状态
-
-先在 Policy 中配置 Memory 插件，并用状态字段保存当前经验文档版本的标识。下例声明要求 `contract.memory` 的 `memoryUpdater` 绑定，选择 `memory.agent`，用 `state.memoryRef` 保存当前版本的标识。
-
-将以下片段合并到已有 Policy 中。示例假设已经声明并配置名为 `agent` 的 Agent 绑定。
+例如，WikiSkill Recipe 需要带有界执行预览的精简反馈时，可通过 `memory: { configFile: ./wiki-memory.yaml }` 选择以下配置：
 
 ```yaml
-# Policy excerpt
-require:
-  memoryUpdater:
-    contract: contract.memory
-defaults:
-  bindings:
-    memoryUpdater:
-      plugin: memory.agent
-      config:
-        agentRef: agent
-        prompt: ./memory.md
-        evidenceView: execution
-state_schema:
-  type: object
-  properties:
-    memoryRef:
-      type: [string, 'null']
-  required: [memoryRef]
-  additionalProperties: false
-state:
-  memoryRef: null # No experience yet.
+directory: ./wiki
+trigger: { on: after-step, step: train }
+evidence:
+  view: training-summary
+  excludeSteps: [baseline, baseline_score, validate, test]
+targets: { include: [proposer] }
+budget:
+  modelCalls: 12
+  timeoutSeconds: 600
 ```
 
-- `prompt` 是指导 Memory 如何整理经验的提示词文件，必填。该文件需要说明要提炼哪些经验、如何组织文档。
-- `evidenceView` 默认 `execution`；学习流程允许使用训练分数和反馈时，可选择 `training-summary`。其他配置与支持的限制见[配置 Schema](../../../src/plugins/shared/agent-editing/schema.ts)和[配置指南](configuration_zh.md)。
+### 顶层字段
 
-### 第二步：在 Policy 的流程中更新并使用经验
+| 字段 | 必填 | 类型 / 取值 | 默认值 | 用途 |
+| --- | --- | --- | --- | --- |
+| `directory` | 否 | 非空路径字符串 | 省略（从空树开始） | 实验启动时快照的种子目录，也是 `arsi memory show/apply` 的默认写回目标。必须是用户自有的专用目录（不能含符号链接、目录联接，不能位于 `.rsi/`、`.git/` 等受保护路径下，也不能是整个项目目录或文件系统根目录）。磁盘上目录尚不存在时从空树开始。 |
+| `trigger` | 否 | 对象 | `{ on: 'loop-iteration', every: 1 }` | 触发 Memory 更新的串行 Policy 边界与频次。 |
+| `evidence` | 否 | 对象 | `{ view: 'training' }` | 证据视图及每次更新窗口的绑定/步骤过滤条件。 |
+| `targets` | 否 | 对象 | 全部 Policy 绑定 | 哪些调用方绑定在调用 `ctx.invokeAgent` 时挂载 Memory 快照。 |
+| `goal` | 否 | 非空路径字符串 | 内置 [`memory-agent/goal.md`](../../../src/plugins/memory-agent/goal.md) | UTF-8 非空文本文件，说明本次需要整理什么经验。 |
+| `implementation` | 否 | 对象 | `memory.agent`（`contract.memory`） | 选择并配置负责更新 Memory 的插件实现。 |
+| `budget` | 否 | 对象 | `{}`（不额外限制） | 单次 Memory 调用的资源上限（`modelCalls`、`timeoutSeconds`、`evidenceBytes`）。 |
 
-**输入：Policy 通过调用步骤的 `with` 传入。**
+### `trigger` 字段
 
-| 字段              | 必填 | 类型                         | 用途                                                                                             |
-| ----------------- | ---- | ---------------------------- | ------------------------------------------------------------------------------------------------ |
-| `memoryRef`       | 是   | `string \| null`             | 当前经验文档版本的标识，首次调用可传 `null`；后续调用传上次返回的值，在已有经验上继续更新。      |
-| `goal`            | 是   | `string`                     | 本次要归纳什么经验，例如总结有效方法和失败原因。                                                 |
-| `evidenceRefs`    | 是   | `string[]`                   | 要分析的证据引用列表，例如评测返回的 `measurementRef`；Memory 根据 `evidenceView` 读取可见内容。 |
-| `sources`         | 否   | `{ candidateRef: string }[]` | 需要参考的候选列表，`memory.agent` 会读取其文件内容，供归纳经验时参考。                          |
-| `observations`    | 否   | `object \| null`             | Policy 提供的补充观察。                                                                          |
-| `comparison`      | 否   | `object`                     | 基线、试验候选及选择结果的对照信息，用于分析哪些修改有效。                                       |
-| `editConstraints` | 否   | `object`                     | 限制可以修改的经验文件及修改规模。                                                               |
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `trigger.on` | 否 | `'loop-iteration'` \| `'loop-end'` \| `'experiment-end'` \| `'after-step'` | `'loop-iteration'` | `loop-iteration`：顶层循环每轮结束时触发；若 Policy 无顶层循环，则在实验结束时触发。<br>`loop-end`：顶层循环结束时触发一次。<br>`experiment-end`：最后一个顶层步骤结束后、生成最终输出前触发一次。<br>`after-step`：匹配 `trigger.step` 的串行步骤结束后触发。 |
+| `trigger.every` | 否 | `>= 1` 的整数 | `1` | 每匹配 *N* 次边界执行一次（如 `every: 2` 在第 2、4、6 等次匹配时执行）。 |
+| `trigger.step` | 条件必填 | 非空步骤 ID 字符串 | 无 | 仅当 `trigger.on` 为 `'after-step'` 时必填，其他触发类型禁止填写。必须是 Policy 中位于并行 `foreach` 分支之外的串行步骤 ID。 |
 
-**输出：Policy 从 `steps.<调用步骤 ID>.output` 读取，以下字段都会返回。**
+Memory 和 Reflection 分别维护独立的证据窗口和命中计数；在同一边界同时命中时，先执行 Memory。
 
-| 字段        | 类型             | Policy 如何使用                                                                                                                        |
-| ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`    | `string`         | 判断本次结果：`updated` 表示已更新，`no-change` 表示无需更新，`failed` 表示更新失败。                                                  |
-| `memoryRef` | `string \| null` | 更新后的经验文档版本标识。Policy 将它保存到状态，供下一次 Memory 调用及后续插件使用；未更新或失败时保留输入值，没有经验时仍为 `null`。 |
-| `changeRef` | `string \| null` | 本次修改记录的标识，可用于查看改动；仅在 `updated` 时有值，其余情况为 `null`。                                                         |
-| `reason`    | `string`         | 更新、无需更新或失败的原因，供 Policy 判断或记录。                                                                                     |
+### `evidence` 字段
 
-完整字段结构见 [Memory 契约](../../../src/contracts/plugin-types/memory.ts)。
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `evidence.view` | 否 | `'training'` \| `'execution'` \| `'training-summary'` | `'training'` | `training`：在 `context/evolution/training-summary.json` 中提供已授权的指标及判题反馈，并通过 `context/evolution/packets/index.json` 和 `context/evolution/evaluation-index.json` 提供证据预算内的完整脱敏执行记录与文件。<br>`execution`：仅提供完整脱敏执行记录与文件，屏蔽评分及判题反馈，适合对评判结果盲测。<br>`training-summary`：提供精简调用摘要、有界执行预览以及已授权的评分反馈。<br>详见 [Evidence](../concepts/architecture_zh.md#evidence)。 |
+| `evidence.includeBindings` | 否 | 无重复的 Policy 绑定名数组 | 全部 Policy 绑定 | 仅观察 `require` 中列出的指定绑定的主调用。 |
+| `evidence.excludeBindings` | 否 | 无重复的 Policy 绑定名数组 | 无 | 排除指定绑定及其产生的测量结果。 |
+| `evidence.includeSteps` | 否 | 无重复的 Policy 步骤 ID 数组 | 全部 Policy 步骤 | 仅观察指定步骤内的 Policy 调用。 |
+| `evidence.excludeSteps` | 否 | 无重复的 Policy 步骤 ID 数组 | 无 | 排除指定步骤内的 Policy 调用（例如留出的验证集或测试集步骤）。 |
 
-**调用示例：评测 → 更新经验 → 保存返回值 → 生成提案。**
+Runtime 在每个窗口内汇总调用记录、测量投影、候选差异和选择决策。窗口内没有可用观察时会跳过本次生成。
 
-如下所示，可以在评测结束后，先调用 `memoryUpdater` 更新经验文档，再将返回的 `memoryRef` 写入 Policy 状态，最后传给 `proposer`。下面的片段放在名为 `evaluate` 的评测步骤之后，假设已声明 `proposer` 绑定，并由 Policy 输入提供 `input.candidateRef`：
+### `targets` 字段
 
-```yaml
-# Policy steps excerpt; keep the existing evaluate step before these calls.
-steps:
-  - id: remember
-    type: invoke
-    use: memoryUpdater
-    with:
-      memoryRef: ${{ state.memoryRef }}
-      goal: Preserve reusable execution patterns, sources, and uncertainty.
-      evidenceRefs:
-        - ${{ steps.evaluate.output.measurementRef }}
-  - id: save_memory
-    type: state
-    state:
-      memoryRef: ${{ steps.remember.output.memoryRef }}
-  - id: propose
-    type: invoke
-    use: proposer
-    with:
-      parent: ${{ input.candidateRef }}
-      goal: Improve the candidate using authorized evidence and experience.
-      evidenceRefs:
-        - ${{ steps.evaluate.output.measurementRef }}
-      memoryRef: ${{ state.memoryRef }}
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `targets.include` | 否 | 无重复的 Policy 绑定名数组 | 全部 Policy 绑定 | 允许在调用 `ctx.invokeAgent` 时挂载 `context/memory/` 的调用方绑定名。 |
+| `targets.exclude` | 否 | 无重复的 Policy 绑定名数组 | 无 | 从可读取 Memory 的绑定集合中排除指定绑定。内置 Memory 和 Reflection 生成器始终被排除。 |
+
+### `implementation` 字段
+
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `implementation.contract` | 否 | `'contract.memory'` | `'contract.memory'` | 所选插件必须遵循的公共契约。 |
+| `implementation.ref` | 否 | 已注册的插件 ID | `'memory.agent'` | 实现 `contract.memory` 的插件。 |
+| `implementation.config` | 否 | 插件配置对象 | `{}` | 传给所选插件的配置，按其 `configSchema` 校验（内置 `memory.agent` 支持的字段见下表）。 |
+
+内置 `memory.agent` 在 `implementation.config` 下支持以下字段（见[共享编辑 Schema](../../../src/plugins/shared/agent-editing/schema.ts)）：
+
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `implementation.config.agentRef` | 否 | Policy 已声明的 `contract.agent` 绑定名 | 唯一 `contract.agent` 绑定，否则 `_evolutionAgent` | 指定执行 Memory 的 Agent。省略时复用 Policy 声明的唯一 `contract.agent` 绑定；若 Policy 未声明或声明了多个这类绑定，Runtime 会创建 `_evolutionAgent`，使用内置 `agent.pi` 并读取 `MODEL_NAME`、`MODEL_ENDPOINT` 和 `MODEL_API_KEY`。 |
+| `implementation.config.prompt` | 否 | 非空文件路径字符串 | 内置 [`memory-agent/prompt.md`](../../../src/plugins/memory-agent/prompt.md) | 自定义提示词文件，指导 Memory 如何组织和编辑经验文档。 |
+| `implementation.config.skills` | 否 | 目录路径字符串数组 | `[]` | 本地 Skill 目录列表，会复制到 Memory Agent 工作区的 `.agents/skills/` 中。 |
+
+### `budget` 字段
+
+| 字段 | 必填 | 可选值 | 默认值 | 行为 |
+| --- | --- | --- | --- | --- |
+| `budget.modelCalls` | 否 | `>= 0` 的整数 | 无局部上限 | 单次 Memory 调用允许的新增模型请求上限；`0` 阻止新增模型请求。 |
+| `budget.timeoutSeconds` | 否 | `1`–`2147483` 的整数 | 无局部上限 | 单次 Memory 调用的墙钟时长上限（秒）。 |
+| `budget.evidenceBytes` | 否 | `>= 1` 的整数 | 无模块级上限 | 单次证据投影的最大字节数。 |
+
+Recipe 的实验级预算及 Agent 后端自身的超时设置仍会同时生效，见[限制与预算](configuration_zh.md#限制与预算)。
+
+## 在 Agent 调用中读取 Memory
+
+符合条件的绑定调用 `ctx.invokeAgent` 时，Runtime 在调用方项目的派生副本中，将本次调用固定的非空快照以只读方式挂载到 `context/memory/`。`AGENTS.md` 和 `CLAUDE.md` 会列出这些只读文件，Agent 调用回执的 `metadata.memoryVersionRef` 记录所用的版本。
+
+## 执行结果与持久化
+
+| 状态 | 含义 |
+| --- | --- |
+| `activated` | 校验通过的 UTF-8 文件修改已保存为新的不可变版本，并对后续调用生效。 |
+| `no-change` | 生成器未提出实质改动，继续沿用先前的活动快照。 |
+| `skipped` | 当前证据窗口没有可用观察，跳过本次调用。 |
+| `rejected` | 生成器失败、触及局部超时或提出了非法修改（如二进制文件、可执行权限、受保护路径）。先前的活动快照保持不变，实验继续运行。 |
+
+实验取消、实验级预算耗尽和关键持久化失败仍会停止实验。快照与记录保存在 `.rsi/artifacts/` 与 `.rsi/facts/`（`memory-revisions`、`evolution-runs`）下。
+
+## 为后续实验保留经验
+
+```sh
+arsi memory list my-experiment
+arsi memory show <versionID> --to ./exported-wiki
+arsi memory apply <versionID> --to ./exported-wiki
 ```
 
-**后续要让 Agent 使用 Memory，需要在插件中根据 `memoryRef` 读取经验文档，并将内容作为上下文传给 Agent。内置 `proposer.agent` 已实现这部分逻辑；自定义插件如需使用 Memory，也需要自行实现。**
+若已配置 `directory`，预览和应用默认使用记录的目录。零配置实验可用 `--to` 指定目的地。应用整份快照前应核对将新增、替换和移除的文件。工作台 **Reflection & Memory → Memory** 提供相同的预览和确认流程。写回需要专用的用户目录，且当前存储内所有实验均已结束、状态可确认。后续实验可通过配置该目录复用经验。
 
-## 3. memory 的执行结果、保存与恢复
-
-| 结果        | 行为                                                                                                               |
-| ----------- | ------------------------------------------------------------------------------------------------------------------ |
-| `updated`   | 保存新一版经验文档，返回新的 `memoryRef`、修改记录 `changeRef` 和原因。Policy 保存新 `memoryRef`，供后续步骤使用。 |
-| `no-change` | 继续使用原 `memoryRef`，返回 `changeRef: null`，经验文档没有变化。                                                 |
-| `failed`    | 返回原 `memoryRef`、`changeRef: null` 和错误原因，保留原经验文档；调用收据仍为失败，Policy 可以继续。              |
-
-在[工作台](running-experiments_zh.md#工作台)的实验详情中，进入 **Reflection & Memory → Memory**，可查看每次更新的状态和原因，用 `Changes` 查看差异、`Full contents` 阅读经验文档，并通过 `View call` 检查对应调用。
-
-每次有内容更新，Runtime 都会保存一个新版本，已有版本的内容保持不变。`memoryRef` 指向某一版经验文档，`changeRef` 指向这次更新的修改记录。
-
-使用本地存储时，Runtime 将经验文档的内容和目录信息保存在 `.rsi/artifacts/`，Policy 检查点记录当前 `memoryRef`。**恢复同一个实验时，会继续使用已保存的文档版本。内置 Policy 每次启动新实验时，Memory 的初始值都为空（`memoryRef: null`），不会自动继承之前实验的 Memory。**
-
-普通 Memory 更新失败本身不会取消实验。取消、实验预算耗尽和 Runtime 无法保存关键运行记录等情况仍会停止执行。参见[取消与重试](running-experiments_zh.md#取消与恢复)和 [Memory 实现](../../../src/plugins/memory-agent/service.ts)。
+有关插件自有资源的修订，见 [Reflection](reflection_zh.md)。

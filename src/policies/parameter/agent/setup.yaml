@@ -5,7 +5,6 @@ state_schema:
     incumbent: { type: [string, 'null'] }
     incumbentMeasurement: { type: [string, 'null'] }
     incumbentFeasible: { type: boolean }
-    memoryRef: { type: [string, 'null'] }
     previousNoChangeReason: { type: [string, 'null'] }
     proposalRounds: { type: integer, minimum: 0 }
     sources: { type: array, items: { type: object } }
@@ -35,7 +34,6 @@ state_schema:
       incumbent,
       incumbentMeasurement,
       incumbentFeasible,
-      memoryRef,
       previousNoChangeReason,
       proposalRounds,
       trials,
@@ -45,7 +43,6 @@ state:
   incumbent: null
   incumbentMeasurement: null
   incumbentFeasible: false
-  memoryRef: null
   previousNoChangeReason: null
   proposalRounds: 0
   trials: []
@@ -55,19 +52,15 @@ require:
   evaluator: { contract: contract.inferencebench }
   selector: { contract: contract.selector-metrics }
   agent: { contract: contract.agent }
-  memoryUpdater: { contract: contract.memory }
 defaults:
   reflection: { configFile: ./reflection.yaml }
   bindings:
     agent: { plugin: agent.codex }
     proposer:
       plugin: proposer.agent
-      config: { agentRef: agent, prompt: ./prompt.md, guidance: ./guidance }
-    memoryUpdater:
-      plugin: memory.agent
       config:
         agentRef: agent
-        prompt: ./memory.md
+        prompt: ./prompt.md
         evidenceView: training-summary
     selector:
       plugin: selector.inference

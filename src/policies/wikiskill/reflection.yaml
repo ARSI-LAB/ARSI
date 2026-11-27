@@ -1,0 +1,4 @@
+evidence:
+  excludeSteps: [baseline, baseline_score, validate, test]
+targets:
+  include: { proposer: '*' }

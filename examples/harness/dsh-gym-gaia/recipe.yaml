@@ -3,6 +3,7 @@ id: dsh-gym-gaia-train-full
 description: Evolve a DSH AgentBundle candidate on Gym's train_full split, then
   run Gym's holdout promotion gate against the original incumbent. Search never
   evaluates or receives holdout tasks.
+reflection: false
 application:
   plugin: application.agentbundle
   config:

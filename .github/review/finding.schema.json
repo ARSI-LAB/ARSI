@@ -1,0 +1,91 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "side": {
+            "type": "string",
+            "enum": ["LEFT", "RIGHT"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["Important", "Nit", "Pre-existing"]
+          },
+          "bug_class": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"
+          },
+          "finding_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "remediation": {
+            "type": "string"
+          },
+          "acceptance": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "line",
+          "side",
+          "severity",
+          "bug_class",
+          "finding_id",
+          "problem",
+          "impact",
+          "recommendation",
+          "evidence",
+          "remediation",
+          "acceptance"
+        ]
+      }
+    },
+    "threads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "thread_id": {
+            "type": "string"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": ["fixed", "accepted", "disagree", "open"]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": ["thread_id", "disposition", "evidence"]
+      }
+    }
+  },
+  "required": ["findings", "threads"]
+}

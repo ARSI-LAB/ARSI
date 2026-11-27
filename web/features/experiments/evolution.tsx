@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   parseEvolution,
   parseApplication,
@@ -114,13 +114,6 @@ function ApplySnapshot({
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
   const [attempted, setAttempted] = useState(false);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
   const query = new URLSearchParams({ inspection: String(inspection) });
   if (previewTo) query.set('targetDir', previewTo);
   const preview = useObservation(
@@ -132,15 +125,8 @@ function ApplySnapshot({
     false,
     { cache: false },
   );
-  useEffect(() => {
-    if (open) dialog.current?.showModal();
-    else dialog.current?.close();
-  }, [open]);
   const close = (): void => {
-    if (!pending) {
-      setOpen(false);
-      trigger.current?.focus();
-    }
+    if (!pending) dialog.current?.close();
   };
   const apply = async (): Promise<void> => {
     setPending(true);
@@ -148,22 +134,21 @@ function ApplySnapshot({
     setAttempted(true);
     try {
       const status = await applySnapshot(id, collection, revision, previewTo);
-      if (mounted.current) {
+      if (dialog.current) {
         setResult(
           status === 'applied'
             ? 'Destination files updated.'
             : 'No destination files needed updating.',
         );
-        setOpen(false);
-        trigger.current?.focus();
+        dialog.current.close();
       }
     } catch (failure) {
-      if (mounted.current)
+      if (dialog.current)
         setError(
           `${failure instanceof Error ? failure.message : String(failure)} Inspect a fresh preview before applying again; some changes may already have completed.`,
         );
     } finally {
-      if (mounted.current) setPending(false);
+      if (dialog.current) setPending(false);
     }
   };
   return (
@@ -178,6 +163,7 @@ function ApplySnapshot({
             setAcknowledged(false);
             setAttempted(false);
             setError('');
+            dialog.current?.showModal();
             setOpen(true);
           }}
         >

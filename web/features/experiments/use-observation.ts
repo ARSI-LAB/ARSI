@@ -1,15 +1,10 @@
 import { QueryCache } from '../../api/query-cache';
-import { subscribeRetry } from '../../api/connection-state';
-import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import { usePolling, type QueryState } from '../../hooks/use-polling';
+import { useCallback, useMemo } from 'react';
 import { readObservation, type Page } from '../../api/observation-client';
 import { readAllObservationPages } from '../../api/read-all-pages';
 
-export interface QueryState<T> {
-  data: T | undefined;
-  error: string;
-  loading: boolean;
-  refresh: () => void;
-}
+export type { QueryState } from '../../hooks/use-polling';
 const queryCaches = new WeakMap<object, unknown>();
 function parserCache<T>(parse: (raw: unknown) => T): QueryCache<T> {
   let cache = queryCaches.get(parse);
@@ -19,69 +14,6 @@ function parserCache<T>(parse: (raw: unknown) => T): QueryCache<T> {
   }
   // A parser's identity owns exactly its return type.
   return cache as QueryCache<T>;
-}
-/** Sequential polling prevents overlap; navigation aborts and discards stale responses. */
-function usePolling<T>(
-  path: string | null,
-  load: (signal: AbortSignal) => Promise<T>,
-  interval: number | null,
-  cache: QueryCache<T> | null,
-  maxAge: number,
-): QueryState<T> {
-  const previousInterval = useRef(interval);
-  const [state, setState] = useState<{
-    path: string | null;
-    data?: T;
-    error: string;
-  }>({ path, error: '' });
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeRetry(() => setRevision((value) => value + 1)), []);
-  useEffect(() => {
-    const stopped = previousInterval.current !== null && interval === null;
-    previousInterval.current = interval;
-    if (path === null) return;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    async function update(): Promise<void> {
-      try {
-        const data = cache
-          ? await cache.read(
-              path!,
-              load,
-              controller.signal,
-              maxAge,
-              revision > 0 || stopped,
-            )
-          : await load(controller.signal);
-        if (!controller.signal.aborted) setState({ path, data, error: '' });
-      } catch (error) {
-        if (!controller.signal.aborted)
-          setState((previous) => ({
-            path,
-            data: previous.path === path ? previous.data : undefined,
-            error: error instanceof Error ? error.message : String(error),
-          }));
-      } finally {
-        if (!controller.signal.aborted && interval !== null)
-          timer = setTimeout(() => {
-            if (interval !== null) void update();
-          }, interval);
-      }
-    }
-    void update();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [path, load, revision, cache, interval, maxAge]);
-  const current = state.path === path ? state : undefined;
-  const data = current?.data ?? (path ? cache?.peek(path) : undefined);
-  return {
-    data,
-    error: current?.error ?? '',
-    loading: path !== null && data === undefined && !current?.error,
-    refresh: () => setRevision((value) => value + 1),
-  };
 }
 export function useObservation<T>(
   path: string | null,

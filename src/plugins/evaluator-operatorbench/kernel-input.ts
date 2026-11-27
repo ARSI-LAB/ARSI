@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { parseKernelContract, type KernelContract } from 'arsi-evaluator';
 import type { JsonObject } from '../../contracts/index.js';
 import type { OperatorbenchInput } from '../../contracts/plugin-types/operatorbench.js';
-import type { KernelExecution } from '../application-kernel/schema.js';
+import type { KernelExecution } from '../shared/kernel-execution.js';
 import { object, string } from '../../shared/json.js';
 
 export type PreparedOperatorCase = {

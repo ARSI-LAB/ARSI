@@ -160,7 +160,11 @@ Import `OperationDoctor<C>`, `DoctorContext<C>` and `DoctorRule` from `arsi/cont
 
 In this example, the existing `configSchema` declares a required string named `inputFile` with the annotation `'x-rsi-path': 'file'`. The common check validates the path. The following `doctor.ts` checks the file contents.
 
-```ts
+```ts file=schema.ts
+export type CustomConfig = { inputFile: string };
+```
+
+```ts file=doctor.ts
 import { readFile } from 'node:fs/promises';
 import type { DoctorContext, DoctorRule } from 'arsi/contracts';
 import type { CustomConfig } from './schema.js';
@@ -194,7 +198,13 @@ Forward each check's supplied signal to I/O and release resources after failure 
 In `service.ts`, type the factory parameter as `ctx: RuntimeContext<CustomConfig>`. Import `RuntimeContext` from `arsi/contracts` and subscribe to `doctor` from `./doctor.js` inside the factory. The extension entry point registers `customDefinition` with `registry.registerOperation(customDefinition)`.
 
 ```ts
-ctx.event.on('rsi/doctor', doctor);
+import type { RuntimeContext } from 'arsi/contracts';
+import type { CustomConfig } from './schema.js';
+import { doctor } from './doctor.js';
+
+export function registerDoctor(ctx: RuntimeContext<CustomConfig>): void {
+  ctx.event.on('rsi/doctor', doctor);
+}
 ```
 
 Build the extension and load its `index.mjs` with the CLI.

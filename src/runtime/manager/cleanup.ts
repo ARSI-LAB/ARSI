@@ -223,12 +223,13 @@ export class CleanupLifecycle {
 
   /** Retry only failed preparation before disposal; otherwise observe the original effects. */
   async observe(): Promise<void> {
+    let job = this.job;
     if (this.settled && this.state === 'failed' && this.retryPreparation) {
       this.deadline =
         this.reserveMs === undefined ? undefined : Date.now() + this.reserveMs;
-      this.attempt(this.retryPreparation);
+      job = this.attempt(this.retryPreparation);
     }
-    await this.bounded(this.job, this.reserveMs);
+    await this.bounded(job, this.reserveMs);
   }
 
   /** Caller confirms all failed external disposals have been reconciled outside Runtime. */

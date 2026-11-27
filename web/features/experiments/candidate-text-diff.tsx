@@ -1,6 +1,6 @@
 import { QueryCache } from '../../api/query-cache';
-import { subscribeRetry } from '../../api/connection-state';
-import React, { useEffect, useState } from 'react';
+import { usePolling } from '../../hooks/use-polling';
+import React, { useCallback } from 'react';
 import { useRoute, replaceRouteSelection } from '../../app/use-route';
 import { Feedback } from '../../components/observation-feedback';
 import {
@@ -23,40 +23,15 @@ export function CandidateTextDiff({
   prefix?: string;
 }): React.JSX.Element {
   const cacheKey = JSON.stringify([id, parent, current, prefix ?? '']);
-  const [state, setState] = useState<{ data?: CandidateDiff; error: string }>({
-    data: diffCache.peek(cacheKey),
-    error: '',
-  });
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeRetry(() => setRevision((value) => value + 1)), []);
+  const load = useCallback(
+    (signal: AbortSignal, force: boolean) =>
+      loadCandidateDiff(id, parent, current, signal, prefix, force),
+    [id, parent, current, prefix],
+  );
+  const state = usePolling(cacheKey, load, null, diffCache, 60000, 'reset');
   const selected = useRoute().diffFile;
   const setSelected = (diffFile: string): void =>
     replaceRouteSelection({ diffFile });
-  useEffect(() => {
-    const controller = new AbortController();
-    setState({ data: diffCache.peek(cacheKey), error: '' });
-    diffCache
-      .read(
-        cacheKey,
-        (signal) =>
-          loadCandidateDiff(id, parent, current, signal, prefix, revision > 0),
-        controller.signal,
-        60000,
-        revision > 0,
-      )
-      .then(
-        (data) => {
-          if (!controller.signal.aborted) setState({ data, error: '' });
-        },
-        (error: unknown) => {
-          if (!controller.signal.aborted)
-            setState({
-              error: error instanceof Error ? error.message : String(error),
-            });
-        },
-      );
-    return () => controller.abort();
-  }, [id, parent, current, revision, prefix, cacheKey]);
   const currentFile = selected
     ? state.data?.changes.find((change) => change.path === selected)
     : state.data?.changes[0];
@@ -75,7 +50,7 @@ export function CandidateTextDiff({
       <Feedback
         loading={!state.data && !state.error}
         error={state.error}
-        refresh={() => setRevision((value) => value + 1)}
+        refresh={state.refresh}
       />
       {state.data ? (
         <>

@@ -20,7 +20,7 @@ import {
   parseKernelExecution,
   kernelExecutionSchema,
   kernelSourcePath,
-} from '../../src/plugins/application-kernel/schema.js';
+} from '../../src/plugins/shared/kernel-execution.js';
 import {
   createApplicationKernel,
   kernelApplicationDefinition,

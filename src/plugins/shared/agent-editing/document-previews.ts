@@ -8,10 +8,10 @@ import type {
   ArtifactStore,
   JsonObject,
   JsonValue,
-} from '../../contracts/index.js';
-import { parseFileTree } from '../../contracts/index.js';
-import { string } from '../../shared/json.js';
-import { fullEvidenceText } from '../../runtime/services/facts/evidence.js';
+} from '../../../contracts/index.js';
+import { parseFileTree } from '../../../contracts/index.js';
+import { string } from '../../../shared/json.js';
+import { fullEvidenceText } from '../../../shared/evidence-redaction.js';
 
 interface Extracted {
   text: string;

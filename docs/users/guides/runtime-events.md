@@ -86,6 +86,10 @@ The Manager dispatches `rsi/before-agent-invoke` as a `waterfall` when a plugin 
 In a Runtime-managed Agent's `execute(input, ctx)`, publish through the current `ctx`:
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const ctx: RuntimeContext;
+
 ctx.event.emit('rsi/agent-observation', {
   runId: 'main',
   event: { type: 'message.appended', messageId: 'reply-1', text: 'Hello' },
@@ -147,6 +151,12 @@ Step and loop boundaries identify the step with `stepId` and `stepPath`. `hasTop
 Plugins subscribe to either event in `create(config, ctx)`. `doctor` creates a temporary instance after the binding’s declared local paths pass validation. Manual `cleanup` visits each distinct `(bindingId, pluginId)` in the current and archived Recipes using its most recent saved configuration. This reaches previous plugins even when a resume reused every evaluation. The framework awaits the reply and instance disposal before visiting the next binding.
 
 ```ts
+import type { OperationEventMap, RuntimeContext } from 'arsi/contracts';
+
+declare const ctx: RuntimeContext;
+declare const checkEnvironment: OperationEventMap['rsi/doctor'];
+declare const cleanupResources: OperationEventMap['rsi/cleanup'];
+
 ctx.event.on('rsi/doctor', checkEnvironment);
 ctx.event.on('rsi/cleanup', cleanupResources);
 ```
@@ -161,6 +171,10 @@ When an instance is replaced or its run ends, the framework waits for its `dispo
 Register listeners in the plugin's `create(config, factoryCtx)`. This example observes measurements from the binding named `evaluator`:
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const factoryCtx: RuntimeContext;
+
 factoryCtx.event.on('rsi/call-succeeded', async (event, ctx) => {
   if (event.bindingId !== 'evaluator') return;
   if (event.measurementRef === undefined) return;
@@ -177,6 +191,10 @@ factoryCtx.event.on('rsi/call-succeeded', async (event, ctx) => {
 To reject a call, listen to the admission event:
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const factoryCtx: RuntimeContext;
+
 factoryCtx.event.on('rsi/before-call', async (event, next) => {
   if (event.bindingId === 'blockedBinding') {
     return { kind: 'reject', reason: 'This binding is disabled.' };
@@ -190,6 +208,10 @@ For `rsi/before-call`, the default decision is `{ kind: 'proceed' }`. A successf
 For `rsi/before-agent-invoke`, the default decision includes a separate copy of the input. To change the Agent request, return the updated `input` in a `proceed` decision. Calling `await next()` lets a binding inspect and transform the request after Memory preparation. When both hooks supply the same receipt metadata key, the final Agent preparation result takes precedence. This listener keeps downstream changes and adds an audit tag to requests from the `proposer` binding.
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const factoryCtx: RuntimeContext;
+
 factoryCtx.event.on('rsi/before-agent-invoke', async (event, next) => {
   const decision = await next();
   if (decision.kind === 'reject' || event.callerBindingId !== 'proposer') {
@@ -225,6 +247,10 @@ declare module '@deepseek-ai/cordis' {
 Subscribe in `create(config, factoryCtx)`:
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const factoryCtx: RuntimeContext;
+
 factoryCtx.event.on('demo/proposal-ready', (event) => {
   console.log(event.candidateRef);
 });
@@ -233,6 +259,11 @@ factoryCtx.event.on('demo/proposal-ready', (event) => {
 Publish in `execute(input, ctx)` after preparing the candidate:
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const ctx: RuntimeContext;
+declare const candidateRef: string;
+
 await ctx.event.parallel('demo/proposal-ready', {
   experimentId: ctx.experimentId,
   candidateRef,
@@ -246,6 +277,13 @@ Activated instances within the same experiment can subscribe. Custom events choo
 **When a plugin calls a Runtime service, Runtime automatically publishes the corresponding built-in events.** The following are two independent examples:
 
 ```ts
+import type { JsonObject, RuntimeContext } from 'arsi/contracts';
+
+declare const ctx: RuntimeContext;
+declare const evaluationInput: JsonObject;
+declare const artifactRef: string;
+declare const parentCandidateRef: string | null;
+
 // 1. Calling the evaluator binding triggers rsi/before-call before execution.
 // After saving the result, Runtime publishes the matching success, failure, or other outcome event.
 const result = await ctx.invoke('evaluator', evaluationInput);

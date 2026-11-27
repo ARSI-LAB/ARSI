@@ -29,7 +29,7 @@ import {
   type OperatorProposerInput,
 } from '../../src/contracts/index.js';
 import { object, string } from '../../src/shared/json.js';
-import { parseKernelExecution } from '../../src/plugins/application-kernel/schema.js';
+import { parseKernelExecution } from '../../src/plugins/shared/kernel-execution.js';
 import { loadOperatorTask } from '../../src/plugins/shared/operator-task.js';
 import { prepareOperatorCase } from '../../src/plugins/evaluator-operatorbench/kernel-input.js';
 import { adaptSdkResult } from '../../src/plugins/evaluator-operatorbench/result.js';

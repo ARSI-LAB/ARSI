@@ -1,0 +1,39 @@
+[
+  {
+    "paths": ["src/contracts/", "src/plugins/"],
+    "documents": [
+      "docs/users/guides/writing-plugins.md",
+      "docs/users/guides/configuration.md",
+      "docs/users/guides/built-in-components.md"
+    ],
+    "topics": ["contracts", "plugins"]
+  },
+  {
+    "paths": ["src/policies/"],
+    "documents": ["docs/users/guides/writing-policies.md"],
+    "topics": ["policies"]
+  },
+  {
+    "paths": ["src/entries/cli/"],
+    "documents": [
+      "docs/users/guides/running-experiments.md",
+      "docs/users/guides/doctor.md"
+    ],
+    "topics": ["cli"]
+  },
+  {
+    "paths": ["src/runtime/"],
+    "documents": [
+      "docs/users/concepts/architecture.md",
+      "docs/users/guides/runtime-events.md"
+    ],
+    "topics": ["runtime"]
+  },
+  {
+    "paths": ["docs/", "README.md", "README.zh-CN.md"],
+    "documents": ["docs/AGENTS.md"],
+    "topics": ["documentation"]
+  },
+  { "paths": ["web/"], "documents": [], "topics": ["web"] },
+  { "paths": [".github/", "scripts/"], "documents": [], "topics": ["ci"] }
+]

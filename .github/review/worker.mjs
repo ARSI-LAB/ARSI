@@ -1,4 +1,4 @@
-import { github } from './github.mjs';
+import { confirmedRules, github } from './github.mjs';
 import { withSnapshot } from './prepare.mjs';
 import { review, skipReason } from './review.mjs';
 import { eligible, escalated, publish, skipped, sticky } from './publish.mjs';
@@ -41,7 +41,13 @@ async function one(api, number, login, config) {
         };
         result = await review(
           snapshot,
-          { title: pr.title, body: pr.body, issues, threads: open, rules },
+          {
+            title: pr.title,
+            body: pr.body,
+            issues,
+            threads: open,
+            rules: confirmedRules(rules, snapshot.fullPaths),
+          },
           config.signal,
         );
       },

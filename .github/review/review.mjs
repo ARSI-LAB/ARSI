@@ -45,6 +45,7 @@ export function validateResult(result, schema, anchors, threads) {
     )
       throw new Error('Invalid thread disposition');
   }
+  if (allowed.size) throw new Error('Missing open thread disposition');
   return result;
 }
 

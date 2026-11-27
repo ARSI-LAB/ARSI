@@ -38,7 +38,7 @@ export function changedLines(patch) {
   return ranges;
 }
 
-async function diff(repo, from, to, includePatch) {
+async function diff(runGit, from, to, includePatch) {
   const options = [
     'diff',
     '--no-ext-diff',
@@ -47,7 +47,7 @@ async function diff(repo, from, to, includePatch) {
     from,
     to,
   ];
-  const entries = (await git(repo, [...options, '--name-status', '-z'])).split(
+  const entries = (await runGit([...options, '--name-status', '-z'])).split(
     '\0',
   );
   const files = [];
@@ -58,7 +58,7 @@ async function diff(repo, from, to, includePatch) {
     const first = entries[index++];
     const paths = status.startsWith('R') ? [first, entries[index++]] : [first];
     const path = paths.at(-1);
-    const patch = await git(repo, [...options, '--unified=0', '--', ...paths]);
+    const patch = await runGit([...options, '--unified=0', '--', ...paths]);
     files.push(...paths);
     if (includePatch) patches.push(patch);
     anchors.set(path, changedLines(patch));
@@ -149,9 +149,9 @@ export async function withSnapshot(config, use) {
       base = trusted;
     }
     const mergeBase = (await runGit(['merge-base', base, head])).trim();
-    const incremental = await diff(repo, previous || mergeBase, head, true);
+    const incremental = await diff(runGit, previous || mergeBase, head, true);
     const full = previous
-      ? await diff(repo, mergeBase, head, false)
+      ? await diff(runGit, mergeBase, head, false)
       : incremental;
     await runGit(['worktree', 'add', '--detach', worktree, head]);
     await stripProjectConfig(worktree);
@@ -197,6 +197,7 @@ export async function withSnapshot(config, use) {
       emptyGhConfig,
       head,
       patch: incremental.patch,
+      fullPaths: full.files,
       anchors: full.anchors,
       context,
       skillLoaded: sourcePaths.has(skill),

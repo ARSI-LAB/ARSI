@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 
@@ -16,32 +16,75 @@ export async function command(
 ) {
   const abort = AbortSignal.timeout(timeout);
   const combined = signal ? AbortSignal.any([abort, signal]) : abort;
+  combined.throwIfAborted();
   return new Promise((resolveCommand, reject) => {
     const child = spawn(file, args, {
       cwd,
       env,
       shell: false,
       windowsHide: true,
-      signal: combined,
+      detached: process.platform !== 'win32',
     });
     const out = [];
     let errors = '';
+    let failure;
+    let terminating;
+    // Codex npm launchers and Git transports own subprocesses. Wait for the
+    // whole tree before removing the snapshot or starting another round.
+    const stop = () => {
+      if (!child.pid || terminating) return;
+      if (process.platform === 'win32') {
+        const taskkill = join(
+          process.env.SystemRoot ?? 'C:\\Windows',
+          'System32',
+          'taskkill.exe',
+        );
+        terminating = new Promise((done) =>
+          execFile(
+            taskkill,
+            ['/PID', String(child.pid), '/T', '/F'],
+            { windowsHide: true },
+            (error) => {
+              if (error && child.exitCode === null) child.kill('SIGKILL');
+              done();
+            },
+          ),
+        );
+      } else {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch (error) {
+          if (error.code !== 'ESRCH') failure = error;
+        }
+      }
+    };
+    combined.addEventListener('abort', stop, { once: true });
     child.stdout.on('data', (bytes) => {
       if (!discardOutput) out.push(bytes);
     });
     child.stderr.on('data', (bytes) => {
       errors = (errors + bytes.toString()).slice(-2000);
     });
-    child.on('error', reject);
-    child.on('close', (status) =>
-      status === 0
-        ? resolveCommand(Buffer.concat(out).toString())
-        : reject(new Error(file + ' exited ' + status + ': ' + errors.trim())),
-    );
+    child.once('error', (error) => {
+      failure = error;
+    });
+    child.once('close', async (status) => {
+      combined.removeEventListener('abort', stop);
+      await terminating;
+      if (combined.aborted) reject(combined.reason);
+      else if (failure) reject(failure);
+      else if (status !== 0)
+        reject(new Error(file + ' exited ' + status + ': ' + errors.trim()));
+      else resolveCommand(Buffer.concat(out).toString());
+    });
     child.stdin.on('error', (error) => {
-      if (error.code !== 'EPIPE') reject(error);
+      if (error.code !== 'EPIPE') {
+        failure = error;
+        stop();
+      }
     });
     child.stdin.end(input);
+    if (combined.aborted) stop();
   });
 }
 

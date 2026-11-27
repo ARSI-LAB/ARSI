@@ -15,6 +15,9 @@ export function sticky(comments, login) {
     state.round < 0 ||
     !Array.isArray(state.nits) ||
     state.nits.length > 3 ||
+    (state.reviewed !== undefined &&
+      (!Array.isArray(state.reviewed) ||
+        state.reviewed.some((sha) => !/^[a-f0-9]{40}$/.test(sha)))) ||
     (state.head && !/^[a-f0-9]{40}$/.test(state.head))
   )
     throw new Error('Invalid AI review summary state');
@@ -24,6 +27,7 @@ export function sticky(comments, login) {
 export function eligible(state, head, manual = false, now = Date.now()) {
   return (
     state.head !== head &&
+    !state.reviewed?.includes(head) &&
     (manual ||
       (state.round < 3 && !(state.failed === head && state.retryAt > now)))
   );
@@ -41,7 +45,7 @@ function summary(text, state) {
   );
 }
 
-// Never let model text produce HTML/marker injection, @mentions, images or user-supplied links.
+// Escape model-supplied HTML, Markdown syntax and mention triggers.
 function plain(value) {
   return value
     .replace(/&/g, '&amp;')
@@ -187,7 +191,11 @@ export async function publish(
           head +
           '. ' +
           plain(action.evidence);
-      await api.reply(pr.number, t.root.databaseId, marker + '\n' + message);
+      await api.reply(
+        pr.number,
+        t.root.fullDatabaseId,
+        marker + '\n' + message,
+      );
     }
     if (!disagree) {
       await fresh();
@@ -249,6 +257,17 @@ export async function publish(
   await api.summary(
     pr.number,
     state.id,
-    summary(body, { round, head, nits: [...nits] }),
+    summary(body, {
+      round,
+      head,
+      reviewed: [
+        ...new Set([
+          ...(state.reviewed ?? []),
+          ...(state.head ? [state.head] : []),
+          head,
+        ]),
+      ],
+      nits: [...nits],
+    }),
   );
 }

@@ -4,9 +4,18 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { git, modelEnvironment } from '../../.github/review/process.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import {
+  command,
+  git,
+  modelEnvironment,
+} from '../../.github/review/process.mjs';
 import { withSnapshot } from '../../.github/review/prepare.mjs';
-import { greenRules } from '../../.github/review/github.mjs';
+import {
+  confirmedRules,
+  github,
+  greenRules,
+} from '../../.github/review/github.mjs';
 import {
   eligible,
   publish,
@@ -54,6 +63,114 @@ const result = (findings, threads = []) => ({ findings, threads });
 const ok = async () => {};
 const state = { round: 0, nits: [] };
 const pr = { number: 12, head: { sha: head } };
+
+test('fork opt-in requires a maintainer, and L1 belongs to this PR, head and latest attempt', async () => {
+  const fork = {
+    ...pr,
+    author_association: 'CONTRIBUTOR',
+    labels: [],
+    base: { ref: 'master' },
+    head: { sha: head, ref: 'fix', repo: { id: 14 } },
+  };
+  const run = {
+    head_sha: head,
+    head_repository: { id: 14 },
+    head_branch: 'fix',
+    event: 'pull_request',
+    pull_requests: [],
+    display_title: 'L1 PR #12 ' + head,
+    id: 17,
+    run_attempt: 2,
+  };
+  let runs = [run];
+  let permission = 'read';
+  const api = github('owner/repo', undefined, async (_file, args) => {
+    const path = args.find((arg) => arg.startsWith('repos/'));
+    if (path.endsWith('/permission')) return JSON.stringify({ permission });
+    if (path.includes('/events'))
+      return JSON.stringify([
+        [
+          {
+            event: 'labeled',
+            label: { name: 'ai-review' },
+            actor: { login: 'maintainer' },
+          },
+        ],
+      ]);
+    if (path.includes('/workflows/ci.yml/'))
+      return JSON.stringify([{ workflow_runs: runs }]);
+    if (path.includes('/runs/17/attempts/2/jobs'))
+      return JSON.stringify([
+        {
+          jobs: [
+            {
+              name: 'L1-Fast',
+              conclusion: 'success',
+              steps: [{ name: 'Run full checks', conclusion: 'success' }],
+            },
+          ],
+        },
+      ]);
+    throw new Error('Unexpected GitHub path ' + path);
+  });
+  const opt = {
+    body: '/ai-review',
+    user: { login: 'maintainer' },
+    author_association: 'MEMBER',
+  };
+  assert.equal(
+    await api.authorized(fork, [{ ...opt, author_association: 'NONE' }]),
+    false,
+  );
+  assert.equal(await api.authorized(fork, [opt]), false);
+  assert.equal(
+    await api.authorized({ ...fork, labels: [{ name: 'ai-review' }] }, []),
+    false,
+  );
+  permission = 'write';
+  assert.equal(await api.authorized(fork, [opt]), true);
+  assert.equal(
+    await api.authorized({ ...fork, labels: [{ name: 'ai-review' }] }, []),
+    true,
+  );
+  assert.ok((await api.l1(fork)).includes('TypeScript typechecking'));
+  runs = [
+    { ...run, display_title: 'L1 PR #11 ' + head },
+    { ...run, head_sha: 'b'.repeat(40) },
+    { ...run, head_repository: { id: 99 } },
+  ];
+  assert.equal(await api.l1(fork), null);
+});
+
+test('cancellation stops a launcher and its child before snapshot cleanup', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arsi-review-abort-'));
+  const controller = new AbortController();
+  const callback =
+    "const fs=require('node:fs'); fs.writeFileSync('ready',''); setTimeout(()=>fs.writeFileSync('late',''),1200)";
+  const launch =
+    "require('node:child_process').spawn(process.execPath,['-e',process.argv[1]],{stdio:'inherit'})";
+  const stopped = assert.rejects(
+    command(process.execPath, ['-e', launch, callback], {
+      cwd: dir,
+      signal: controller.signal,
+    }),
+    /abort/i,
+  );
+  try {
+    const deadline = Date.now() + 10000;
+    while (!existsSync(join(dir, 'ready')) && Date.now() < deadline)
+      await delay(20);
+    assert.ok(existsSync(join(dir, 'ready')));
+    controller.abort();
+    await stopped;
+    await delay(1300);
+    assert.equal(existsSync(join(dir, 'late')), false);
+  } finally {
+    controller.abort();
+    await stopped;
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
 
 test('review reads trusted assets, strips nested project config and cleans the detached checkout after failure', async () => {
   const root = await mkdtemp(join(tmpdir(), 'arsi-review-test-'));
@@ -154,6 +271,8 @@ test('green manifest is scoped to the successful L1 steps; Codex receives only p
     ),
   );
   assert.equal(env.Path, 'tools');
+  assert.deepEqual(confirmedRules(['types'], ['package.json']), []);
+  assert.deepEqual(confirmedRules(['types'], ['src/index.ts']), ['types']);
 });
 
 test('only Important candidates run a fresh verifier, with strict schema, diff and candidate checks', async () => {
@@ -169,6 +288,24 @@ test('only Important candidates run a fresh verifier, with strict schema, diff a
     next.shift(),
   );
   assert.equal(dropped.dropped, 1);
+  const discussion = { ...input, threads: [{ id: 'thread' }] };
+  await assert.rejects(
+    review(snapshot, discussion, undefined, async () => result([])),
+    /Missing open thread/,
+  );
+  const retained = await review(snapshot, discussion, undefined, async () =>
+    result(
+      [],
+      [
+        {
+          thread_id: 'thread',
+          disposition: 'open',
+          evidence: 'Awaiting evidence',
+        },
+      ],
+    ),
+  );
+  assert.equal(retained.threads[0].disposition, 'open');
   await assert.rejects(
     review(snapshot, input, undefined, async () =>
       result([{ ...finding, line: 3 }]),
@@ -226,6 +363,7 @@ test('partial publication reconciles native threads, deduplicates root classes, 
   assert.equal(read.id, 1);
   assert.equal(read.nits.length, 3);
   assert.equal(eligible(read, head), false);
+  assert.equal(eligible({ ...read, head: 'b'.repeat(40) }, head), false);
   assert.equal(eligible({ ...read, round: 3 }, 'b'.repeat(40)), false);
   assert.equal(eligible({ ...read, round: 3 }, 'b'.repeat(40), true), true);
   await publish(
@@ -256,7 +394,7 @@ test('only verified owned threads receive replies; a dispute escalates once and 
   );
   const t = {
     id: 'node1',
-    root: { databaseId: 5 },
+    root: { fullDatabaseId: '4708031212' },
     head: 'b'.repeat(40),
     resolved: false,
     replies: [{ author: 'contributor', body: 'rationale' }],

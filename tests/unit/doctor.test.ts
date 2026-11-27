@@ -453,7 +453,11 @@ test('doctor reports the first failed path and stops the binding', async (t) => 
   const baseline = join(f.root, 'baseline');
   await mkdir(baseline);
   const link = join(f.root, 'baseline-link');
-  await symlink(baseline, link, 'dir');
+  await symlink(
+    baseline,
+    link,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
   f.doctors({
     'test.application': async () =>
       assert.fail('Invalid paths reached the binding'),
@@ -461,14 +465,23 @@ test('doctor reports the first failed path and stops the binding', async (t) => 
   for (const [config, failedFields] of [
     [{ baseline: link + '/' }, ['baseline']],
     [{ baseline: link + '/.' }, ['baseline']],
-    [{ baseline: f.root + '/absent/../baseline' }, ['baseline']],
+    // Windows collapses absent/.. before filesystem lookup; POSIX traverses absent.
+    [
+      {
+        baseline:
+          process.platform === 'win32'
+            ? join(f.root, 'absent')
+            : f.root + '/absent/../baseline',
+      },
+      ['baseline'],
+    ],
     [{ baseline: './absent', input: './absent' }, ['input']],
   ] as const) {
     object(recipe.application).config = config;
     await writeFile(f.path, JSON.stringify(recipe));
     const report = await doctorRecipe(f.runtime, f.path);
     const skipped = report.checks.find(({ id }) => id === 'application.plugin');
-    assert.equal(skipped?.status, 'unchecked');
+    assert.equal(skipped?.status, 'unchecked', JSON.stringify(config));
     for (const field of failedFields) {
       const id = `application.resource.${field}`;
       const failure = report.checks.find((check) => check.id === id);

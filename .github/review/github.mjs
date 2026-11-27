@@ -3,6 +3,13 @@ import { command } from './process.mjs';
 export const summaryMarker = '<!-- arsi-ai-review:summary -->';
 const member = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
+export function confirmedRules(rules, files) {
+  // A green job label cannot attest that a PR editing the gate kept its rules.
+  const gateInput =
+    /^(?:\.github\/(?:actions|workflows)\/|scripts\/|tests\/|package\.json$|pnpm[-.]|\.pnpmfile|\.npmrc$|tsconfig(?:\.|$)|eslint\.config\.|\.prettier|\.gitattributes$|\.editorconfig$|web\/vite\.config\.)/;
+  return files.some((path) => gateInput.test(path)) ? [] : rules;
+}
+
 export function greenRules(job) {
   if (job?.conclusion !== 'success') return null;
   const passed = new Set(
@@ -29,13 +36,13 @@ export function greenRules(job) {
   return rules;
 }
 
-export function github(repo, signal) {
+export function github(repo, signal, execute = command) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo))
     throw new Error('Invalid GitHub owner/repository');
   const [owner, name] = repo.split('/');
   const base = 'repos/' + repo;
   const gh = (args, input) =>
-    command('gh', ['api', '--hostname', 'github.com', ...args], {
+    execute('gh', ['api', '--hostname', 'github.com', ...args], {
       signal,
       input,
       env: { ...process.env, GH_PROMPT_DISABLED: '1' },
@@ -136,7 +143,7 @@ export function github(repo, signal) {
     let issues;
     do {
       const data = await graphql(
-        'query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){closingIssuesReferences(first:100){nodes{number title body repository{nameWithOwner}}} reviewThreads(first:100,after:$cursor){nodes{id isResolved comments(first:1){nodes{databaseId author{login} body path line originalLine}}} pageInfo{hasNextPage endCursor}}}}}',
+        'query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){closingIssuesReferences(first:100){nodes{number title body repository{nameWithOwner}}} reviewThreads(first:100,after:$cursor){nodes{id isResolved comments(first:1){nodes{fullDatabaseId author{login} body path line originalLine}}} pageInfo{hasNextPage endCursor}}}}}',
         { owner, name, number, cursor },
       );
       const pr = data.repository.pullRequest;
@@ -164,13 +171,13 @@ export function github(repo, signal) {
     } while (cursor);
     if (roots.length) {
       const byId = new Map(
-        roots.map((thread) => [thread.root.databaseId, thread]),
+        roots.map((thread) => [String(thread.root.fullDatabaseId), thread]),
       );
       for (const reply of await pages(
         base + '/pulls/' + number + '/comments',
       )) {
         byId
-          .get(reply.in_reply_to_id)
+          .get(String(reply.in_reply_to_id))
           ?.replies.push({ author: reply.user.login, body: reply.body });
       }
     }
@@ -195,6 +202,10 @@ export function github(repo, signal) {
     review: (n, head, comments) =>
       api(base + '/pulls/' + n + '/reviews', 'POST', {
         event: 'COMMENT',
+        body:
+          'Verified Important findings for ' +
+          head +
+          '. See the inline threads.',
         commit_id: head,
         comments,
       }),

@@ -50,7 +50,7 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - name: Install dependencies
         run: pnpm install --frozen-lockfile ${{ steps.scope.outputs.docs == 'true' && '--ignore-scripts' || '' }}
       - name: Run documentation checks
@@ -81,7 +81,7 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         if: needs.fast.outputs.package == 'true'
       - if: needs.fast.outputs.package == 'true'
         run: pnpm install --frozen-lockfile
@@ -101,6 +101,6 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm test

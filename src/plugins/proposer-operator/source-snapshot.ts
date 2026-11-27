@@ -8,6 +8,7 @@ import {
 import { type OperatorProposerConfig } from './schema.js';
 import { readOperatorSource } from '../shared/operator-attempt/service.js';
 import {
+  operatorTaskDir,
   sourceSnapshot,
   type OperatorStageInput,
 } from '../shared/operator-attempt/agent.js';
@@ -28,7 +29,7 @@ export async function operatorSnapshot(
   for (const [path, content] of Object.entries(source.files))
     files[sourceSnapshot + path] = content;
   for (const name of ['problem.py', 'test.py', 'task.json'])
-    files['context/task/' + name] = await readFile(
+    files[operatorTaskDir + name] = await readFile(
       join(config.task.directory, name),
       'utf8',
     );

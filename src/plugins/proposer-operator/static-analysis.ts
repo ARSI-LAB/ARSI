@@ -153,6 +153,14 @@ export async function prepareStatic(
       config.agentRef,
       {
         goal: input.goal,
+        taskMessage: {
+          templates: config.messageTemplates,
+          fallback: `Diagnose the operator source for this objective:\n\n${input.goal}`,
+          stage: {
+            name: 'diagnose',
+            variables: { attempt: input.attempt, baselineMs: base.baselineMs },
+          },
+        },
         prompt: loaded.prompts.diagnose,
         ...(await operatorSnapshot(entry, config, baseline, context)),
         input: {
@@ -237,6 +245,11 @@ export async function prepareStatic(
       hardwareContext: hardware?.text ?? null,
     },
     generatePrompt: loaded.prompts.generate,
+    generationVariables: {
+      diagnosisSummary: analysis.issues
+        .map(({ issue_summary }) => `- ${issue_summary}`)
+        .join('\n'),
+    },
     noChange: analysis.issues.length
       ? null
       : {

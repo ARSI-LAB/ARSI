@@ -107,7 +107,7 @@ for (const customized of [false, true]) {
               ),
             );
             const instructions = await readFile(join(cwd, 'AGENTS.md'), 'utf8');
-            if (string(request.goal).startsWith('Consolidate reproducible')) {
+            if (string(request.message).includes('Consolidate reproducible')) {
               assert.match(
                 instructions,
                 customized
@@ -141,7 +141,7 @@ for (const customized of [false, true]) {
                   }
                 : { edits: [], reason: 'Existing lesson remains sufficient' };
             }
-            if (string(request.goal).includes(reflectionGoal)) {
+            if (string(request.message).includes(reflectionGoal)) {
               reflections++;
               events.push('reflection');
               assert.equal(

@@ -153,9 +153,11 @@ export function agentProcessLauncher(scope: {
           );
         else resolve();
       });
-      child.stdin.write(spec.input);
-      if (!spec.input.endsWith('\n')) child.stdin.write('\n');
-      if (!spec.interactive) child.stdin.end();
+      if (spec.interactive) {
+        child.stdin.write(
+          spec.input.endsWith('\n') ? spec.input : spec.input + '\n',
+        );
+      } else child.stdin.end(spec.input);
     });
   };
 }

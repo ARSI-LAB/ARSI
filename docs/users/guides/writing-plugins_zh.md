@@ -319,6 +319,8 @@ Runtime 将 `context` 传给 `create` 和每次 `execute`。插件通过它读�
 
 在 `execute` 中，使用 `arsi` 导出的 `prepareAgentProject` 创建受 Runtime 管理的工作目录。第二个参数传指令，第三个参数传授权的文本文件，最后两个参数分别传 Skill 目录和角色定义。每次独立调用都应准备工作目录。同一次插件执行内，如果多个 Agent 调用需要隔离本地修改，需提供不同的项目内容。
 
+通过 `AgentInput.message` 传入完整任务正文。可以用业务输入组装正文，例如 `contract.proposer` 的 `goal`。通过 `outputSchema` 单独提供结果结构。内置调用方的模板见 [Agent 任务正文](configuration_zh.md#agent-任务正文)。
+
 ```ts
 import { prepareAgentProject } from 'arsi';
 
@@ -331,7 +333,7 @@ const cwd = await prepareAgentProject(
 );
 const result = await context.invokeAgent('agent', {
   cwd,
-  goal: 'Inspect the target',
+  message: 'Inspect the target described in the project inputs.',
   outputSchema: { type: 'object' },
 });
 ```

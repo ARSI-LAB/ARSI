@@ -137,6 +137,14 @@ export async function prepareMetrics(
       config.agentRef,
       {
         goal: input.goal,
+        taskMessage: {
+          templates: config.messageTemplates,
+          fallback: `Diagnose the operator performance using the measured profile for this objective:\n\n${input.goal}`,
+          stage: {
+            name: 'diagnose-metrics',
+            variables: { round: input.round },
+          },
+        },
         prompt: loaded.prompts['diagnose-metrics'],
         ...(await operatorSnapshot(parent, config, baseline, context)),
         input: {
@@ -204,6 +212,12 @@ export async function prepareMetrics(
       hardwareContext: hardware?.text ?? null,
     },
     generatePrompt: loaded.metricsGenerate,
+    generationVariables: {
+      diagnosisSummary:
+        analysis.diagnosis?.status === 'hypothesis'
+          ? analysis.diagnosis.summary
+          : '',
+    },
     noChange:
       analysis.diagnosis?.status === 'no-new-hypothesis'
         ? {

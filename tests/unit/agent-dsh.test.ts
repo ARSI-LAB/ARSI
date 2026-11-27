@@ -1,13 +1,42 @@
 import test from 'node:test';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { createAgentDsh } from '../../src/plugins/agent-dsh/service.js';
 import { agentFixture } from '../fixtures/agent-execution.js';
 import { readAgentRecords } from '../../src/runtime/storage/agent-records.js';
 
 test('DSH consumes committed text, thinking, tools, truncation and its native final result', async (t) => {
-  let submittedText: string | undefined;
-  const f = await agentFixture(async (spec, consume) => {
-    submittedText = spec.input;
+  let executionProject = '';
+  const f = await agentFixture(async (spec, consume, context) => {
+    assert.equal(spec.input, f.request.message);
+    assert(context.agentProject);
+    executionProject = context.agentProject;
+    const instructions = await readFile(
+      join(executionProject, 'AGENTS.md'),
+      'utf8',
+    );
+    assert.deepEqual(
+      JSON.parse(instructions.split('\n\n')[2]!),
+      f.request.outputSchema,
+    );
+    assert(
+      instructions.includes(
+        'Read context and edit candidate only when authorized.',
+      ),
+    );
+    assert.equal(
+      await readFile(join(executionProject, 'candidate/input.txt'), 'utf8'),
+      'original',
+    );
+    const patch: unknown = JSON.parse(
+      await readFile(spec.args[spec.args.indexOf('--patch') + 1]!, 'utf8'),
+    );
+    assert(Array.isArray(patch));
+    assert.equal(
+      patch.find((row) => row.id === 'agent-instructions')?.disabled,
+      false,
+    );
     assert(!spec.args.includes('--permission-mode'));
     assert.deepEqual(spec.args.slice(-4), [
       '--json',
@@ -15,17 +44,6 @@ test('DSH consumes committed text, thinking, tools, truncation and its native fi
       'existing-session',
       '-',
     ]);
-    const [body, reminder] = spec.input.split('\n\n');
-    assert.deepEqual(JSON.parse(body), {
-      goal: 'Return an answer',
-      instruction:
-        'Read AGENTS.md and follow the project instructions. Use native subagents for delegation, reading roles/<name>.md when a role is listed. The project is read-only; return proposed edits in the requested JSON rather than modifying files. Return only the JSON object matching outputSchema in your final answer.',
-      outputSchema: f.request.outputSchema,
-    });
-    assert.equal(
-      reminder,
-      'After completing the task, your final response MUST be only the JSON object matching outputSchema above. Do not summarize your work in prose or Markdown. A prose response is a failed task.',
-    );
     for (const event of [
       { type: 'session', sessionId: 's1' },
       { type: 'thinking', text: 'Visible reasoning' },
@@ -60,10 +78,15 @@ test('DSH consumes committed text, thinking, tools, truncation and its native fi
     f.context,
   );
   assert.deepEqual(await f.execute(agent), { answer: 'ok' });
+  assert.notEqual(executionProject, f.directory);
+  assert.equal(
+    await readFile(join(f.directory, 'AGENTS.md'), 'utf8'),
+    'Read context and edit candidate only when authorized.\n',
+  );
   const records = await readAgentRecords(f.context.directory, 0, 100, true);
   assert.deepEqual(records.submitted?.event, {
     type: 'task.submitted',
-    text: submittedText,
+    text: f.request.message,
     outputSchema: f.request.outputSchema,
   });
   assert.deepEqual(records.items.at(-1)?.event, {
@@ -78,4 +101,37 @@ test('DSH consumes committed text, thinking, tools, truncation and its native fi
   )?.event;
   assert.equal(final?.type, 'message.completed');
   assert.equal(final.text, '{"answer":"ok"}');
+});
+
+test('DSH reuses the prepared execution cwd for another message in the same session', async (t) => {
+  const projects: string[] = [];
+  const f = await agentFixture(async (_spec, consume, context) => {
+    assert(context.agentProject);
+    projects.push(context.agentProject);
+    await consume('{"type":"session","sessionId":"s1"}', () => {});
+    await consume(
+      JSON.stringify({
+        type: 'final',
+        sessionId: 's1',
+        reason: { kind: 'completed' },
+        text: '{"answer":"ok"}',
+      }),
+      () => {},
+    );
+  });
+  t.after(() => f.close());
+  const agent = await createAgentDsh(
+    { executable: process.execPath, options: ['--session-id', 's1'] },
+    f.context,
+  );
+  await f.execute(agent);
+  await f.execute(agent, { ...f.request, message: 'Continue the task.' });
+  assert.equal(projects.length, 2);
+  assert.equal(projects[0], projects[1]);
+  await writeFile(join(projects[0]!, 'candidate/input.txt'), 'changed');
+  await assert.rejects(
+    f.execute(agent, { ...f.request, message: 'Continue again.' }),
+    /Native Agent project changed/,
+  );
+  assert.equal(projects.length, 2);
 });

@@ -192,6 +192,65 @@ When running from the source repository, replace `arsi` with `pnpm arsi`. If the
 
 For native CLI backends, add `timeoutMs: 180000` to limit each Agent task to 3 minutes; omitting it leaves that deadline unset. These backends cannot enforce `budget.modelCalls`. The Agent proposes changes for RSI to check and apply; configure prompts and Skills in the calling component, such as the Proposer.
 
+### Agent task messages
+
+The plugin that calls the Agent supplies a default task message. To customize it, set `messageTemplates` on the calling binding. Each value is a local Markdown file path resolved relative to the Recipe or Policy file that declares it. RSI chooses the template for the current stage, falls back to the binding's `default`, then to the plugin's built-in message. Existing `prompt`, `promptFile`, and `promptsDirectory` files supply separate project instructions.
+
+For example, the following configuration overrides the performance generation stage of a `proposer.operator` binding.
+
+```yaml
+bindings:
+  proposer:
+    config:
+      messageTemplates:
+        generate-metrics: ./templates/operator-generate-metrics.md
+```
+
+The template file `operator-generate-metrics.md` could contain the following message.
+
+```markdown
+Propose an optimization for round {{round}}.
+
+Use this objective.
+
+{{goal}}
+
+Review the current diagnosis before editing.
+
+{{diagnosisSummary}}
+
+Read the entry source at `{{sourcePath}}` and the stage inputs at `{{inputPath}}`.
+```
+
+In a [Memory](memory.md) or [Reflection](reflection.md) module configuration file, use `implementation.config.messageTemplates.default`. Resolve the path relative to that module file.
+
+Use `{{variable}}` to insert a value from the current call. Names are case-sensitive. The renderer substitutes each placeholder once and preserves the rest of the text verbatim. A `default` template can use the common variables. A stage template can also use its stage-specific variables. Empty templates, malformed placeholders, and unknown stages or variables are errors.
+
+| Plugin                             | Common variables                                                            |
+| ---------------------------------- | --------------------------------------------------------------------------- |
+| `proposer.agent`                   | `goal`, `inputPath`, `evidencePath`, `proposalLimit`                        |
+| `selector.artifact`                | `rubric`, `candidateCount`, `candidatesPath`                                |
+| `memory.agent`, `reflection.agent` | `goal`, `inputPath`, `evidenceView`, `evidenceIndexPath`                    |
+| `proposer.operator`                | `goal`, `inputPath`, `sourcePath`, `taskDir`                                |
+| `summarizer.operator`              | `goal`, `inputPath`, `sourcePath`, `outcome`, `actionSummary`, `baselineMs` |
+
+| Plugin                | Stage key           | Additional variables                           |
+| --------------------- | ------------------- | ---------------------------------------------- |
+| `proposer.operator`   | `diagnose`          | `attempt`, `baselineMs`                        |
+| `proposer.operator`   | `diagnose-metrics`  | `round`                                        |
+| `proposer.operator`   | `generate`          | `attempt`, `diagnosisSummary`, `editablePaths` |
+| `proposer.operator`   | `generate-metrics`  | `round`, `diagnosisSummary`, `editablePaths`   |
+| `proposer.operator`   | `repair`            | `attempt`, `repairIndex`, `editablePaths`      |
+| `proposer.operator`   | `repair-metrics`    | `round`, `repairIndex`, `editablePaths`        |
+| `summarizer.operator` | `summarize`         | `attempt`                                      |
+| `summarizer.operator` | `summarize-metrics` | `round`                                        |
+
+Path variables refer to resources inside the Agent workspace. `proposalLimit` is `1` for a single-candidate request. Use these files to read the source snapshots, profiling data, and evidence prepared for the current call.
+
+RSI submits the rendered message verbatim to all five backends. The calling plugin supplies the output Schema separately. Codex and Claude Code receive it as a native argument. Pi, DSH, and OpenCode receive the full Schema in system or project instructions. Runtime validates the reply against the same Schema.
+
+DSH requires the same prepared directory when adopting a session with `--session-id`. RSI uses a stable execution directory for a given project and output Schema. Start a new DSH session after upgrading if the existing session used the old execution directory.
+
 ## Inference optimization
 
 For inference optimization, `evaluator.inferencebench` supports `benchmark.name: aisbench` with the bundled SSH solver, or `agentx` with the replay solver. Use the same benchmark workload for the baseline and candidate trials. The Runtime enforces the experiment-wide limits in the Recipe’s `budget`.

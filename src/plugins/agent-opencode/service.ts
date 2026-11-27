@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { outputInstructions } from '../shared/agent-output-instructions.js';
 import { withAgentExecutionTimeout } from '../shared/agent-timeout.js';
 import type {
   AgentInput,
@@ -22,15 +25,29 @@ export const createAgentOpenCode: OperationDefinition<
         throw new Error(
           'OpenCode role dispatch is not supported by this adapter; use native delegation',
         );
-      return runSession({
-        config,
-        directory: request.cwd,
-        request,
-        signal: context.signal,
-        launch: (spec, onLine) => context.runAgentProcess(spec, onLine),
-        record: (observation) =>
-          context.event.emit('rsi/agent-observation', observation),
-      });
+      const temporary = await mkdtemp(join(context.directory, 'opencode-'));
+      try {
+        const instructionPath = join(temporary, 'output-instructions.md');
+        await writeFile(
+          instructionPath,
+          'Treat task input files as read-only.\n\n' +
+            outputInstructions(request.outputSchema) +
+            '\n',
+          { mode: 0o600, flag: 'wx' },
+        );
+        return await runSession({
+          config,
+          directory: request.cwd,
+          instructionPath,
+          request,
+          signal: context.signal,
+          launch: (spec, onLine) => context.runAgentProcess(spec, onLine),
+          record: (observation) =>
+            context.event.emit('rsi/agent-observation', observation),
+        });
+      } finally {
+        await rm(temporary, { recursive: true, force: true });
+      }
     },
     async dispose() {},
   };

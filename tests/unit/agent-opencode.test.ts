@@ -1,13 +1,58 @@
 import test from 'node:test';
+import { access, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { createAgentOpenCode } from '../../src/plugins/agent-opencode/service.js';
 import { agentFixture } from '../fixtures/agent-execution.js';
+import { object, strings } from '../../src/shared/json.js';
 import { readAgentRecords } from '../../src/runtime/storage/agent-records.js';
 
 test('OpenCode records its V2 parts and returns only the stopped final message', async (t) => {
-  let submittedText: string | undefined;
-  const f = await agentFixture(async (spec, consume) => {
-    submittedText = spec.input;
+  const previousConfig = process.env.OPENCODE_CONFIG_CONTENT;
+  const nativeConfig = String.raw`{
+    // Provider and instruction settings may come from native JSONC.
+    "instructions": ["./custom.md",],
+    "provider": {"custom": {
+      "options": {"baseURL": "https://example.test/v1",},
+      "name": "Keep \"quoted\" text and /* literal */",
+    },},
+  }`;
+  process.env.OPENCODE_CONFIG_CONTENT = nativeConfig;
+  t.after(() => {
+    if (previousConfig === undefined)
+      delete process.env.OPENCODE_CONFIG_CONTENT;
+    else process.env.OPENCODE_CONFIG_CONTENT = previousConfig;
+  });
+  let instructionPath = '';
+  const f = await agentFixture(async (spec, consume, context) => {
+    assert.equal(spec.input, f.request.message);
+    assert.equal(context.agentProject, f.directory);
+    assert.equal(spec.env?.PWD, f.directory);
+    const configText = spec.env?.OPENCODE_CONFIG_CONTENT;
+    assert(configText);
+    const launchConfig = object(JSON.parse(configText));
+    assert.deepEqual(launchConfig.provider, {
+      custom: {
+        options: { baseURL: 'https://example.test/v1' },
+        name: 'Keep "quoted" text and /* literal */',
+      },
+    });
+    const instructionPaths = strings(launchConfig.instructions);
+    assert.equal(instructionPaths.length, 3);
+    assert.deepEqual(instructionPaths.slice(0, 2), [
+      './custom.md',
+      join(f.directory, 'AGENTS.md'),
+    ]);
+    instructionPath = instructionPaths[2]!;
+    const instructions = await readFile(instructionPath, 'utf8');
+    assert.deepEqual(
+      JSON.parse(instructions.split('\n\n').at(-1)!),
+      f.request.outputSchema,
+    );
+    assert.equal(
+      await readFile(join(context.agentProject, 'candidate/input.txt'), 'utf8'),
+      'original',
+    );
     assert.deepEqual(spec.args.slice(-7), [
       'run',
       '--standalone',
@@ -74,10 +119,16 @@ test('OpenCode records its V2 parts and returns only the stopped final message',
     f.context,
   );
   assert.deepEqual(await f.execute(agent), { answer: 'ok' });
+  await assert.rejects(access(instructionPath), { code: 'ENOENT' });
+  assert.equal(process.env.OPENCODE_CONFIG_CONTENT, nativeConfig);
+  assert.equal(
+    await readFile(join(f.directory, 'AGENTS.md'), 'utf8'),
+    'Read context and edit candidate only when authorized.\n',
+  );
   const records = await readAgentRecords(f.context.directory, 0, 100, true);
   assert.deepEqual(records.submitted?.event, {
     type: 'task.submitted',
-    text: submittedText,
+    text: f.request.message,
     outputSchema: f.request.outputSchema,
   });
   assert.deepEqual(records.items.at(-1)?.event, {

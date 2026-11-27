@@ -99,6 +99,7 @@ Runtime 在每个窗口内汇总调用记录、测量投影、候选差异和选
 | --- | --- | --- | --- | --- |
 | `implementation.config.agentRef` | 否 | Policy 已声明的 `contract.agent` 绑定名 | 唯一 `contract.agent` 绑定，否则 `_evolutionAgent` | 指定执行 Memory 的 Agent。省略时复用 Policy 声明的唯一 `contract.agent` 绑定；若 Policy 未声明或声明了多个这类绑定，Runtime 会创建 `_evolutionAgent`，使用内置 `agent.pi` 并读取 `MODEL_NAME`、`MODEL_ENDPOINT` 和 `MODEL_API_KEY`。 |
 | `implementation.config.prompt` | 否 | 非空文件路径字符串 | 内置 [`memory-agent/prompt.md`](../../../src/plugins/memory-agent/prompt.md) | 自定义提示词文件，指导 Memory 如何组织和编辑经验文档。 |
+| `implementation.config.messageTemplates.default` | 否 | 本地 Markdown 文件路径 | 内置任务正文 | 用 [Agent 模板变量](configuration_zh.md#agent-任务正文) 自定义任务正文。路径相对于模块配置文件。 |
 | `implementation.config.skills` | 否 | 目录路径字符串数组 | `[]` | 本地 Skill 目录列表，会复制到 Memory Agent 工作区的 `.agents/skills/` 中。 |
 
 ### `budget` 字段

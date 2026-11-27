@@ -7,7 +7,11 @@ import type {
 } from '../../contracts/index.js';
 import { string } from '../../shared/json.js';
 import { editResource } from '../shared/agent-editing/index.js';
-import { evolutionContext } from '../shared/agent-editing/evolution-context.js';
+import {
+  evolutionContext,
+  evolutionTaskVariables,
+} from '../shared/agent-editing/evolution-context.js';
+import { renderTaskMessage } from '../shared/agent-editing/task-message.js';
 import { checkReflectionAgent } from './doctor.js';
 
 export const reflectionReviewer = {
@@ -25,12 +29,23 @@ export const createReflectionAgent: OperationDefinition<
   ctx.event?.on('rsi/doctor', checkReflectionAgent);
   return {
     async execute(input, context) {
+      const evidence = await evolutionContext(
+        'reflection',
+        input.evidenceRefs,
+        context,
+      );
       const updated = await editResource(
         config,
         input,
         input.resourceRef,
         context,
-        await evolutionContext('reflection', input.evidenceRefs, context),
+        await renderTaskMessage(
+          context,
+          config.messageTemplates,
+          `Propose revisions to the authorized resources for the following objective:\n\n${input.goal}`,
+          evolutionTaskVariables(input.goal, evidence),
+        ),
+        evidence,
         [reflectionReviewer],
       );
       if (updated.changeRef !== null)

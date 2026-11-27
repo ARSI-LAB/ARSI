@@ -256,7 +256,7 @@ test('actual request, workspace, diagnostic trace and patch files are readable a
     parentCallId: 'proposal',
     input: {
       cwd: join(f.root, 'project'),
-      goal: 'actual agent task',
+      message: 'actual agent task',
       outputSchema: {},
     },
     agentProjectArtifactRef,

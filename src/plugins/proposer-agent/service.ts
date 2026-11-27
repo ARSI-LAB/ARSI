@@ -8,6 +8,8 @@ import type {
 } from '../../contracts/index.js';
 import { object, string } from '../../shared/json.js';
 import {
+  agentEvidencePath,
+  agentInputPath,
   applyEdits,
   editEvidenceRefs,
   requestEdit,
@@ -15,6 +17,7 @@ import {
   validateEdits,
   type ReadOnlyEditContext,
 } from '../shared/agent-editing/index.js';
+import { renderTaskMessage } from '../shared/agent-editing/task-message.js';
 import { proposerExecutionContext } from './execution-context.js';
 import { mergeEdits } from './merge-edits.js';
 import { metricEvidence } from './metric-evidence.js';
@@ -79,6 +82,17 @@ export const createProposerAgent: OperationDefinition<
         { ...input, target: metadata.target },
         parent.artifactRef,
         context,
+        await renderTaskMessage(
+          context,
+          config.messageTemplates,
+          `Propose candidate improvements for the following objective:\n\n${input.goal}`,
+          {
+            goal: input.goal,
+            inputPath: agentInputPath,
+            evidencePath: agentEvidencePath,
+            proposalLimit: input.maxCandidates ?? 1,
+          },
+        ),
         evidenceContext,
         batchSchema ?? proposerEditOutputSchema,
         config.subagents ?? [],

@@ -1,3 +1,4 @@
+import { prepareNativeOutputProject } from '../shared/native-agent/output-project.js';
 import { withAgentExecutionTimeout } from '../shared/agent-timeout.js';
 import { observeNative } from '../shared/native-agent/observe.js';
 import { parseAgentResult } from '../shared/native-agent/result.js';
@@ -26,10 +27,15 @@ export const createAgentDsh: OperationDefinition<
     async execute(request, context) {
       if (request.role !== undefined)
         throw new Error('For DSH role delegation, use native subagents');
+      const { directory, instructionBytes } = await prepareNativeOutputProject(
+        request,
+        context,
+      );
+      const scope = context.extend({ agentProject: directory });
       const launch: import('../../contracts/index.js').AgentProcessLauncher = (
         spec,
         onLine,
-      ) => context.runAgentProcess(spec, onLine);
+      ) => scope.runAgentProcess(spec, onLine);
       const patch = join(context.directory, 'dsh-launch.json');
       await writeFile(
         patch,
@@ -40,12 +46,17 @@ export const createAgentDsh: OperationDefinition<
           })),
           {
             id: 'agent-instructions',
-            config: { maxBytes: 65536, projectRootMarkers: ['.rsi-project'] },
+            disabled: false,
+            config: {
+              maxBytes: 65536 + instructionBytes,
+              maxSourceBytes: 1048576 + instructionBytes,
+              projectRootMarkers: ['.rsi-project'],
+            },
           },
           {
             id: 'skill-filesystem',
             config: {
-              customSkillDirs: [join(request.cwd, '.agents', 'skills')],
+              customSkillDirs: [join(directory, '.agents', 'skills')],
             },
           },
         ]),
@@ -64,19 +75,11 @@ export const createAgentDsh: OperationDefinition<
       let sessionId: string | undefined;
       let finalText: string | undefined;
       try {
-        const prompt =
-          JSON.stringify({
-            goal: request.goal,
-            instruction:
-              'Read AGENTS.md and follow the project instructions. Use native subagents for delegation, reading roles/<name>.md when a role is listed. The project is read-only; return proposed edits in the requested JSON rather than modifying files. Return only the JSON object matching outputSchema in your final answer.',
-            outputSchema: request.outputSchema,
-          }) +
-          '\n\nAfter completing the task, your final response MUST be only the JSON object matching outputSchema above. Do not summarize your work in prose or Markdown. A prose response is a failed task.';
         await runDshProcess(
           config.executable ?? 'dsh',
           config.options ?? [],
           patch,
-          prompt,
+          request.message,
           (line) => {
             const event = object(JSON.parse(line));
             observe(event);

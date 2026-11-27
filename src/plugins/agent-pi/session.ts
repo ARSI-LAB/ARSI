@@ -1,3 +1,4 @@
+import { outputInstructions } from '../shared/agent-output-instructions.js';
 import { observeNative } from '../shared/native-agent/observe.js';
 import { parseAgentResult } from '../shared/native-agent/result.js';
 import {
@@ -165,8 +166,6 @@ export async function createPiSession(
             provider: { maxRetries: 0 },
           },
         });
-        const instructions =
-          'Return only the JSON object matching outputSchema in your final response, without a result envelope or prose.';
         const cwd = await realpath(request.cwd);
         const agentDir = join(directory, 'agent');
         const path = join(cwd, 'AGENTS.md');
@@ -190,7 +189,7 @@ export async function createPiSession(
           additionalSkillPaths: hasSkills ? [skills] : [],
           agentsFilesOverride: () => ({ agentsFiles }),
           appendSystemPrompt: [],
-          systemPrompt: instructions,
+          systemPrompt: outputInstructions(schema),
         });
         await resourceLoader.reload();
         const tools = projectTools(cwd);
@@ -313,20 +312,18 @@ export async function createPiSession(
         };
         signal.addEventListener('abort', cancel, { once: true });
         try {
-          const prompt = JSON.stringify({
-            goal: request.goal,
-            outputSchema: schema,
-          });
           const start = session.messages.length;
           publish({
             runId: request.runId,
             event: {
               type: 'task.submitted',
-              text: prompt,
+              text: request.message,
               outputSchema: schema,
             },
           });
-          await session.prompt(prompt, { expandPromptTemplates: false });
+          await session.prompt(request.message, {
+            expandPromptTemplates: false,
+          });
           await session.waitForIdle();
           signal.throwIfAborted();
           if (callFailure) throw callFailure;

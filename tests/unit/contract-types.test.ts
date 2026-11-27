@@ -437,7 +437,7 @@ test('typed inputs and outputs satisfy public contract Schemas', () => {
     {
       contract: contracts.agentContract,
       input: {
-        goal: 'Improve',
+        message: 'Improve',
         cwd: '/tmp/project',
         outputSchema: {},
       } satisfies AgentInput,
@@ -657,12 +657,16 @@ test('typed inputs and outputs satisfy public contract Schemas', () => {
   }
 });
 
-test('Agent request rejects routing and request-level model-call limits', () => {
-  const input = { goal: 'Inspect', cwd: '/tmp/project', outputSchema: {} };
+test('Agent request requires message and rejects goal, routing and model-call limits', () => {
+  const input = { message: 'Inspect', cwd: '/tmp/project', outputSchema: {} };
   assert.doesNotThrow(() =>
     validate(contracts.agentContract.input_schema, input, 'Agent'),
   );
-  for (const field of [{ agentRef: 'agent' }, { maxModelCalls: 2 }]) {
+  for (const field of [
+    { goal: 'Inspect' },
+    { agentRef: 'agent' },
+    { maxModelCalls: 2 },
+  ]) {
     assert.throws(
       () =>
         validate(
@@ -676,7 +680,7 @@ test('Agent request rejects routing and request-level model-call limits', () => 
 });
 
 test('Agent requires a workspace and rejects inline context', () => {
-  const common = { goal: 'Inspect', outputSchema: {} };
+  const common = { message: 'Inspect', outputSchema: {} };
   assert.throws(() =>
     validate(
       contracts.agentContract.input_schema,
@@ -699,7 +703,7 @@ test('contract Schemas retain required fields, discriminated branches and collec
   const cases = [
     {
       schema: contracts.agentContract.input_schema,
-      value: { goal: 'Improve', cwd: '/tmp/project' },
+      value: { message: 'Improve', cwd: '/tmp/project' },
     },
     {
       schema: contracts.applicationContract.input_schema,

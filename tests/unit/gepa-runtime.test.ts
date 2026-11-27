@@ -112,7 +112,7 @@ test('a complete mutation round uses sampled evidence, admits strict improvement
     const request = run.agentCalls[0]!;
     assert.deepEqual(Object.keys(request.request).sort(), [
       'cwd',
-      'goal',
+      'message',
       'outputSchema',
     ]);
     assert.equal(request.evidence.view, 'training-summary');

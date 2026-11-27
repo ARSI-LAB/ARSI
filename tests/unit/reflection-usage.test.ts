@@ -88,7 +88,7 @@ test('Reflection without a local budget exceeds 50 calls and a subsequent Propos
       return {
         async execute(raw, context) {
           const request = object(raw);
-          if (request.goal === 'Improve the Proposer prompt') {
+          if (string(request.message).includes('Improve the Proposer prompt')) {
             generated++;
             assert.equal(request.maxModelCalls, undefined);
             assert.equal(context.scope?.limits.modelCalls, undefined);
@@ -284,7 +284,7 @@ test('real Proposer calls without Measurements expose linked versions, actual Ag
       execute: async (raw, context) => {
         const request = object(raw);
         await context.charge('modelCalls', 1);
-        if (request.goal === 'Inspect proposer changes') {
+        if (string(request.message).includes('Inspect proposer changes')) {
           reflections++;
           reflectionProjects.push(string(request.cwd));
           return {

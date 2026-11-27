@@ -45,8 +45,12 @@ export function resolvePaths(
     const path = string(
       Array.isArray(current) ? current[Number(last)] : object(current)[last],
     );
-    if (isAbsolute(path) || isResourceUrl(path) || path.includes('${'))
+    if (isResourceUrl(path)) {
+      if (field.localOnly)
+        throw new Error(`${field.pointer} requires a local ${field.kind} path`);
       continue;
+    }
+    if (isAbsolute(path) || path.includes('${')) continue;
     const absolute = resolve(directory(field.pointer), path);
     if (Array.isArray(current)) current[Number(last)] = absolute;
     else object(current)[last] = absolute;

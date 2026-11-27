@@ -27,8 +27,17 @@ export function validate(
       `Conflicting Schema identity: ${typeof schema === 'object' ? schema.$id : ''}`,
     );
   const check = existing ?? ajv.compile(schema);
-  if (!check(value))
-    throw new Error(`${label}: ${ajv.errorsText(check.errors)}`);
+  if (!check(value)) {
+    const errors = check.errors?.map((error) =>
+      error.keyword === 'additionalProperties'
+        ? {
+            ...error,
+            message: `${error.message}: ${JSON.stringify(error.params.additionalProperty)}`,
+          }
+        : error,
+    );
+    throw new Error(`${label}: ${ajv.errorsText(errors)}`);
+  }
 }
 
 /** The caller owns the Schema/type pairing; validation fills defaults on an owned copy. */

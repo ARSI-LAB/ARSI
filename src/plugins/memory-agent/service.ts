@@ -7,7 +7,11 @@ import type {
 import { string } from '../../shared/json.js';
 import { editResource } from '../shared/agent-editing/index.js';
 import { agentEditorDoctorRules } from '../shared/agent-editing/doctor.js';
-import { evolutionContext } from '../shared/agent-editing/evolution-context.js';
+import {
+  evolutionContext,
+  evolutionTaskVariables,
+} from '../shared/agent-editing/evolution-context.js';
+import { renderTaskMessage } from '../shared/agent-editing/task-message.js';
 
 export const createMemoryAgent: OperationDefinition<
   MemoryInput,
@@ -17,12 +21,23 @@ export const createMemoryAgent: OperationDefinition<
   ctx.event?.on('rsi/doctor', (request) => agentEditorDoctorRules(request));
   return {
     async execute(input, context) {
+      const evidence = await evolutionContext(
+        'memory',
+        input.evidenceRefs,
+        context,
+      );
       const updated = await editResource(
         config,
         input,
         input.resourceRef,
         context,
-        await evolutionContext('memory', input.evidenceRefs, context),
+        await renderTaskMessage(
+          context,
+          config.messageTemplates,
+          `Update experiment memory for the following objective:\n\n${input.goal}`,
+          evolutionTaskVariables(input.goal, evidence),
+        ),
+        evidence,
       );
       if (updated.changeRef === null)
         return {

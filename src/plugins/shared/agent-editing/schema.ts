@@ -3,12 +3,17 @@ import {
   runtimeEvolutionEvidenceViews,
   type RuntimeEvolutionEvidenceView,
 } from '../../../contracts/runtime-evolution.js';
+import {
+  messageTemplatesSchema,
+  type MessageTemplates,
+} from './task-message.js';
 
 export type AgentEditingConfig = {
   prompt: string;
   agentRef?: string;
   evidenceView?: RuntimeEvolutionEvidenceView;
   skills?: string[];
+  messageTemplates?: MessageTemplates;
 };
 
 export type RuntimeEvolutionAgentConfig = Omit<
@@ -25,6 +30,7 @@ export const agentConfigSchema = {
       'x-rsi-binding': 'contract.agent',
     },
     prompt: { type: 'string', 'x-rsi-path': 'file' },
+    messageTemplates: messageTemplatesSchema(),
     evidenceView: {
       enum: [...runtimeEvolutionEvidenceViews],
       default: 'execution',
@@ -41,13 +47,14 @@ export const agentConfigSchema = {
 
 /** The runtime evolution coordinator selects the evidence view before the editor runs. */
 export function runtimeEvolutionAgentConfigSchema(prompt: string): JsonSchema {
-  const { agentRef, skills } = agentConfigSchema.properties;
+  const { agentRef, skills, messageTemplates } = agentConfigSchema.properties;
   return {
     type: 'object',
     additionalProperties: false,
     properties: {
       agentRef,
       skills,
+      messageTemplates,
       prompt: { ...agentConfigSchema.properties.prompt, default: prompt },
     },
   };

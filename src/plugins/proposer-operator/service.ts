@@ -223,6 +223,28 @@ export const createOperatorProposer: OperationDefinition<
           config.agentRef,
           {
             goal: input.goal,
+            taskMessage: {
+              templates: config.messageTemplates,
+              fallback:
+                (stage === 'generate'
+                  ? 'Propose an operator optimization for this objective:'
+                  : 'Repair the failed operator candidate for this objective:') +
+                `\n\n${input.goal}`,
+              stage: {
+                name: input.phase === 'static' ? stage : `${stage}-metrics`,
+                variables: {
+                  ...(input.phase === 'static'
+                    ? { attempt: input.attempt }
+                    : { round: input.round }),
+                  ...(input.action === 'repair'
+                    ? { repairIndex: input.repairIndex }
+                    : prepared.generationVariables),
+                  editablePaths: editablePaths
+                    .map((path) => `- ${path}`)
+                    .join('\n'),
+                },
+              },
+            },
             prompt:
               (stage === 'generate'
                 ? prepared.generatePrompt

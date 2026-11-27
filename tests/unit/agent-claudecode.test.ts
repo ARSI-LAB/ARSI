@@ -9,6 +9,13 @@ test('Claude translates text, thinking and correlated tool results while returni
   let submittedText: string | undefined;
   const f = await agentFixture(async (spec, consume) => {
     submittedText = spec.input;
+    assert.equal(spec.input, f.request.message);
+    const schemaOption = spec.args.indexOf('--json-schema');
+    assert.notEqual(schemaOption, -1);
+    assert.deepEqual(
+      JSON.parse(spec.args[schemaOption + 1]!),
+      f.request.outputSchema,
+    );
     assert(spec.args.includes('stream-json'));
     assert(spec.args.includes('--forward-subagent-text'));
     assert.deepEqual(spec.args.slice(-6), [

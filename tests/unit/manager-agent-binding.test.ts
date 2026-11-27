@@ -27,7 +27,7 @@ test('Agent admission composes request transformations and records both waterfal
             outer: true,
             admitted: true,
           });
-          return { goal: object(input).goal! };
+          return { message: object(input).message! };
         },
         async dispose() {},
       };
@@ -43,17 +43,20 @@ test('Agent admission composes request transformations and records both waterfal
         if (current.kind === 'reject') return current;
         return {
           kind: 'proceed',
-          input: { ...current.input, goal: current.input.goal + '-outer' },
+          input: {
+            ...current.input,
+            message: current.input.message + '-outer',
+          },
           metadata: { ...current.metadata, outer: true },
         };
       });
       ctx.event.on('rsi/before-agent-invoke', async (info, next) => {
-        if (info.input.goal === 'denied')
+        if (info.input.message === 'denied')
           return { kind: 'reject', reason: 'fixture veto' };
         const current = await next();
         if (current.kind === 'reject') return current;
-        current.input.goal += '-inner';
-        assert.equal(info.input.goal, 'test');
+        current.input.message += '-inner';
+        assert.equal(info.input.message, 'test');
         return { ...current, metadata: { inner: true } };
       });
       ctx.event.on('rsi/before-call', async (_info, next) => {
@@ -63,18 +66,18 @@ test('Agent admission composes request transformations and records both waterfal
           : current;
       });
       const request = {
-        goal: 'test',
+        message: 'test',
         cwd: await prepareAgentProject(ctx, 'test', {}, [], []),
         outputSchema: { type: 'object' },
       };
       await assert.rejects(
-        ctx.invokeAgent('agent', { ...request, goal: 'denied' }),
+        ctx.invokeAgent('agent', { ...request, message: 'denied' }),
         /fixture veto/,
       );
       assert.deepEqual(await ctx.invokeAgent('agent', request), {
-        goal: 'test-inner-outer',
+        message: 'test-inner-outer',
       });
-      assert.equal(request.goal, 'test');
+      assert.equal(request.message, 'test');
       return {};
     },
     { plugins: [agent], bindings: { agent: { plugin: agent.id, config: {} } } },
@@ -86,7 +89,7 @@ test('Agent admission composes request transformations and records both waterfal
     );
     assert.equal(receipts.length, 1);
     assert.equal(receipts[0]!.status, 'succeeded');
-    assert.equal(object(receipts[0]!.input).goal, 'test-inner-outer');
+    assert.equal(object(receipts[0]!.input).message, 'test-inner-outer');
     assert.deepEqual(receipts[0]!.metadata, {
       inner: true,
       outer: true,
@@ -109,13 +112,13 @@ test('Agent invocation listeners cannot change the caller or the forwarded reque
   const fixture = await managerFixture(
     async (ctx) => {
       const request = {
-        goal: 'original',
+        message: 'original',
         cwd: await prepareAgentProject(ctx, 'test', {}, [], []),
-        outputSchema: { type: 'object', required: ['goal'] },
+        outputSchema: { type: 'object', required: ['message'] },
       };
       const expected = structuredClone(request);
       ctx.event.on('rsi/before-agent-invoke', (event, next) => {
-        Reflect.set(event.input, 'goal', 'changed');
+        Reflect.set(event.input, 'message', 'changed');
         const required = event.input.outputSchema.required;
         assert.ok(Array.isArray(required));
         Reflect.set(required, 0, 'cwd');
@@ -128,7 +131,7 @@ test('Agent invocation listeners cannot change the caller or the forwarded reque
         { caller: expected, agent: expected },
       );
       request.outputSchema.required.push('next');
-      request.goal = 'next';
+      request.message = 'next';
       return {};
     },
     { plugins: [agent], bindings: { agent: { plugin: agent.id, config: {} } } },
@@ -161,7 +164,7 @@ test('Manager invokes exact Agent bindings and never falls back to an implementa
   const fixture = await managerFixture(
     async (context) => {
       const request = {
-        goal: 'test routing',
+        message: 'test routing',
         cwd: await prepareAgentProject(context, 'test', {}, [], []),
         outputSchema: { type: 'object' },
       };
@@ -279,7 +282,7 @@ for (const status of ['failed', 'cancelled'] as const) {
       async (context) => {
         const cwd = await prepareAgentProject(context, 'retry', {}, [], []);
         return context.invokeAgent('agent', {
-          goal: 'retry',
+          message: 'retry',
           cwd,
           outputSchema: { type: 'object' },
         });
@@ -402,7 +405,7 @@ test('an unknown outcome cannot replace its conversation without an explicit res
       });
       const request = {
         cwd: await prepareAgentProject(context, 'unknown', {}, [], []),
-        goal: 'unknown',
+        message: 'unknown',
         outputSchema: { type: 'object' },
       };
       await assert.rejects(

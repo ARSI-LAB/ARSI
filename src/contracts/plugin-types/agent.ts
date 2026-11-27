@@ -2,7 +2,8 @@ import type { JsonObject } from '../json.js';
 import { defineContract } from '../contract.js';
 
 export type AgentInput = {
-  goal: string;
+  /** Complete user task text, forwarded verbatim by the backend. */
+  message: string;
   cwd: string;
   role?: string;
   outputSchema: JsonObject;
@@ -17,10 +18,10 @@ export const agentContract = defineContract({
     properties: {
       cwd: { type: 'string', minLength: 1 },
       role: { type: 'string', pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' },
-      goal: { type: 'string' },
+      message: { type: 'string', minLength: 1, pattern: '\\S' },
       outputSchema: { type: 'object' },
     },
-    required: ['goal', 'cwd', 'outputSchema'],
+    required: ['message', 'cwd', 'outputSchema'],
     type: 'object',
   },
   output_schema: { type: 'object' },

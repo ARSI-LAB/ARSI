@@ -12,6 +12,7 @@ import {
 } from '../shared/agent-editing/index.js';
 import { prepareAgentProject } from '../shared/agent-editing/project.js';
 import { agentEditorDoctorRules } from '../shared/agent-editing/doctor.js';
+import { renderTaskMessage } from '../shared/agent-editing/task-message.js';
 
 export const createArtifactSelector: OperationDefinition<
   ArtifactSelectorInput,
@@ -23,6 +24,17 @@ export const createArtifactSelector: OperationDefinition<
   );
   return {
     async execute(input, context) {
+      const candidatesPath = 'context/candidates.json';
+      const message = await renderTaskMessage(
+        context,
+        config.messageTemplates,
+        `Compare the anonymized candidate deliverables in ${candidatesPath} using this rubric:\n\n${input.rubric}`,
+        {
+          rubric: input.rubric,
+          candidateCount: input.candidates.length,
+          candidatesPath,
+        },
+      );
       const candidates = input.candidates
         .map((candidate, index) => ({
           ...candidate,
@@ -47,13 +59,13 @@ export const createArtifactSelector: OperationDefinition<
       const prompt = await loadAgentPrompt(config);
       const cwd = await prepareAgentProject(
         context,
-        `${prompt}\n\nRead context/candidates.json for the anonymized candidate views. Each entry has a numeric label and its delivery evidence.`,
-        { 'context/candidates.json': JSON.stringify(views, null, 2) },
+        `${prompt}\n\nRead ${candidatesPath} for the anonymized candidate views. Each entry has a numeric label and its delivery evidence.`,
+        { [candidatesPath]: JSON.stringify(views, null, 2) },
         config.skills ?? [],
         [],
       );
       const request: AgentInput = {
-        goal: input.rubric,
+        message,
         cwd,
         outputSchema: operationSchema(
           {

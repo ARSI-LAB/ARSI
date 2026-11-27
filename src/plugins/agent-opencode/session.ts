@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { observeNative } from '../shared/native-agent/observe.js';
 import { parseAgentResult } from '../shared/native-agent/result.js';
 import { openCodeObservations } from './observations.js';
@@ -15,9 +16,55 @@ export function launchEnvironment(directory: string): NodeJS.ProcessEnv {
   return { ...process.env, PWD: directory };
 }
 
+function taskEnvironment(
+  directory: string,
+  instructionPath: string,
+): NodeJS.ProcessEnv {
+  const env = launchEnvironment(directory);
+  const content = env.OPENCODE_CONFIG_CONTENT?.trim();
+  let config: JsonObject = {};
+  if (content) {
+    try {
+      // Match strings first so JSONC markers inside values stay intact.
+      const json = content
+        .replace(
+          /"(?:\\[\s\S]|[^"\\])*"|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
+          (token) => (token.startsWith('"') ? token : ' '),
+        )
+        .replace(/"(?:\\[\s\S]|[^"\\])*"|,(?=\s*[}\]])/g, (token) =>
+          token === ',' ? '' : token,
+        );
+      config = object(JSON.parse(json));
+    } catch {
+      throw new Error('OPENCODE_CONFIG_CONTENT must contain a JSONC object');
+    }
+  }
+  const instructions =
+    config.instructions === undefined ? [] : config.instructions;
+  if (
+    !Array.isArray(instructions) ||
+    instructions.some((item) => typeof item !== 'string')
+  )
+    throw new Error(
+      'OPENCODE_CONFIG_CONTENT.instructions must contain an array of paths',
+    );
+  return {
+    ...env,
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      ...config,
+      instructions: [
+        ...instructions,
+        join(directory, 'AGENTS.md'),
+        instructionPath,
+      ],
+    }),
+  };
+}
+
 export async function runSession(options: {
   config: AgentOpenCodeConfig;
   directory: string;
+  instructionPath: string;
   request: AgentInput;
   signal: AbortSignal;
   record: (event: AgentObservation) => void;
@@ -41,16 +88,10 @@ export async function runSession(options: {
   let sessionId: string | undefined;
   let finalMessage: string | undefined;
   let finalReason: string | undefined;
-  const prompt = JSON.stringify({
-    goal: request.goal,
-    instruction:
-      'Read AGENTS.md and the project instructions. Return proposed changes through the requested result Schema; leave task input files unchanged. Your final answer must be only a JSON object matching outputSchema, without Markdown or prose.',
-    outputSchema: request.outputSchema,
-  });
   await runNativeJsonProcess(
     config.executable ?? 'opencode',
     args,
-    prompt,
+    request.message,
     (line) => {
       let event: JsonObject;
       try {
@@ -103,7 +144,7 @@ export async function runSession(options: {
     {
       record,
       outputSchema: request.outputSchema,
-      env: launchEnvironment(options.directory),
+      env: taskEnvironment(options.directory, options.instructionPath),
     },
   );
   if (finalMessage === undefined || finalReason !== 'stop')

@@ -39,15 +39,10 @@ export async function runSession(options: {
     JSON.stringify(request.outputSchema),
     ...(config.options ?? []),
   ];
-  const prompt = JSON.stringify({
-    goal: request.goal,
-    instruction:
-      'Read CLAUDE.md and the project instructions. Use native Skills and Agent delegation when appropriate. Return proposed changes through the requested result Schema; leave task input files unchanged. Return only the requested structured result.',
-  });
   await runClaudeProcess(
     config.executable ?? 'claude',
     args,
-    prompt,
+    request.message,
     (line) => {
       const event = object(JSON.parse(line));
       observe(event);

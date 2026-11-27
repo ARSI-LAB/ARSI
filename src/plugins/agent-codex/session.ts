@@ -87,11 +87,6 @@ async function runSessionAttempt(
   let response = '';
   let result: JsonObject | undefined;
   const platform = process.platform;
-  const prompt = JSON.stringify({
-    goal: request.goal,
-    instruction:
-      'Use the project instructions and return the requested JSON result.',
-  });
   const launchConfig = [
     'approval_policy="never"',
     `project_root_markers=[${JSON.stringify(projectMarker)}]`,
@@ -215,7 +210,7 @@ async function runSessionAttempt(
           native: { sessionId: threadId },
           event: {
             type: 'task.submitted',
-            text: prompt,
+            text: request.message,
             outputSchema: request.outputSchema,
           },
         });
@@ -224,7 +219,7 @@ async function runSessionAttempt(
           method: 'turn/start',
           params: {
             threadId,
-            input: [{ type: 'text', text: prompt }],
+            input: [{ type: 'text', text: request.message }],
             outputSchema: request.outputSchema,
             cwd: options.directory,
           },

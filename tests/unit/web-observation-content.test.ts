@@ -4,7 +4,10 @@ import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { seedObservation } from '../fixtures/observation/seed.js';
-import { createServer } from '../../src/entries/web/server.js';
+import {
+  createServer,
+  type ServerRuntime,
+} from '../../src/entries/web/server.js';
 import {
   parseDetails,
   parseArtifact,
@@ -77,7 +80,7 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
       ),
     );
   const before = await snapshot();
-  const server = await createServer({
+  const runtime: ServerRuntime = {
     manager: {
       memory: () => {
         throw new Error('Unexpected Memory application');
@@ -98,11 +101,26 @@ test('recorded content is owned, redacted, bounded, paginated and read-only', as
       },
     },
     registry: { catalog: () => ({ plugins: [], policies: [] }) },
-  });
+  };
+  const server = await createServer(runtime);
   t.after(() => server.close());
   const source = await server.inject('/api/observation/source');
   assert.equal(source.statusCode, 200);
   assert.deepEqual(source.json(), { directory });
+  const tracerUrl = 'http://127.0.0.1:8787';
+  for (const publicReadOnly of [false, true]) {
+    const dashboard = await createServer(runtime, {
+      tracerUrl,
+      publicReadOnly,
+    });
+    t.after(() => dashboard.close());
+    const response = await dashboard.inject('/api/observation/source');
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(
+      response.json(),
+      publicReadOnly ? { directory } : { directory, tracerUrl },
+    );
+  }
   const get = (path: string) =>
     server.inject('/api/observation/experiments' + path);
   const response = await get('/run-alpha/details');

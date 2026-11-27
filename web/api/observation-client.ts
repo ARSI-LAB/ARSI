@@ -45,6 +45,7 @@ export type {
   JsonPreview,
   MeasurementSummary,
   MetricRecord,
+  ObservationSource,
   Page,
 } from '../../src/contracts/observation.js';
 
@@ -231,7 +232,13 @@ export async function readObservationSource(
 ): Promise<ObservationSource> {
   return readProjection(
     'api/observation/source',
-    (raw) => ({ directory: nullable(record(raw).directory) }),
+    (raw) => {
+      const { directory, tracerUrl } = record(raw);
+      return {
+        directory: nullable(directory),
+        ...(tracerUrl === undefined ? {} : { tracerUrl: text(tracerUrl) }),
+      };
+    },
     signal,
   );
 }

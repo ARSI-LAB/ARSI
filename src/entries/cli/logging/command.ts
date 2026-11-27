@@ -100,12 +100,15 @@ export function logDashboardListening(
   address: string,
   port: number,
   publicReadOnly: boolean,
+  tracerUrl?: string,
 ): void {
   if (publicReadOnly)
     webLogger.info('Public read-only dashboard listening on 0.0.0.0:{port}', {
       port,
     });
   else webLogger.info('Dashboard open at {address}', { address });
+  if (tracerUrl)
+    webLogger.info('Evaluator Tracer open at {tracerUrl}', { tracerUrl });
 }
 
 type ReportDiagnostic = (error: unknown, prefix?: string) => void;

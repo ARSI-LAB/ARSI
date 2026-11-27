@@ -5,11 +5,16 @@ import {
   Argument,
   Command,
   InvalidArgumentError,
+  Option,
   type CommanderError,
 } from 'commander';
 import type { RuntimeEvolutionKind } from '../../contracts/runtime-evolution.js';
 import type { Runtime } from '../../runtime/context.js';
 import { formatDoctorSummary } from '../../runtime/doctor/report.js';
+import {
+  evaluatorTracerUrl,
+  startEvaluatorTracer,
+} from './evaluator-tracer.js';
 import {
   addLogOptions,
   attachWebLogging,
@@ -150,6 +155,11 @@ export async function runCommand(
     .option(
       '--public-read-only',
       'Listen on all IPv4 interfaces for read-only access',
+    )
+    .addOption(
+      new Option('--tracer', 'Start the local Evaluator Tracer').conflicts(
+        'publicReadOnly',
+      ),
     )
     .option(
       '--port <port>',
@@ -337,7 +347,8 @@ export async function runCommand(
     {
       port,
       publicReadOnly = false,
-    }: { port: number; publicReadOnly?: boolean },
+      tracer = false,
+    }: { port: number; publicReadOnly?: boolean; tracer?: boolean },
     command: Command,
   ): Promise<void> {
     return runAction(command, async () => {
@@ -347,14 +358,16 @@ export async function runCommand(
         );
       const runtime = await openRuntime();
       const { createServer } = await import('../web/server.js');
-      const server = await createServer(runtime, { publicReadOnly });
+      const tracerUrl = tracer ? evaluatorTracerUrl : undefined;
+      const server = await createServer(runtime, { publicReadOnly, tracerUrl });
       attachWebLogging(server);
       try {
         const address = await server.listen({
           host: publicReadOnly ? '0.0.0.0' : '127.0.0.1',
           port,
         });
-        logDashboardListening(address, port, publicReadOnly);
+        if (tracer) await startEvaluatorTracer(runtime.manager.directory);
+        logDashboardListening(address, port, publicReadOnly, tracerUrl);
         await aborted(context.signal, server);
       } finally {
         await server.close();

@@ -142,6 +142,7 @@ test('CLI prints command-specific and nested help to stdout', () => {
     ['-h'],
     ['run', '-h'],
     ['doctor', '--help'],
+    ['dashboard', '--help'],
     ['cleanup', '--help'],
     ['reflection', '-h'],
     ['reflection', 'apply', '-h'],
@@ -160,6 +161,7 @@ test('CLI prints command-specific and nested help to stdout', () => {
       assert.doesNotMatch(result.stdout, /--static/);
       assert.match(result.stdout, /--json/);
     }
+    if (args.includes('dashboard')) assert.match(result.stdout, /--tracer/);
     if (args.includes('cleanup')) {
       assert.match(result.stdout, /--dry-run/);
       assert.match(result.stdout, /--all/);
@@ -188,6 +190,11 @@ test('CLI reports invalid input and focused help to stderr before runtime initia
     [['--plugin-dir', 'missing-extension'], /Usage: arsi/],
     [['dashboard', '--port', '0'], /port must be 1\.\.65535/, ' dashboard'],
     [['dashboard', '--port', '65536'], /port must be 1\.\.65535/, ' dashboard'],
+    [
+      ['dashboard', '--tracer', '--public-read-only'],
+      /cannot be used with option/,
+      ' dashboard',
+    ],
     [['--plugin-dir'], /argument missing/],
     [['serve'], /unknown command/],
     [['unknown'], /unknown command/],

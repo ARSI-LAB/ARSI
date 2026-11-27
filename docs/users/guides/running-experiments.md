@@ -143,6 +143,8 @@ Run `arsi dashboard --public-read-only --port 4317` to share a workspace. Anyone
 
 Run from an experiment workspace that already contains `.rsi/`. The web dashboard displays experiments, summaries, candidates, diffs, measurements, calls, Agent traces, results, and charts, as shown below.
 
+Run `arsi dashboard --tracer` to start or reuse the local Evaluator Tracer on port `8787`. Select **Open Tracer** in the dashboard sidebar, then use **Open Directory** in Tracer to import an Evaluator run directory containing saved trajectories. The Collector runs in the background and stores imports under `.rsi/tracer/`.
+
 Measurement details show each recorded item's full identifier, subject kind, status, coverage, and metrics. Failed, cancelled, and unknown items show no valid score rather than a numeric result. Missing item evidence is reported explicitly; a successful zero score remains zero.
 Metrics that share a display label include their recorded metric names so distinct values remain identifiable.
 

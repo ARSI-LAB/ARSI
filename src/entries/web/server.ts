@@ -32,7 +32,10 @@ interface RunRequest {
 /** HTTP adapts Runtime calls; jobs survive the lifetime of an individual browser request. */
 export async function createServer(
   runtime: ServerRuntime,
-  { publicReadOnly = false }: { publicReadOnly?: boolean } = {},
+  {
+    publicReadOnly = false,
+    tracerUrl,
+  }: { publicReadOnly?: boolean; tracerUrl?: string } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
     bodyLimit: 65536,
@@ -86,7 +89,11 @@ export async function createServer(
         }
       : undefined,
   );
-  registerObservationRoutes(app, queries);
+  registerObservationRoutes(
+    app,
+    queries,
+    publicReadOnly ? undefined : tracerUrl,
+  );
   registerEvolutionRoutes(app, runtime.manager, queries, publicReadOnly);
   app.get('/api/catalog', async () => runtime.registry.catalog());
   app.get('/api/experiments', async () => {

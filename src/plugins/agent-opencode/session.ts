@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { observeNative } from '../shared/native-agent/observe.js';
-import { parseAgentResult } from '../shared/agent-result.js';
+import { parseAgentResult } from '../shared/native-agent/result.js';
 import { openCodeObservations } from './observations.js';
 import type {
   AgentObservation,

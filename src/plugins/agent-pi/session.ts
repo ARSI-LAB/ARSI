@@ -2,7 +2,7 @@ import { observeNative } from '../shared/native-agent/observe.js';
 import {
   outputInstructions,
   parseAgentResult,
-} from '../shared/agent-result.js';
+} from '../shared/native-agent/result.js';
 import {
   createAgentSession,
   DefaultResourceLoader,

@@ -6,7 +6,7 @@ import {
   publishAgentProject,
 } from '../../../runtime/services/agent-project.js';
 import { directoryFingerprint } from '../../../runtime/storage/directory-fingerprint.js';
-import { outputInstructions } from '../agent-result.js';
+import { outputInstructions } from './result.js';
 
 export async function prepareNativeOutputProject(
   request: AgentInput,

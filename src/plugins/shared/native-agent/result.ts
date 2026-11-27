@@ -1,6 +1,6 @@
-import { AgentOutputError } from '../../contracts/runtime/errors.js';
-import type { JsonObject } from '../../contracts/index.js';
-import { canonical, object } from '../../shared/json.js';
+import { AgentOutputError } from '../../../contracts/runtime/errors.js';
+import type { JsonObject } from '../../../contracts/index.js';
+import { canonical, object } from '../../../shared/json.js';
 
 export function outputInstructions(schema: JsonObject): string {
   return (

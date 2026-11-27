@@ -23,6 +23,7 @@ jobs:
       RSI_CI_BASE_SHA: ${{ github.event.merge_group.base_sha }}
       RSI_CI_HEAD_SHA: ${{ github.sha }}
     outputs:
+      docs: ${{ steps.scope.outputs.docs }}
       package: ${{ steps.scope.outputs.package }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -41,10 +42,16 @@ jobs:
           fi
           git diff --no-renames --name-only -z "$RSI_CI_BASE_SHA" "$RSI_CI_HEAD_SHA" -- > "$RUNNER_TEMP/quality-paths"
           docs=true
+          if [[ ! -s "$RUNNER_TEMP/quality-paths" ]]; then docs=false; fi
           package=false
           bridge=false
           while IFS= read -r -d '' path; do
-            case "$path" in docs/*|*.md) ;; *) docs=false ;; esac
+            case "$path" in
+              docs/*) ;;
+              */*) docs=false ;;
+              *.md) ;;
+              *) docs=false ;;
+            esac
             case "$path" in src/*|web/*|scripts/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig*.json|.github/workflows/ci.yml) package=true ;; esac
             case "$path" in .github/workflows/bridge/*|.github/workflows/bridge.yml|.github/workflows/ci.yml) bridge=true ;; esac
           done < "$RUNNER_TEMP/quality-paths"
@@ -99,13 +106,21 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 35
     steps:
+      - name: Report path decision
+        if: needs.fast.outputs.docs == 'true'
+        run: echo "Only documentation changed."
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: needs.fast.outputs.docs != 'true'
         with:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: needs.fast.outputs.docs != 'true'
         with:
           node-version: 24
           package-manager-cache: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+        if: needs.fast.outputs.docs != 'true'
+      - if: needs.fast.outputs.docs != 'true'
+        run: pnpm install --frozen-lockfile
+      - if: needs.fast.outputs.docs != 'true'
+        run: pnpm test

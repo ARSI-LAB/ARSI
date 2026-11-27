@@ -10,7 +10,7 @@ import {
   git,
   modelEnvironment,
 } from '../../.github/review/process.mjs';
-import { withSnapshot } from '../../.github/review/prepare.mjs';
+import { changedLines, withSnapshot } from '../../.github/review/prepare.mjs';
 import {
   confirmedRules,
   github,
@@ -221,7 +221,7 @@ test('review reads trusted assets, strips nested project config and cleans the d
         );
         assert.deepEqual(s.anchors.get('diff.ts'), {
           LEFT: [[2, 2]],
-          RIGHT: [[2, 2]],
+          RIGHT: [[1, 2]],
         });
         throw new Error('fixture failure');
       }),
@@ -258,6 +258,10 @@ test('green manifest is scoped to the successful L1 steps; Codex receives only p
       Path: 'tools',
       USERPROFILE: 'profile',
       GH_TOKEN: 'secret',
+      HTTP_PROXY: 'http://proxy.example',
+      https_proxy: 'http://secure-proxy.example',
+      ALL_PROXY: 'socks5://proxy.example',
+      no_proxy: 'localhost',
       GITHUB_TOKEN: 'secret',
       OTHER_API_KEY: 'secret',
       CODEX_WINDOWS_REGISTERED_CORE: 'true',
@@ -271,6 +275,10 @@ test('green manifest is scoped to the successful L1 steps; Codex receives only p
     ),
   );
   assert.equal(env.Path, 'tools');
+  assert.equal(env.HTTP_PROXY, 'http://proxy.example');
+  assert.equal(env.https_proxy, 'http://secure-proxy.example');
+  assert.equal(env.ALL_PROXY, 'socks5://proxy.example');
+  assert.equal(env.no_proxy, 'localhost');
   assert.deepEqual(confirmedRules(['types'], ['package.json']), []);
   assert.deepEqual(confirmedRules(['types'], ['src/index.ts']), ['types']);
 });
@@ -335,12 +343,6 @@ test('only Important candidates run a fresh verifier, with strict schema, diff a
   );
   assert.equal(retained.threads[0].disposition, 'open');
   await assert.rejects(
-    review(snapshot, input, undefined, async () =>
-      result([{ ...finding, line: 3 }]),
-    ),
-    /outside the PR diff/,
-  );
-  await assert.rejects(
     review(snapshot, input, undefined, async () => ({ findings: [] })),
     /schema/,
   );
@@ -348,6 +350,106 @@ test('only Important candidates run a fresh verifier, with strict schema, diff a
     adjudicate([{ ...decision, finding_id: 'other' }]),
     /Invalid verifier decision/,
   );
+});
+
+test('mixed reviews publish only GitHub-addressable Important lines and retain summary-only findings on changed files', async () => {
+  const anchors = changedLines(
+    [
+      '@@ -2,4 +2,3 @@',
+      ' unchanged',
+      '-old',
+      '-also old',
+      '+new',
+      ' unchanged',
+      '@@ -17 +16,0 @@',
+      '-last',
+      '\\ No newline at end of file',
+    ].join('\n'),
+  );
+  assert.deepEqual(anchors, {
+    LEFT: [
+      [3, 4],
+      [17, 17],
+    ],
+    RIGHT: [[2, 4]],
+  });
+  const mixed = [
+    { ...finding, finding_id: 'context', line: 2 },
+    {
+      ...finding,
+      finding_id: 'deletion',
+      bug_class: 'old-code',
+      side: 'LEFT',
+      line: 17,
+    },
+    { ...finding, finding_id: 'nit', severity: 'Nit', line: 9 },
+    { ...finding, finding_id: 'existing', severity: 'Pre-existing', line: 8 },
+    {
+      ...finding,
+      finding_id: 'missing',
+      severity: 'Nit',
+      file: 'untouched.ts',
+    },
+  ];
+  const mixedSnapshot = {
+    ...snapshot,
+    anchors: new Map([['diff.ts', anchors]]),
+  };
+  for (const location of [
+    { side: 'LEFT', line: 2 },
+    { line: 7 },
+    { file: 'untouched.ts' },
+  ])
+    await assert.rejects(
+      review(mixedSnapshot, input, undefined, async () =>
+        result([{ ...finding, ...location }]),
+      ),
+      /Important finding outside the PR diff/,
+    );
+  const reviewed = await review(
+    mixedSnapshot,
+    input,
+    undefined,
+    async (_snapshot, _prompt, _signal, verify) =>
+      verify
+        ? {
+            decisions: ['context', 'deletion'].map((finding_id) => ({
+              finding_id,
+              verdict: 'confirm',
+              evidence: 'Confirmed by the caller.',
+            })),
+          }
+        : result(mixed),
+  );
+  assert.equal(reviewed.omittedAdvisories, 1);
+  assert.deepEqual(
+    reviewed.findings.map((f) => f.finding_id),
+    ['context', 'deletion', 'nit', 'existing'],
+  );
+  const comments = [];
+  let body;
+  const api = {
+    review: async (_pr, _head, pending) => comments.push(...pending),
+    summary: async (_pr, _id, text) => {
+      body = text;
+    },
+  };
+  await publish(api, pr, state, 'worker', [], snapshot, reviewed, ok);
+  assert.deepEqual(
+    comments.map(({ side, line }) => [side, line]),
+    [
+      ['RIGHT', 2],
+      ['LEFT', 17],
+    ],
+  );
+  assert.match(body, /Omitted 1 advisory finding/);
+  const incomplete = await review(snapshot, input, undefined, async () =>
+    result([{ ...finding, severity: 'Pre-existing', file: 'untouched.ts' }]),
+  );
+  await publish(api, pr, state, 'worker', [], snapshot, incomplete, ok);
+  assert.match(body, /Omitted 1 advisory finding/);
+  assert.doesNotMatch(body, /0 issues/);
+  assert.equal(comments.length, 2);
 });
 
 test('partial publication reconciles native threads, deduplicates root classes, caps Nits and preserves a single sticky summary', async () => {
@@ -406,6 +508,40 @@ test('partial publication reconciles native threads, deduplicates root classes, 
   assert.equal(skip.round, 0);
   assert.equal(eligible(skip, head), false);
   assert.equal(eligible(skip, head, true), true);
+  let latest = read;
+  for (const attempted of ['b'.repeat(40), 'c'.repeat(40)]) {
+    await skipped(
+      api,
+      { ...pr, head: { sha: attempted } },
+      latest,
+      'timeout',
+      ok,
+    );
+    const body = summaries.at(-1)[2];
+    latest = sticky([{ ...owned, body }], 'worker');
+    assert.equal(latest.round, 1);
+    assert.equal(latest.head, head);
+    assert.equal(latest.failed, attempted);
+    assert.equal(latest.completedSummary, read.completedSummary);
+    assert.match(body, /\| Important \| diff\.ts/);
+    assert.match(body, /\| Nit \| diff\.ts/);
+    assert.equal(body.split('AI Review Skipped').length - 1, 1);
+    assert.equal(body.split('## Last completed review').length - 1, 1);
+  }
+  const next = { ...pr, head: { sha: latest.failed } };
+  await publish(
+    api,
+    next,
+    latest,
+    'worker',
+    [],
+    snapshot,
+    { ...result([]), dropped: 0 },
+    ok,
+  );
+  const recovered = summaries.at(-1)[2];
+  assert.doesNotMatch(recovered, /AI Review Skipped|Last completed review/);
+  assert.equal(sticky([{ ...owned, body: recovered }], 'worker').round, 2);
 });
 
 test('only verified owned threads receive replies; a dispute escalates once and a resolved reply survives interruption', async () => {

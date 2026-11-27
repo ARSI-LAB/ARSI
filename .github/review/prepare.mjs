@@ -24,15 +24,26 @@ export function commitId(id) {
 
 export function changedLines(patch) {
   const ranges = { LEFT: [], RIGHT: [] };
-  for (const match of patch.matchAll(
-    /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm,
-  )) {
-    for (const [side, start, length] of [
-      ['LEFT', match[1], match[2]],
-      ['RIGHT', match[3], match[4]],
-    ]) {
-      const count = length === undefined ? 1 : Number(length);
-      if (count) ranges[side].push([Number(start), Number(start) + count - 1]);
+  let oldLine;
+  for (const line of patch.split('\n')) {
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      // GitHub accepts additions and unchanged context on the RIGHT.
+      const start = Number(hunk[2]);
+      const count = Number(hunk[3] ?? 1);
+      if (count) ranges.RIGHT.push([start, start + count - 1]);
+    } else if (oldLine !== undefined) {
+      if (line.startsWith('-')) {
+        const last = ranges.LEFT.at(-1);
+        if (last && last[1] + 1 === oldLine) last[1] = oldLine;
+        else ranges.LEFT.push([oldLine, oldLine]);
+        oldLine++;
+      } else if (line.startsWith(' ')) {
+        oldLine++;
+      } else if (!line.startsWith('+') && !line.startsWith('\\')) {
+        oldLine = undefined;
+      }
     }
   }
   return ranges;
@@ -60,7 +71,7 @@ async function diff(runGit, from, to, includePatch) {
     const first = entries[index++];
     const paths = status.startsWith('R') ? [first, entries[index++]] : [first];
     const path = paths.at(-1);
-    const changed = await runGit([...options, '--unified=0', '--', ...paths]);
+    const changed = await runGit([...options, '--unified=3', '--', ...paths]);
     files.push(...paths);
     anchors.set(path, changedLines(changed));
   }
@@ -110,8 +121,6 @@ export async function withSnapshot(config, use) {
         throw new Error('PR head changed during prepare');
       base = commitId(pr.base.sha);
       await runGit(['fetch', '--no-tags', remote, base]);
-      if (previous)
-        await runGit(['fetch', '--no-tags', remote, commitId(previous)]);
     } else {
       // Include staged, unstaged and non-ignored new files without changing the real index.
       const localEnv = {
@@ -150,10 +159,23 @@ export async function withSnapshot(config, use) {
       base = trusted;
     }
     const mergeBase = (await runGit(['merge-base', base, head])).trim();
-    const incremental = await diff(runGit, previous || mergeBase, head, true);
-    const full = previous
-      ? await diff(runGit, mergeBase, head, false)
-      : incremental;
+    let reviewBase = mergeBase;
+    if (previous && previous !== mergeBase) {
+      // The head fetch already includes its ancestors. Reuse a reviewed commit
+      // only while it is also descended from the current PR merge base.
+      const history = await runGit([
+        'rev-list',
+        '--ancestry-path',
+        mergeBase + '..' + head,
+      ]);
+      if (history.split('\n').includes(commitId(previous)))
+        reviewBase = previous;
+    }
+    const incremental = await diff(runGit, reviewBase, head, true);
+    const full =
+      reviewBase !== mergeBase
+        ? await diff(runGit, mergeBase, head, false)
+        : incremental;
     await runGit(['worktree', 'add', '--detach', worktree, head]);
     await stripProjectConfig(worktree);
     const trustedBlob = (path) => runGit(['show', trusted + ':' + path]);
@@ -170,12 +192,13 @@ export async function withSnapshot(config, use) {
     if (filesAtBase.has(skill)) sourcePaths.add(skill);
     for (const route of routes.filter((route) =>
       route.paths.some((prefix) =>
-        incremental.files.some((file) =>
+        full.files.some((file) =>
           prefix.endsWith('/') ? file.startsWith(prefix) : file === prefix,
         ),
       ),
     )) {
-      for (const path of route.documents) sourcePaths.add(path);
+      for (const path of route.documents)
+        if (filesAtBase.has(path)) sourcePaths.add(path);
       for (const topic of route.topics) {
         const path = 'skills/team-pr-review/references/' + topic + '.md';
         if (filesAtBase.has(skill) && filesAtBase.has(path))

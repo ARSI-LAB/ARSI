@@ -1,5 +1,7 @@
 import { summaryMarker } from './github.mjs';
 
+const lastReviewHeading = '\n\n## Last completed review\n\n';
+
 export function sticky(comments, login) {
   const comment = comments.find(
     (c) => c.user.login === login && c.body.startsWith(summaryMarker + '\n'),
@@ -21,7 +23,18 @@ export function sticky(comments, login) {
     (state.head && !/^[a-f0-9]{40}$/.test(state.head))
   )
     throw new Error('Invalid AI review summary state');
-  return { ...state, id: comment.id };
+  let completedSummary = comment.body.slice(
+    summaryMarker.length + 1,
+    match.index,
+  );
+  if (state.failed) {
+    const heading = completedSummary.indexOf(lastReviewHeading);
+    completedSummary =
+      heading < 0
+        ? ''
+        : completedSummary.slice(heading + lastReviewHeading.length);
+  }
+  return { ...state, id: comment.id, completedSummary };
 }
 
 export function eligible(state, head, manual = false, now = Date.now()) {
@@ -34,7 +47,7 @@ export function eligible(state, head, manual = false, now = Date.now()) {
 }
 
 function summary(text, state) {
-  const { id, ...metadata } = state;
+  const { id, completedSummary, ...metadata } = state;
   return (
     summaryMarker +
     '\n' +
@@ -98,6 +111,11 @@ export const escalated = (thread, login) =>
   );
 
 export async function skipped(api, pr, state, reason, fresh) {
+  const previous = state.head
+    ? lastReviewHeading +
+      (state.completedSummary ||
+        `Reviewed ${state.head}. See the existing inline review threads for findings.`)
+    : '';
   await fresh();
   await api.summary(
     pr.number,
@@ -109,7 +127,8 @@ export async function skipped(api, pr, state, reason, fresh) {
         pr.head.sha +
         '. Completed rounds: ' +
         state.round +
-        '.',
+        '.' +
+        previous,
       { ...state, failed: pr.head.sha, retryAt: Date.now() + 30 * 60_000 },
     ),
   );
@@ -205,7 +224,9 @@ export async function publish(
   const round = state.round + 1;
   let body = findings.length
     ? '**' + findings.length + ' finding(s)**'
-    : '**0 issues in the reviewed changes**';
+    : result.omittedAdvisories
+      ? '**No publishable findings**'
+      : '**0 issues in the reviewed changes**';
   body +=
     '\n\nReviewed ' +
     head +
@@ -216,6 +237,11 @@ export async function publish(
     '. Verifier dropped ' +
     result.dropped +
     '.';
+  if (result.omittedAdvisories)
+    body +=
+      ' Omitted ' +
+      result.omittedAdvisories +
+      ' advisory finding(s) on files outside the PR diff.';
   body +=
     '\n\nTrusted context: .github/review/system-prompt.md, ' +
     snapshot.context.map((doc) => plain(doc.path)).join(', ') +

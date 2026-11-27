@@ -38,16 +38,10 @@ export function validateResult(result, schema, anchors, threads) {
       'Invalid Codex findings schema: ' + validate.errors[0].instancePath,
     );
   const ids = new Set();
+  const findings = [];
   for (const f of result.findings) {
     if (ids.has(f.finding_id)) throw new Error('Duplicate finding identifier');
     ids.add(f.finding_id);
-    if (
-      !anchors
-        .get(f.file)
-        ?.[f.side].some(([first, last]) => f.line >= first && f.line <= last)
-    ) {
-      throw new Error('Finding outside the PR diff');
-    }
     for (const value of [
       f.problem,
       f.impact,
@@ -59,6 +53,13 @@ export function validateResult(result, schema, anchors, threads) {
       if (!value.trim() || value.length > 4000)
         throw new Error('Invalid finding text length');
     }
+    const file = anchors.get(f.file);
+    if (
+      f.severity === 'Important' &&
+      !file?.[f.side].some(([first, last]) => f.line >= first && f.line <= last)
+    )
+      throw new Error('Important finding outside the PR diff');
+    if (file) findings.push(f);
   }
   const allowed = new Set(threads.map((t) => t.id));
   for (const action of result.threads) {
@@ -70,7 +71,11 @@ export function validateResult(result, schema, anchors, threads) {
       throw new Error('Invalid thread disposition');
   }
   if (allowed.size) throw new Error('Missing open thread disposition');
-  return result;
+  return {
+    findings,
+    threads: result.threads,
+    omittedAdvisories: result.findings.length - findings.length,
+  };
 }
 
 async function invoke(snapshot, prompt, signal, verification = false) {
@@ -176,6 +181,7 @@ export async function review(snapshot, input, signal, call = invoke) {
       ...first.findings.filter((f) => f.severity !== 'Important'),
     ],
     threads: first.threads,
+    omittedAdvisories: first.omittedAdvisories,
     dropped: candidates.length - verified.length,
   };
 }

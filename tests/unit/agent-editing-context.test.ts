@@ -222,7 +222,7 @@ test('editor retries one schema-invalid result and surfaces a second failure', a
           );
           assert.match(
             request.message,
-            /exactly one JSON object matching outputSchema/u,
+            /top-level structure required by that schema/u,
           );
           return { edits: [], reason: `Recovered from ${item.name}` };
         },

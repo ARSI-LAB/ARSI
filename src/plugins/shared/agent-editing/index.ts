@@ -179,7 +179,7 @@ Read context/input.json for the target, edit constraints, observations and sourc
       error instanceof Error ? error.message.slice(0, 1000) : String(error);
     result = await context.invokeAgent(agentRef, {
       ...request,
-      message: `${request.message}\n\nYour previous final response failed output-schema validation: ${detail}\nReturn exactly one JSON object matching outputSchema. Do not use a status, proposal, result or other envelope.`,
+      message: `${request.message}\n\nYour previous final response failed output-schema validation: ${detail}\nReturn exactly one JSON object matching outputSchema. Use the top-level structure required by that schema; do not add a status, result, or other envelope unless the schema requires it.`,
     });
   }
   const plans = Array.isArray(result.proposals)

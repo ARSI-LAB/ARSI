@@ -160,7 +160,11 @@ Doctor 检查已启用的运行时演进模块配置、显式指定的 Memory �
 
 示例在已有 `configSchema` 中将字符串 `inputFile` 声明为必填字段，并用 `'x-rsi-path': 'file'` 标记本地文件。通用检查负责验证路径，下面的 `doctor.ts` 检查文件内容。
 
-```ts
+```ts file=schema.ts
+export type CustomConfig = { inputFile: string };
+```
+
+```ts file=doctor.ts
 import { readFile } from 'node:fs/promises';
 import type { DoctorContext, DoctorRule } from 'arsi/contracts';
 import type { CustomConfig } from './schema.js';
@@ -194,7 +198,13 @@ I/O 应使用每项检查收到的信号，失败或取消后仍须释放资源�
 在 `service.ts` 中导入 `doctor`，从 `arsi/contracts` 导入 `RuntimeContext` 类型，将工厂参数标注为 `ctx: RuntimeContext<CustomConfig>`，再在工厂内订阅。扩展入口照常调用 `registry.registerOperation(customDefinition)`。
 
 ```ts
-ctx.event.on('rsi/doctor', doctor);
+import type { RuntimeContext } from 'arsi/contracts';
+import type { CustomConfig } from './schema.js';
+import { doctor } from './doctor.js';
+
+export function registerDoctor(ctx: RuntimeContext<CustomConfig>): void {
+  ctx.event.on('rsi/doctor', doctor);
+}
 ```
 
 构建扩展后，通过 CLI 加载它的 `index.mjs`。

@@ -118,7 +118,7 @@ Runtime 在调用 `execute(input, context)` 前按契约校验输入，调用结
 
 在 `schema.ts` 中定义配置类型和校验规则。本例要求提供非空的 `reason`：
 
-```ts
+```ts file=my-extension/dist/proposer-keep-parent/schema.ts
 import type { JsonSchema } from 'arsi/contracts';
 
 // 插件配置及其校验规则。
@@ -138,7 +138,7 @@ export const configSchema: JsonSchema = {
 
 在 `service.ts` 中返回插件实例。`execute` 接收本次调用的输入和 RuntimeContext，`dispose` 负责实例清理：
 
-```ts
+```ts file=my-extension/dist/proposer-keep-parent/service.ts
 import type {
   Operation,
   ProposerInput,
@@ -173,7 +173,7 @@ export async function createKeepParent(
 
 在 `index.ts` 中填写实现 ID，将契约、配置 Schema 和 `create` 函数组合成定义：
 
-```ts
+```ts file=my-extension/dist/proposer-keep-parent/index.ts
 import {
   proposerContract,
   type OperationDefinition,
@@ -320,7 +320,9 @@ Runtime 将 `context` 传给 `create` 和每次 `execute`。插件通过它读�
 在 `execute` 中，使用 `arsi` 导出的 `prepareAgentProject` 创建受 Runtime 管理的工作目录。第二个参数传指令，第三个参数传授权的文本文件，最后两个参数分别传 Skill 目录和角色定义。每次独立调用都应准备工作目录。同一次插件执行内，如果多个 Agent 调用需要隔离本地修改，需提供不同的项目内容。
 
 ```ts
-import { prepareAgentProject } from 'arsi';
+import { prepareAgentProject, type RuntimeContext } from 'arsi';
+
+declare const context: RuntimeContext;
 
 const cwd = await prepareAgentProject(
   context,

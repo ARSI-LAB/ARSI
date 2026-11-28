@@ -118,7 +118,7 @@ In a TypeScript ESM project with `arsi` installed, place the three files in `src
 
 Define the configuration type and validation rules in `schema.ts`. This example requires a nonempty `reason`:
 
-```ts
+```ts file=my-extension/dist/proposer-keep-parent/schema.ts
 import type { JsonSchema } from 'arsi/contracts';
 
 // Plugin configuration and its validation rules.
@@ -138,7 +138,7 @@ export const configSchema: JsonSchema = {
 
 Return a plugin instance from `service.ts`. `execute` receives the current call's input and RuntimeContext; `dispose` handles instance cleanup:
 
-```ts
+```ts file=my-extension/dist/proposer-keep-parent/service.ts
 import type {
   Operation,
   ProposerInput,
@@ -173,7 +173,7 @@ export async function createKeepParent(
 
 In `index.ts`, specify the implementation ID and combine the contract, configuration Schema, and `create` function into a definition:
 
-```ts
+```ts file=my-extension/dist/proposer-keep-parent/index.ts
 import {
   proposerContract,
   type OperationDefinition,
@@ -320,7 +320,9 @@ Runtime passes `context` to `create` and every `execute` call. Plugins use it to
 Inside `execute`, build the managed workspace with `prepareAgentProject` from `arsi`. Put instructions in the second argument and authorized text files in the third. The last two arguments accept skill directories and role definitions. Prepare a workspace for each independent call. Use distinct project content for independent calls from the same plugin execution when they must not share local edits.
 
 ```ts
-import { prepareAgentProject } from 'arsi';
+import { prepareAgentProject, type RuntimeContext } from 'arsi';
+
+declare const context: RuntimeContext;
 
 const cwd = await prepareAgentProject(
   context,

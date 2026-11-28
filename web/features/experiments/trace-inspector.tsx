@@ -1,10 +1,5 @@
-import React, {
-  useMemo,
-  useState,
-  useEffect,
-  useEffectEvent,
-  useRef,
-} from 'react';
+import { useLoadBoundary } from '../../hooks/use-load-boundary';
+import React, { useMemo, useState, useRef } from 'react';
 import type { JsonValue } from '../../../src/contracts/json.js';
 import { readAgentCollaboration } from '../../../src/shared/observation/agent-collaboration.js';
 import {
@@ -47,9 +42,8 @@ export function TraceInspector({
   const [pages, setPages] = useState<
     Record<number, ReturnType<typeof parseCallTrace>>
   >({});
-  useEffect(() => {
-    if (result.data) setPages((old) => ({ ...old, [offset]: result.data! }));
-  }, [result.data, offset]);
+  if (result.data && pages[offset] !== result.data)
+    setPages({ ...pages, [offset]: result.data });
   const [payloads, setPayloads] = useState<Record<string, JsonValue>>({});
   const events = useMemo(
     () =>
@@ -114,16 +108,17 @@ export function TraceInspector({
     parseAgentPayload,
     null,
   );
-  useEffect(() => {
-    const data = payload.data;
-    if (payloadRef && data !== undefined)
-      setPayloads((old) => ({ ...old, [payloadRef]: data }));
-  }, [payloadRef, payload.data]);
+  if (
+    payloadRef &&
+    payload.data !== undefined &&
+    !Object.hasOwn(payloads, payloadRef)
+  )
+    setPayloads({ ...payloads, [payloadRef]: payload.data });
   const start = page * rowsPerPage < visible.length ? page * rowsPerPage : 0;
   const end = Math.min(start + rowsPerPage, visible.length);
   const windowRows = visible.slice(start, end);
   const list = useRef<HTMLDivElement>(null);
-  const loadBoundary = useRef<HTMLDivElement>(null);
+  const [focusEvent, setFocusEvent] = useState<number | null>(null);
   const agentSelector = useRef<HTMLDivElement>(null);
   const parentEventIndex =
     parentEvent === null
@@ -132,44 +127,30 @@ export function TraceInspector({
   const loadedPage = pages[offset] ?? result.data;
   const nextOffset = loadedPage?.nextOffset;
   const watchForMore = moreEvents && end === visible.length;
-  const loadWhenVisible = useEffectEvent(() => {
-    if (nextOffset != null && !result.error) setOffset(nextOffset);
-  });
-  useEffect(() => {
-    const marker = loadBoundary.current;
-    if (!watchForMore || !marker || typeof IntersectionObserver === 'undefined')
-      return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) loadWhenVisible();
-      },
-      { root: list.current, rootMargin: '0px 0px 120px 0px' },
-    );
-    observer.observe(marker);
-    return () => observer.disconnect();
-    // A sparse filter can leave the marker in view without appending any rows.
-    // Wait for another intersection or an explicit load in that case.
-  }, [watchForMore, run, filter, end]);
-  useEffect(() => {
-    if (parentEvent === null) return;
+  // A sparse filter can leave the sentinel visible without appending rows.
+  // Reobserve when the visible page grows or the selected filter or agent changes.
+  const loadBoundary = useLoadBoundary(
+    list,
+    JSON.stringify([run, filter, end]),
+    () => {
+      if (nextOffset != null && !result.error) setOffset(nextOffset);
+    },
+  );
+  if (parentEvent !== null) {
     if (parentEventIndex >= 0) {
       setSelection(String(parentEvent));
       setTab('Overview');
       setDetailOpen(true);
       setPage(Math.floor(parentEventIndex / rowsPerPage));
       setParentEvent(null);
-      requestAnimationFrame(() =>
-        list.current
-          ?.querySelector<HTMLButtonElement>(`[data-event="${parentEvent}"]`)
-          ?.focus(),
-      );
-    } else if (loadedPage?.nextOffset != null) {
-      setOffset(loadedPage.nextOffset);
+      setFocusEvent(parentEvent);
+    } else if (nextOffset != null && nextOffset !== offset) {
+      setOffset(nextOffset);
     } else if (loadedPage || result.error) {
       setParentEvent(null);
       setParentEventUnavailable(true);
     }
-  }, [parentEvent, parentEventIndex, loadedPage, result.error]);
+  }
   const choose = (row: TraceRow): void => {
     setParentEvent(null);
     setParentEventUnavailable(false);
@@ -339,6 +320,16 @@ export function TraceInspector({
                   </div>
                 ) : null}
                 <button
+                  ref={
+                    focusEvent !== null && String(focusEvent) === row.id
+                      ? (node) => {
+                          if (node) {
+                            node.focus();
+                            setFocusEvent(null);
+                          }
+                        }
+                      : undefined
+                  }
                   className="inspector-row"
                   aria-pressed={selected?.id === row.id && showEvent}
                   onClick={() => choose(row)}

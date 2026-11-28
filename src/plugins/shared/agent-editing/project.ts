@@ -12,7 +12,7 @@ import type { JsonObject, RuntimeContext } from '../../../contracts/index.js';
 import {
   publishAgentProject,
   projectMarker,
-} from '../../../runtime/services/agent-project.js';
+} from '../../../shared/agent-project.js';
 import { excludedArtifactEntries } from '../../../runtime/storage/index.js';
 import { object } from '../../../shared/json.js';
 import { safePath } from '../file-application/target.js';

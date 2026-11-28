@@ -9,7 +9,7 @@ import { fixedConditions } from '../../src/plugins/evaluator-operatorbench/condi
 import {
   kernelBundleDigest,
   parseKernelExecution,
-} from '../../src/plugins/application-kernel/schema.js';
+} from '../../src/plugins/shared/kernel-execution.js';
 
 test('SDK staging retains the candidate tree and compares only read-only source contents', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'operator-bundle-'));

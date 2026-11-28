@@ -4,8 +4,8 @@ import type { AgentInput, RuntimeContext } from '../../../contracts/index.js';
 import {
   assertOwnedAgentProject,
   publishAgentProject,
-} from '../../../runtime/services/agent-project.js';
-import { directoryFingerprint } from '../../../runtime/storage/directory-fingerprint.js';
+} from '../../../shared/agent-project.js';
+import { directoryFingerprint } from '../../../shared/directory-fingerprint.js';
 import { outputInstructions } from './result.js';
 
 export async function prepareNativeOutputProject(

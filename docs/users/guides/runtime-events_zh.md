@@ -86,6 +86,10 @@
 在 Runtime 管理的 Agent 的 `execute(input, ctx)` 中，通过当前 `ctx` 发布：
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const ctx: RuntimeContext;
+
 ctx.event.emit('rsi/agent-observation', {
   runId: 'main',
   event: { type: 'message.appended', messageId: 'reply-1', text: 'Hello' },
@@ -147,6 +151,12 @@ ctx.event.emit('rsi/agent-observation', {
 插件在 `create(config, ctx)` 中按需订阅这两个事件。`doctor` 在绑定声明的本地路径通过检查后创建临时实例。手动 `cleanup` 从当前和历次归档的 Recipe 中收集绑定，按 `(bindingId, pluginId)` 去重，用该组合最近一次保存的配置创建实例。即使续跑复用了全部评测结果，也能找到旧插件。框架等待回调和实例的 `dispose()` 完成，再处理下一个绑定。
 
 ```ts
+import type { OperationEventMap, RuntimeContext } from 'arsi/contracts';
+
+declare const ctx: RuntimeContext;
+declare const checkEnvironment: OperationEventMap['rsi/doctor'];
+declare const cleanupResources: OperationEventMap['rsi/cleanup'];
+
 ctx.event.on('rsi/doctor', checkEnvironment);
 ctx.event.on('rsi/cleanup', cleanupResources);
 ```
@@ -161,6 +171,10 @@ ctx.event.on('rsi/cleanup', cleanupResources);
 在插件的 `create(config, factoryCtx)` 中注册。下面监听名为 `evaluator` 的 binding，并读取它产生的测量：
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const factoryCtx: RuntimeContext;
+
 factoryCtx.event.on('rsi/call-succeeded', async (event, ctx) => {
   if (event.bindingId !== 'evaluator') return;
   if (event.measurementRef === undefined) return;
@@ -177,6 +191,10 @@ factoryCtx.event.on('rsi/call-succeeded', async (event, ctx) => {
 需要阻止某次调用时，监听准入事件：
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const factoryCtx: RuntimeContext;
+
 factoryCtx.event.on('rsi/before-call', async (event, next) => {
   if (event.bindingId === 'blockedBinding') {
     return { kind: 'reject', reason: 'This binding is disabled.' };
@@ -190,6 +208,10 @@ factoryCtx.event.on('rsi/before-call', async (event, next) => {
 对于 `rsi/before-agent-invoke`，默认决策包含一份独立的请求副本。要调整 Agent 请求，在返回的 `proceed` 决策中提供更新后的 `input`。绑定监听器调用 `await next()` 后，可以检查和修改已完成 Memory 准备的请求。两个钩子返回同名的回执元数据时，Runtime 使用 Agent 请求准备阶段的最终值。下面的监听保留后续监听返回的修改，并为来自 `proposer` 绑定的请求添加审计标记。
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const factoryCtx: RuntimeContext;
+
 factoryCtx.event.on('rsi/before-agent-invoke', async (event, next) => {
   const decision = await next();
   if (decision.kind === 'reject' || event.callerBindingId !== 'proposer') {
@@ -225,6 +247,10 @@ declare module '@deepseek-ai/cordis' {
 在 `create(config, factoryCtx)` 中订阅：
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const factoryCtx: RuntimeContext;
+
 factoryCtx.event.on('demo/proposal-ready', (event) => {
   console.log(event.candidateRef);
 });
@@ -233,6 +259,11 @@ factoryCtx.event.on('demo/proposal-ready', (event) => {
 在 `execute(input, ctx)` 中，候选准备好后发布；
 
 ```ts
+import type { RuntimeContext } from 'arsi/contracts';
+
+declare const ctx: RuntimeContext;
+declare const candidateRef: string;
+
 await ctx.event.parallel('demo/proposal-ready', {
   experimentId: ctx.experimentId,
   candidateRef,
@@ -246,6 +277,13 @@ await ctx.event.parallel('demo/proposal-ready', {
 **插件调用 Runtime 的服务接口时，Runtime 会自动发布对应的内置事件。**下面是两个独立示例，内置事件会随服务调用自动触发。：
 
 ```ts
+import type { JsonObject, RuntimeContext } from 'arsi/contracts';
+
+declare const ctx: RuntimeContext;
+declare const evaluationInput: JsonObject;
+declare const artifactRef: string;
+declare const parentCandidateRef: string | null;
+
 // 1. 下面代码调用名为 evaluator 的绑定时，调用前发布 rsi/before-call，保存结果后发布成功、失败等对应事件。
 const result = await ctx.invoke('evaluator', evaluationInput);
 

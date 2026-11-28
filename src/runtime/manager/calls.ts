@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { getLogger } from '@logtape/logtape';
 import { agentContract } from '../../contracts/index.js';
 import { metricSelectorContract } from '../../contracts/plugin-types/selector-metrics.js';
-import { assertOwnedAgentProject } from '../services/agent-project.js';
+import { assertOwnedAgentProject } from '../../shared/agent-project.js';
 import { pinnedMemory } from '../evolution/memory-delivery.js';
 import type { ActiveMemory } from '../evolution/memory.js';
 import type {

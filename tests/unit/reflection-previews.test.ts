@@ -10,7 +10,7 @@ import {
   FileFacts,
   FileWorkspaces,
 } from '../../src/runtime/storage/index.js';
-import { prepareDocumentPreviews } from '../../src/plugins/reflection-agent/document-previews.js';
+import { prepareDocumentPreviews } from '../../src/plugins/shared/agent-editing/document-previews.js';
 import { createReflectionAgent } from '../../src/plugins/reflection-agent/service.js';
 import { object, string } from '../../src/shared/json.js';
 

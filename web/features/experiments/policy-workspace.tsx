@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useElementResize } from '../../hooks/use-element-resize';
+import React, { useRef, useState } from 'react';
 
 const minDetailsWidth = 230;
 const maxDetailsWidth = 720;
@@ -31,25 +32,16 @@ export function PolicyWorkspace({
   } | null>(null);
   const [preferredWidth, setPreferredWidth] = useState<number | null>(null);
 
-  useEffect(() => {
-    const target = workspace.current;
+  useElementResize(workspace, (target, rect) => {
     const divider = resizer.current;
-    if (!target || !divider) return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
-      setDimensions({
-        available: Math.max(
-          0,
-          Math.floor(entry.contentRect.width) - divider.offsetWidth,
-        ),
-        defaultWidth: parseFloat(
-          getComputedStyle(target).getPropertyValue('--policy-detail-default'),
-        ),
-      });
+    if (!divider) return;
+    setDimensions({
+      available: Math.max(0, Math.floor(rect.width) - divider.offsetWidth),
+      defaultWidth: parseFloat(
+        getComputedStyle(target).getPropertyValue('--policy-detail-default'),
+      ),
     });
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, []);
+  });
 
   const maxWidth = dimensions
     ? Math.min(

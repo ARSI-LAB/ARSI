@@ -4,7 +4,7 @@ import type {
   Operation,
 } from '../../contracts/index.js';
 import { fileApplicationDoctorRules } from '../shared/file-application/doctor.js';
-import { kernelSourcePath } from './schema.js';
+import { kernelSourcePath } from '../shared/kernel-execution.js';
 
 export function checkKernelApplication(
   context: DoctorContext,

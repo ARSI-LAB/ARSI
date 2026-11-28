@@ -1,6 +1,7 @@
+import { useRevealSelection } from '../../../hooks/use-reveal-selection';
 import { HarnessAverage } from './harness-average';
 import { useRoundLabels } from '../round-labels';
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo } from 'react';
 import {
   Bar,
   BarChart,
@@ -52,11 +53,9 @@ export function ScorePlot({
 }): React.JSX.Element {
   const labels = useRoundLabels();
   const selection = useRoute();
-  const selectedPanel = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (selection.point)
-      selectedPanel.current?.scrollIntoView({ block: 'nearest' });
-  }, [selection.point]);
+  const selectedPanel = useRevealSelection(selection.point, {
+    scroll: 'nearest',
+  });
   const filteredMeasurements = useMemo(
     () =>
       candidate

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { AgentInput, RuntimeContext } from '../../contracts/index.js';
-import { assertOwnedAgentProject } from '../../runtime/services/agent-project.js';
+import { assertOwnedAgentProject } from '../../shared/agent-project.js';
 import { outputInstructions } from '../shared/native-agent/result.js';
 
 export const taskInstructionsVariable = 'ARSI_OPENCODE_TASK_INSTRUCTIONS';

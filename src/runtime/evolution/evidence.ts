@@ -1,3 +1,4 @@
+import { fullEvidenceText } from '../../shared/evidence-redaction.js';
 import type { RuntimeEvolutionEvidenceView } from '../../contracts/runtime-evolution.js';
 import { memberPath, parseCoveringRoots } from './resources.js';
 import { parseFileTree } from '../../contracts/index.js';
@@ -16,10 +17,7 @@ import {
   string,
   strings,
 } from '../../shared/json.js';
-import {
-  fullEvidenceText,
-  projectEvidence,
-} from '../services/facts/evidence.js';
+import { projectEvidence } from '../services/facts/evidence.js';
 import { projectEvidenceFiles } from '../services/facts/evidence-files.js';
 import { safeId } from '../storage/index.js';
 import type { EvidenceCall } from './evidence-window.js';

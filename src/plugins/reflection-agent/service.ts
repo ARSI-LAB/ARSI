@@ -47,6 +47,7 @@ export const createReflectionAgent: OperationDefinition<
         ),
         evidence,
         [reflectionReviewer],
+        true,
       );
       if (updated.changeRef !== null)
         return {

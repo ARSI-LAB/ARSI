@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RuntimeContext } from '../../src/contracts/index.js';
+import { AgentOutputError, RuntimeContext } from '../../src/contracts/index.js';
 import {
   agentConfigSchema,
   requestEdit,
   resourceFiles,
+  validateEdits,
 } from '../../src/plugins/shared/agent-editing/index.js';
 import { prepareAgentProject } from '../../src/index.js';
 import { createArtifactSelector } from '../../src/plugins/selector-artifacts/service.js';
@@ -184,5 +185,102 @@ test('the editor reads text resources and the current prompt for each request', 
       'Improve the supplied files.',
     );
     assert.ok(string(response.reason).startsWith(instructions + '\n'));
+  }
+});
+
+test('editor retries one schema-invalid result and surfaces a second failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-editor-retry-'));
+  try {
+    const prompt = join(root, 'prompt.md');
+    await writeFile(prompt, 'Return the edit contract.\n');
+    const cases = [
+      {
+        name: 'missing edits',
+        detail: "Agent output: data must have required property 'edits'",
+      },
+      {
+        name: 'result envelope',
+        detail: 'Agent output: data must NOT have additional properties',
+      },
+    ];
+    for (const item of cases) {
+      let calls = 0;
+      const context = new RuntimeContext().extend({
+        directory: root,
+        signal: new AbortController().signal,
+        artifacts: new FileArtifacts(join(root, `artifacts-${calls}`)),
+        readEvidence: async () => ({}),
+        invokeAgent: async (_binding, request) => {
+          calls += 1;
+          if (calls === 1)
+            throw new AgentOutputError(item.detail, {
+              cause: new Error(item.name),
+            });
+          assert.match(
+            request.message,
+            /previous final response failed output-schema validation/u,
+          );
+          assert.match(
+            request.message,
+            /exactly one JSON object matching outputSchema/u,
+          );
+          return { edits: [], reason: `Recovered from ${item.name}` };
+        },
+      });
+      assert.deepEqual(
+        await requestEdit(
+          { prompt },
+          { goal: 'Improve guidance' },
+          null,
+          context,
+          'Improve the supplied files.',
+          undefined,
+          undefined,
+          [],
+          true,
+        ),
+        { edits: [], reason: `Recovered from ${item.name}` },
+      );
+      assert.equal(calls, 2);
+    }
+
+    let exhaustedCalls = 0;
+    const exhausted = new RuntimeContext().extend({
+      directory: root,
+      signal: new AbortController().signal,
+      artifacts: new FileArtifacts(join(root, 'artifacts-exhausted')),
+      readEvidence: async () => ({}),
+      invokeAgent: async () => {
+        exhaustedCalls += 1;
+        throw new AgentOutputError(
+          "Agent output: data must have required property 'edits'",
+        );
+      },
+    });
+    await assert.rejects(
+      requestEdit(
+        { prompt },
+        { goal: 'Improve guidance' },
+        null,
+        exhausted,
+        'Improve the supplied files.',
+        undefined,
+        undefined,
+        [],
+        true,
+      ),
+      AgentOutputError,
+    );
+    assert.equal(exhaustedCalls, 2);
+    await assert.rejects(
+      validateEdits(
+        root,
+        { edits: [{ path: '../escape.md', content: 'blocked' }], reason: 'x' },
+        exhausted,
+      ),
+      /Invalid|outside|scope|path/iu,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remote inference lifecycle template. Implement start, status and stop.
+"""Remote inference lifecycle template. Implement start, status, recover and stop.
 
 Application invokes a new local process for each command, sends one JSON request
 on stdin and expects one JSON response on stdout. Write diagnostics to stderr.
@@ -30,6 +30,7 @@ JsonValue: TypeAlias = (
 class Action(str, Enum):
     START = "start"
     STATUS = "status"
+    RECOVER = "recover"
     STOP = "stop"
 
 
@@ -171,6 +172,17 @@ def status(request: LifecycleRequest) -> LifecycleResponse:
     raise NotImplementedError("Implement status(): query remote ownership and readiness")
 
 
+def recover(request: LifecycleRequest) -> LifecycleResponse:
+    """Clean up this instance after its local ownership record was lost or corrupted.
+
+    Recovery confirms remote ownership before stopping this instance and its
+    descendants. Return stopped only after confirming absence. Never replace a
+    live instance or another owner. Preserve remote ownership evidence and
+    report an unknown outcome when cleanup cannot be confirmed.
+    """
+    raise NotImplementedError("Implement recover(): confirm and clean up owned resources")
+
+
 def stop(request: LifecycleRequest) -> LifecycleResponse:
     """Stop only this instance and its descendants; confirm absence before stopped.
 
@@ -187,7 +199,12 @@ def main() -> None:
         response = describe_parameters()
     else:
         request = parse_request(raw)
-        handlers = {Action.START: start, Action.STATUS: status, Action.STOP: stop}
+        handlers = {
+            Action.START: start,
+            Action.STATUS: status,
+            Action.RECOVER: recover,
+            Action.STOP: stop,
+        }
         response = handlers[request["action"]](request)
     print(json.dumps(response))
 

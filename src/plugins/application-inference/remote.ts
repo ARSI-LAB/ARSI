@@ -72,6 +72,28 @@ function endpointOrigin(raw: unknown): string {
     throw new Error('endpoint.origin must be a credential-free HTTP(S) origin');
   return url.origin;
 }
+
+type RemoteOwnerState = {
+  state: 'absent' | 'valid' | 'invalid';
+  owner: JsonObject | null;
+};
+
+async function readRemoteOwner(lock: string): Promise<RemoteOwnerState> {
+  let raw: string;
+  try {
+    raw = await readFile(join(lock, 'owner.json'), 'utf8');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+      return { state: 'absent', owner: null };
+    throw error;
+  }
+  try {
+    return { state: 'valid', owner: object(JSON.parse(raw)) };
+  } catch {
+    return { state: 'invalid', owner: null };
+  }
+}
+
 /** A script request is a bounded command, never the lifetime owner of the remote server. */
 async function command(
   executable: string,
@@ -314,6 +336,15 @@ export async function createRemoteBackend(
     if (response.status !== 'stopped')
       throw new Error('Remote service stop outcome is unknown');
   };
+  const recoverRemote = async (
+    request: JsonObject,
+    signal: AbortSignal,
+  ): Promise<JsonObject> => {
+    const response = await invoke({ ...request, action: 'recover' }, signal);
+    if (response.status !== 'stopped')
+      throw new Error('Remote service recovery outcome is unknown');
+    return response;
+  };
   const release = async (
     instance: JsonObject,
     context: Pick<RuntimeContext, 'signal'> &
@@ -321,19 +352,49 @@ export async function createRemoteBackend(
   ): Promise<void> => {
     const instanceId = string(instance.instanceId);
     const saved = await fact(services, instanceId);
-    let holder: JsonObject | null;
-    try {
-      holder = object(
-        JSON.parse(await readFile(join(lock, 'owner.json'), 'utf8')),
-      );
-    } catch (error) {
-      if (
-        !(error instanceof Error && 'code' in error && error.code === 'ENOENT')
-      )
-        throw error;
-      holder = null;
-    }
+    const ownerState = await readRemoteOwner(lock);
+    const holder = ownerState.owner;
     if (!holder || holder.instanceId !== instanceId) {
+      if (saved?.status === 'stopped') {
+        // A stopped fact makes an unreadable or ownerless lock stale even when
+        // the earlier process was interrupted before it could unlink it.
+        if (ownerState.state !== 'valid') {
+          await rm(lock, { recursive: true, force: true });
+        }
+        active.delete(instanceId);
+        return;
+      }
+      if (saved && saved.status !== 'stopped' && ownerState.state !== 'valid') {
+        if (saved.lockDirectory !== lock)
+          throw new Error('Remote service lock identity mismatch');
+        const recoveryRequest = object(saved.request, 'remote cleanup request');
+        if (recoveryRequest.instanceId !== instanceId)
+          throw new Error('Remote cleanup request identity mismatch');
+        const experimentId =
+          context.experimentId ??
+          instance.experimentId ??
+          recoveryRequest.experimentId;
+        if (recoveryRequest.experimentId !== experimentId)
+          throw new Error('Remote service lock owner mismatch');
+        await recoverRemote(
+          recoveryRequest,
+          AbortSignal.any([
+            context.signal,
+            AbortSignal.timeout(cleanupTimeout),
+          ]),
+        );
+        await services.facts.write(namespace, instanceId, {
+          ...saved,
+          request: recoveryRequest,
+          status: 'stopped',
+          lockDirectory: null,
+        });
+        await rm(lock, { recursive: true, force: true });
+        active.delete(instanceId);
+        return;
+      }
+      if (ownerState.state !== 'absent')
+        throw new Error('Remote service lock owner is invalid');
       if (saved && saved.status !== 'stopped')
         throw new Error('Remote service lock owner mismatch');
       active.delete(instanceId);
@@ -526,10 +587,18 @@ export async function createRemoteBackend(
       }
       active.add(instanceId);
       const start = async (): Promise<JsonObject> => {
-        const previous = await invoke(
+        let previous = await invoke(
           { ...request, action: 'status' },
           context.signal,
         );
+        if (previous.status === 'invalid-owner')
+          previous = await recoverRemote(
+            request,
+            AbortSignal.any([
+              context.signal,
+              AbortSignal.timeout(cleanupTimeout),
+            ]),
+          );
         if (previous.status === 'stopped') {
           reportTaskPhase(logger, context, 'starting remote server');
           const started = await invoke(

@@ -8,5 +8,14 @@ allowBuilds:
   'agentbundle-workspace@git+https://github.com/ARSI-LAB/agentbundle.git': true
 overrides:
   agent-bundle-core: 'git+https://github.com/ARSI-LAB/agentbundle.git#0.0.2&path:/packages/core'
+  # ARSI consumes coding-agent 1.5, while the evaluator still embeds the 1.1 API.
+  # Keep the evaluator's transitive Pi packages on the matching 1.1 line.
+  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-agent-core': 1.1.0
+  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-ai': 1.1.0
+  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-codemode': 1.1.0
+  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-mcp': 1.1.0
+  '@earendil-works/pi-coding-agent@1.1.0>@earendil-works/pi-tui': 1.1.0
+  '@earendil-works/pi-agent-core@1.1.0>@earendil-works/pi-ai': 1.1.0
+  '@earendil-works/pi-ai@1.1.0>@earendil-works/pi-telemetry': 1.1.0
 nodeLinker: hoisted
 blockExoticSubdeps: false

@@ -1,11 +1,12 @@
 import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, matchesGlob } from 'node:path';
-import type {
-  AgentInput,
-  RuntimeContext,
-  JsonObject,
-  JsonSchema,
-  JsonValue,
+import {
+  AgentOutputError,
+  type AgentInput,
+  type RuntimeContext,
+  type JsonObject,
+  type JsonSchema,
+  type JsonValue,
 } from '../../../contracts/index.js';
 import { parseFileTree } from '../../../contracts/index.js';
 import { inside } from '../../../runtime/storage/index.js';
@@ -37,7 +38,7 @@ export const editOutputSchema = {
 } satisfies JsonSchema;
 export interface ReadOnlyEditContext {
   files: JsonObject;
-  evidence: JsonValue;
+  evidence?: JsonValue;
   input: JsonObject;
 }
 /** Include source executions when an editor composes other proposals. */
@@ -90,6 +91,7 @@ export async function requestEdit(
   readOnly?: ReadOnlyEditContext,
   outputSchema: JsonSchema = editOutputSchema,
   roles: readonly AgentRole[] = [],
+  retryInvalidOutput = false,
 ): Promise<JsonObject> {
   const files = await resourceFiles(ref, context);
   if (readOnly)
@@ -166,7 +168,20 @@ Read context/input.json for the target, edit constraints, observations and sourc
     outputSchema: object(outputSchema),
   };
   const agentRef = config.agentRef ?? 'agent.default';
-  const result = await context.invokeAgent(agentRef, request);
+  let result: JsonObject;
+  try {
+    result = await context.invokeAgent(agentRef, request);
+  } catch (error) {
+    context.signal.throwIfAborted();
+    if (!retryInvalidOutput || !(error instanceof AgentOutputError))
+      throw error;
+    const detail =
+      error instanceof Error ? error.message.slice(0, 1000) : String(error);
+    result = await context.invokeAgent(agentRef, {
+      ...request,
+      message: `${request.message}\n\nYour previous final response failed output-schema validation: ${detail}\nReturn exactly one JSON object matching outputSchema. Do not use a status, proposal, result or other envelope.`,
+    });
+  }
   const plans = Array.isArray(result.proposals)
     ? result.proposals.map((plan) => object(plan))
     : [result];
@@ -288,6 +303,7 @@ export async function editResource(
   message: string,
   readOnly?: ReadOnlyEditContext,
   roles?: readonly AgentRole[],
+  retryInvalidOutput = false,
 ): Promise<{
   resourceRef: string | null;
   changeRef: string | null;
@@ -302,6 +318,7 @@ export async function editResource(
     readOnly,
     editOutputSchema,
     roles,
+    retryInvalidOutput,
   );
   const workspace = await context.workspaces.create(ref ?? undefined);
   try {

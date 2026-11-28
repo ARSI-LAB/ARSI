@@ -53,7 +53,7 @@
     "@logtape/logtape": "2.4.2",
     "agent-bundle-core": "git+https://github.com/ARSI-LAB/agentbundle.git#0.0.2&path:/packages/core",
     "ajv": "8.20.0",
-    "arsi-evaluator": "git+https://github.com/ARSI-LAB/ARSI-Evaluator.git#0.0.6",
+    "arsi-evaluator": "git+https://github.com/ARSI-LAB/ARSI-Evaluator.git#eaf9a5ef6cafc8aba08ca37a3e6a9b724f9ca568",
     "boxen": "9.0.0",
     "commander": "15.0.0",
     "exceljs": "4.4.0",

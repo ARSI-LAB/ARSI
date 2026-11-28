@@ -41,7 +41,7 @@ Keep this recipe directory and `shared/` together when copying the example.
 - [recipe.yaml](recipe.yaml): application lifecycle, ordered search space,
   benchmark protocol and budgets.
 - [shared/scripts/remote-vllm.py](../shared/scripts/remote-vllm.py): minimal lifecycle template with
-  the request/response contract and `start`, `status`, `stop` functions to implement.
+  the request/response contract and `start`, `status`, `recover`, `stop` functions to implement.
   The supplied template raises `NotImplementedError`; it cannot deploy a server yet.
 - [shared/target.yaml](../shared/target.yaml): only the candidate's `tuning.json` may change.
 

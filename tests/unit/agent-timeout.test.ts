@@ -4,7 +4,10 @@ import { createAgentCodex } from '../../src/plugins/agent-codex/service.js';
 import { createAgentClaudeCode } from '../../src/plugins/agent-claudecode/service.js';
 import { createAgentDsh } from '../../src/plugins/agent-dsh/service.js';
 import { createAgentOpenCode } from '../../src/plugins/agent-opencode/service.js';
-import { agentFixture } from '../fixtures/agent-execution.js';
+import {
+  agentFixture,
+  claudeAgentFixture,
+} from '../fixtures/agent-execution.js';
 
 for (const [name, create] of [
   ['Codex', createAgentCodex],
@@ -13,7 +16,8 @@ for (const [name, create] of [
   ['OpenCode', createAgentOpenCode],
 ] as const) {
   test(`${name} retains config.timeoutMs and cancels its process scope`, async (t) => {
-    const f = await agentFixture(async (_spec, _consume, context) => {
+    const fixture = name === 'Claude Code' ? claudeAgentFixture : agentFixture;
+    const f = await fixture(async (_spec, _consume, context) => {
       await new Promise<void>((resolve) =>
         context.signal.addEventListener('abort', () => resolve(), {
           once: true,

@@ -163,7 +163,7 @@ test('Proposer can read every non-thinking event and full arguments while only t
         requests++;
         assert.deepEqual(Object.keys(request).sort(), [
           'cwd',
-          'goal',
+          'message',
           'outputSchema',
         ]);
         const cwd = string(request.cwd);

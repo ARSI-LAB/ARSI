@@ -144,7 +144,7 @@ test('Memory reaches Agent projects through the pinned caller version and leaves
           await chmod(join(cwd, instructions), 0o444);
         await caller.invokeAgent('reader', {
           cwd,
-          goal: 'Inspect',
+          message: 'Inspect',
           outputSchema: {},
         });
         await assert.rejects(readFile(join(cwd, 'context/memory/notes.md')), {
@@ -223,7 +223,7 @@ test('Agent middleware sees the prepared Memory and cached workspaces retain the
           return {
             async execute(input, context) {
               backendCalls++;
-              assert.equal(object(input).goal, 'checked');
+              assert.equal(object(input).message, 'checked');
               assert.equal(context.agentProject, object(input).cwd);
               return { cwd: object(input).cwd! };
             },
@@ -239,7 +239,10 @@ test('Agent middleware sees the prepared Memory and cached workspaces retain the
             assert.equal(current.kind, 'proceed');
             assert.equal(!!current.metadata?.memoryVersionRef, enabled);
             assert.equal(current.input.cwd === cwd, !enabled);
-            return { ...current, input: { ...current.input, goal: 'checked' } };
+            return {
+              ...current,
+              input: { ...current.input, message: 'checked' },
+            };
           });
           if (enabled)
             ctx.event.on('rsi/before-call', async (event, next) => {
@@ -251,7 +254,7 @@ test('Agent middleware sees the prepared Memory and cached workspaces retain the
                   }
                 : decision;
             });
-          const request = { cwd, goal: 'inspect', outputSchema: {} };
+          const request = { cwd, message: 'inspect', outputSchema: {} };
           const result = await ctx.invokeAgent('reader', request);
           const path = join(string(result.cwd), 'context/memory/lesson.md');
           const receipt = (await ctx.facts.list('calls')).find(

@@ -134,7 +134,7 @@ settings:
 | Backend | Installation and configuration | Sign in or verify | Recipe `plugin` |
 | --- | --- | --- | --- |
 | Codex | [Official guide](https://developers.openai.com/codex/cli/) | Sign in with `codex login`, check with `codex login status`, then verify the model in `codex` | `agent.codex` |
-| Claude Code | [Official guide](https://code.claude.com/docs/en/setup) | Sign in with `claude auth login`, check with `claude auth status`, then verify the model in `claude` | `agent.claudecode` |
+| Claude Code 2.1.248 or newer | [Official guide](https://code.claude.com/docs/en/setup) | Sign in with `claude auth login`, check with `claude auth status`, then verify the model in `claude` | `agent.claudecode` |
 | DSH | [Official guide](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | Configure the headless profile, then verify with `dsh --profile headless "Reply with OK."` | `agent.dsh` |
 | OpenCode V2 | [Official guide](https://opencode.ai/docs/cli/); `npm install -g @opencode/cli` | Run `opencode` to configure and verify model access | `agent.opencode` |
 
@@ -190,7 +190,7 @@ Resolve Doctor failures before running the experiment. `model-access: unchecked`
 
 When running from the source repository, replace `arsi` with `pnpm arsi`. If the native CLI cannot be found, open a new terminal or set `executable` to its full path under the binding's `config`.
 
-For native CLI backends, add `timeoutMs: 180000` to limit each Agent task to 3 minutes; omitting it leaves that deadline unset. These backends cannot enforce `budget.modelCalls`. The Agent proposes changes for RSI to check and apply; configure prompts and Skills in the calling component, such as the Proposer.
+For native CLI backends, add `timeoutMs: 180000` to limit each Agent task to 3 minutes; omitting it leaves that deadline unset. These backends cannot enforce `budget.modelCalls`. The Agent proposes changes for RSI to check and apply. Configure project instructions, task message templates (`messageTemplates`), and Skills in the calling component, such as the Proposer.
 
 ## Inference optimization
 

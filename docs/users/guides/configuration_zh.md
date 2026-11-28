@@ -134,7 +134,7 @@ settings:
 | 后端 | 安装与配置说明 | 登录或验证 | Recipe 的 `plugin` |
 | --- | --- | --- | --- |
 | Codex | [官方文档](https://developers.openai.com/codex/cli/) | `codex login` 登录，`codex login status` 检查；运行 `codex` 验证模型 | `agent.codex` |
-| Claude Code | [官方文档](https://code.claude.com/docs/en/setup) | `claude auth login` 登录，`claude auth status` 检查；运行 `claude` 验证模型 | `agent.claudecode` |
+| Claude Code 2.1.248 或更高版本 | [官方文档](https://code.claude.com/docs/en/setup) | `claude auth login` 登录，`claude auth status` 检查；运行 `claude` 验证模型 | `agent.claudecode` |
 | DSH | [官方文档](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | 配置 headless profile 后，运行 `dsh --profile headless "Reply with OK."` 验证模型 | `agent.dsh` |
 | OpenCode V2 | [官方文档](https://opencode.ai/docs/cli/)；`npm install -g @opencode/cli` | 运行 `opencode` 配置并验证模型 | `agent.opencode` |
 
@@ -190,7 +190,7 @@ arsi run path/to/recipe.yaml
 
 使用源码仓库时，将 `arsi` 换为 `pnpm arsi`。如果找不到原生 CLI，重新打开终端，或在绑定的 `config` 中用 `executable` 指定 CLI 完整路径。
 
-原生 CLI 后端可加 `timeoutMs: 180000`，将每次 Agent 任务限制为 3 分钟；省略则不设此期限。它们不支持用 `budget.modelCalls` 限制模型请求次数。Agent 返回修改建议，由 RSI 检查并应用；提示词和 Skills 在 Proposer 等调用组件中配置。
+原生 CLI 后端可加 `timeoutMs: 180000`，将每次 Agent 任务限制为 3 分钟；省略则不设此期限。它们不支持用 `budget.modelCalls` 限制模型请求次数。Agent 返回修改建议，由 RSI 检查并应用。项目指令、任务正文模板（`messageTemplates`）和 Skills 在 Proposer 等调用组件中配置。
 
 ## 推理优化
 

@@ -1,6 +1,6 @@
 import { lstat, mkdir, realpath, rename } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { ArtifactStore } from '../../contracts/index.js';
+import type { ArtifactStore } from '../contracts/index.js';
 
 export const projectMarker = '.rsi-project';
 

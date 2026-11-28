@@ -5,13 +5,37 @@ import {
 } from '../../../contracts/runtime-evolution.js';
 import { canonical, object } from '../../../shared/json.js';
 import { prepareDocumentPreviews } from './document-previews.js';
-import type { ReadOnlyEditContext } from './index.js';
+import { agentInputPath, type ReadOnlyEditContext } from './index.js';
+
+type EvolutionEditContext = ReadOnlyEditContext & {
+  input: {
+    evidenceIndex: string;
+    evidenceView: RuntimeEvolutionEvidenceView | null;
+  };
+};
+
+export function evolutionTaskVariables(
+  goal: string,
+  { input }: EvolutionEditContext,
+): {
+  goal: string;
+  inputPath: string;
+  evidenceView: string;
+  evidenceIndexPath: string;
+} {
+  return {
+    goal,
+    inputPath: agentInputPath,
+    evidenceView: input.evidenceView ?? 'unavailable',
+    evidenceIndexPath: input.evidenceIndex,
+  };
+}
 
 export async function evolutionContext(
   kind: 'memory' | 'reflection',
   evidenceRefs: string[],
   context: RuntimeContext,
-): Promise<ReadOnlyEditContext> {
+): Promise<EvolutionEditContext> {
   const indexPath = 'context/evolution/index.json';
   const files: Record<string, string> = {};
   const indexes: JsonObject[] = [];

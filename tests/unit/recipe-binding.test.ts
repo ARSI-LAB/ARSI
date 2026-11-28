@@ -23,6 +23,7 @@ import { registerBuiltins } from '../../src/runtime/builtins.js';
 import { agentbundleDefinition } from '../../src/plugins/application-agentbundle/index.js';
 import { piDefinition } from '../../src/plugins/agent-pi/index.js';
 import { proposerDefinition } from '../../src/plugins/proposer-agent/index.js';
+import { operatorProposerDefinition } from '../../src/plugins/proposer-operator/index.js';
 import { memoryDefinition } from '../../src/plugins/memory-agent/index.js';
 import { gymDefinition } from '../../src/plugins/evaluator-gym/index.js';
 import { metricSelectorDefinition } from '../../src/plugins/selector-metrics/index.js';
@@ -312,6 +313,42 @@ test('Recipe assembles registered definitions, prepares paths/defaults and prese
     policy: recipe.policy,
   });
   assert.deepEqual(restored.toJSON(), recipe.toJSON());
+});
+
+test('Operator message template overrides keep each declaration directory', async (t) => {
+  const registry = new Registry();
+  t.after(() => registry.dispose());
+  registry.registerOperation(operatorProposerDefinition);
+  const example = resolve('examples/artifacts/kernel/transpose-copy');
+  const recipe = await readYaml(join(example, 'recipe.search.yaml'));
+  const proposer = object(object(recipe.bindings).proposer);
+  const defaults = {
+    ...proposer,
+    config: {
+      ...object(proposer.config),
+      messageTemplates: {
+        default: './default.md',
+        'repair-metrics': './old-repair.md',
+      },
+    },
+  };
+  const recipeDirectory = join(example, 'experiment');
+  const binding = Binding.resolve({
+    name: 'proposer',
+    required: operatorProposerDefinition.contract,
+    registry,
+    defaults: { declaration: defaults, directory: example },
+    override: {
+      declaration: {
+        config: { messageTemplates: { 'repair-metrics': './repair.md' } },
+      },
+      directory: recipeDirectory,
+    },
+  });
+  assert.deepEqual(binding.config.messageTemplates, {
+    default: join(example, 'default.md'),
+    'repair-metrics': join(recipeDirectory, 'repair.md'),
+  });
 });
 
 test('GEPA example loads through built-in registration with recipe-relative resources', async (t) => {

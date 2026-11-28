@@ -75,7 +75,7 @@
 | `callerBindingId` | `string` | 发起 Agent 调用的绑定名。 |
 | `callerDirectory` | `string` | 调用方拥有的执行目录。 |
 | `agentRef` | `string` | 选用的 Agent 绑定名。 |
-| `input` | `Readonly<AgentInput>` | 递归冻结的请求快照，包含 `goal`、`cwd`、`outputSchema` 和可选的 `role`。 |
+| `input` | `Readonly<AgentInput>` | 递归冻结的请求快照，包含 `message`、`cwd`、`outputSchema` 和可选的 `role`。 |
 
 ### Agent 对话观察
 

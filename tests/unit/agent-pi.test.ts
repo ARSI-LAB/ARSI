@@ -13,6 +13,7 @@ import type { AgentPiConfig } from '../../src/plugins/agent-pi/schema.js';
 import { readAgentRecords } from '../../src/runtime/storage/agent-records.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { validate } from '../../src/shared/schema.js';
+import { agentTaskMessage } from '../fixtures/agent-execution.js';
 
 interface Reply {
   contextTokens?: number;
@@ -174,7 +175,7 @@ async function modelFixture(
       operation.execute(
         {
           cwd,
-          goal: 'Inspect evidence',
+          message: agentTaskMessage,
           outputSchema: { type: 'object' },
           ...(role === undefined ? {} : { role }),
         },
@@ -212,7 +213,7 @@ async function modelFixture(
       operation.execute(
         {
           cwd,
-          goal: 'Return the fixture result.',
+          message: agentTaskMessage,
           outputSchema: {
             type: 'object',
             properties: { ok: { const: true } },
@@ -298,10 +299,7 @@ test('Pi uses the workspace instructions, default tools, and on-demand skill con
     );
     assert.deepEqual(records.submitted?.event, {
       type: 'task.submitted',
-      text: JSON.stringify({
-        goal: 'Inspect evidence',
-        outputSchema: { type: 'object' },
-      }),
+      text: agentTaskMessage,
       outputSchema: { type: 'object' },
     });
     assert.deepEqual(records.items.at(-1)?.event, {
@@ -321,6 +319,22 @@ test('Pi uses the workspace instructions, default tools, and on-demand skill con
           event.messageId === final.messageId,
       ).length,
       2,
+    );
+    const messages = fixture.requests[0]!.messages as Array<{
+      role: string;
+      content: string | { type: string; text: string }[];
+    }>;
+    assert.deepEqual(
+      messages.find((message) => message.role === 'user')?.content,
+      [{ type: 'text', text: agentTaskMessage }],
+    );
+    assert(
+      messages.some(
+        (message) =>
+          ['system', 'developer'].includes(message.role) &&
+          typeof message.content === 'string' &&
+          message.content.includes('{"type":"object"}'),
+      ),
     );
     const first = JSON.stringify(fixture.requests[0]);
     assert.match(first, /WORKSPACE_INSTRUCTIONS/);
@@ -766,7 +780,7 @@ test('Pi records delegation and final responses for both runs', async () => {
       delegation.childRunId,
     );
     assert.equal(child.submitted?.event.type, 'task.submitted');
-    assert.equal(JSON.parse(child.submitted.event.text).goal, 'Inspect');
+    assert.equal(child.submitted.event.text, 'Inspect');
     assert.equal(child.delegation?.message, 'Inspect');
     assert.deepEqual(
       child.finalResponses.map(({ runId }) => runId),

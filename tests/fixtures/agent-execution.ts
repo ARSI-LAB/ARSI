@@ -14,6 +14,9 @@ import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { prepareAgentProject } from '../../src/plugins/shared/agent-editing/project.js';
 
+export const agentTaskMessage =
+  '  Return the requested answer.\r\nUse the evidence.  ';
+
 export const answerSchema = {
   type: 'object',
   properties: { answer: { type: 'string' } },
@@ -67,7 +70,7 @@ export async function agentFixture(
   await mkdir(context.directory, { recursive: true });
   const request: AgentInput = {
     cwd: directory,
-    goal: 'Return an answer',
+    message: agentTaskMessage,
     outputSchema: answerSchema,
   };
   let serial = 0;
@@ -107,4 +110,17 @@ export async function agentFixture(
       await rm(root, { recursive: true, force: true });
     },
   };
+}
+
+export function claudeAgentFixture(
+  onLaunch: NonNullable<Parameters<typeof agentFixture>[0]>,
+  version = '2.1.248 (Claude Code)',
+): ReturnType<typeof agentFixture> {
+  return agentFixture(async (spec, consume, context) => {
+    if (spec.args.at(-1) === '--version') {
+      await consume(version, () => {});
+      return;
+    }
+    await onLaunch(spec, consume, context);
+  });
 }

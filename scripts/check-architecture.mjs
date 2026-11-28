@@ -12,10 +12,6 @@ const legacy = [
   ['src/plugins/shared/agent-editing/index.ts', 'src/runtime/storage/index.ts'],
   [
     'src/plugins/shared/agent-editing/project.ts',
-    'src/runtime/services/agent-project.ts',
-  ],
-  [
-    'src/plugins/shared/agent-editing/project.ts',
     'src/runtime/storage/index.ts',
   ],
 ];

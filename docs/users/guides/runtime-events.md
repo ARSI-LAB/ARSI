@@ -75,7 +75,7 @@ The Manager dispatches `rsi/before-agent-invoke` as a `waterfall` when a plugin 
 | `callerBindingId` | `string` | Binding requesting Agent execution. |
 | `callerDirectory` | `string` | Execution directory owned by the caller. |
 | `agentRef` | `string` | Selected Agent binding. |
-| `input` | `Readonly<AgentInput>` | Deeply frozen request snapshot with `goal`, `cwd`, `outputSchema`, and optional `role`. |
+| `input` | `Readonly<AgentInput>` | Deeply frozen request snapshot with `message`, `cwd`, `outputSchema`, and optional `role`. |
 
 ### Agent conversation observation
 

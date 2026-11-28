@@ -4,29 +4,38 @@ import {
   isNativeAgentCompatible,
   runNativeAgentCommand,
 } from '../shared/doctor/native-agent.js';
+import { minimumClaudeCodeVersion, supportsClientComposed } from './version.js';
 
 export function checkClaudeCodeAgent(context: DoctorContext): DoctorRule[] {
-  const isExecutableCompatible = (signal: AbortSignal): Promise<boolean> =>
-    isNativeAgentCompatible(
-      context,
-      'claude',
-      ['--help'],
-      [
-        '--print',
-        '--output-format',
-        '--json-schema',
-        '--permission-mode',
-        '--tools',
-        '--permission-prompts',
-        '--verbose',
-        '--no-session-persistence',
-        '--disallowedTools',
-        '--mcp-config',
-        '--settings',
-        '--strict-mcp-config',
-      ],
-      signal,
-    );
+  const isExecutableCompatible = async (
+    signal: AbortSignal,
+  ): Promise<boolean> => {
+    const [compatible, version] = await Promise.all([
+      isNativeAgentCompatible(
+        context,
+        'claude',
+        ['--help'],
+        [
+          '--print',
+          '--input-format',
+          '--output-format',
+          '--json-schema',
+          '--permission-mode',
+          '--tools',
+          '--permission-prompts',
+          '--verbose',
+          '--no-session-persistence',
+          '--disallowedTools',
+          '--mcp-config',
+          '--settings',
+          '--strict-mcp-config',
+        ],
+        signal,
+      ),
+      runNativeAgentCommand(context, 'claude', ['--version'], signal),
+    ]);
+    return compatible && supportsClientComposed(version);
+  };
   const isAuthenticated = (signal: AbortSignal): Promise<boolean> =>
     isClaudeAuthenticated(context, signal);
 
@@ -34,7 +43,7 @@ export function checkClaudeCodeAgent(context: DoctorContext): DoctorRule[] {
     {
       id: 'executable',
       check: isExecutableCompatible,
-      reason: `The CLI lacks required CLI options. Check ${context.binding.name}.config.executable and upgrade the native CLI.`,
+      reason: `Claude Code requires version ${minimumClaudeCodeVersion} or newer and the required CLI options. Check ${context.binding.name}.config.executable and upgrade the native CLI.`,
     },
     {
       id: 'doctor',

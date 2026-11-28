@@ -115,6 +115,8 @@ Runtime restores budget usage, the active Memory snapshot, compatible Reflection
 
 Resume requires an experiment saved with `rsi.definition-lock/v3`. For an experiment with a v1 or v2 definition lock, start a run with a new experiment ID.
 
+If `--resume` reports a changed locked runtime evolution implementation, use the RSI and plugin versions that started the experiment with the same workspace and experiment ID.
+
 - Resuming a successful experiment returns the saved result with its original usage.
 - Keep the ordered Policy step IDs, types, nesting, and required plugin contract IDs. New calls use the currently registered input and output schemas.
 - The Runtime reuses completed Policy steps and committed results. It retries unfinished steps using the supplied bindings, configuration, and code. For an in-progress branch, loop iteration, or foreach, it preserves the previously selected branch, iteration, or items. A retried plugin call uses a fresh attempt directory and acquires fresh instances.

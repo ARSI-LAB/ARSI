@@ -65,7 +65,7 @@ budget: { timeoutSeconds: 3600 }
 
 Per-binding selector syntax:
 
-- `'*'` or `['*']`: Select all configured local `x-rsi-path` resources on that binding. On `proposer.agent`, this covers the main `prompt`, `skills` directories and `subagents` role prompts. Remote URLs are skipped by wildcards; a wildcard with no local matches fails validation.
+- `'*'` or `['*']`: Select all configured local `x-rsi-path` resources on that binding. On `proposer.agent`, this covers the main `prompt`, `messageTemplates`, `skills` directories and `subagents` role prompts. Remote URLs are skipped by wildcards; a wildcard with no local matches fails validation.
 - `[field, ...]` (nonempty list of unique field names or JSON pointers starting with `/`, without `'*'`): Narrow access to specific `x-rsi-path` fields, such as `proposer: [prompt]`, `proposer: [promptsDirectory]`, `summarizer: [promptFile]`, or `proposer: ['/subagents/0/prompt']`. Selecting a collection field such as `skills` or `subagents` includes all configured `x-rsi-path` paths beneath it. Naming a field that is not in the plugin's `configSchema`, is not configured, or points to a remote URL fails validation.
 - Every selected target must exist on disk as a regular local file or directory (symbolic links are rejected).
 
@@ -107,6 +107,7 @@ Built-in `reflection.agent` accepts these fields under `implementation.config` (
 | --- | --- | --- | --- | --- |
 | `implementation.config.agentRef` | No | Declared `contract.agent` binding name | Sole Policy `contract.agent` binding, else `_evolutionAgent` | Select which Agent runs Reflection. When omitted, `reflection.agent` reuses the only `contract.agent` binding declared by the Policy; if the Policy declares zero or multiple `contract.agent` bindings, Runtime creates `_evolutionAgent` using built-in `agent.pi` (`MODEL_NAME`, `MODEL_ENDPOINT`, `MODEL_API_KEY`). |
 | `implementation.config.prompt` | No | Nonempty file path string | Built-in [`reflection-agent/prompt.md`](../../../src/plugins/reflection-agent/prompt.md) | Custom instruction file telling Reflection how to analyze evidence and edit target resources. |
+| `implementation.config.messageTemplates.default` | No | Local Markdown file path | Built-in task message | Override the task text. |
 | `implementation.config.skills` | No | Array of directory path strings | `[]` | Local skill directories copied into `.agents/skills/` inside the Reflection Agent workspace. |
 
 ### `budget` fields

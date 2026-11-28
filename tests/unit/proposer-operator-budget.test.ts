@@ -1,7 +1,7 @@
 import { readAgentRecords } from '../../src/runtime/storage/agent-records.js';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,7 +33,7 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
       assert.ok(typeof request.cwd === 'string');
       assert.deepEqual(Object.keys(request).sort(), [
         'cwd',
-        'goal',
+        'message',
         'outputSchema',
       ]);
       assert.equal(
@@ -66,6 +66,7 @@ test('operator stages derive separate scopes, preserve cancellation and reject a
   });
   const request = {
     goal: 'Test',
+    taskMessage: { fallback: 'Test', stage: { name: 'test', variables: {} } },
     prompt: 'test',
     sourcePath: 'kernels/add.py',
     sourceFiles: ['kernels/add.py'],
@@ -107,6 +108,10 @@ test('operator profile snapshots remain readable in chunks by the Agent read too
     callId: 'diagnose-metrics',
     signal: new AbortController().signal,
     async invokeAgent(_binding, request) {
+      assert.equal(
+        request.message,
+        'Diagnose round 2 in context/sources/input.py.\nOpen context/input.json.\n',
+      );
       const text = await readFile(
         join(request.cwd, 'context/input.json'),
         'utf8',
@@ -120,11 +125,21 @@ test('operator profile snapshots remain readable in chunks by the Agent read too
       return {};
     },
   });
+  const template = join(context.directory, 'diagnose.md');
+  await writeFile(
+    template,
+    'Diagnose round {{round}} in {{sourcePath}}.\nOpen {{inputPath}}.\n',
+  );
   await requestOperatorAgent(
     'diagnose-metrics',
     'agent',
     {
       goal: 'Read the measured profile',
+      taskMessage: {
+        fallback: 'Read the measured profile',
+        templates: { 'diagnose-metrics': template },
+        stage: { name: 'diagnose-metrics', variables: { round: 2 } },
+      },
       prompt: 'Return the measured bottleneck',
       input,
       sourcePath: 'input.py',
@@ -161,6 +176,10 @@ test('operator stages forward authorized snapshots above 2 MiB without an implic
       'agent',
       {
         goal: 'Inspect the complete authorized source',
+        taskMessage: {
+          fallback: 'Inspect the complete authorized source',
+          stage: { name: 'test', variables: {} },
+        },
         prompt: 'Return JSON',
         sourcePath: 'kernels/add.py',
         sourceFiles: ['kernels/add.py'],
@@ -200,6 +219,10 @@ test('operator stage timeout can be disabled while parent cancellation still pro
     'agent',
     {
       goal: 'Test cancellation',
+      taskMessage: {
+        fallback: 'Test cancellation',
+        stage: { name: 'test', variables: {} },
+      },
       prompt: 'Return JSON',
       input: {},
       sourcePath: 'kernels/add.py',
@@ -288,6 +311,10 @@ async function modelFixture(replies: Reply[], modelCalls = 64) {
           'agent',
           {
             goal: 'Review and propose a valid edit',
+            taskMessage: {
+              fallback: 'Review and propose a valid edit',
+              stage: { name: 'test', variables: {} },
+            },
             prompt: 'Return JSON after inspecting authorized evidence.',
             sourcePath: 'kernels/add.py',
             sourceFiles: ['kernels/add.py'],
@@ -387,8 +414,7 @@ test('operator stage completes tool continuations and delegated review beyond 24
       (item) =>
         item.runId !== 'main' &&
         item.event?.type === 'task.submitted' &&
-        object(JSON.parse(item.event.text)).goal ===
-          'Review the authorized source',
+        item.event.text === 'Review the authorized source',
     ),
   );
 });
@@ -427,6 +453,10 @@ test('operator model stage bounds all calls with one propagated timeout without 
     'agent',
     {
       goal: 'Bounded request',
+      taskMessage: {
+        fallback: 'Bounded request',
+        stage: { name: 'test', variables: {} },
+      },
       prompt: 'Return JSON',
       sourcePath: 'kernels/add.py',
       sourceFiles: ['kernels/add.py'],

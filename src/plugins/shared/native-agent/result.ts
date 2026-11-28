@@ -1,6 +1,13 @@
 import { AgentOutputError } from '../../../contracts/runtime/errors.js';
 import type { JsonObject } from '../../../contracts/index.js';
-import { object } from '../../../shared/json.js';
+import { canonical, object } from '../../../shared/json.js';
+
+export function outputInstructions(schema: JsonObject): string {
+  return (
+    'Return only a JSON object conforming to this JSON Schema as your final response, without a result envelope or prose.\n\n' +
+    canonical(schema)
+  );
+}
 
 /** Decode the final model answer once; native protocol parsing stays in adapters. */
 export function parseAgentResult(text: string): JsonObject {

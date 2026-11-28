@@ -168,7 +168,7 @@ export const createOperatorSummarizer: OperationDefinition<
     input: OperatorSummarizerInput,
     parentRef: string,
     baselineMeasurementRef: string,
-    details: JsonObject,
+    details: JsonObject & { facts: { baselineMs: number } },
     context: RuntimeContext,
   ) {
     const candidate = await readOperatorCandidate(
@@ -193,10 +193,28 @@ export const createOperatorSummarizer: OperationDefinition<
           view: 'training-summary',
         })
       : null;
+    const goal =
+      'Summarize the completed operator optimization attempt using confirmed facts. Treat proposed causes as hypotheses.';
     const explanation = await summaryExplanation(
       config.agentRef,
       {
-        goal: 'Summarize the completed operator optimization attempt using confirmed facts. Treat proposed causes as hypotheses.',
+        goal,
+        taskMessage: {
+          templates: config.messageTemplates,
+          fallback: goal,
+          variables: {
+            outcome: input.outcome,
+            actionSummary,
+            baselineMs: details.facts.baselineMs,
+          },
+          stage:
+            input.phase === 'static'
+              ? { name: 'summarize', variables: { attempt: input.attempt } }
+              : {
+                  name: 'summarize-metrics',
+                  variables: { round: input.round },
+                },
+        },
         prompt,
         sourcePath: source.sourcePath,
         sourceFiles: Object.keys(source.files),

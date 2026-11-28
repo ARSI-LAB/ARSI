@@ -46,7 +46,7 @@ export const createAgentPi: OperationDefinition<
               {
                 ...parent,
                 role,
-                goal,
+                message: goal,
                 runId,
                 parentRunId: parent.runId,
                 outputSchema: {

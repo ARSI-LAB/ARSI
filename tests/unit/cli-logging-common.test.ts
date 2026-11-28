@@ -1018,7 +1018,7 @@ test('managed Agent observations drive call-local progress using only turns and 
     async (context) =>
       context.invokeAgent('agent', {
         cwd: await prepareAgentProject(context, 'test', {}, [], []),
-        goal: 'private goal',
+        message: 'private goal',
         outputSchema: { type: 'object' },
       }),
     { plugins: [agent], bindings: { agent: { plugin: agent.id, config: {} } } },

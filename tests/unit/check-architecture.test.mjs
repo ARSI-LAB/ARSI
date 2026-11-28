@@ -46,7 +46,7 @@ test('architecture checks module boundaries, public layout, and the exact shrink
   write('src/contracts/value.ts');
   write('src/shared/standard.ts');
   write('src/runtime/storage/index.ts');
-  write('src/runtime/services/agent-project.ts');
+  write('src/shared/agent-project.ts');
   write('src/runtime/services/facts/evidence-packets.ts');
   write(
     'src/plugins/proposer-agent/execution-context.ts',
@@ -59,7 +59,7 @@ test('architecture checks module boundaries, public layout, and the exact shrink
   write(
     'src/plugins/shared/agent-editing/project.ts',
     [
-      "import '@runtime/services/agent-project.js';",
+      "import '../../../shared/agent-project.js';",
       "import '../../../runtime/storage/index.js';",
     ].join('\n'),
   );
@@ -125,7 +125,7 @@ test('architecture checks module boundaries, public layout, and the exact shrink
   );
   write(
     'src/plugins/shared/agent-editing/project.ts',
-    "import '../../../runtime/services/agent-project.js';",
+    "import '../../../shared/agent-project.js';",
   );
   mkdirSync(path.join(root, 'src/plugins/incomplete'));
   const errors = checkArchitecture(root);

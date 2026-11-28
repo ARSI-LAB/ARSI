@@ -333,7 +333,7 @@ const cwd = await prepareAgentProject(
 );
 const result = await context.invokeAgent('agent', {
   cwd,
-  goal: 'Inspect the target',
+  message: 'Inspect the target',
   outputSchema: { type: 'object' },
 });
 ```

@@ -99,6 +99,7 @@ Built-in `memory.agent` accepts these fields under `implementation.config` (see 
 | --- | --- | --- | --- | --- |
 | `implementation.config.agentRef` | No | Declared `contract.agent` binding name | Sole Policy `contract.agent` binding, else `_evolutionAgent` | Select which Agent runs Memory. When omitted, `memory.agent` reuses the only `contract.agent` binding declared by the Policy; if the Policy declares zero or multiple `contract.agent` bindings, Runtime creates `_evolutionAgent` using built-in `agent.pi` (`MODEL_NAME`, `MODEL_ENDPOINT`, `MODEL_API_KEY`). |
 | `implementation.config.prompt` | No | Nonempty file path string | Built-in [`memory-agent/prompt.md`](../../../src/plugins/memory-agent/prompt.md) | Custom instruction file telling Memory how to organize and edit experience files. |
+| `implementation.config.messageTemplates.default` | No | Local Markdown file path | Built-in task message | Override the task text. |
 | `implementation.config.skills` | No | Array of directory path strings | `[]` | Local skill directories copied into `.agents/skills/` inside the Memory Agent workspace. |
 
 ### `budget` fields

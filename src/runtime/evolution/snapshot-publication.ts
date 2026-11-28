@@ -15,7 +15,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { FileTreeFile } from '../../contracts/index.js';
 import { object, string, strings } from '../../shared/json.js';
 import { atomic } from '../storage/index.js';
-import { directoryFingerprint } from '../storage/directory-fingerprint.js';
+import { directoryFingerprint } from '../../shared/directory-fingerprint.js';
 import { renameFileWithRetry } from '../storage/rename-file.js';
 import type { ResourceGate } from './exclusion.js';
 import {

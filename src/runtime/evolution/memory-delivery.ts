@@ -18,9 +18,9 @@ import type {
 import {
   assertOwnedAgentProject,
   publishAgentProject,
-} from '../services/agent-project.js';
+} from '../../shared/agent-project.js';
 import { memoryFiles, type ActiveMemory } from './memory.js';
-import { directoryFingerprint } from '../storage/directory-fingerprint.js';
+import { directoryFingerprint } from '../../shared/directory-fingerprint.js';
 import { stat } from './snapshot-paths.js';
 
 export const pinnedMemory = Symbol('Memory pinned at call entry');

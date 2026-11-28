@@ -64,7 +64,7 @@ test('prepared Agent retries preserve distinct Policy paths', async (t) => {
     [],
   );
   const input = {
-    goal: 'test',
+    message: 'test',
     cwd: project,
     outputSchema: { type: 'object' },
   };
@@ -93,7 +93,12 @@ test('prepared Agent retries preserve distinct Policy paths', async (t) => {
   );
   const next = setup(await readRetryCalls(f.facts, root.experimentId));
   assert.deepEqual(
-    await next.invoke('agent', { ...input, goal: 'fixed' }, root, 'steps/two'),
+    await next.invoke(
+      'agent',
+      { ...input, message: 'fixed' },
+      root,
+      'steps/two',
+    ),
     {
       execution: 3,
     },
@@ -137,7 +142,7 @@ test('prepared Agent active deduplication validates project ownership', async (t
     [],
   );
   const input = {
-    goal: 'test',
+    message: 'test',
     cwd: project,
     outputSchema: { type: 'object' },
   };

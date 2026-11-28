@@ -13,6 +13,8 @@ import { canonical, object, string, strings } from '../../../shared/json.js';
 import { prepareAgentProject, type AgentRole } from './project.js';
 import type { AgentEditingConfig } from './schema.js';
 export { agentConfigSchema, type AgentEditingConfig } from './schema.js';
+export const agentInputPath = 'context/input.json';
+export const agentEvidencePath = 'context/measurements.json';
 export const editOutputSchema = {
   type: 'object',
   properties: {
@@ -84,6 +86,7 @@ export async function requestEdit(
   input: JsonObject,
   ref: string | null,
   context: RuntimeContext,
+  message: string,
   readOnly?: ReadOnlyEditContext,
   outputSchema: JsonSchema = editOutputSchema,
   roles: readonly AgentRole[] = [],
@@ -138,8 +141,8 @@ export async function requestEdit(
     ...readOnly?.input,
   };
   const projectFiles: JsonObject = {
-    'context/measurements.json': projectJson(evidence),
-    'context/input.json': projectJson(metadata),
+    [agentEvidencePath]: projectJson(evidence),
+    [agentInputPath]: projectJson(metadata),
   };
   for (const [path, content] of Object.entries(files)) {
     const contextPath =
@@ -158,7 +161,7 @@ Read context/input.json for the target, edit constraints, observations and sourc
     roles,
   );
   const request: AgentInput = {
-    goal: string(input.goal),
+    message,
     cwd,
     outputSchema: object(outputSchema),
   };
@@ -282,6 +285,7 @@ export async function editResource(
   input: JsonObject,
   ref: string | null,
   context: RuntimeContext,
+  message: string,
   readOnly?: ReadOnlyEditContext,
   roles?: readonly AgentRole[],
 ): Promise<{
@@ -294,6 +298,7 @@ export async function editResource(
     input,
     ref,
     context,
+    message,
     readOnly,
     editOutputSchema,
     roles,

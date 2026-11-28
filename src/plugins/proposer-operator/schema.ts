@@ -1,6 +1,11 @@
 import type { Candidate, JsonObject } from '../../contracts/index.js';
 
 import { recordSchema } from '../../contracts/models/measurement.js';
+import {
+  messageTemplatesSchema,
+  type MessageTemplates,
+  type MessageVariables,
+} from '../shared/agent-editing/task-message.js';
 
 import {
   staticIssueTypes,
@@ -41,9 +46,20 @@ export type OperatorProposerConfig = {
   hardwareContextFile?: string;
   historyWindow?: number;
   modelRequestTimeoutMs?: number;
+  messageTemplates?: MessageTemplates<OperatorTemplateStage>;
   task: { directory: string };
   embedding: EmbeddingConfig;
 };
+
+const operatorTemplateStages = [
+  'diagnose',
+  'diagnose-metrics',
+  'generate',
+  'generate-metrics',
+  'repair',
+  'repair-metrics',
+] as const;
+type OperatorTemplateStage = (typeof operatorTemplateStages)[number];
 
 const ref: JsonObject = { type: 'string', minLength: 1 };
 const hash: JsonObject = { type: 'string', pattern: '^[a-f0-9]{64}$' };
@@ -52,6 +68,7 @@ export const configSchema = recordSchema(
   {
     agentRef: { ...ref, default: 'agent', 'x-rsi-binding': 'contract.agent' },
     promptsDirectory: { ...ref, 'x-rsi-path': 'directory' },
+    messageTemplates: messageTemplatesSchema(...operatorTemplateStages),
     hardwareContextFile: { ...ref, 'x-rsi-path': 'file' },
     historyWindow: { type: 'integer', minimum: 0, default: 5 },
     modelRequestTimeoutMs: {
@@ -253,6 +270,7 @@ export type PreparedAttempt = {
   analysisRef: string;
   generationContext: JsonObject;
   generatePrompt: string;
+  generationVariables: MessageVariables;
   noChange: {
     reasonCode: 'no-static-issues' | 'no-new-hypothesis';
     rationale: string;

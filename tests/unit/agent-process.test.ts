@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { agentProcessLauncher } from '../../src/runtime/services/agent-execution/process.js';
 
 test(
-  'Agent processes receive input in the project cwd and preserve the final Unicode line',
+  'Agent processes receive input in the project cwd and preserve task input and the final Unicode line',
   { timeout: 30000 },
   async (t) => {
     const directory = await realpath(
@@ -26,7 +26,7 @@ test(
           '-e',
           'let input="";process.stdin.setEncoding("utf8");process.stdin.on("data",chunk=>input+=chunk);process.stdin.on("end",()=>process.stdout.write(JSON.stringify({text:"完整消息",cwd:process.cwd(),input})))',
         ],
-        input: 'task',
+        input: '  任务\r\nfinish  ',
       },
       (line) => {
         lines.push(line);
@@ -34,7 +34,7 @@ test(
     );
     assert.deepEqual(
       lines.map((line) => JSON.parse(line)),
-      [{ text: '完整消息', cwd: directory, input: 'task\n' }],
+      [{ text: '完整消息', cwd: directory, input: '  任务\r\nfinish  ' }],
     );
   },
 );

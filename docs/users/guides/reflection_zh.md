@@ -65,7 +65,7 @@ budget: { timeoutSeconds: 3600 }
 
 单个绑定的字段选择语法：
 
-- `'*'` 或 `['*']`：选择该绑定已配置的全部本地 `x-rsi-path` 资源。对 `proposer.agent` 而言，涵盖主提示词 `prompt`、`skills` 目录和 `subagents` 中的角色提示词。通配符会自动跳过远程 URL；若未匹配到任何本地路径，校验会报错。
+- `'*'` 或 `['*']`：选择该绑定已配置的全部本地 `x-rsi-path` 资源。对 `proposer.agent` 而言，涵盖主提示词 `prompt`、`messageTemplates`、`skills` 目录和 `subagents` 中的角色提示词。通配符会自动跳过远程 URL；若未匹配到任何本地路径，校验会报错。
 - `[字段, ...]`（非空、无重复的字段名或以 `/` 开头的 JSON Pointer 列表，不能包含 `'*'`）：将权限缩小到具体 `x-rsi-path` 字段，例如 `proposer: [prompt]`、`proposer: [promptsDirectory]`、`summarizer: [promptFile]` 或 `proposer: ['/subagents/0/prompt']`。填写集合字段名（如 `skills` 或 `subagents`）会匹配其下全部已配置的 `x-rsi-path` 条目。显式列出未在插件 `configSchema` 中声明、未配置或指向远程 URL 的字段会在加载时报错。
 - 每个选中的目标在磁盘上都必须是普通本地文件或目录（拒绝符号链接）。
 
@@ -107,6 +107,7 @@ Memory 和 Reflection 在同一边界同时命中时，先执行 Memory。
 | --- | --- | --- | --- | --- |
 | `implementation.config.agentRef` | 否 | Policy 已声明的 `contract.agent` 绑定名 | 唯一 `contract.agent` 绑定，否则 `_evolutionAgent` | 指定执行 Reflection 的 Agent。省略时复用 Policy 声明的唯一 `contract.agent` 绑定；若 Policy 未声明或声明了多个这类绑定，Runtime 会用内置 `agent.pi` 创建 `_evolutionAgent`（读取 `MODEL_NAME`、`MODEL_ENDPOINT` 和 `MODEL_API_KEY`）。 |
 | `implementation.config.prompt` | 否 | 非空文件路径字符串 | 内置 [`reflection-agent/prompt.md`](../../../src/plugins/reflection-agent/prompt.md) | 自定义提示词文件，指导 Reflection 如何分析证据并修改目标资源。 |
+| `implementation.config.messageTemplates.default` | 否 | 本地 Markdown 文件路径 | 内置任务正文 | 覆盖任务正文。 |
 | `implementation.config.skills` | 否 | 目录路径字符串数组 | `[]` | 本地 Skill 目录列表，会复制到 Reflection Agent 工作区的 `.agents/skills/` 中。 |
 
 ### `budget` 字段

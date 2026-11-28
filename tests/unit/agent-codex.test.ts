@@ -149,6 +149,10 @@ test('Codex drives app-server, records commentary and tools, and validates the t
   assert.equal(sent.length, process.platform === 'win32' ? 4 : 3);
   const records = await readAgentRecords(f.context.directory, 0, 100, true);
   const submitted = object(object(sent.at(-1)).params);
+  assert.deepEqual(submitted.input, [
+    { type: 'text', text: f.request.message },
+  ]);
+  assert.deepEqual(submitted.outputSchema, f.request.outputSchema);
   assert.deepEqual(records.submitted?.event, {
     type: 'task.submitted',
     text: Array.isArray(submitted.input)

@@ -243,11 +243,11 @@ export async function publish(
       result.omittedAdvisories +
       ' advisory finding(s) on files outside the PR diff.';
   body +=
-    '\n\nTrusted context: .github/review/system-prompt.md, ' +
-    snapshot.context.map((doc) => plain(doc.path)).join(', ') +
+    '\n\nTrusted context: ' +
+    [snapshot.promptPath, ...snapshot.context.map((doc) => doc.path)]
+      .map(plain)
+      .join(', ') +
     '.';
-  if (!snapshot.skillLoaded)
-    body += ' Team review skill pending publication; used the base prompt.';
   if (findings.length) {
     body += '\n\n| Severity | Location | Finding |\n| --- | --- | --- |';
     for (const [index, f] of findings.entries()) {

@@ -92,7 +92,7 @@ test('only nonempty diffs confined to docs or root Markdown take the documentati
   check(true, 'root Markdown and nested documentation');
   for (const file of [
     'src/policies/harness2/prompts/input.md',
-    '.github/review/system-prompt.md',
+    '.github/review/skill/SKILL.md',
     'examples/harness/guide.md',
     'skills/editor/SKILL.md',
   ]) {
@@ -104,7 +104,7 @@ test('only nonempty diffs confined to docs or root Markdown take the documentati
     path.join(root, 'docs/skill.md'),
   );
   check(false, 'rename from a production path into docs');
-  rmSync(path.join(root, '.github/review/system-prompt.md'));
+  rmSync(path.join(root, '.github/review/skill/SKILL.md'));
   write('docs/guide.md');
   check(false, 'production deletion mixed with documentation');
   write('package.json');

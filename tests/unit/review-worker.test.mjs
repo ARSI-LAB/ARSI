@@ -25,6 +25,7 @@ import {
 import { review } from '../../.github/review/review.mjs';
 
 const head = 'a'.repeat(40);
+const skillPath = '.github/review/skill/SKILL.md';
 const source = new URL('../../.github/review/', import.meta.url);
 const schema = JSON.parse(
   await readFile(new URL('finding.schema.json', source), 'utf8'),
@@ -32,11 +33,11 @@ const schema = JSON.parse(
 const snapshot = {
   head,
   schema,
+  promptPath: skillPath,
   prompt: 'trusted',
   context: [],
   anchors: new Map([['diff.ts', { RIGHT: [[1, 2]], LEFT: [] }]]),
   patch: '+example',
-  skillLoaded: false,
 };
 const input = {
   rules: [],
@@ -179,12 +180,20 @@ test('review reads trusted assets, strips nested project config and cleans the d
     await run('init', '--template=');
     await run('config', 'user.name', 'Review fixture');
     await run('config', 'user.email', 'fixture@invalid');
-    await mkdir(join(root, '.github/review'), { recursive: true });
+    const references = '.github/review/skill/references';
+    const reference = references + '/code.md';
+    await mkdir(join(root, references), { recursive: true });
+    const routes = [
+      { paths: ['diff.ts'], documents: [], topics: ['code', 'missing'] },
+      { paths: ['untouched.ts'], documents: [], topics: ['unrelated'] },
+    ];
     for (const [path, text] of [
       ['AGENTS.md', 'Rules'],
-      ['.github/review/context-routes.json', '[]'],
+      ['.github/review/context-routes.json', JSON.stringify(routes)],
       ['.github/review/finding.schema.json', JSON.stringify(schema)],
-      ['.github/review/system-prompt.md', 'Trusted review'],
+      [skillPath, 'Trusted review'],
+      [reference, 'Trusted reference'],
+      [references + '/unrelated.md', 'Unrelated reference'],
       ['diff.ts', 'one\ntwo\n'],
     ])
       await writeFile(join(root, path), text);
@@ -193,10 +202,9 @@ test('review reads trusted assets, strips nested project config and cleans the d
     const base = (await run('rev-parse', 'HEAD')).trim();
     await mkdir(join(root, 'folder/.codex'), { recursive: true });
     await writeFile(join(root, 'folder/.codex/config.toml'), '# example');
-    await writeFile(
-      join(root, '.github/review/system-prompt.md'),
-      'Untrusted review',
-    );
+    await writeFile(join(root, skillPath), 'Untrusted review');
+    await writeFile(join(root, reference), 'Untrusted reference');
+    await writeFile(join(root, references, 'missing.md'), 'PR-only reference');
     await writeFile(join(root, 'diff.ts'), 'one\nnew\n');
     await run('add', '.');
     await run('-c', 'commit.gpgSign=false', 'commit', '-m', 'PR head');
@@ -208,12 +216,19 @@ test('review reads trusted assets, strips nested project config and cleans the d
       trusted: base,
       pr: { number: 12, base: { sha: base }, head: { sha } },
     };
+    function assertTrustedSkill(s) {
+      assert.equal(s.promptPath, skillPath);
+      assert.equal(s.prompt, 'Trusted review');
+      assert.deepEqual(s.context, [
+        { path: 'AGENTS.md', content: 'Rules' },
+        { path: reference, content: 'Trusted reference' },
+      ]);
+    }
     let checkout;
     await assert.rejects(
       withSnapshot(opts, async (s) => {
         checkout = s.worktree;
-        assert.equal(s.prompt, 'Trusted review');
-        assert.equal(s.skillLoaded, false);
+        assertTrustedSkill(s);
         assert.equal(existsSync(join(checkout, 'folder/.codex')), false);
         assert.equal(
           await readFile(join(checkout, 'diff.ts'), 'utf8'),
@@ -231,9 +246,10 @@ test('review reads trusted assets, strips nested project config and cleans the d
     assert.equal(existsSync(join(root, 'folder/.codex/config.toml')), true);
     await writeFile(join(root, 'local.txt'), 'untracked');
     const before = await run('status', '--porcelain');
-    await withSnapshot({ root, trusted: base }, async (s) =>
-      assert.match(s.patch, /untracked/),
-    );
+    await withSnapshot({ root, trusted: base }, async (s) => {
+      assert.match(s.patch, /untracked/);
+      assertTrustedSkill(s);
+    });
     assert.equal(await run('status', '--porcelain'), before);
   } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 3 });
@@ -481,6 +497,8 @@ test('partial publication reconciles native threads, deduplicates root classes, 
   assert.equal(reviews[0][2].length, 1);
   assert.match(reviews[0][2][0].body, /Additional occurrences/);
   assert.match(summaries[0][2], /Verifier dropped 2/);
+  assert.ok(summaries[0][2].includes(skillPath));
+  assert.doesNotMatch(summaries[0][2], /pending publication/);
   const owned = { id: 1, body: summaries[0][2], user: { login: 'worker' } };
   const read = sticky(
     [{ ...owned, id: 2, user: { login: 'outsider' } }, owned],

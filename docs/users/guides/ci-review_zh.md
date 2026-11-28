@@ -26,7 +26,7 @@
 pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 ```
 
-Worker 检查当前 PR 提交上的 `CI / Check (Linux)` 是否通过。仓库成员的 PR 自动进入检视。外部贡献者的 PR 由维护者添加 `ai-review` 标签或评论 `/ai-review`。检视使用可信基线上的提示词、相关指南及已发布的团队检视 Skill。Codex 以原生只读沙箱检查临时工作树，外层 Worker 负责发布结果。
+Worker 检查当前 PR 提交上的 `CI / Check (Linux)` 是否通过。仓库成员的 PR 自动进入检视。外部贡献者的 PR 由维护者添加 `ai-review` 标签或评论 `/ai-review`。Worker 和本地检视都从可信默认分支读取[检视 Skill](../../../.github/review/skill/SKILL.md)，并加载适用的指南和 `.github/review/skill/references/` 中匹配的主题文件。Codex 以原生只读沙箱检查临时工作树，外层 Worker 负责发布结果。
 
 Codex 子进程继承 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写形式，使用默认 Codex 提供方和 CLI 登录凭据。Worker 会传入 `--ignore-user-config`，用户配置中的自定义提供方、MCP 服务和钩子不会加载。
 

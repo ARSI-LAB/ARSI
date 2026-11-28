@@ -38,7 +38,7 @@ async function one(api, number, login, config) {
       async (snapshot) => {
         snapshotInfo = {
           context: snapshot.context.map(({ path }) => ({ path })),
-          skillLoaded: snapshot.skillLoaded,
+          promptPath: snapshot.promptPath,
         };
         result = await review(
           snapshot,

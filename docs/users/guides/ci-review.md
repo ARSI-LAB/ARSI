@@ -26,7 +26,7 @@ Use a dedicated, maintainer-controlled checkout with `origin` pointing to the re
 pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 ```
 
-The worker checks for a successful `CI / Check (Linux)` on the current PR head. Member PRs qualify automatically. For an external contributor, a maintainer applies the `ai-review` label or comments `/ai-review`. Review uses the trusted base prompt, applicable guides and, when published, the team review skill. Codex inspects an ephemeral worktree with its native read-only sandbox. The outer worker publishes the result.
+The worker checks for a successful `CI / Check (Linux)` on the current PR head. Member PRs qualify automatically. For an external contributor, a maintainer applies the `ai-review` label or comments `/ai-review`. The worker and local review both read the [review skill](../../../.github/review/skill/SKILL.md) from the trusted default branch. They also load applicable guides and any matching topic files in `.github/review/skill/references/`. Codex inspects an ephemeral worktree with its native read-only sandbox. The outer worker publishes the result.
 
 The Codex process inherits `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY`, including lowercase spellings. It uses the default Codex provider and CLI sign-in. The worker passes `--ignore-user-config`, so custom providers, MCP servers and hooks in your user configuration do not apply.
 

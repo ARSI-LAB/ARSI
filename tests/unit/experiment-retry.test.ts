@@ -9,6 +9,8 @@ import {
   type JsonObject,
 } from '../../src/contracts/index.js';
 import { createServer } from '../../src/entries/web/server.js';
+import { piDefinition } from '../../src/plugins/agent-pi/index.js';
+import { memoryDefinition } from '../../src/plugins/memory-agent/index.js';
 import { Manager } from '../../src/runtime/manager/index.js';
 import { Registry } from '../../src/runtime/registry/index.js';
 import { object } from '../../src/shared/json.js';
@@ -465,6 +467,50 @@ test('resume rejects earlier definition lock formats before modifying the experi
       await fixture.manager.facts.list('definition-attempts'),
       [],
     );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test('resume preserves a definition locked before Memory supported message templates', async () => {
+  const { managerFixture } = await import('../helpers/manager-fixture.js');
+  const fixture = await managerFixture(
+    async () => {
+      throw new Error('interrupt before completion');
+    },
+    { plugins: [piDefinition], policy: { defaults: { memory: true } } },
+  );
+  try {
+    const { manager } = fixture;
+    const { registry } = manager.options;
+    const configSchema = object(structuredClone(memoryDefinition.configSchema));
+    delete object(configSchema.properties).messageTemplates;
+    const unregister = registry.registerOperation({
+      ...memoryDefinition,
+      configSchema,
+    });
+    await assert.rejects(fixture.run(), /interrupt before completion/);
+    const failed = await manager.get('test');
+    const definition = await manager.facts.read('definitions', 'test');
+    assert.ok(
+      !Object.hasOwn(
+        object(object(definition.memory).config),
+        'messageTemplates',
+      ),
+    );
+
+    unregister();
+    registry.registerOperation(memoryDefinition);
+    await assert.rejects(
+      manager.run(String(failed.recipePath), { id: 'test', resume: true }),
+      /Locked runtime evolution implementation changed: memory\.agent/,
+    );
+    assert.deepEqual(await manager.get('test'), failed);
+    assert.deepEqual(
+      await manager.facts.read('definitions', 'test'),
+      definition,
+    );
+    assert.deepEqual(await manager.facts.list('definition-attempts'), []);
   } finally {
     await fixture.dispose();
   }

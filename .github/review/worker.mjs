@@ -5,19 +5,19 @@ import { eligible, escalated, publish, skipped, sticky } from './publish.mjs';
 
 class DraftPullRequest extends Error {}
 
-export async function reviewPullRequest(api, number, login, config) {
+export async function reviewPullRequest(api, number, login, config, call) {
   const pr = await api.pr(number);
   if (pr.state !== 'open' || !pr.head.repo) return 'closed or unavailable';
   if (pr.draft) return 'draft';
   try {
-    return await reviewReadyPullRequest(api, pr, login, config);
+    return await reviewReadyPullRequest(api, pr, login, config, call);
   } catch (error) {
     if (error instanceof DraftPullRequest) return 'draft';
     throw error;
   }
 }
 
-async function reviewReadyPullRequest(api, pr, login, config) {
+async function reviewReadyPullRequest(api, pr, login, config, call) {
   const { number } = pr;
   const comments = await api.comments(number);
   const state = sticky(comments, login);
@@ -25,16 +25,6 @@ async function reviewReadyPullRequest(api, pr, login, config) {
     return 'already reviewed, deferred or round limit reached';
   const authorization = await api.authorization(pr, comments);
   if (!authorization) return 'awaiting maintainer opt-in';
-  if (authorization === 'auto') {
-    try {
-      await api.markAutoAuthorized(pr);
-    } catch (error) {
-      if (config.signal.aborted) throw error;
-      console.warn(
-        '#' + number + ': could not add the automatic review label.',
-      );
-    }
-  }
   const rules = await api.l1(pr);
   if (!rules)
     return 'awaiting successful CI / Check (Linux) on the current head';
@@ -51,6 +41,17 @@ async function reviewReadyPullRequest(api, pr, login, config) {
     if (!(await api.authorization(current, await api.comments(number))))
       throw new Error('Maintainer opt-in was withdrawn');
     return current;
+  }
+  async function markReviewStarted(activitySignal = config.signal) {
+    try {
+      const current = await fresh();
+      activitySignal.throwIfAborted();
+      await api.markReviewStarted(current);
+    } catch (error) {
+      if (error instanceof DraftPullRequest || activitySignal.aborted)
+        throw error;
+      console.warn('#' + number + ': could not add the AI review label.');
+    }
   }
   const { threads, issues } = await api.discussions(number, login);
   const open = threads.filter(
@@ -76,6 +77,8 @@ async function reviewReadyPullRequest(api, pr, login, config) {
             rules: confirmedRules(rules, snapshot.fullPaths),
           },
           config.signal,
+          call,
+          authorization === 'auto' ? markReviewStarted : undefined,
         );
       },
     );

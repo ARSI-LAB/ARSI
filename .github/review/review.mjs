@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
-import { codexExecutable, command, modelEnvironment } from './process.mjs';
+import {
+  codexExecutable,
+  command,
+  modelEnvironment,
+  observeReviewStart,
+} from './process.mjs';
 
 const require = createRequire(resolve(process.argv[1]));
 const Ajv = require('ajv');
@@ -78,7 +83,13 @@ export function validateResult(result, schema, anchors, threads) {
   };
 }
 
-async function invoke(snapshot, prompt, signal, verification = false) {
+async function invoke(
+  snapshot,
+  prompt,
+  signal,
+  verification = false,
+  onReviewStarted,
+) {
   const output = join(snapshot.temp, randomUUID() + '.json');
   let schemaFile = snapshot.schemaFile;
   if (verification) {
@@ -93,6 +104,7 @@ async function invoke(snapshot, prompt, signal, verification = false) {
       '--ask-for-approval',
       'never',
       'exec',
+      ...(onReviewStarted ? ['--json'] : []),
       '--ignore-user-config',
       '--ignore-rules',
       '--ephemeral',
@@ -118,12 +130,22 @@ async function invoke(snapshot, prompt, signal, verification = false) {
       input: prompt,
       signal,
       discardOutput: true,
+      consumeStdout:
+        onReviewStarted &&
+        ((stdout, running) =>
+          observeReviewStart(stdout, running, onReviewStarted)),
     },
   );
   return JSON.parse(await readFile(output, 'utf8'));
 }
 
-export async function review(snapshot, input, signal, call = invoke) {
+export async function review(
+  snapshot,
+  input,
+  signal,
+  call = invoke,
+  onReviewStarted,
+) {
   const boundary = randomUUID();
   const data = (value) =>
     '<untrusted-data-' +
@@ -147,7 +169,13 @@ export async function review(snapshot, input, signal, call = invoke) {
     }),
   ].join('\n\n');
   const first = validateResult(
-    await call(snapshot, snapshot.prompt + '\n\n' + context, signal),
+    await call(
+      snapshot,
+      snapshot.prompt + '\n\n' + context,
+      signal,
+      false,
+      onReviewStarted,
+    ),
     snapshot.schema,
     snapshot.anchors,
     input.threads,

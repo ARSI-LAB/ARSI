@@ -101,10 +101,10 @@ export function github(repo, signal, execute = command) {
     }
     return null;
   }
-  async function markAutoAuthorized(pr) {
+  async function markReviewStarted(pr) {
     const hasMarker = (labels) =>
       labels.some((label) => label.name.toLowerCase() === reviewLabel);
-    if (hasMarker(pr.labels)) return;
+    if (!member.has(pr.author_association) || hasMarker(pr.labels)) return;
     const labels = await api(
       base + '/issues/' + pr.number + '/labels',
       'POST',
@@ -203,7 +203,7 @@ export function github(repo, signal, execute = command) {
     pr: (n) => api(base + '/pulls/' + n),
     comments: (n) => pages(base + '/issues/' + n + '/comments'),
     authorization,
-    markAutoAuthorized,
+    markReviewStarted,
     l1,
     discussions,
     summary: (n, id, body) =>

@@ -30,13 +30,13 @@ pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 
 The worker skips draft PRs before applying labels or starting a review. If a PR returns to draft during review, the worker stops publishing results once it detects the change. Existing labels stay on the PR.
 
-Once ready for review, PRs from repository owners, members and collaborators qualify automatically. The worker adds the repository's `ai-review` label before checking CI. For an external contributor, a maintainer must apply the same label or comment `/ai-review` to authorize review. In both cases, review starts once `CI / Check (Linux)` passes on the current PR head.
+Ready PRs from repository owners, members and collaborators qualify automatically. For an external contributor, a maintainer must apply the `ai-review` label or comment `/ai-review` to authorize review. In both cases, the worker waits for `CI / Check (Linux)` to pass on the current PR head and prepares a review snapshot. For automatically authorized PRs, the worker adds `ai-review` when Codex first reports review activity.
 
 The worker and local review both read the [review skill](../../../.github/review/skill/SKILL.md) from the trusted default branch. They also load applicable guides and any matching topic files in `.github/review/skill/references/`. Codex inspects an ephemeral worktree with its native read-only sandbox. The outer worker publishes the result.
 
 The Codex process inherits `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY`, including lowercase spellings. It uses the default Codex provider and CLI sign-in. The worker passes `--ignore-user-config`, so custom providers, MCP servers and hooks in your user configuration do not apply.
 
-Read the sticky summary for the reviewed SHA, round and verifier result. Verified Important findings open inline threads on additions, deletions or visible context. Nit and Pre-existing findings appear in the summary and may reference other lines of a changed file. Reply to an inline finding with a fix or rationale.
+The label applies to the whole PR. To confirm that review finished for the current head, compare its SHA with the most recent completed review in the sticky summary. The summary also records the round and verifier result. Verified Important findings open inline threads on additions, deletions or visible context. Nit and Pre-existing findings appear in the summary and may reference other lines of a changed file. Reply to an inline finding with a fix or rationale.
 
 A new commit triggers review of the changes since the last reviewed head and any open threads. If the previous commit falls outside the current PR history after an amend, rebase or base merge, the worker reviews the full current PR diff. It selects guides using all files changed by the PR in every round. After three rounds, a maintainer can request another new-head review with `--pr 123 --manual`. A `[needs-human]` thread calls for a maintainer decision. If a later attempt is skipped, the sticky summary shows the attempted SHA above the last completed review. When AI review is skipped or the workstation is offline, perform a full human review.
 

@@ -30,13 +30,13 @@ pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 
 Worker 会在添加标签或启动检视前跳过草稿 PR。如果 PR 在检视中转回草稿，Worker 检测到状态变化后会停止发布后续结果。PR 上已有的标签会保留。
 
-PR 就绪后，仓库所有者、成员和协作者提交的 PR 自动获得检视授权，Worker 会在检查 CI 前给 PR 添加仓库已有的 `ai-review` 标签。外部贡献者的 PR 需要维护者添加同一标签或评论 `/ai-review` 才能获准。两种情况下，检视都要等当前 PR 提交的 `CI / Check (Linux)` 通过后才会启动。
+仓库所有者、成员和协作者提交的 PR 在就绪后自动获得检视授权。外部贡献者的 PR 需要维护者添加 `ai-review` 标签或评论 `/ai-review` 才能获准。两种情况下，Worker 都会等当前 PR 提交的 `CI / Check (Linux)` 通过，再准备检视快照。对于自动获准的 PR，Worker 在首次收到 Codex 的检视活动时才添加 `ai-review` 标签。
 
 Worker 和本地检视都从可信默认分支读取[检视 Skill](../../../.github/review/skill/SKILL.md)，并加载适用的指南和 `.github/review/skill/references/` 中匹配的主题文件。Codex 以原生只读沙箱检查临时工作树，外层 Worker 负责发布结果。
 
 Codex 子进程继承 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写形式，使用默认 Codex 提供方和 CLI 登录凭据。Worker 会传入 `--ignore-user-config`，用户配置中的自定义提供方、MCP 服务和钩子不会加载。
 
-汇总评论记录已检视的 SHA、轮次和复核结果。经复核的 Important 问题可以在新增行、删除行或可见上下文行上建立行内线程。Nit 和 Pre-existing 只进入汇总，可引用已修改文件的其他行。作者可以在行内线程回复修复措施或理由。
+标签作用于整个 PR。要确认当前提交是否已完成检视，请将其 SHA 与汇总评论中最近一次已完成检视的 SHA 对照。汇总评论也记录检视轮次和复核结果。经复核的 Important 问题可以在新增行、删除行或可见上下文行上建立行内线程。Nit 和 Pre-existing 只进入汇总，可引用已修改文件的其他行。作者可以在行内线程回复修复措施或理由。
 
 新提交触发增量检视，范围为上次已检视提交之后的改动及原有开放线程。若 amend、rebase 或合入基线后，上次提交已脱离当前 PR 的增量范围，Worker 会重新检视当前 PR 的完整差异。每轮都按整个 PR 的变更文件选择指南。三轮后，维护者可用 `--pr 123 --manual` 检视新的提交。`[needs-human]` 表示需要维护者裁定。后续某次检视跳过时，汇总评论会在上次已完成的检视结果上方列出本次尝试的 SHA。AI 检视被跳过或工作站离线时，由人工完成完整检视。
 

@@ -144,35 +144,26 @@ test('fork opt-in requires a maintainer, and L1 belongs to this PR, head and lat
   assert.equal(await api.l1(fork), null);
 });
 
-test('the worker marks automatic authorization before checking Linux CI and writes once across polls', async () => {
-  for (const role of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+test('automatic authorization waits for Linux CI without labeling the PR', async () => {
+  const client = github('owner/repo', undefined, async () =>
+    assert.fail('Unexpected GitHub request while CI is pending'),
+  );
+  for (const author_association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
     const current = {
       ...pr,
       state: 'open',
       head: { sha: head, repo: { id: 14 } },
-      author_association: role,
-      labels: [{ name: 'bug' }],
+      author_association,
+      labels: [],
     };
-    const calls = [];
+    assert.equal(await client.authorization(current, []), 'auto');
     const api = {
-      ...github('owner/repo', undefined, async (_file, args, { input }) => {
-        assert.ok(args.includes('repos/owner/repo/issues/12/labels'));
-        assert.ok(args.includes('POST'));
-        const { labels } = JSON.parse(input);
-        calls.push(labels);
-        current.labels.push(...labels.map((name) => ({ name })));
-        return JSON.stringify(current.labels);
-      }),
+      ...client,
       pr: async () => current,
       comments: async () => [],
-      l1: async () => {
-        calls.push('linux');
-        return null;
-      },
+      l1: async () => null,
     };
-    for (let poll = 0; poll < 2; poll++)
-      assert.match(await reviewPullRequest(api, 12, 'worker', {}), /Linux/);
-    assert.deepEqual(calls, [['ai-review'], 'linux', 'linux'], role);
+    assert.match(await reviewPullRequest(api, 12, 'worker', {}), /Linux/);
   }
 });
 
@@ -196,14 +187,14 @@ test('draft polls wait for ready without reading comments, labeling or starting 
     ...api,
     comments: async () => [],
     authorization: async () => 'auto',
-    markAutoAuthorized: async () => calls.push('label'),
+    markReviewStarted: async () => calls.push('label'),
     l1: async () => {
       calls.push('linux');
       return null;
     },
   };
   assert.match(await reviewPullRequest(ready, 12, 'worker', {}), /Linux/);
-  assert.deepEqual(calls, ['label', 'linux']);
+  assert.deepEqual(calls, ['linux']);
 });
 
 test('returning to draft suppresses publication even when snapshot preparation fails', async () => {
@@ -229,7 +220,7 @@ test('returning to draft suppresses publication even when snapshot preparation f
   assert.equal(await reviewPullRequest(api, 12, 'worker', config), 'draft');
 });
 
-test('the worker requires a trusted opt-in event for an external PR label and continues if a member label write fails', async () => {
+test('the worker requires a trusted opt-in event for an external PR label', async () => {
   const current = {
     ...pr,
     state: 'open',
@@ -250,10 +241,7 @@ test('the worker requires a trusted opt-in event for an external PR label and co
     }),
     pr: async () => current,
     comments: async () => [],
-    markAutoAuthorized: async () => {
-      calls.push('label');
-      throw new Error('Write unavailable');
-    },
+    markReviewStarted: async () => calls.push('label'),
     l1: async () => {
       calls.push('linux');
       return null;
@@ -272,10 +260,6 @@ test('the worker requires a trusted opt-in event for an external PR label and co
   });
   assert.match(await poll(), /Linux/);
   assert.deepEqual(calls, ['linux']);
-  current.author_association = 'MEMBER';
-  current.labels = [];
-  assert.match(await poll(), /Linux/);
-  assert.deepEqual(calls, ['linux', 'label', 'linux']);
 });
 
 test('cancellation stops a launcher and its child before snapshot cleanup', async () => {
@@ -308,7 +292,7 @@ test('cancellation stops a launcher and its child before snapshot cleanup', asyn
   }
 });
 
-test('review reads trusted assets, strips nested project config and cleans the detached checkout after failure', async () => {
+async function withReviewRepository(use) {
   const root = await mkdtemp(join(tmpdir(), 'arsi-review-test-'));
   try {
     const run = (...args) => git(root, args);
@@ -351,6 +335,15 @@ test('review reads trusted assets, strips nested project config and cleans the d
       trusted: base,
       pr: { number: 12, base: { sha: base }, head: { sha } },
     };
+    await use(opts, run, reference);
+  } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 3 });
+  }
+}
+
+test('review reads trusted assets, strips nested project config and cleans the detached checkout after failure', async () => {
+  await withReviewRepository(async (opts, run, reference) => {
+    const { root, trusted: base } = opts;
     function assertTrustedSkill(s) {
       assert.equal(s.promptPath, skillPath);
       assert.equal(s.prompt, 'Trusted review');
@@ -386,9 +379,100 @@ test('review reads trusted assets, strips nested project config and cleans the d
       assertTrustedSkill(s);
     });
     assert.equal(await run('status', '--porcelain'), before);
-  } finally {
-    await rm(root, { recursive: true, force: true, maxRetries: 3 });
-  }
+  });
+});
+
+test('only model activity starts automatic labeling, and label errors leave review publication intact', async () => {
+  await withReviewRepository(async (opts) => {
+    const current = {
+      ...opts.pr,
+      state: 'open',
+      base: { ...opts.pr.base, ref: 'master' },
+      head: { ...opts.pr.head, repo: { id: 14 } },
+      author_association: 'MEMBER',
+      labels: [{ name: 'bug' }],
+    };
+    let rejectLabel = false;
+    const events = [];
+    const api = {
+      ...github('owner/repo', undefined, async (_file, args, { input }) => {
+        assert.ok(args.includes('repos/owner/repo/issues/12/labels'));
+        assert.ok(args.includes('POST'));
+        assert.deepEqual(JSON.parse(input), { labels: ['ai-review'] });
+        events.push('label');
+        if (rejectLabel) throw new Error('Label write unavailable');
+        current.labels.push({ name: 'ai-review' });
+        return JSON.stringify(current.labels);
+      }),
+      pr: async () => current,
+      comments: async () => [],
+      l1: async () => ['unit tests and build'],
+      discussions: async () => ({ threads: [], issues: [] }),
+      summary: async (_number, _id, body) =>
+        events.push(
+          body.includes('AI Review Skipped') ? 'skipped' : 'published',
+        ),
+    };
+    const config = { ...opts, signal: new AbortController().signal };
+    const poll = (call, options = config) =>
+      reviewPullRequest(api, 12, 'worker', options, call);
+    const unavailable = async () => {
+      events.push('launch');
+      throw new Error('Codex authentication unavailable');
+    };
+    assert.match(
+      await poll(unavailable, { ...config, trusted: 'invalid' }),
+      /Skipped/,
+    );
+    assert.deepEqual(events.splice(0), ['skipped']);
+    assert.match(await poll(unavailable), /Skipped/);
+    assert.deepEqual(events.splice(0), ['launch', 'skipped']);
+
+    const respond = async (
+      _snapshot,
+      _prompt,
+      _signal,
+      _verify,
+      onReviewStarted,
+    ) => {
+      events.push('activity');
+      await onReviewStarted?.();
+      events.push('model result');
+      return result([]);
+    };
+    assert.equal(await poll(respond), 'reviewed ' + current.head.sha);
+    assert.deepEqual(events.splice(0), [
+      'activity',
+      'label',
+      'model result',
+      'published',
+    ]);
+    assert.deepEqual(current.labels, [{ name: 'bug' }, { name: 'ai-review' }]);
+    assert.equal(await poll(respond), 'reviewed ' + current.head.sha);
+    assert.deepEqual(events.splice(0), [
+      'activity',
+      'model result',
+      'published',
+    ]);
+    current.labels = [];
+    const returnToDraft = (...args) => {
+      current.draft = true;
+      return respond(...args);
+    };
+    assert.equal(await poll(returnToDraft), 'draft');
+    assert.deepEqual(events.splice(0), ['activity']);
+    assert.deepEqual(current.labels, []);
+
+    current.draft = false;
+    rejectLabel = true;
+    assert.equal(await poll(respond), 'reviewed ' + current.head.sha);
+    assert.deepEqual(events, [
+      'activity',
+      'label',
+      'model result',
+      'published',
+    ]);
+  });
 });
 
 test('green manifest is scoped to the successful L1 steps; Codex receives only permitted environment variables', () => {

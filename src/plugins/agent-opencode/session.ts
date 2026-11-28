@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import { observeNative } from '../shared/native-agent/observe.js';
 import { parseAgentResult } from '../shared/native-agent/result.js';
 import { openCodeObservations } from './observations.js';
@@ -16,11 +15,10 @@ export function launchEnvironment(directory: string): NodeJS.ProcessEnv {
   return { ...process.env, PWD: directory };
 }
 
-function taskEnvironment(
-  directory: string,
-  instructionPath: string,
-): NodeJS.ProcessEnv {
-  const env = launchEnvironment(directory);
+export function addInlineInstructions(
+  env: NodeJS.ProcessEnv,
+  paths: string[],
+): NodeJS.ProcessEnv | undefined {
   const content = env.OPENCODE_CONFIG_CONTENT?.trim();
   let config: JsonObject = {};
   if (content) {
@@ -36,7 +34,7 @@ function taskEnvironment(
         );
       config = object(JSON.parse(json));
     } catch {
-      throw new Error('OPENCODE_CONFIG_CONTENT must contain a JSONC object');
+      return undefined;
     }
   }
   const instructions =
@@ -45,26 +43,19 @@ function taskEnvironment(
     !Array.isArray(instructions) ||
     instructions.some((item) => typeof item !== 'string')
   )
-    throw new Error(
-      'OPENCODE_CONFIG_CONTENT.instructions must contain an array of paths',
-    );
+    return undefined;
   return {
     ...env,
     OPENCODE_CONFIG_CONTENT: JSON.stringify({
       ...config,
-      instructions: [
-        ...instructions,
-        join(directory, 'AGENTS.md'),
-        instructionPath,
-      ],
+      instructions: [...instructions, ...paths],
     }),
   };
 }
 
 export async function runSession(options: {
   config: AgentOpenCodeConfig;
-  directory: string;
-  instructionPath: string;
+  env: NodeJS.ProcessEnv;
   request: AgentInput;
   signal: AbortSignal;
   record: (event: AgentObservation) => void;
@@ -144,7 +135,7 @@ export async function runSession(options: {
     {
       record,
       outputSchema: request.outputSchema,
-      env: taskEnvironment(options.directory, options.instructionPath),
+      env: options.env,
     },
   );
   if (finalMessage === undefined || finalReason !== 'stop')

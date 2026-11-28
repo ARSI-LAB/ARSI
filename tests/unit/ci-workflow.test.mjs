@@ -120,6 +120,8 @@ test('only nonempty diffs confined to docs or root Markdown take the documentati
 
   write('docs/last.md');
   const last = check(true, 'documentation on a newer merge base');
+  assert.equal(last.package, 'false');
+  assert.equal(last.bridge, 'false');
   // The merge ref can be rebuilt on a newer base than the event payload.
   const pr = classify('pull_request', initial, last.head_sha);
   assert.deepEqual(pr, last);
@@ -155,6 +157,16 @@ test('Linux checks, packaging and Windows shards depend only on path detection a
     '${{ needs.scope.outputs.head_sha }}',
   );
   assert.equal(check.name, 'CI / Check (Linux)');
+  for (const [name, command] of [
+    ['Run documentation checks', 'pnpm check:docs'],
+    ['Run full checks', 'pnpm check'],
+    [
+      'Run bridge tests',
+      'python3 -m unittest discover -s .github/workflows/bridge/tests',
+    ],
+  ]) {
+    assert.equal(check.steps.find((step) => step.name === name)?.run, command);
+  }
   assert.equal(jobs.package.name, 'CI / Package');
   assert.equal(jobs.package.if, undefined);
   for (const job of [check, jobs.package, shard]) {

@@ -236,3 +236,4 @@ arsi show terminal-skills-01 # Inspect the saved status and results
 - [编写 Policy](guides/writing-policies_zh.md)，调整实验流程或停止条件。
 - [编写并注册插件](guides/writing-plugins_zh.md)，供 Policy 调用。
 - [订阅或发布 Runtime 事件](guides/runtime-events_zh.md)，在扩展中观察实验进度或发布自定义事件。
+- [检查和检视拉取请求](guides/ci-review_zh.md)，验证准备提交的改动。

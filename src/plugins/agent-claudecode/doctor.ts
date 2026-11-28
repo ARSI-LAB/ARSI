@@ -10,7 +10,8 @@ export function checkClaudeCodeAgent(context: DoctorContext): DoctorRule[] {
   const isExecutableCompatible = async (
     signal: AbortSignal,
   ): Promise<boolean> => {
-    const [compatible, version] = await Promise.all([
+    // Both child processes must release their working directory before this check returns.
+    const [compatible, version] = await Promise.allSettled([
       isNativeAgentCompatible(
         context,
         'claude',
@@ -34,7 +35,9 @@ export function checkClaudeCodeAgent(context: DoctorContext): DoctorRule[] {
       ),
       runNativeAgentCommand(context, 'claude', ['--version'], signal),
     ]);
-    return compatible && supportsClientComposed(version);
+    if (compatible.status === 'rejected') throw compatible.reason;
+    if (version.status === 'rejected') throw version.reason;
+    return compatible.value && supportsClientComposed(version.value);
   };
   const isAuthenticated = (signal: AbortSignal): Promise<boolean> =>
     isClaudeAuthenticated(context, signal);

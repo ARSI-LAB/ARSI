@@ -135,7 +135,7 @@ export function github(repo, signal, execute = command) {
         '/jobs',
       'jobs',
     );
-    return greenRules(jobs.find((j) => j.name === 'L1-Fast'));
+    return greenRules(jobs.find((j) => j.name === 'CI / Check (Linux)'));
   }
   async function discussions(number, login) {
     const roots = [];

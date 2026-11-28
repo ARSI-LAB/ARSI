@@ -46,7 +46,7 @@ test('subsequent review rounds follow the current PR history', async (t) => {
   const guide = 'docs/runtime.md';
   await write(guide, 'Trusted runtime guide');
   await write('AGENTS.md', 'Rules');
-  await write('.github/review/system-prompt.md', 'Review prompt');
+  await write('.github/review/skill/SKILL.md', 'Review prompt');
   await write('.github/review/finding.schema.json', '{}');
   await write(
     '.github/review/context-routes.json',

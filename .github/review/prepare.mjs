@@ -179,7 +179,8 @@ export async function withSnapshot(config, use) {
     await runGit(['worktree', 'add', '--detach', worktree, head]);
     await stripProjectConfig(worktree);
     const trustedBlob = (path) => runGit(['show', trusted + ':' + path]);
-    const skill = 'skills/team-pr-review/SKILL.md';
+    const skillRoot = '.github/review/skill';
+    const promptPath = skillRoot + '/SKILL.md';
     const filesAtBase = new Set(
       (await runGit(['ls-tree', '-r', '--name-only', '-z', trusted])).split(
         '\0',
@@ -189,7 +190,6 @@ export async function withSnapshot(config, use) {
       await trustedBlob('.github/review/context-routes.json'),
     );
     const sourcePaths = new Set(['AGENTS.md']);
-    if (filesAtBase.has(skill)) sourcePaths.add(skill);
     for (const route of routes.filter((route) =>
       route.paths.some((prefix) =>
         full.files.some((file) =>
@@ -200,9 +200,8 @@ export async function withSnapshot(config, use) {
       for (const path of route.documents)
         if (filesAtBase.has(path)) sourcePaths.add(path);
       for (const topic of route.topics) {
-        const path = 'skills/team-pr-review/references/' + topic + '.md';
-        if (filesAtBase.has(skill) && filesAtBase.has(path))
-          sourcePaths.add(path);
+        const path = skillRoot + '/references/' + topic + '.md';
+        if (filesAtBase.has(path)) sourcePaths.add(path);
       }
     }
     const context = [];
@@ -224,10 +223,10 @@ export async function withSnapshot(config, use) {
       fullPaths: full.files,
       anchors: full.anchors,
       context,
-      skillLoaded: sourcePaths.has(skill),
       schemaFile,
       schema: JSON.parse(await readFile(schemaFile, 'utf8')),
-      prompt: await trustedBlob('.github/review/system-prompt.md'),
+      promptPath,
+      prompt: await trustedBlob(promptPath),
     });
   } finally {
     await rm(temp, {

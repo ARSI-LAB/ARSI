@@ -15,16 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  fast:
-    name: L1-Fast
+  scope:
+    name: CI / Detect changes
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
     env:
       RSI_CI_BASE_SHA: ${{ github.event.merge_group.base_sha }}
       RSI_CI_HEAD_SHA: ${{ github.sha }}
     outputs:
       docs: ${{ steps.scope.outputs.docs }}
       package: ${{ steps.scope.outputs.package }}
+      bridge: ${{ steps.scope.outputs.bridge }}
+      base_sha: ${{ steps.scope.outputs.base_sha }}
+      head_sha: ${{ steps.scope.outputs.head_sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -38,7 +41,6 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             # The merge ref can be rebuilt on a newer base than the event payload.
             RSI_CI_BASE_SHA=$(git rev-parse "$RSI_CI_HEAD_SHA^1")
-            echo "RSI_CI_BASE_SHA=$RSI_CI_BASE_SHA" >> "$GITHUB_ENV"
           fi
           git diff --no-renames --name-only -z "$RSI_CI_BASE_SHA" "$RSI_CI_HEAD_SHA" -- > "$RUNNER_TEMP/quality-paths"
           docs=true
@@ -58,69 +60,110 @@ jobs:
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
           echo "package=$package" >> "$GITHUB_OUTPUT"
           echo "bridge=$bridge" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$RSI_CI_BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$RSI_CI_HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+  check:
+    name: CI / Check (Linux)
+    needs: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RSI_CI_BASE_SHA: ${{ needs.scope.outputs.base_sha }}
+      RSI_CI_HEAD_SHA: ${{ needs.scope.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
-          package-manager-cache: false
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+          cache: pnpm
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile ${{ steps.scope.outputs.docs == 'true' && '--ignore-scripts' || '' }}
+        run: pnpm install --frozen-lockfile ${{ needs.scope.outputs.docs == 'true' && '--ignore-scripts' || '' }}
       - name: Run documentation checks
-        if: steps.scope.outputs.docs == 'true'
+        if: needs.scope.outputs.docs == 'true'
         run: pnpm check:docs
       - name: Run full checks
-        if: steps.scope.outputs.docs != 'true'
+        if: needs.scope.outputs.docs != 'true'
         run: pnpm check
       - name: Run bridge tests
-        if: steps.scope.outputs.bridge == 'true'
+        if: needs.scope.outputs.bridge == 'true'
         run: python3 -m unittest discover -s .github/workflows/bridge/tests
 
   package:
-    name: L1-Heavy / package
-    needs: fast
+    name: CI / Package
+    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - name: Report path decision
-        if: needs.fast.outputs.package != 'true'
+        if: needs.scope.outputs.package != 'true'
         run: echo "No package inputs changed."
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        if: needs.fast.outputs.package == 'true'
+        if: needs.scope.outputs.package == 'true'
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        if: needs.scope.outputs.package == 'true'
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        if: needs.fast.outputs.package == 'true'
+        if: needs.scope.outputs.package == 'true'
         with:
           node-version: 24
-          package-manager-cache: false
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-        if: needs.fast.outputs.package == 'true'
-      - if: needs.fast.outputs.package == 'true'
+          cache: pnpm
+      - if: needs.scope.outputs.package == 'true'
         run: pnpm install --frozen-lockfile
-      - if: needs.fast.outputs.package == 'true'
+      - if: needs.scope.outputs.package == 'true'
         run: pnpm check:package
 
-  windows:
-    name: L1-Heavy / test-windows
-    needs: fast
+  windows_shard:
+    name: CI / Test (Windows ${{ matrix.shard }}/3)
+    needs: scope
+    if: needs.scope.outputs.docs != 'true'
     runs-on: windows-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
-      - name: Report path decision
-        if: needs.fast.outputs.docs == 'true'
-        run: echo "Only documentation changed."
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        if: needs.fast.outputs.docs != 'true'
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        if: needs.fast.outputs.docs != 'true'
         with:
           node-version: 24
-          package-manager-cache: false
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-        if: needs.fast.outputs.docs != 'true'
-      - if: needs.fast.outputs.docs != 'true'
-        run: pnpm install --frozen-lockfile
-      - if: needs.fast.outputs.docs != 'true'
-        run: pnpm test
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run unit test shard
+        shell: bash
+        run: node --import tsx --test --test-shard=${{ matrix.shard }}/3 tests/unit/*.test.ts tests/unit/*.test.mjs
+
+  windows:
+    name: CI / Test (Windows)
+    needs: [scope, windows_shard]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Windows test results
+        shell: bash
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          DOCS: ${{ needs.scope.outputs.docs }}
+          SHARD_RESULT: ${{ needs.windows_shard.result }}
+        run: |
+          if [[ "$SCOPE_RESULT" != success ]]; then
+            echo "::error::Change detection did not succeed ($SCOPE_RESULT)."
+            exit 1
+          elif [[ "$DOCS" == true ]]; then
+            echo "Only documentation changed."
+          elif [[ "$SHARD_RESULT" == success ]]; then
+            echo "All three Windows test shards passed."
+          else
+            echo "::error::Windows test shards did not succeed ($SHARD_RESULT)."
+            exit 1
+          fi

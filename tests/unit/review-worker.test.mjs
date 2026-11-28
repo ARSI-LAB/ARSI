@@ -23,6 +23,7 @@ import {
   sticky,
 } from '../../.github/review/publish.mjs';
 import { review } from '../../.github/review/review.mjs';
+import { reviewPullRequest } from '../../.github/review/worker.mjs';
 
 const head = 'a'.repeat(40);
 const skillPath = '.github/review/skill/SKILL.md';
@@ -120,19 +121,19 @@ test('fork opt-in requires a maintainer, and L1 belongs to this PR, head and lat
     author_association: 'MEMBER',
   };
   assert.equal(
-    await api.authorized(fork, [{ ...opt, author_association: 'NONE' }]),
-    false,
+    await api.authorization(fork, [{ ...opt, author_association: 'NONE' }]),
+    null,
   );
-  assert.equal(await api.authorized(fork, [opt]), false);
+  assert.equal(await api.authorization(fork, [opt]), null);
   assert.equal(
-    await api.authorized({ ...fork, labels: [{ name: 'ai-review' }] }, []),
-    false,
+    await api.authorization({ ...fork, labels: [{ name: 'ai-review' }] }, []),
+    null,
   );
   permission = 'write';
-  assert.equal(await api.authorized(fork, [opt]), true);
+  assert.equal(await api.authorization(fork, [opt]), 'maintainer');
   assert.equal(
-    await api.authorized({ ...fork, labels: [{ name: 'ai-review' }] }, []),
-    true,
+    await api.authorization({ ...fork, labels: [{ name: 'ai-review' }] }, []),
+    'maintainer',
   );
   assert.ok((await api.l1(fork)).includes('TypeScript typechecking'));
   runs = [
@@ -141,6 +142,85 @@ test('fork opt-in requires a maintainer, and L1 belongs to this PR, head and lat
     { ...run, head_repository: { id: 99 } },
   ];
   assert.equal(await api.l1(fork), null);
+});
+
+test('the worker marks automatic authorization before checking Linux CI and writes once across polls', async () => {
+  for (const role of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+    const current = {
+      ...pr,
+      state: 'open',
+      head: { sha: head, repo: { id: 14 } },
+      author_association: role,
+      labels: [{ name: 'bug' }],
+    };
+    const calls = [];
+    const api = {
+      ...github('owner/repo', undefined, async (_file, args, { input }) => {
+        assert.ok(args.includes('repos/owner/repo/issues/12/labels'));
+        assert.ok(args.includes('POST'));
+        const { labels } = JSON.parse(input);
+        calls.push(labels);
+        current.labels.push(...labels.map((name) => ({ name })));
+        return JSON.stringify(current.labels);
+      }),
+      pr: async () => current,
+      comments: async () => [],
+      l1: async () => {
+        calls.push('linux');
+        return null;
+      },
+    };
+    for (let poll = 0; poll < 2; poll++)
+      assert.match(await reviewPullRequest(api, 12, 'worker', {}), /Linux/);
+    assert.deepEqual(calls, [['ai-review:auto'], 'linux', 'linux'], role);
+  }
+});
+
+test('the auto label is informational for external contributors and a label write failure leaves CI gating intact', async () => {
+  const current = {
+    ...pr,
+    state: 'open',
+    head: { sha: head, repo: { id: 14 } },
+    author_association: 'CONTRIBUTOR',
+    labels: [{ name: 'ai-review:auto' }],
+  };
+  const comments = [];
+  const calls = [];
+  const api = {
+    ...github('owner/repo', undefined, async (_file, args) => {
+      assert.ok(
+        args.includes('repos/owner/repo/collaborators/maintainer/permission'),
+      );
+      return JSON.stringify({ permission: 'write' });
+    }),
+    pr: async () => current,
+    comments: async () => comments,
+    markAutoAuthorized: async () => {
+      calls.push('label');
+      throw new Error('Write unavailable');
+    },
+    l1: async () => {
+      calls.push('linux');
+      return null;
+    },
+  };
+  const poll = () =>
+    reviewPullRequest(api, 12, 'worker', {
+      signal: new AbortController().signal,
+    });
+  assert.match(await poll(), /awaiting maintainer opt-in/);
+  assert.deepEqual(calls, []);
+  comments.push({
+    body: '/ai-review',
+    user: { login: 'maintainer' },
+    author_association: 'MEMBER',
+  });
+  assert.match(await poll(), /Linux/);
+  assert.deepEqual(calls, ['linux']);
+  current.author_association = 'MEMBER';
+  current.labels = [];
+  assert.match(await poll(), /Linux/);
+  assert.deepEqual(calls, ['linux', 'label', 'linux']);
 });
 
 test('cancellation stops a launcher and its child before snapshot cleanup', async () => {

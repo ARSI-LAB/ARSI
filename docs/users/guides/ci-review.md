@@ -20,13 +20,15 @@ With a signed-in Codex CLI, run `pnpm review:local` for an optional review of th
 
 ## Run the maintainer worker
 
-Use a dedicated, maintainer-controlled checkout with `origin` pointing to the repository that receives the PRs. Install the locked dependencies and sign in to the Codex CLI and GitHub CLI. The outer worker needs GitHub access to read Actions and publish PR comments and thread resolutions. Start one `pnpm review:worker` process and leave it running. Stop it with Ctrl+C. To inspect one PR once, run:
+Use a dedicated, maintainer-controlled checkout with `origin` pointing to the repository that receives the PRs. Install the locked dependencies and sign in to the Codex CLI and GitHub CLI. The outer worker needs GitHub access to read Actions, apply PR labels, post comments and resolve review threads. Start one `pnpm review:worker` process and leave it running. Stop it with Ctrl+C. To inspect one PR once, run:
 
 ```sh
 pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 ```
 
-The worker checks for a successful `CI / Check (Linux)` on the current PR head. Member PRs qualify automatically. For an external contributor, a maintainer applies the `ai-review` label or comments `/ai-review`. The worker and local review both read the [review skill](../../../.github/review/skill/SKILL.md) from the trusted default branch. They also load applicable guides and any matching topic files in `.github/review/skill/references/`. Codex inspects an ephemeral worktree with its native read-only sandbox. The outer worker publishes the result.
+PRs from repository owners, members and collaborators qualify automatically. The worker adds the `ai-review:auto` label to record that decision before checking CI. For an external contributor, a maintainer must apply the `ai-review` label or comment `/ai-review`, even if `ai-review:auto` is present. In both cases, review starts once `CI / Check (Linux)` passes on the current PR head.
+
+The worker and local review both read the [review skill](../../../.github/review/skill/SKILL.md) from the trusted default branch. They also load applicable guides and any matching topic files in `.github/review/skill/references/`. Codex inspects an ephemeral worktree with its native read-only sandbox. The outer worker publishes the result.
 
 The Codex process inherits `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY`, including lowercase spellings. It uses the default Codex provider and CLI sign-in. The worker passes `--ignore-user-config`, so custom providers, MCP servers and hooks in your user configuration do not apply.
 

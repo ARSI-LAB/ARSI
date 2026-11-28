@@ -3,15 +3,25 @@ import { withSnapshot } from './prepare.mjs';
 import { review, skipReason } from './review.mjs';
 import { eligible, escalated, publish, skipped, sticky } from './publish.mjs';
 
-async function one(api, number, login, config) {
+export async function reviewPullRequest(api, number, login, config) {
   const pr = await api.pr(number);
   if (pr.state !== 'open' || !pr.head.repo) return 'closed or unavailable';
   const comments = await api.comments(number);
   const state = sticky(comments, login);
   if (!eligible(state, pr.head.sha, config.manual))
     return 'already reviewed, deferred or round limit reached';
-  if (!(await api.authorized(pr, comments)))
-    return 'awaiting maintainer opt-in';
+  const authorization = await api.authorization(pr, comments);
+  if (!authorization) return 'awaiting maintainer opt-in';
+  if (authorization === 'auto') {
+    try {
+      await api.markAutoAuthorized(pr);
+    } catch (error) {
+      if (config.signal.aborted) throw error;
+      console.warn(
+        '#' + number + ': could not add the automatic review label.',
+      );
+    }
+  }
   const rules = await api.l1(pr);
   if (!rules)
     return 'awaiting successful CI / Check (Linux) on the current head';
@@ -24,7 +34,7 @@ async function one(api, number, login, config) {
       current.base.ref !== pr.base.ref
     )
       throw new Error('PR changed during review');
-    if (!(await api.authorized(current, await api.comments(number))))
+    if (!(await api.authorization(current, await api.comments(number))))
       throw new Error('Maintainer opt-in was withdrawn');
   }
   const { threads, issues } = await api.discussions(number, login);
@@ -111,7 +121,10 @@ export async function run(config) {
   for (const number of numbers) {
     try {
       console.log(
-        '#' + number + ': ' + (await one(api, number, login, config)),
+        '#' +
+          number +
+          ': ' +
+          (await reviewPullRequest(api, number, login, config)),
       );
     } catch (error) {
       if (config.signal.aborted) throw error;

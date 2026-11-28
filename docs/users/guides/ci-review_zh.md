@@ -20,13 +20,15 @@
 
 ## 启动维护者 Worker
 
-使用维护者控制的专用检出目录，让 `origin` 指向接收 PR 的仓库。按锁文件安装依赖，并登录 Codex CLI 和 GitHub CLI。外层 Worker 需要读取 Actions、发布 PR 评论和解决检视线程的 GitHub 权限。运行一个 `pnpm review:worker` 进程并保持运行，使用 Ctrl+C 停止。要对指定 PR 检查一次，可运行：
+使用维护者控制的专用检出目录，让 `origin` 指向接收 PR 的仓库。按锁文件安装依赖，并登录 Codex CLI 和 GitHub CLI。外层 Worker 需要读取 Actions、添加 PR 标签、发表评论和解决检视线程的 GitHub 权限。运行一个 `pnpm review:worker` 进程并保持运行，使用 Ctrl+C 停止。要对指定 PR 检查一次，可运行：
 
 ```sh
 pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 ```
 
-Worker 检查当前 PR 提交上的 `CI / Check (Linux)` 是否通过。仓库成员的 PR 自动进入检视。外部贡献者的 PR 由维护者添加 `ai-review` 标签或评论 `/ai-review`。Worker 和本地检视都从可信默认分支读取[检视 Skill](../../../.github/review/skill/SKILL.md)，并加载适用的指南和 `.github/review/skill/references/` 中匹配的主题文件。Codex 以原生只读沙箱检查临时工作树，外层 Worker 负责发布结果。
+仓库所有者、成员和协作者提交的 PR 自动获得检视授权。Worker 会在检查 CI 前给 PR 添加 `ai-review:auto` 标签，标明此次自动授权。对于外部贡献者，即使 PR 上已有 `ai-review:auto`，仍需维护者添加 `ai-review` 标签或评论 `/ai-review` 才能授权。两种情况下，检视都要等当前 PR 提交的 `CI / Check (Linux)` 通过后才会启动。
+
+Worker 和本地检视都从可信默认分支读取[检视 Skill](../../../.github/review/skill/SKILL.md)，并加载适用的指南和 `.github/review/skill/references/` 中匹配的主题文件。Codex 以原生只读沙箱检查临时工作树，外层 Worker 负责发布结果。
 
 Codex 子进程继承 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写形式，使用默认 Codex 提供方和 CLI 登录凭据。Worker 会传入 `--ignore-user-config`，用户配置中的自定义提供方、MCP 服务和钩子不会加载。
 

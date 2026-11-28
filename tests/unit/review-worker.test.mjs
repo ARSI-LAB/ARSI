@@ -172,29 +172,31 @@ test('the worker marks automatic authorization before checking Linux CI and writ
     };
     for (let poll = 0; poll < 2; poll++)
       assert.match(await reviewPullRequest(api, 12, 'worker', {}), /Linux/);
-    assert.deepEqual(calls, [['ai-review:auto'], 'linux', 'linux'], role);
+    assert.deepEqual(calls, [['ai-review'], 'linux', 'linux'], role);
   }
 });
 
-test('the auto label is informational for external contributors and a label write failure leaves CI gating intact', async () => {
+test('the worker requires a trusted opt-in event for an external PR label and continues if a member label write fails', async () => {
   const current = {
     ...pr,
     state: 'open',
     head: { sha: head, repo: { id: 14 } },
     author_association: 'CONTRIBUTOR',
-    labels: [{ name: 'ai-review:auto' }],
+    labels: [{ name: 'ai-review' }],
   };
-  const comments = [];
+  const events = [];
   const calls = [];
   const api = {
     ...github('owner/repo', undefined, async (_file, args) => {
+      if (args.includes('repos/owner/repo/issues/12/events?per_page=100'))
+        return JSON.stringify([events]);
       assert.ok(
         args.includes('repos/owner/repo/collaborators/maintainer/permission'),
       );
       return JSON.stringify({ permission: 'write' });
     }),
     pr: async () => current,
-    comments: async () => comments,
+    comments: async () => [],
     markAutoAuthorized: async () => {
       calls.push('label');
       throw new Error('Write unavailable');
@@ -210,10 +212,10 @@ test('the auto label is informational for external contributors and a label writ
     });
   assert.match(await poll(), /awaiting maintainer opt-in/);
   assert.deepEqual(calls, []);
-  comments.push({
-    body: '/ai-review',
-    user: { login: 'maintainer' },
-    author_association: 'MEMBER',
+  events.push({
+    event: 'labeled',
+    label: { name: 'ai-review' },
+    actor: { login: 'maintainer' },
   });
   assert.match(await poll(), /Linux/);
   assert.deepEqual(calls, ['linux']);

@@ -26,7 +26,7 @@ Use a dedicated, maintainer-controlled checkout with `origin` pointing to the re
 pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 ```
 
-PRs from repository owners, members and collaborators qualify automatically. The worker adds the `ai-review:auto` label to record that decision before checking CI. For an external contributor, a maintainer must apply the `ai-review` label or comment `/ai-review`, even if `ai-review:auto` is present. In both cases, review starts once `CI / Check (Linux)` passes on the current PR head.
+PRs from repository owners, members and collaborators qualify automatically. The worker adds the repository's `ai-review` label before checking CI. For an external contributor, a maintainer must apply the same label or comment `/ai-review` to authorize review. In both cases, review starts once `CI / Check (Linux)` passes on the current PR head.
 
 The worker and local review both read the [review skill](../../../.github/review/skill/SKILL.md) from the trusted default branch. They also load applicable guides and any matching topic files in `.github/review/skill/references/`. Codex inspects an ephemeral worktree with its native read-only sandbox. The outer worker publishes the result.
 

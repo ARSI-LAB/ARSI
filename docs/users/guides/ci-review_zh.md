@@ -26,7 +26,7 @@
 pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 ```
 
-仓库所有者、成员和协作者提交的 PR 自动获得检视授权。Worker 会在检查 CI 前给 PR 添加 `ai-review:auto` 标签，标明此次自动授权。对于外部贡献者，即使 PR 上已有 `ai-review:auto`，仍需维护者添加 `ai-review` 标签或评论 `/ai-review` 才能授权。两种情况下，检视都要等当前 PR 提交的 `CI / Check (Linux)` 通过后才会启动。
+仓库所有者、成员和协作者提交的 PR 自动获得检视授权，Worker 会在检查 CI 前给 PR 添加仓库已有的 `ai-review` 标签。外部贡献者的 PR 需要维护者添加同一标签或评论 `/ai-review` 才能获准。两种情况下，检视都要等当前 PR 提交的 `CI / Check (Linux)` 通过后才会启动。
 
 Worker 和本地检视都从可信默认分支读取[检视 Skill](../../../.github/review/skill/SKILL.md)，并加载适用的指南和 `.github/review/skill/references/` 中匹配的主题文件。Codex 以原生只读沙箱检查临时工作树，外层 Worker 负责发布结果。
 

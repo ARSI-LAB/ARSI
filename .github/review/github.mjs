@@ -2,7 +2,7 @@ import { command } from './process.mjs';
 
 export const summaryMarker = '<!-- arsi-ai-review:summary -->';
 const member = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
-const automaticLabel = 'ai-review:auto';
+const reviewLabel = 'ai-review';
 
 export function confirmedRules(rules, files) {
   // A green job label cannot attest that a PR editing the gate kept its rules.
@@ -81,13 +81,13 @@ export function github(repo, signal, execute = command) {
   };
   async function authorization(pr, comments) {
     if (member.has(pr.author_association)) return 'auto';
-    if (pr.labels.some((label) => label.name === 'ai-review')) {
+    if (pr.labels.some((label) => label.name === reviewLabel)) {
       const events = await pages(base + '/issues/' + pr.number + '/events');
       const last = events
         .filter(
           (e) =>
             ['labeled', 'unlabeled'].includes(e.event) &&
-            e.label?.name === 'ai-review',
+            e.label?.name === reviewLabel,
         )
         .at(-1);
       if (last?.event === 'labeled' && (await permission(last.actor?.login)))
@@ -103,13 +103,13 @@ export function github(repo, signal, execute = command) {
   }
   async function markAutoAuthorized(pr) {
     const hasMarker = (labels) =>
-      labels.some((label) => label.name.toLowerCase() === automaticLabel);
+      labels.some((label) => label.name.toLowerCase() === reviewLabel);
     if (hasMarker(pr.labels)) return;
     const labels = await api(
       base + '/issues/' + pr.number + '/labels',
       'POST',
       {
-        labels: [automaticLabel],
+        labels: [reviewLabel],
       },
     );
     if (!hasMarker(labels)) throw new Error('Automatic review label missing');

@@ -4,11 +4,12 @@ import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  AgentOutputError,
   RuntimeContext,
   type Candidate,
   type JsonObject,
 } from '../../src/contracts/index.js';
-import { object } from '../../src/shared/json.js';
+import { object, string } from '../../src/shared/json.js';
 import {
   FileArtifacts,
   FileWorkspaces,
@@ -17,7 +18,7 @@ import { createFileApplication } from '../../src/plugins/shared/file-application
 import { createProposerAgent } from '../../src/plugins/proposer-agent/service.js';
 import { resourceFiles } from '../../src/plugins/shared/agent-editing/index.js';
 
-async function fixture(responses: JsonObject[]) {
+async function fixture(responses: Array<JsonObject | (() => never)>) {
   const root = await mkdtemp(join(tmpdir(), 'rsi-proposer-recovery-'));
   const artifacts = new FileArtifacts(join(root, 'artifacts'));
   const workspaces = new FileWorkspaces(join(root, 'workspaces'), artifacts);
@@ -54,6 +55,7 @@ async function fixture(responses: JsonObject[]) {
   const controller = new AbortController();
   let requests = 0;
   let commits = 0;
+  const messages: string[] = [];
   const context = new RuntimeContext().extend({
     experimentId: 'exp',
     callId: 'call',
@@ -78,9 +80,11 @@ async function fixture(responses: JsonObject[]) {
     },
     applicationMetadata: async () => ({ target }),
     readEvidence: async () => ({}),
-    invokeAgent: async () => {
+    invokeAgent: async (_binding, request) => {
       const result = responses[requests++];
       assert.ok(result, 'no unexpected model retry');
+      messages.push(request.message);
+      if (typeof result === 'function') return result();
       return result;
     },
   });
@@ -131,14 +135,16 @@ async function fixture(responses: JsonObject[]) {
     execution,
     controller,
     requests: () => requests,
+    messages: () => messages,
     commits: () => commits,
-    execute: (editConstraints?: JsonObject) =>
+    execute: (editConstraints?: JsonObject, maxCandidates?: number) =>
       proposer.execute(
         {
           parent: 'base',
           goal: 'Improve instructions',
           evidenceRefs: [],
           ...(editConstraints ? { editConstraints } : {}),
+          ...(maxCandidates === undefined ? {} : { maxCandidates }),
         },
         execution,
       ),
@@ -149,6 +155,44 @@ async function fixture(responses: JsonObject[]) {
     },
   };
 }
+
+test('Composer retries a schema-invalid proposal batch once', async () => {
+  const f = await fixture([
+    () => {
+      throw new AgentOutputError(
+        "Agent output: data must have required property 'proposals'",
+      );
+    },
+    {
+      proposals: [
+        {
+          edits: [{ op: 'replace', path: 'skill.md', content: 'recovered' }],
+          reason: 'Recovered batch proposal',
+        },
+      ],
+    },
+  ]);
+  try {
+    const result = object(await f.execute(undefined, 1));
+    assert.equal(result.status, 'batch');
+    assert.equal(f.requests(), 2);
+    assert.equal(f.messages().length, 2);
+    assert.match(
+      f.messages()[1]!,
+      /top-level structure required by that schema/u,
+    );
+    const candidate = await f.execution.readCandidate(
+      string((result.candidates as JsonObject[])[0]!.candidateRef),
+    );
+    assert.deepEqual(await resourceFiles(candidate.artifactRef, f.execution), {
+      'skill.md': 'recovered',
+      'other.md': 'original',
+      'notes.md': 'original notes',
+    });
+  } finally {
+    await f.close();
+  }
+});
 
 test('Composer conflict retains the whole parent and the next proposal can commit', async () => {
   const f = await fixture([

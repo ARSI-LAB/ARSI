@@ -96,6 +96,7 @@ export const createProposerAgent: OperationDefinition<
         evidenceContext,
         batchSchema ?? proposerEditOutputSchema,
         config.subagents ?? [],
+        true,
       );
       if (!batchSchema) return commitProposal(response);
 

@@ -83,6 +83,7 @@ function call(
 async function fixture(
   onHealth?: () => void,
   startupFailure?: 'start' | 'poll' | 'cleanup',
+  recoveryFailure?: 'once' | 'always',
 ): Promise<{
   root: string;
   config: RemoteInferenceConfig;
@@ -108,6 +109,7 @@ async function fixture(
 let text='';for await(const chunk of process.stdin)text+=chunk;
 const r=JSON.parse(text), d={root:${JSON.stringify(root)}};
 const startupFailure=${JSON.stringify(startupFailure ?? null)};
+const recoveryFailure=${JSON.stringify(recoveryFailure ?? null)};
 if('deployment' in r)throw Error('Unexpected deployment payload');
 await appendFile(d.root+'/requests.jsonl',JSON.stringify(r)+'\\n');
 let saved=null;try{saved=JSON.parse(await readFile(d.root+'/remote.json','utf8'))}catch(e){if(e.code!=='ENOENT')throw e}
@@ -123,6 +125,11 @@ if(r.action==='describe-parameters'){
  }
  else if(r.memoryUtilization>0.97)out={status:'capacity-rejected',instanceId:r.instanceId,parametersDigest:r.parametersDigest};
  else {saved={status:'ready',instanceId:r.instanceId,parametersDigest:r.parametersDigest,resources:identity};await writeFile(d.root+'/remote.json',JSON.stringify(saved));out=saved}
+}else if(r.action==='recover'){
+ let attempts=0;try{attempts=Number(await readFile(d.root+'/recover-attempts','utf8'))}catch(e){if(e.code!=='ENOENT')throw e}
+ attempts+=1;await writeFile(d.root+'/recover-attempts',String(attempts));
+ if(recoveryFailure==='always'||(recoveryFailure==='once'&&attempts===1))out={status:'unknown',instanceId:r.instanceId,parametersDigest:r.parametersDigest};
+ else {await writeFile(d.root+'/remote.json','null');out={status:'stopped',instanceId:r.instanceId};}
 }else if(r.action==='stop'){if(startupFailure==='cleanup')out={...saved,status:'unknown'};else {if(saved&&saved.instanceId!==r.instanceId)throw Error('ownership mismatch');await writeFile(d.root+'/remote.json','null');out={status:'stopped',instanceId:r.instanceId};}}
 else out=saved??{status:'stopped',instanceId:r.instanceId};
 process.stdout.write(JSON.stringify(out));`,
@@ -722,6 +729,256 @@ test('remote release retries remove only the matching leftover local lock after 
       JSON.parse(await readFile(join(lock, 'owner.json'), 'utf8')),
       conflictingExperiment,
     );
+  } finally {
+    await backend.dispose();
+    await f.close();
+  }
+});
+
+test('remote release recovers a corrupt owner, records the stop and releases the lock', async () => {
+  const f = await fixture();
+  const services = servicesFor(f.root);
+  const backend = await createRemoteBackend(f.config, services);
+  const lock = join(
+    services.dataDirectory,
+    'application-inference',
+    'remote-locks',
+    digest({ origin: object(f.config.endpoint).origin }),
+  );
+  const request = {
+    instanceId: 'corrupt-running',
+    experimentId: 'remote-test',
+    parametersDigest: 'parameters',
+  };
+  try {
+    await mkdir(lock, { recursive: true });
+    await writeFile(join(lock, 'owner.json'), '{');
+    await services.facts.write(
+      'application-inference-remote',
+      request.instanceId,
+      {
+        status: 'running',
+        lockDirectory: lock,
+        request,
+      },
+    );
+
+    await backend.release({ instanceId: request.instanceId }, call(services));
+
+    const saved = await services.facts.read(
+      'application-inference-remote',
+      request.instanceId,
+    );
+    assert.equal(saved.status, 'stopped');
+    assert.equal(saved.lockDirectory, null);
+    await assert.rejects(readdir(lock), /ENOENT/);
+    const requests = (await readFile(join(f.root, 'requests.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => object(JSON.parse(line)));
+    assert.deepEqual(
+      requests.map((value) => value.action),
+      ['recover'],
+    );
+  } finally {
+    await backend.dispose();
+    await f.close();
+  }
+});
+
+test('remote release recovers a running fact when the local owner is absent', async () => {
+  const f = await fixture();
+  const services = servicesFor(f.root);
+  const backend = await createRemoteBackend(f.config, services);
+  const lock = join(
+    services.dataDirectory,
+    'application-inference',
+    'remote-locks',
+    digest({ origin: object(f.config.endpoint).origin }),
+  );
+  const request = {
+    instanceId: 'owner-absent-running',
+    experimentId: 'remote-test',
+    parametersDigest: 'parameters',
+  };
+  try {
+    await mkdir(lock, { recursive: true });
+    await services.facts.write(
+      'application-inference-remote',
+      request.instanceId,
+      {
+        status: 'running',
+        lockDirectory: lock,
+        request,
+      },
+    );
+
+    await backend.release({ instanceId: request.instanceId }, call(services));
+
+    const saved = await services.facts.read(
+      'application-inference-remote',
+      request.instanceId,
+    );
+    assert.equal(saved.status, 'stopped');
+    assert.equal(saved.lockDirectory, null);
+    await assert.rejects(readdir(lock), /ENOENT/);
+    const requests = (await readFile(join(f.root, 'requests.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => object(JSON.parse(line)));
+    assert.deepEqual(
+      requests.map((value) => value.action),
+      ['recover'],
+    );
+  } finally {
+    await backend.dispose();
+    await f.close();
+  }
+});
+
+test('remote release removes a stale lock after a stopped fact even without a readable owner', async () => {
+  const f = await fixture();
+  const services = servicesFor(f.root);
+  const backend = await createRemoteBackend(f.config, services);
+  const lock = join(
+    services.dataDirectory,
+    'application-inference',
+    'remote-locks',
+    digest({ origin: object(f.config.endpoint).origin }),
+  );
+  const request = {
+    instanceId: 'corrupt-stopped',
+    experimentId: 'remote-test',
+    parametersDigest: 'parameters',
+  };
+  try {
+    await services.facts.write(
+      'application-inference-remote',
+      request.instanceId,
+      {
+        status: 'stopped',
+        lockDirectory: null,
+        request,
+      },
+    );
+    for (const owner of ['{', null] as const) {
+      await mkdir(lock, { recursive: true });
+      if (owner !== null) await writeFile(join(lock, 'owner.json'), owner);
+      await backend.release({ instanceId: request.instanceId }, call(services));
+      await assert.rejects(readdir(lock), /ENOENT/);
+    }
+  } finally {
+    await backend.dispose();
+    await f.close();
+  }
+});
+
+test('a failed corrupt-owner recovery leaves a retryable lock', async () => {
+  const f = await fixture(undefined, undefined, 'once');
+  const services = servicesFor(f.root);
+  const backend = await createRemoteBackend(f.config, services);
+  const lock = join(
+    services.dataDirectory,
+    'application-inference',
+    'remote-locks',
+    digest({ origin: object(f.config.endpoint).origin }),
+  );
+  const request = {
+    instanceId: 'corrupt-retry',
+    experimentId: 'remote-test',
+    parametersDigest: 'parameters',
+  };
+  try {
+    await mkdir(lock, { recursive: true });
+    await writeFile(join(lock, 'owner.json'), '{');
+    await services.facts.write(
+      'application-inference-remote',
+      request.instanceId,
+      {
+        status: 'running',
+        lockDirectory: lock,
+        request,
+      },
+    );
+
+    await assert.rejects(
+      backend.release({ instanceId: request.instanceId }, call(services)),
+      /recovery outcome is unknown/,
+    );
+    assert.equal(await readFile(join(lock, 'owner.json'), 'utf8'), '{');
+    assert.equal(
+      (
+        await services.facts.read(
+          'application-inference-remote',
+          request.instanceId,
+        )
+      ).status,
+      'running',
+    );
+
+    await backend.release({ instanceId: request.instanceId }, call(services));
+    await assert.rejects(readdir(lock), /ENOENT/);
+    const requests = (await readFile(join(f.root, 'requests.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => object(JSON.parse(line)));
+    assert.deepEqual(
+      requests.map((value) => value.action),
+      ['recover', 'recover'],
+    );
+  } finally {
+    await backend.dispose();
+    await f.close();
+  }
+});
+
+test('corrupt-owner recovery rejects cleanup facts for another lock or instance', async () => {
+  const f = await fixture();
+  const services = servicesFor(f.root);
+  const backend = await createRemoteBackend(f.config, services);
+  const lock = join(
+    services.dataDirectory,
+    'application-inference',
+    'remote-locks',
+    digest({ origin: object(f.config.endpoint).origin }),
+  );
+  const request = {
+    instanceId: 'corrupt-owner-target',
+    experimentId: 'remote-test',
+    parametersDigest: 'parameters',
+  };
+  try {
+    await mkdir(lock, { recursive: true });
+    await writeFile(join(lock, 'owner.json'), '{');
+    await services.facts.write(
+      'application-inference-remote',
+      request.instanceId,
+      {
+        status: 'running',
+        lockDirectory: `${lock}-other`,
+        request,
+      },
+    );
+    await assert.rejects(
+      backend.release({ instanceId: request.instanceId }, call(services)),
+      /lock identity mismatch/,
+    );
+
+    await services.facts.write(
+      'application-inference-remote',
+      request.instanceId,
+      {
+        status: 'running',
+        lockDirectory: lock,
+        request: { ...request, instanceId: 'another-instance' },
+      },
+    );
+    await assert.rejects(
+      backend.release({ instanceId: request.instanceId }, call(services)),
+      /cleanup request identity mismatch/,
+    );
+    assert.equal(await readFile(join(lock, 'owner.json'), 'utf8'), '{');
+    await assert.rejects(readFile(join(f.root, 'requests.jsonl')), /ENOENT/);
   } finally {
     await backend.dispose();
     await f.close();

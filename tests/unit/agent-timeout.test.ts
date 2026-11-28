@@ -18,6 +18,7 @@ for (const [name, create] of [
   test(`${name} retains config.timeoutMs and cancels its process scope`, async (t) => {
     const fixture = name === 'Claude Code' ? claudeAgentFixture : agentFixture;
     const f = await fixture(async (_spec, _consume, context) => {
+      context.signal.throwIfAborted();
       await new Promise<void>((resolve) =>
         context.signal.addEventListener('abort', () => resolve(), {
           once: true,

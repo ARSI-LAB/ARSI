@@ -13,12 +13,36 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { parse } from 'yaml';
 
-const { jobs } = parse(
+const { jobs, on, concurrency } = parse(
   readFileSync(
     new URL('../../.github/workflows/ci.yml', import.meta.url),
     'utf8',
   ),
 );
+
+test('drafts skip CI and both readiness transitions trigger a run in the same PR group', () => {
+  assert.deepEqual(
+    new Set(on.pull_request.types),
+    new Set([
+      'opened',
+      'reopened',
+      'synchronize',
+      'ready_for_review',
+      'converted_to_draft',
+    ]),
+  );
+  assert.deepEqual(on.merge_group.types, ['checks_requested']);
+  assert.equal(
+    concurrency.group,
+    'quality-${{ github.event.pull_request.number || github.ref }}',
+  );
+  assert.equal(concurrency['cancel-in-progress'], true);
+  assert.equal(jobs.scope.if, 'github.event.pull_request.draft != true');
+  assert.equal(
+    jobs.windows.if,
+    '${{ !cancelled() && github.event.pull_request.draft != true }}',
+  );
+});
 
 // Git supplies Bash on Windows, the same shell used by the workflow.
 function runBash(script, env, cwd) {
@@ -204,7 +228,6 @@ test('the required Windows check succeeds only for a successful scope and docs o
   assert.equal(job.name, 'CI / Test (Windows)');
   assert.equal(job['runs-on'], 'ubuntu-latest');
   assert.deepEqual(job.needs, ['scope', 'windows_shard']);
-  assert.equal(job.if, '${{ !cancelled() }}');
   const summary = job.steps.find((step) => step.run);
   assert.deepEqual(summary.env, {
     SCOPE_RESULT: '${{ needs.scope.result }}',

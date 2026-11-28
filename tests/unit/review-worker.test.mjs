@@ -176,6 +176,59 @@ test('the worker marks automatic authorization before checking Linux CI and writ
   }
 });
 
+test('draft polls wait for ready without reading comments, labeling or starting review', async () => {
+  const current = {
+    ...pr,
+    state: 'open',
+    draft: true,
+    head: { sha: head, repo: { id: 14 } },
+  };
+  const api = { pr: async () => current };
+  for (const manual of [false, true])
+    assert.equal(
+      await reviewPullRequest(api, 12, 'worker', { manual }),
+      'draft',
+    );
+
+  current.draft = false;
+  const calls = [];
+  const ready = {
+    ...api,
+    comments: async () => [],
+    authorization: async () => 'auto',
+    markAutoAuthorized: async () => calls.push('label'),
+    l1: async () => {
+      calls.push('linux');
+      return null;
+    },
+  };
+  assert.match(await reviewPullRequest(ready, 12, 'worker', {}), /Linux/);
+  assert.deepEqual(calls, ['label', 'linux']);
+});
+
+test('returning to draft suppresses publication even when snapshot preparation fails', async () => {
+  let draft = false;
+  const api = {
+    pr: async () => ({
+      ...pr,
+      state: 'open',
+      draft,
+      head: { sha: head, repo: { id: 14 } },
+      base: { ref: 'master' },
+    }),
+    comments: async () => [],
+    authorization: async () => 'maintainer',
+    l1: async () => ['unit tests and build'],
+    discussions: async () => {
+      draft = true;
+      return { threads: [], issues: [] };
+    },
+    summary: async () => assert.fail('Published a summary on a draft PR'),
+  };
+  const config = { signal: new AbortController().signal, trusted: 'invalid' };
+  assert.equal(await reviewPullRequest(api, 12, 'worker', config), 'draft');
+});
+
 test('the worker requires a trusted opt-in event for an external PR label and continues if a member label write fails', async () => {
   const current = {
     ...pr,

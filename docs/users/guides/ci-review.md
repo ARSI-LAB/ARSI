@@ -12,7 +12,9 @@ With a signed-in Codex CLI, run `pnpm review:local` for an optional review of th
 
 ## Hosted checks
 
-`CI / Detect changes` compares the proposed merge with its base for both pull requests and merge groups. Once it finishes, the Linux check, package check and Windows test shards can run in parallel. Each job that installs dependencies caches the pnpm store and uses the frozen lockfile.
+Draft PRs skip all hosted CI jobs. Marking a PR ready for review starts CI even without a new commit. Converting it back to draft cancels any CI run in progress for that PR. You can run `pnpm check` and `pnpm review:local` while drafting.
+
+`CI / Detect changes` compares the proposed merge with its base for ready PRs and merge groups. Once it finishes, the Linux check, package check and Windows test shards can run in parallel. Each job that installs dependencies caches the pnpm store and uses the frozen lockfile.
 
 - `CI / Check (Linux)` runs `pnpm check` and also runs the Python bridge tests when bridge inputs change. A nonempty diff confined to `docs/` and root-level Markdown takes the `pnpm check:docs` path. An empty diff or a Markdown change under `src/`, `.github/`, `examples/` or `skills/` runs the full check.
 - `CI / Package` installs and tests the package as an independent consumer when packaging inputs change. Otherwise it reports success without installing dependencies.
@@ -26,7 +28,9 @@ Use a dedicated, maintainer-controlled checkout with `origin` pointing to the re
 pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 ```
 
-PRs from repository owners, members and collaborators qualify automatically. The worker adds the repository's `ai-review` label before checking CI. For an external contributor, a maintainer must apply the same label or comment `/ai-review` to authorize review. In both cases, review starts once `CI / Check (Linux)` passes on the current PR head.
+The worker skips draft PRs before applying labels or starting a review. If a PR returns to draft during review, the worker stops publishing results once it detects the change. Existing labels stay on the PR.
+
+Once ready for review, PRs from repository owners, members and collaborators qualify automatically. The worker adds the repository's `ai-review` label before checking CI. For an external contributor, a maintainer must apply the same label or comment `/ai-review` to authorize review. In both cases, review starts once `CI / Check (Linux)` passes on the current PR head.
 
 The worker and local review both read the [review skill](../../../.github/review/skill/SKILL.md) from the trusted default branch. They also load applicable guides and any matching topic files in `.github/review/skill/references/`. Codex inspects an ephemeral worktree with its native read-only sandbox. The outer worker publishes the result.
 

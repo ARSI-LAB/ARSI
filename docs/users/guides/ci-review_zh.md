@@ -12,7 +12,9 @@
 
 ## 远端检查
 
-对 PR 和合并队列，`CI / Detect changes` 都会比较预合并提交与基线。路径分类完成后，Linux 检查、打包检查和 Windows 测试分片可并行执行。需要安装依赖的任务均缓存 pnpm 存储，并按锁文件安装。
+草稿 PR 跳过所有远端 CI 任务。将 PR 标记为就绪（Ready for review）即可在当前提交上启动 CI，无需推送新提交。将 PR 转回草稿会取消该 PR 正在运行的 CI。草稿阶段仍可在本地运行 `pnpm check` 和 `pnpm review:local`。
+
+对已就绪的 PR 和合并队列，`CI / Detect changes` 都会比较预合并提交与基线。路径分类完成后，Linux 检查、打包检查和 Windows 测试分片可并行执行。需要安装依赖的任务均缓存 pnpm 存储，并按锁文件安装。
 
 - `CI / Check (Linux)` 执行 `pnpm check`，涉及桥接输入时还运行桥接的 Python 测试。差异非空且所有改动都位于 `docs/` 或根目录的 Markdown 文件中时，改为执行 `pnpm check:docs`。空差异或修改 `src/`、`.github/`、`examples/`、`skills/` 下的 Markdown 时，均执行完整检查。
 - `CI / Package` 在打包输入变化时，以独立消费者的身份安装并测试软件包。其他情况下跳过依赖安装，直接上报成功。
@@ -26,7 +28,9 @@
 pnpm review:worker --once --repo ARSI-LAB/ARSI --pr 123
 ```
 
-仓库所有者、成员和协作者提交的 PR 自动获得检视授权，Worker 会在检查 CI 前给 PR 添加仓库已有的 `ai-review` 标签。外部贡献者的 PR 需要维护者添加同一标签或评论 `/ai-review` 才能获准。两种情况下，检视都要等当前 PR 提交的 `CI / Check (Linux)` 通过后才会启动。
+Worker 会在添加标签或启动检视前跳过草稿 PR。如果 PR 在检视中转回草稿，Worker 检测到状态变化后会停止发布后续结果。PR 上已有的标签会保留。
+
+PR 就绪后，仓库所有者、成员和协作者提交的 PR 自动获得检视授权，Worker 会在检查 CI 前给 PR 添加仓库已有的 `ai-review` 标签。外部贡献者的 PR 需要维护者添加同一标签或评论 `/ai-review` 才能获准。两种情况下，检视都要等当前 PR 提交的 `CI / Check (Linux)` 通过后才会启动。
 
 Worker 和本地检视都从可信默认分支读取[检视 Skill](../../../.github/review/skill/SKILL.md)，并加载适用的指南和 `.github/review/skill/references/` 中匹配的主题文件。Codex 以原生只读沙箱检查临时工作树，外层 Worker 负责发布结果。
 

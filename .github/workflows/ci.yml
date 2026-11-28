@@ -4,6 +4,7 @@ run-name: >-
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
   merge_group:
     types: [checks_requested]
 
@@ -17,6 +18,7 @@ concurrency:
 jobs:
   scope:
     name: CI / Detect changes
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -145,7 +147,7 @@ jobs:
   windows:
     name: CI / Test (Windows)
     needs: [scope, windows_shard]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

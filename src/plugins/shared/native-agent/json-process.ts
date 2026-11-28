@@ -14,6 +14,7 @@ export async function runNativeJsonProcess(
   options: {
     record: (event: AgentObservation) => void;
     outputSchema: JsonObject;
+    taskMessage?: string;
     env?: NodeJS.ProcessEnv;
   },
 ): Promise<void> {
@@ -22,7 +23,7 @@ export async function runNativeJsonProcess(
     runId: 'main',
     event: {
       type: 'task.submitted',
-      text: input,
+      text: options.taskMessage ?? input,
       outputSchema: options.outputSchema,
     },
   });

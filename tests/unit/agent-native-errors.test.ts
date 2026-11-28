@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
-import { agentFixture } from '../fixtures/agent-execution.js';
+import {
+  agentFixture,
+  claudeAgentFixture,
+} from '../fixtures/agent-execution.js';
 import { createAgentClaudeCode } from '../../src/plugins/agent-claudecode/service.js';
 import { createAgentDsh } from '../../src/plugins/agent-dsh/service.js';
 import { createAgentOpenCode } from '../../src/plugins/agent-opencode/service.js';
@@ -89,7 +92,8 @@ for (const [name, create, events, pattern] of [
 ] as const) {
   test(`${name} rejects native failure without another launch: ${pattern.source}`, async (t) => {
     let launches = 0;
-    const f = await agentFixture(async (_spec, consume) => {
+    const fixture = name === 'Claude Code' ? claudeAgentFixture : agentFixture;
+    const f = await fixture(async (_spec, consume) => {
       launches++;
       for (const event of events)
         await consume(JSON.stringify(event), () => {});
@@ -117,7 +121,8 @@ for (const [name, definition] of [
     const registry = new Registry();
     t.after(() => registry.dispose());
     registry.registerOperation(definition);
-    const f = await agentFixture(async () => {
+    const fixture = name === 'Claude Code' ? claudeAgentFixture : agentFixture;
+    const f = await fixture(async () => {
       throw new Error('Native launch failed');
     });
     t.after(() => f.close());

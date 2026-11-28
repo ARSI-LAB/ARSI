@@ -134,7 +134,7 @@ settings:
 | Backend | Installation and configuration | Sign in or verify | Recipe `plugin` |
 | --- | --- | --- | --- |
 | Codex | [Official guide](https://developers.openai.com/codex/cli/) | Sign in with `codex login`, check with `codex login status`, then verify the model in `codex` | `agent.codex` |
-| Claude Code | [Official guide](https://code.claude.com/docs/en/setup) | Sign in with `claude auth login`, check with `claude auth status`, then verify the model in `claude` | `agent.claudecode` |
+| Claude Code 2.1.248 or newer | [Official guide](https://code.claude.com/docs/en/setup) | Sign in with `claude auth login`, check with `claude auth status`, then verify the model in `claude` | `agent.claudecode` |
 | DSH | [Official guide](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | Configure the headless profile, then verify with `dsh --profile headless "Reply with OK."` | `agent.dsh` |
 | OpenCode V2 | [Official guide](https://opencode.ai/docs/cli/); `npm install -g @opencode/cli` | Run `opencode` to configure and verify model access | `agent.opencode` |
 

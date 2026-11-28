@@ -111,3 +111,16 @@ export async function agentFixture(
     },
   };
 }
+
+export function claudeAgentFixture(
+  onLaunch: NonNullable<Parameters<typeof agentFixture>[0]>,
+  version = '2.1.248 (Claude Code)',
+): ReturnType<typeof agentFixture> {
+  return agentFixture(async (spec, consume, context) => {
+    if (spec.args.at(-1) === '--version') {
+      await consume(version, () => {});
+      return;
+    }
+    await onLaunch(spec, consume, context);
+  });
+}

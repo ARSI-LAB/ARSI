@@ -134,7 +134,7 @@ settings:
 | 后端 | 安装与配置说明 | 登录或验证 | Recipe 的 `plugin` |
 | --- | --- | --- | --- |
 | Codex | [官方文档](https://developers.openai.com/codex/cli/) | `codex login` 登录，`codex login status` 检查；运行 `codex` 验证模型 | `agent.codex` |
-| Claude Code | [官方文档](https://code.claude.com/docs/en/setup) | `claude auth login` 登录，`claude auth status` 检查；运行 `claude` 验证模型 | `agent.claudecode` |
+| Claude Code 2.1.248 或更高版本 | [官方文档](https://code.claude.com/docs/en/setup) | `claude auth login` 登录，`claude auth status` 检查；运行 `claude` 验证模型 | `agent.claudecode` |
 | DSH | [官方文档](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli) | 配置 headless profile 后，运行 `dsh --profile headless "Reply with OK."` 验证模型 | `agent.dsh` |
 | OpenCode V2 | [官方文档](https://opencode.ai/docs/cli/)；`npm install -g @opencode/cli` | 运行 `opencode` 配置并验证模型 | `agent.opencode` |
 

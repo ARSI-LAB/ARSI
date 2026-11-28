@@ -1,15 +1,36 @@
 import test from 'node:test';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { AgentOutputError } from '../../src/contracts/runtime/errors.js';
 import { createAgentClaudeCode } from '../../src/plugins/agent-claudecode/service.js';
-import { agentFixture } from '../fixtures/agent-execution.js';
+import {
+  agentFixture,
+  claudeAgentFixture,
+} from '../fixtures/agent-execution.js';
 import { readAgentRecords } from '../../src/runtime/storage/agent-records.js';
 
+const executable = process.execPath;
+
+function claudeUserFrame(message: string): unknown {
+  return {
+    type: 'user',
+    message: { role: 'user', content: message },
+    parent_tool_use_id: null,
+    session_id: 'default',
+    client_composed: true,
+  };
+}
+
 test('Claude translates text, thinking and correlated tool results while returning structured output', async (t) => {
-  let submittedText: string | undefined;
-  const f = await agentFixture(async (spec, consume) => {
-    submittedText = spec.input;
-    assert.equal(spec.input, f.request.message);
+  const f = await claudeAgentFixture(async (spec, consume) => {
+    const inputOption = spec.args.indexOf('--input-format');
+    assert.notEqual(inputOption, -1);
+    assert.equal(spec.args[inputOption + 1], 'stream-json');
+    assert.deepEqual(spec.input.split('\n').slice(1), ['']);
+    assert.deepEqual(
+      JSON.parse(spec.input),
+      claudeUserFrame(f.request.message),
+    );
     const schemaOption = spec.args.indexOf('--json-schema');
     assert.notEqual(schemaOption, -1);
     assert.deepEqual(
@@ -96,7 +117,7 @@ test('Claude translates text, thinking and correlated tool results while returni
   t.after(() => f.close());
   const agent = await createAgentClaudeCode(
     {
-      executable: process.execPath,
+      executable,
       options: [
         '--model',
         'sonnet',
@@ -112,7 +133,7 @@ test('Claude translates text, thinking and correlated tool results while returni
   const records = await readAgentRecords(f.context.directory, 0, 100, true);
   assert.deepEqual(records.submitted?.event, {
     type: 'task.submitted',
-    text: submittedText,
+    text: f.request.message,
     outputSchema: f.request.outputSchema,
   });
   assert.deepEqual(records.items.at(-1)?.event, {
@@ -173,7 +194,7 @@ test('Claude translates text, thinking and correlated tool results while returni
 for (const output of [undefined, null, [], 'text', { wrong: true }]) {
   test(`Claude classifies invalid output ${JSON.stringify(output)} without a second launch`, async (t) => {
     let launches = 0;
-    const f = await agentFixture(async (_spec, consume) => {
+    const f = await claudeAgentFixture(async (_spec, consume) => {
       launches++;
       await consume(
         JSON.stringify({
@@ -186,10 +207,7 @@ for (const output of [undefined, null, [], 'text', { wrong: true }]) {
       );
     });
     t.after(() => f.close());
-    const agent = await createAgentClaudeCode(
-      { executable: process.execPath },
-      f.context,
-    );
+    const agent = await createAgentClaudeCode({ executable }, f.context);
     await assert.rejects(f.execute(agent), AgentOutputError);
     assert.equal(launches, 1);
     const records = await readAgentRecords(f.context.directory, 0, 100, true);
@@ -201,3 +219,70 @@ for (const output of [undefined, null, [], 'text', { wrong: true }]) {
     });
   });
 }
+
+for (const message of ['/context', '/review-skill']) {
+  test(
+    'Claude sends literal task ' + message + ' with its Skill tool enabled',
+    async (t) => {
+      const f = await claudeAgentFixture(async (spec, consume) => {
+        assert.deepEqual(JSON.parse(spec.input), claudeUserFrame(message));
+        for (const option of [
+          '--tools',
+          '--disallowedTools',
+          '--disable-slash-commands',
+        ])
+          assert(!spec.args.includes(option));
+        await consume(
+          JSON.stringify({
+            type: 'result',
+            is_error: false,
+            subtype: 'success',
+            structured_output: { answer: 'ok' },
+          }),
+          () => {},
+        );
+      });
+      t.after(() => f.close());
+      const agent = await createAgentClaudeCode({ executable }, f.context);
+      assert.deepEqual(await f.execute(agent, { ...f.request, message }), {
+        answer: 'ok',
+      });
+    },
+  );
+}
+
+test('Claude rejects an older CLI before submitting a model task', async (t) => {
+  const f = await claudeAgentFixture(async () => {
+    assert.fail('must not submit to an older CLI');
+  }, '2.1.247 (Claude Code)');
+  t.after(() => f.close());
+  const agent = await createAgentClaudeCode({ executable }, f.context);
+  await assert.rejects(f.execute(agent), /Claude Code 2\.1\.248 or newer/);
+});
+
+test('Claude uses the host launcher for version preflight with a distinct cancellation scope', async (t) => {
+  const signals: AbortSignal[] = [];
+  const f = await agentFixture(async (spec, consume, context) => {
+    signals.push(context.signal);
+    assert.equal(spec.args[0], executable);
+    if (spec.args.at(-1) === '--version') {
+      assert.equal(spec.input, '');
+      await consume('2.1.248 (Claude Code)', () => {});
+      return;
+    }
+    assert.deepEqual(
+      JSON.parse(spec.input),
+      claudeUserFrame(f.request.message),
+    );
+    await consume(
+      '{"type":"result","is_error":false,"subtype":"success","structured_output":{"answer":"ok"}}',
+      () => {},
+    );
+  });
+  t.after(() => f.close());
+  const executable = join(f.root, 'host-virtual-cli.cjs');
+  const agent = await createAgentClaudeCode({ executable }, f.context);
+  assert.deepEqual(await f.execute(agent), { answer: 'ok' });
+  assert.equal(signals.length, 2);
+  assert.notEqual(signals[0], signals[1]);
+});

@@ -19,7 +19,7 @@ import { checkCodexAgent } from '../../src/plugins/agent-codex/doctor.js';
 import { isNativeAgentCompatible } from '../../src/plugins/shared/doctor/native-agent.js';
 
 const flags =
-  '--json --permission-mode --approval-policy --print --output-format --json-schema --tools --permission-prompts --strict-mcp-config --verbose --no-session-persistence --disallowedTools --mcp-config --settings';
+  '--json --permission-mode --approval-policy --print --input-format --output-format --json-schema --tools --permission-prompts --strict-mcp-config --verbose --no-session-persistence --disallowedTools --mcp-config --settings';
 
 for (const pluginId of ['agent.dsh', 'agent.claudecode']) {
   test(`${pluginId} doctor checks the CLI without claiming model access`, async (t) => {
@@ -62,7 +62,8 @@ for (const pluginId of ['agent.dsh', 'agent.claudecode']) {
       `const assert = require('node:assert/strict');
 require('node:fs').appendFileSync(${JSON.stringify(calls)}, 'called');
 const args = process.argv.slice(2);
-if (args.includes('--dump-config')) console.log('- id: fixture');
+if (args.includes('--version')) console.log('2.1.248 (Claude Code)');
+else if (args.includes('--dump-config')) console.log('- id: fixture');
 else if (args.includes('auth')) { assert.deepEqual(args, ['auth', 'status', args.includes('--help') ? '--help' : '--json']); console.log(args.includes('--help') ? '--json' : JSON.stringify({loggedIn:true})); }
 else { assert.deepEqual(args, ${JSON.stringify(args)}); console.log(${JSON.stringify(flags)}); }`,
     );
@@ -97,7 +98,7 @@ else { assert.deepEqual(args, ${JSON.stringify(args)}); console.log(${JSON.strin
     ]) {
       await writeFile(
         executable,
-        `const args = process.argv.slice(2); if (args.includes(${JSON.stringify(nativeArgs)})) { console.log(${JSON.stringify(output)}); process.exit(${pluginId === 'agent.dsh' ? 0 : 1}); } console.log(${JSON.stringify(flags)});`,
+        `const args = process.argv.slice(2); if (args.includes('--version')) { console.log('2.1.248 (Claude Code)'); } else if (args.includes(${JSON.stringify(nativeArgs)})) { console.log(${JSON.stringify(output)}); process.exit(${pluginId === 'agent.dsh' ? 0 : 1}); } console.log(${JSON.stringify(flags)});`,
       );
       report = await diagnose();
       assert.equal(
@@ -115,6 +116,16 @@ else { assert.deepEqual(args, ${JSON.stringify(args)}); console.log(${JSON.strin
           ? ['passed', 'failed', 'unchecked', 'unchecked']
           : ['passed', 'unchecked', 'failed', 'unchecked'],
       );
+    }
+
+    if (pluginId === 'agent.claudecode') {
+      await writeFile(
+        executable,
+        `console.log(process.argv.includes('--version') ? '2.1.247 (Claude Code)' : ${JSON.stringify(flags)});`,
+      );
+      report = await diagnose();
+      assert.equal(report.checks[0].status, 'failed');
+      assert.match(report.checks[0].reason ?? '', /2\.1\.248/);
     }
 
     await writeFile(executable, 'console.log("--permission-mode");');
@@ -149,7 +160,10 @@ else { assert.deepEqual(args, ${JSON.stringify(args)}); console.log(${JSON.strin
 
     if (process.platform !== 'win32') {
       const target = join(root, 'native-bin');
-      await writeFile(target, `#!/bin/sh\nprintf '%s\\n' '${flags}'\n`);
+      await writeFile(
+        target,
+        `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '%s\\n' '2.1.248'; else printf '%s\\n' '${flags}'; fi\n`,
+      );
       await chmod(target, 0o755);
       const link = join(root, 'native-link');
       await symlink(target, link);

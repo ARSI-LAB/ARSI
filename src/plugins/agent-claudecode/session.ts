@@ -30,6 +30,8 @@ export async function runSession(options: {
   // Keep native model/auth settings; constrain task tools independently.
   const args = [
     '-p',
+    '--input-format',
+    'stream-json',
     '--output-format',
     'stream-json',
     '--verbose',
@@ -39,10 +41,18 @@ export async function runSession(options: {
     JSON.stringify(request.outputSchema),
     ...(config.options ?? []),
   ];
+  // Submit the fully composed user message without native slash-command routing.
+  const frame = JSON.stringify({
+    type: 'user',
+    message: { role: 'user', content: request.message },
+    parent_tool_use_id: null,
+    session_id: 'default',
+    client_composed: true,
+  });
   await runClaudeProcess(
     config.executable ?? 'claude',
     args,
-    request.message,
+    frame + '\n',
     (line) => {
       const event = object(JSON.parse(line));
       observe(event);
@@ -78,7 +88,11 @@ export async function runSession(options: {
       }
     },
     options.launch,
-    { record, outputSchema: request.outputSchema },
+    {
+      record,
+      outputSchema: request.outputSchema,
+      taskMessage: request.message,
+    },
   );
   if (!result) throw new Error('Claude Code returned no validated output');
   return result;

@@ -126,6 +126,19 @@ else { assert.deepEqual(args, ${JSON.stringify(args)}); console.log(${JSON.strin
       report = await diagnose();
       assert.equal(report.checks[0].status, 'failed');
       assert.match(report.checks[0].reason ?? '', /2\.1\.248/);
+
+      for (const failingArg of ['--help', '--version']) {
+        const finished = join(root, 'peer-finished-' + failingArg.slice(2));
+        await writeFile(
+          executable,
+          `if (process.argv.includes(${JSON.stringify(failingArg)})) process.exit(1);
+process.on('exit', () => require('node:fs').writeFileSync(${JSON.stringify(finished)}, 'exited'));
+setTimeout(() => console.log(process.argv.includes('--version') ? '2.1.248' : ${JSON.stringify(flags)}), 150);`,
+        );
+        report = await diagnose();
+        assert.equal(report.checks[0].status, 'failed');
+        assert.equal(await readFile(finished, 'utf8'), 'exited');
+      }
     }
 
     await writeFile(executable, 'console.log("--permission-mode");');

@@ -92,6 +92,7 @@ export async function requestEdit(
   outputSchema: JsonSchema = editOutputSchema,
   roles: readonly AgentRole[] = [],
   retryInvalidOutput = false,
+  validateOutput?: (result: JsonObject) => Promise<void>,
 ): Promise<JsonObject> {
   const files = await resourceFiles(ref, context);
   if (readOnly)
@@ -168,37 +169,48 @@ Read context/input.json for the target, edit constraints, observations and sourc
     outputSchema: object(outputSchema),
   };
   const agentRef = config.agentRef ?? 'agent.default';
-  let result: JsonObject;
-  try {
-    result = await context.invokeAgent(agentRef, request);
-  } catch (error) {
-    context.signal.throwIfAborted();
-    if (!retryInvalidOutput || !(error instanceof AgentOutputError))
-      throw error;
-    const detail =
-      error instanceof Error ? error.message.slice(0, 1000) : String(error);
-    result = await context.invokeAgent(agentRef, {
-      ...request,
-      message: `${request.message}\n\nYour previous final response failed output-schema validation: ${detail}\nReturn exactly one JSON object matching outputSchema. Use the top-level structure required by that schema; do not add a status, result, or other envelope unless the schema requires it.`,
-    });
-  }
-  const plans = Array.isArray(result.proposals)
-    ? result.proposals.map((plan) => object(plan))
-    : [result];
-  for (const plan of plans) {
-    if (!Array.isArray(plan.edits)) continue;
-    for (const raw of plan.edits) {
-      const path = string(object(raw).path);
-      if (path === 'context' || path.startsWith('context/'))
-        throw new Error('Cannot modify read-only context');
+  let currentMessage = request.message;
+  let retried = false;
+  for (;;) {
+    try {
+      const result = await context.invokeAgent(agentRef, {
+        ...request,
+        message: currentMessage,
+      });
+      const plans = Array.isArray(result.proposals)
+        ? result.proposals.map((plan) => object(plan))
+        : [result];
+      for (const plan of plans) {
+        if (!Array.isArray(plan.edits)) continue;
+        for (const raw of plan.edits) {
+          const path = string(object(raw).path);
+          if (path === 'context' || path.startsWith('context/'))
+            throw new AgentOutputError('Cannot modify read-only context');
+          if (
+            sources.length > 0 &&
+            (path === 'sources' || path.startsWith('sources/'))
+          )
+            throw new AgentOutputError(
+              'Cannot modify read-only source context',
+            );
+        }
+        await validateOutput?.(plan);
+      }
+      return result;
+    } catch (error) {
+      context.signal?.throwIfAborted();
       if (
-        sources.length > 0 &&
-        (path === 'sources' || path.startsWith('sources/'))
+        !retryInvalidOutput ||
+        retried ||
+        !(error instanceof AgentOutputError)
       )
-        throw new Error('Cannot modify read-only source context');
+        throw error;
+      retried = true;
+      const detail =
+        error instanceof Error ? error.message.slice(0, 1000) : String(error);
+      currentMessage = `${request.message}\n\nYour previous final response failed output validation: ${detail}\nReturn exactly one JSON object matching outputSchema. Use the top-level structure required by that schema; do not add a status, result, or other envelope unless the schema requires it. For edits, use unique normalized relative paths and satisfy every edit constraint.`;
     }
   }
-  return result;
 }
 /** Validate the complete plan before any file is changed. */
 export async function validateEdits(
@@ -208,7 +220,8 @@ export async function validateEdits(
   constraints: JsonObject = {},
   allowDuplicatePaths = false,
 ): Promise<{ path: string; content: string | null }[]> {
-  if (!Array.isArray(result.edits)) throw new Error('Expected edits array');
+  if (!Array.isArray(result.edits))
+    throw new AgentOutputError('Expected edits array');
   const allowed =
     constraints.allowedPaths === undefined
       ? null
@@ -230,12 +243,14 @@ export async function validateEdits(
       path.includes('\\') ||
       path.split('/').some((x) => !x || x === '.' || x === '..')
     )
-      throw new Error('Invalid or duplicate edit path');
+      throw new AgentOutputError('Invalid or duplicate edit path');
     if (allowed && !allowed.some((pattern) => matchesGlob(path, pattern)))
-      throw new Error(`Resource edit path is not authorized: ${path}`);
+      throw new AgentOutputError(
+        `Resource edit path is not authorized: ${path}`,
+      );
     seen.add(path);
     if (typeof maxFiles === 'number' && seen.size > maxFiles)
-      throw new Error('Resource edit maxChangedFiles exceeded');
+      throw new AgentOutputError('Resource edit maxChangedFiles exceeded');
     const absolute = inside(directory, path);
     let node = directory;
     for (const part of path.split('/')) {
@@ -262,11 +277,11 @@ export async function validateEdits(
     }
     if (edit.content !== null) {
       if (typeof edit.content !== 'string')
-        throw new Error('Invalid edit content');
+        throw new AgentOutputError('Invalid edit content');
       const length = Buffer.byteLength(edit.content);
       total += length;
       if (typeof maxBytes === 'number' && total > maxBytes)
-        throw new Error('Resource edit exceeds byte limit');
+        throw new AgentOutputError('Resource edit exceeds byte limit');
     }
     if (edit.content === null) removed.add(absolute);
     else removed.delete(absolute);
@@ -309,25 +324,30 @@ export async function editResource(
   changeRef: string | null;
   reason: string;
 }> {
-  const result = await requestEdit(
-    config,
-    input,
-    ref,
-    context,
-    message,
-    readOnly,
-    editOutputSchema,
-    roles,
-    retryInvalidOutput,
-  );
   const workspace = await context.workspaces.create(ref ?? undefined);
   try {
-    await applyEdits(
-      workspace.directory,
-      result,
+    const constraints =
+      input.editConstraints === undefined ? {} : object(input.editConstraints);
+    const result = await requestEdit(
+      config,
+      input,
+      ref,
       context,
-      input.editConstraints === undefined ? {} : object(input.editConstraints),
+      message,
+      readOnly,
+      editOutputSchema,
+      roles,
+      retryInvalidOutput,
+      async (candidate) => {
+        await validateEdits(
+          workspace.directory,
+          candidate,
+          context,
+          constraints,
+        );
+      },
     );
+    await applyEdits(workspace.directory, result, context, constraints);
     const updated = await context.artifacts.capture(workspace.directory);
     const old =
       ref ??

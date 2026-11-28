@@ -561,7 +561,7 @@ test('Reflection supplies preview files in its workspace and rejects evidence ed
   assert.equal((await operation.execute(input, context)).status, 'no-change');
   editEvidence = true;
   await assert.rejects(operation.execute(input, context), /read.only/);
-  assert.equal(reads, 2);
+  assert.equal(reads, 3);
   editEvidence = false;
   previewBudget = 128;
   assert.equal(

@@ -247,7 +247,7 @@ test('Proposer can read every non-thinking event and full arguments while only t
       operation.execute(input, context.extend(services)),
       /read.only/i,
     );
-    assert.equal(requests, 2);
+    assert.equal(requests, 3);
     assert.equal(commits, 1);
     assert.equal(creates, 1);
     assert.equal(releases, 1);

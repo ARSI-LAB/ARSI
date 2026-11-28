@@ -6,13 +6,17 @@ import { join } from 'node:path';
 import { AgentOutputError, RuntimeContext } from '../../src/contracts/index.js';
 import {
   agentConfigSchema,
+  editResource,
   requestEdit,
   resourceFiles,
   validateEdits,
 } from '../../src/plugins/shared/agent-editing/index.js';
 import { prepareAgentProject } from '../../src/index.js';
 import { createArtifactSelector } from '../../src/plugins/selector-artifacts/service.js';
-import { FileArtifacts } from '../../src/runtime/storage/index.js';
+import {
+  FileArtifacts,
+  FileWorkspaces,
+} from '../../src/runtime/storage/index.js';
 import { string } from '../../src/shared/json.js';
 import { validate } from '../../src/shared/schema.js';
 
@@ -218,7 +222,7 @@ test('editor retries one schema-invalid result and surfaces a second failure', a
             });
           assert.match(
             request.message,
-            /previous final response failed output-schema validation/u,
+            /previous final response failed output validation/u,
           );
           assert.match(
             request.message,
@@ -280,6 +284,57 @@ test('editor retries one schema-invalid result and surfaces a second failure', a
       ),
       /Invalid|outside|scope|path/iu,
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('editor retries one invalid edit plan before changing the resource', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rsi-editor-plan-retry-'));
+  try {
+    const prompt = join(root, 'prompt.md');
+    await writeFile(prompt, 'Return the edit contract.\n');
+    const artifacts = new FileArtifacts(join(root, 'artifacts'));
+    let calls = 0;
+    const context = new RuntimeContext().extend({
+      directory: root,
+      signal: new AbortController().signal,
+      artifacts,
+      workspaces: new FileWorkspaces(join(root, 'workspaces'), artifacts),
+      readEvidence: async () => ({}),
+      invokeAgent: async (_binding, request) => {
+        calls += 1;
+        if (calls === 1)
+          return {
+            edits: [
+              { path: 'note.md', content: 'first' },
+              { path: 'note.md', content: 'second' },
+            ],
+            reason: 'Duplicate path',
+          };
+        assert.match(request.message, /Invalid or duplicate edit path/u);
+        assert.match(request.message, /unique normalized relative paths/u);
+        return {
+          edits: [{ path: 'note.md', content: 'recovered' }],
+          reason: 'Use one edit per path',
+        };
+      },
+    });
+    const updated = await editResource(
+      { prompt },
+      { goal: 'Improve guidance' },
+      null,
+      context,
+      'Improve the supplied files.',
+      undefined,
+      undefined,
+      true,
+    );
+    assert.equal(calls, 2);
+    assert.deepEqual(await resourceFiles(updated.resourceRef, context), {
+      'note.md': 'recovered',
+    });
+    assert.match(updated.reason, /one edit per path/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

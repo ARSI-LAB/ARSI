@@ -236,3 +236,4 @@ Inspect the saved experiment status, Measurement status and coverage, and scores
 - [Write a Policy](guides/writing-policies.md) to change the experiment flow or stopping rules.
 - [Write and register a plugin](guides/writing-plugins.md) for a Policy to call.
 - [Subscribe to or publish Runtime events](guides/runtime-events.md) from an extension.
+- [Check and review a pull request](guides/ci-review.md) before contributing changes.

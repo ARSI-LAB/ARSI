@@ -104,7 +104,7 @@ test('fork opt-in requires a maintainer, and L1 belongs to this PR, head and lat
         {
           jobs: [
             {
-              name: 'L1-Fast',
+              name: 'CI / Check (Linux)',
               conclusion: 'success',
               steps: [{ name: 'Run full checks', conclusion: 'success' }],
             },

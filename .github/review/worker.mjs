@@ -13,7 +13,8 @@ async function one(api, number, login, config) {
   if (!(await api.authorized(pr, comments)))
     return 'awaiting maintainer opt-in';
   const rules = await api.l1(pr);
-  if (!rules) return 'awaiting successful L1-Fast on the current head';
+  if (!rules)
+    return 'awaiting successful CI / Check (Linux) on the current head';
 
   async function fresh() {
     const current = await api.pr(number);
@@ -61,7 +62,7 @@ async function one(api, number, login, config) {
   // Reconcile real GitHub state before publishing, including writes acknowledged late.
   await fresh();
   if (!(await api.l1(await api.pr(number))))
-    return 'L1-Fast changed during review';
+    return 'CI / Check (Linux) changed during review';
   const latest = sticky(await api.comments(number), login);
   if (latest.head !== state.head || latest.round !== state.round)
     return 'another review already published';

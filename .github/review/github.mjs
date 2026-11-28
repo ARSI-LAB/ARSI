@@ -2,6 +2,7 @@ import { command } from './process.mjs';
 
 export const summaryMarker = '<!-- arsi-ai-review:summary -->';
 const member = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+const reviewLabel = 'ai-review';
 
 export function confirmedRules(rules, files) {
   // A green job label cannot attest that a PR editing the gate kept its rules.
@@ -78,27 +79,40 @@ export function github(repo, signal, execute = command) {
     const result = await api(base + '/collaborators/' + login + '/permission');
     return ['admin', 'maintain', 'write'].includes(result.permission);
   };
-  async function authorized(pr, comments) {
-    if (member.has(pr.author_association)) return true;
-    if (pr.labels.some((label) => label.name === 'ai-review')) {
+  async function authorization(pr, comments) {
+    if (member.has(pr.author_association)) return 'auto';
+    if (pr.labels.some((label) => label.name === reviewLabel)) {
       const events = await pages(base + '/issues/' + pr.number + '/events');
       const last = events
         .filter(
           (e) =>
             ['labeled', 'unlabeled'].includes(e.event) &&
-            e.label?.name === 'ai-review',
+            e.label?.name === reviewLabel,
         )
         .at(-1);
       if (last?.event === 'labeled' && (await permission(last.actor?.login)))
-        return true;
+        return 'maintainer';
     }
     for (const c of comments.filter(
       (c) =>
         c.body?.trim() === '/ai-review' && member.has(c.author_association),
     )) {
-      if (await permission(c.user.login)) return true;
+      if (await permission(c.user.login)) return 'maintainer';
     }
-    return false;
+    return null;
+  }
+  async function markReviewStarted(pr) {
+    const hasMarker = (labels) =>
+      labels.some((label) => label.name.toLowerCase() === reviewLabel);
+    if (!member.has(pr.author_association) || hasMarker(pr.labels)) return;
+    const labels = await api(
+      base + '/issues/' + pr.number + '/labels',
+      'POST',
+      {
+        labels: [reviewLabel],
+      },
+    );
+    if (!hasMarker(labels)) throw new Error('Automatic review label missing');
   }
   async function l1(pr) {
     // Only the named workflow's latest run for this PR snapshot may enable L2.
@@ -188,7 +202,8 @@ export function github(repo, signal, execute = command) {
     list: () => pages(base + '/pulls?state=open'),
     pr: (n) => api(base + '/pulls/' + n),
     comments: (n) => pages(base + '/issues/' + n + '/comments'),
-    authorized,
+    authorization,
+    markReviewStarted,
     l1,
     discussions,
     summary: (n, id, body) =>

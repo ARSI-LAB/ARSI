@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 
 export async function command(
   file,
@@ -12,6 +13,7 @@ export async function command(
     timeout = 120_000,
     signal,
     discardOutput = false,
+    consumeStdout,
   } = {},
 ) {
   const abort = AbortSignal.timeout(timeout);
@@ -59,9 +61,17 @@ export async function command(
       }
     };
     combined.addEventListener('abort', stop, { once: true });
-    child.stdout.on('data', (bytes) => {
-      if (!discardOutput) out.push(bytes);
-    });
+    let reading;
+    if (consumeStdout) {
+      reading = consumeStdout(child.stdout, combined).catch((error) => {
+        failure = error;
+        if (child.exitCode === null && child.signalCode === null) stop();
+      });
+    } else if (discardOutput) {
+      child.stdout.resume();
+    } else {
+      child.stdout.on('data', (bytes) => out.push(bytes));
+    }
     child.stderr.on('data', (bytes) => {
       errors = (errors + bytes.toString()).slice(-2000);
     });
@@ -70,6 +80,7 @@ export async function command(
     });
     child.once('close', async (status) => {
       combined.removeEventListener('abort', stop);
+      await reading;
       await terminating;
       if (combined.aborted) reject(combined.reason);
       else if (failure) reject(failure);
@@ -134,6 +145,54 @@ export function modelEnvironment(source, emptyGhConfig) {
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
   };
+}
+
+const modelItems = new Set([
+  'agent_message',
+  'reasoning',
+  'command_execution',
+  'mcp_tool_call',
+  'collab_tool_call',
+  'web_search',
+  'file_change',
+  'todo_list',
+]);
+
+export async function observeReviewStart(stdout, signal, onReviewStarted) {
+  const lines = createInterface({ input: stdout, crlfDelay: Infinity });
+  let notified = false;
+  let failure;
+  try {
+    for await (const line of lines) {
+      if (signal.aborted) return;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      // In JSON mode, Codex reports terminal model errors on stdout.
+      if (
+        event?.type === 'turn.failed' &&
+        typeof event.error?.message === 'string'
+      )
+        failure = event.error.message.slice(0, 2000);
+      if (
+        !notified &&
+        ['item.started', 'item.updated', 'item.completed'].includes(
+          event?.type,
+        ) &&
+        modelItems.has(event.item?.type)
+      ) {
+        notified = true;
+        await onReviewStarted(signal);
+      }
+    }
+  } finally {
+    lines.close();
+    stdout.resume();
+  }
+  if (failure) throw new Error(failure);
 }
 
 export function codexExecutable() {

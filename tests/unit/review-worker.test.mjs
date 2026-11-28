@@ -23,6 +23,7 @@ import {
   sticky,
 } from '../../.github/review/publish.mjs';
 import { review } from '../../.github/review/review.mjs';
+import { reviewPullRequest } from '../../.github/review/worker.mjs';
 
 const head = 'a'.repeat(40);
 const skillPath = '.github/review/skill/SKILL.md';
@@ -120,19 +121,19 @@ test('fork opt-in requires a maintainer, and L1 belongs to this PR, head and lat
     author_association: 'MEMBER',
   };
   assert.equal(
-    await api.authorized(fork, [{ ...opt, author_association: 'NONE' }]),
-    false,
+    await api.authorization(fork, [{ ...opt, author_association: 'NONE' }]),
+    null,
   );
-  assert.equal(await api.authorized(fork, [opt]), false);
+  assert.equal(await api.authorization(fork, [opt]), null);
   assert.equal(
-    await api.authorized({ ...fork, labels: [{ name: 'ai-review' }] }, []),
-    false,
+    await api.authorization({ ...fork, labels: [{ name: 'ai-review' }] }, []),
+    null,
   );
   permission = 'write';
-  assert.equal(await api.authorized(fork, [opt]), true);
+  assert.equal(await api.authorization(fork, [opt]), 'maintainer');
   assert.equal(
-    await api.authorized({ ...fork, labels: [{ name: 'ai-review' }] }, []),
-    true,
+    await api.authorization({ ...fork, labels: [{ name: 'ai-review' }] }, []),
+    'maintainer',
   );
   assert.ok((await api.l1(fork)).includes('TypeScript typechecking'));
   runs = [
@@ -141,6 +142,124 @@ test('fork opt-in requires a maintainer, and L1 belongs to this PR, head and lat
     { ...run, head_repository: { id: 99 } },
   ];
   assert.equal(await api.l1(fork), null);
+});
+
+test('automatic authorization waits for Linux CI without labeling the PR', async () => {
+  const client = github('owner/repo', undefined, async () =>
+    assert.fail('Unexpected GitHub request while CI is pending'),
+  );
+  for (const author_association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+    const current = {
+      ...pr,
+      state: 'open',
+      head: { sha: head, repo: { id: 14 } },
+      author_association,
+      labels: [],
+    };
+    assert.equal(await client.authorization(current, []), 'auto');
+    const api = {
+      ...client,
+      pr: async () => current,
+      comments: async () => [],
+      l1: async () => null,
+    };
+    assert.match(await reviewPullRequest(api, 12, 'worker', {}), /Linux/);
+  }
+});
+
+test('draft polls wait for ready without reading comments, labeling or starting review', async () => {
+  const current = {
+    ...pr,
+    state: 'open',
+    draft: true,
+    head: { sha: head, repo: { id: 14 } },
+  };
+  const api = { pr: async () => current };
+  for (const manual of [false, true])
+    assert.equal(
+      await reviewPullRequest(api, 12, 'worker', { manual }),
+      'draft',
+    );
+
+  current.draft = false;
+  const calls = [];
+  const ready = {
+    ...api,
+    comments: async () => [],
+    authorization: async () => 'auto',
+    markReviewStarted: async () => calls.push('label'),
+    l1: async () => {
+      calls.push('linux');
+      return null;
+    },
+  };
+  assert.match(await reviewPullRequest(ready, 12, 'worker', {}), /Linux/);
+  assert.deepEqual(calls, ['linux']);
+});
+
+test('returning to draft suppresses publication even when snapshot preparation fails', async () => {
+  let draft = false;
+  const api = {
+    pr: async () => ({
+      ...pr,
+      state: 'open',
+      draft,
+      head: { sha: head, repo: { id: 14 } },
+      base: { ref: 'master' },
+    }),
+    comments: async () => [],
+    authorization: async () => 'maintainer',
+    l1: async () => ['unit tests and build'],
+    discussions: async () => {
+      draft = true;
+      return { threads: [], issues: [] };
+    },
+    summary: async () => assert.fail('Published a summary on a draft PR'),
+  };
+  const config = { signal: new AbortController().signal, trusted: 'invalid' };
+  assert.equal(await reviewPullRequest(api, 12, 'worker', config), 'draft');
+});
+
+test('the worker requires a trusted opt-in event for an external PR label', async () => {
+  const current = {
+    ...pr,
+    state: 'open',
+    head: { sha: head, repo: { id: 14 } },
+    author_association: 'CONTRIBUTOR',
+    labels: [{ name: 'ai-review' }],
+  };
+  const events = [];
+  const calls = [];
+  const api = {
+    ...github('owner/repo', undefined, async (_file, args) => {
+      if (args.includes('repos/owner/repo/issues/12/events?per_page=100'))
+        return JSON.stringify([events]);
+      assert.ok(
+        args.includes('repos/owner/repo/collaborators/maintainer/permission'),
+      );
+      return JSON.stringify({ permission: 'write' });
+    }),
+    pr: async () => current,
+    comments: async () => [],
+    markReviewStarted: async () => calls.push('label'),
+    l1: async () => {
+      calls.push('linux');
+      return null;
+    },
+  };
+  const poll = () =>
+    reviewPullRequest(api, 12, 'worker', {
+      signal: new AbortController().signal,
+    });
+  assert.match(await poll(), /awaiting maintainer opt-in/);
+  assert.deepEqual(calls, []);
+  events.push({
+    event: 'labeled',
+    label: { name: 'ai-review' },
+    actor: { login: 'maintainer' },
+  });
+  assert.match(await poll(), /Linux/);
+  assert.deepEqual(calls, ['linux']);
 });
 
 test('cancellation stops a launcher and its child before snapshot cleanup', async () => {
@@ -173,7 +292,7 @@ test('cancellation stops a launcher and its child before snapshot cleanup', asyn
   }
 });
 
-test('review reads trusted assets, strips nested project config and cleans the detached checkout after failure', async () => {
+async function withReviewRepository(use) {
   const root = await mkdtemp(join(tmpdir(), 'arsi-review-test-'));
   try {
     const run = (...args) => git(root, args);
@@ -216,6 +335,15 @@ test('review reads trusted assets, strips nested project config and cleans the d
       trusted: base,
       pr: { number: 12, base: { sha: base }, head: { sha } },
     };
+    await use(opts, run, reference);
+  } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 3 });
+  }
+}
+
+test('review reads trusted assets, strips nested project config and cleans the detached checkout after failure', async () => {
+  await withReviewRepository(async (opts, run, reference) => {
+    const { root, trusted: base } = opts;
     function assertTrustedSkill(s) {
       assert.equal(s.promptPath, skillPath);
       assert.equal(s.prompt, 'Trusted review');
@@ -251,9 +379,100 @@ test('review reads trusted assets, strips nested project config and cleans the d
       assertTrustedSkill(s);
     });
     assert.equal(await run('status', '--porcelain'), before);
-  } finally {
-    await rm(root, { recursive: true, force: true, maxRetries: 3 });
-  }
+  });
+});
+
+test('only model activity starts automatic labeling, and label errors leave review publication intact', async () => {
+  await withReviewRepository(async (opts) => {
+    const current = {
+      ...opts.pr,
+      state: 'open',
+      base: { ...opts.pr.base, ref: 'master' },
+      head: { ...opts.pr.head, repo: { id: 14 } },
+      author_association: 'MEMBER',
+      labels: [{ name: 'bug' }],
+    };
+    let rejectLabel = false;
+    const events = [];
+    const api = {
+      ...github('owner/repo', undefined, async (_file, args, { input }) => {
+        assert.ok(args.includes('repos/owner/repo/issues/12/labels'));
+        assert.ok(args.includes('POST'));
+        assert.deepEqual(JSON.parse(input), { labels: ['ai-review'] });
+        events.push('label');
+        if (rejectLabel) throw new Error('Label write unavailable');
+        current.labels.push({ name: 'ai-review' });
+        return JSON.stringify(current.labels);
+      }),
+      pr: async () => current,
+      comments: async () => [],
+      l1: async () => ['unit tests and build'],
+      discussions: async () => ({ threads: [], issues: [] }),
+      summary: async (_number, _id, body) =>
+        events.push(
+          body.includes('AI Review Skipped') ? 'skipped' : 'published',
+        ),
+    };
+    const config = { ...opts, signal: new AbortController().signal };
+    const poll = (call, options = config) =>
+      reviewPullRequest(api, 12, 'worker', options, call);
+    const unavailable = async () => {
+      events.push('launch');
+      throw new Error('Codex authentication unavailable');
+    };
+    assert.match(
+      await poll(unavailable, { ...config, trusted: 'invalid' }),
+      /Skipped/,
+    );
+    assert.deepEqual(events.splice(0), ['skipped']);
+    assert.match(await poll(unavailable), /Skipped/);
+    assert.deepEqual(events.splice(0), ['launch', 'skipped']);
+
+    const respond = async (
+      _snapshot,
+      _prompt,
+      _signal,
+      _verify,
+      onReviewStarted,
+    ) => {
+      events.push('activity');
+      await onReviewStarted?.();
+      events.push('model result');
+      return result([]);
+    };
+    assert.equal(await poll(respond), 'reviewed ' + current.head.sha);
+    assert.deepEqual(events.splice(0), [
+      'activity',
+      'label',
+      'model result',
+      'published',
+    ]);
+    assert.deepEqual(current.labels, [{ name: 'bug' }, { name: 'ai-review' }]);
+    assert.equal(await poll(respond), 'reviewed ' + current.head.sha);
+    assert.deepEqual(events.splice(0), [
+      'activity',
+      'model result',
+      'published',
+    ]);
+    current.labels = [];
+    const returnToDraft = (...args) => {
+      current.draft = true;
+      return respond(...args);
+    };
+    assert.equal(await poll(returnToDraft), 'draft');
+    assert.deepEqual(events.splice(0), ['activity']);
+    assert.deepEqual(current.labels, []);
+
+    current.draft = false;
+    rejectLabel = true;
+    assert.equal(await poll(respond), 'reviewed ' + current.head.sha);
+    assert.deepEqual(events, [
+      'activity',
+      'label',
+      'model result',
+      'published',
+    ]);
+  });
 });
 
 test('green manifest is scoped to the successful L1 steps; Codex receives only permitted environment variables', () => {
